@@ -23,13 +23,12 @@ making it easy to see when there's capacity for more work.
   must be in English. Only UI-facing strings go into translation files.
 
 ## Data Model
-- **Client** (id, name) — 1 to N with Project
-- **Project** (id, client_id, name, color) — 1 to N with Task
+- **Project** (id, name, color) — 1 to N with Task (top-level entity)
 - **Task** (id, project_id, name, estimated_hours, actual_hours) — 1 to N with Block
 - **Block** (id, task_id, date, start_time, duration, locked) — the actual unit placed on calendar.
   Normally a Task has 1 Block, but can have multiple, non-contiguous blocks on different days when
   the user manually splits a task (see rules below).
-- **Gap** (id, date, start_time, duration, reason) — independent of client/project, occupies
+- **Gap** (id, date, start_time, duration, reason) — independent of project, occupies
   calendar space like a Block, with mandatory reason/justification.
 
 ## Composition Engine Business Rules

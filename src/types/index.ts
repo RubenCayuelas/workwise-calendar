@@ -1,12 +1,6 @@
 // Database models
-export interface Client {
-  id: string;
-  name: string;
-}
-
 export interface Project {
   id: string;
-  clientId: string;
   name: string;
   color: string;
 }
