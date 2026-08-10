@@ -5,54 +5,52 @@ export async function runMigrations(): Promise<void> {
   const db = getDb();
   const run = promisify(db.run.bind(db));
 
-  // Create projects table (top-level entity)
+  // Create projects table (encargos/jobs)
   await run(`
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       color TEXT NOT NULL,
+      total_hours REAL NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
-  // Create tasks table
+  // Create blocks table (time slots on calendar)
   await run(`
-    CREATE TABLE IF NOT EXISTS tasks (
+    CREATE TABLE IF NOT EXISTS blocks (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      estimated_hours REAL NOT NULL DEFAULT 0,
-      actual_hours REAL NOT NULL DEFAULT 0,
+      date TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      duration REAL NOT NULL,
+      locked BOOLEAN DEFAULT 0,
+      manually_placed BOOLEAN DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     )
   `);
 
-  // Create blocks table
-  await run(`
-    CREATE TABLE IF NOT EXISTS blocks (
-      id TEXT PRIMARY KEY,
-      task_id TEXT NOT NULL,
-      date TEXT NOT NULL,
-      start_time TEXT NOT NULL,
-      duration REAL NOT NULL,
-      locked BOOLEAN DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
-    )
-  `);
-
-  // Create gaps table
+  // Create gaps table (breaks, lunch, maintenance, etc)
   await run(`
     CREATE TABLE IF NOT EXISTS gaps (
       id TEXT PRIMARY KEY,
       date TEXT NOT NULL,
       start_time TEXT NOT NULL,
       duration REAL NOT NULL,
-      reason TEXT NOT NULL,
+      reason TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // Create settings table
+  await run(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )

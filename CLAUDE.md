@@ -1,66 +1,177 @@
 # Workwise Calendar - Project Context
-*Interactive calendar app to track and distribute work hours across project clients and weekdays.*
+
+**Workwise** is a simple work scheduling app for a small metalworking shop (herrería).
 
 ## Objective
-App to log estimated/actual hours for various client projects and distribute them across the week,
-making it easy to see when there's capacity for more work.
+
+Help the shop owner see how long the workshop is booked and what dates are available for new jobs.
+Track work blocks sequentially across the week, automatically respecting capacity, locks, and gaps.
+Enable quick visual reorganization via drag & drop.
 
 ## Architecture
-- Web app, self-hosted locally (client's PC). No multi-device or cloud support needed right now,
-  but keep frontend and backend separated (API + client) to allow cloud migration later.
-- Single user (possibly an assistant in the future). No auth/roles required yet.
-- Recommended stack: all JS/TS (avoid mixing with Ruby/PHP — single runtime locally is simpler).
-  Suggested starting point: Next.js + SQLite.
-- Developer's explicit priority: simplicity over optimization. This is their first app of this kind.
+- Web app, self-hosted locally (shop PC).
+- Single user (just the shop owner for now).
+- Stack: Next.js 15 + TypeScript + SQLite.
+- Priority: **simplicity over optimization**. 
+- Code in English, UI in Spanish (i18n-ready for future languages).
 
 ## Internationalization (i18n) Strategy
-- **Primary language**: Spanish (es) — initial UI/UX will be developed in Spanish.
-- **Multi-language support**: The app MUST be architected to support language selection at any time.
-  All UI strings, labels, messages, and docs must be externalized (e.g., i18n JSON files).
-- **Implementation approach**: Use i18n library (e.g., next-i18n-router or i18next) to manage
-  translations. Store translations in structured JSON files (e.g., `public/locales/{lang}/common.json`).
-- **Code convention**: All code comments, variable names, function names, and internal documentation
-  must be in English. Only UI-facing strings go into translation files.
+- **Primary language**: Spanish (es) — initial UI/UX in Spanish.
+- **Multi-language support**: The app must support language selection at any time.
+  All UI strings externalized to i18n JSON files (`public/locales/{lang}/common.json`).
+- **Code convention**: All comments, variable names, functions, internal docs in English.
+  Only UI-facing strings in translation files.
 
 ## Data Model
-- **Project** (id, name, color) — 1 to N with Task (top-level entity)
-- **Task** (id, project_id, name, estimated_hours, actual_hours) — 1 to N with Block
-- **Block** (id, task_id, date, start_time, duration, locked) — the actual unit placed on calendar.
-  Normally a Task has 1 Block, but can have multiple, non-contiguous blocks on different days when
-  the user manually splits a task (see rules below).
-- **Gap** (id, date, start_time, duration, reason) — independent of project, occupies
-  calendar space like a Block, with mandatory reason/justification.
+
+**Simplified model for metalworking shop workflow:**
+
+- **Project** (id, name, color, total_hours, created_at, updated_at)
+  - Represents a single **job/encargo** (e.g., "Metal door structure", "Railing", "Staircase")
+  - `total_hours`: Estimated duration. Edited when work progresses or estimate changes.
+  - `color`: Visual identifier on calendar (e.g., #FF5733 for red project)
+  - No status, no deadline, no client tracking (out of scope)
+
+- **Block** (id, project_id, date, start_time, duration, locked, manually_placed, created_at, updated_at)
+  - Represents a **time slot on the calendar** where part of a project sits
+  - `date`: YYYY-MM-DD (e.g., "2025-01-13" for Monday)
+  - `start_time`: HH:mm (e.g., "09:00")
+  - `duration`: Hours as decimal (e.g., 2.5 for 2h 30min)
+  - `locked`: Boolean. If true, block won't move during auto-recomposition, but user can manually move/edit it
+  - `manually_placed`: Boolean. Tracks if block was drag-dropped by user to Fri/weekend (affects auto-composition rules)
+  - **One Project can have multiple Blocks** across different days (e.g., Job A = Mon 2h + Tue 2h + Wed 1h)
+
+- **Gap** (id, date, start_time, duration, reason, created_at, updated_at)
+  - Represents a **break/hole** in the schedule (lunch, admin, maintenance, etc)
+  - `reason`: Optional text (e.g., "Lunch", "Equipment repair"). Can be empty.
+  - All gaps have the same visual color (configurable in settings, e.g., gray)
+  - Treated as fixed occupancy in calendar, no auto-recomposition
+
+---
+
+## Work Schedule Configuration (Settings)
+
+**Configurable by the shop owner:**
+
+- `workStartTime`: Default "07:00" (7 AM), range 00:00-23:59
+- `workEndTime`: Default "19:00" (7 PM), range 00:00-23:59
+  - **Note**: User sets the available hours for the shop (e.g., 7 AM to 7 PM = 12h window)
+- `defaultDayCapacity`: Default 8 (hours), range 1-12
+  - Auto-fill threshold: Mon-Thu auto-compose up to this limit
+  - After limit, overflow goes to next day (unless user opts to expand per job)
+- `gapColor`: Color hex for all gaps (e.g., "#CCCCCC" gray)
+
+**Lunch/breaks:** User manually adds Gap entries (e.g., "Lunch 13:00-14:00")
+
+---
 
 ## Composition Engine Business Rules
-- Default workday: 8h. Mon–Thu auto-fill; Fri and weekends do NOT auto-fill by default but accept
-  manually placed tasks — once moved manually, they're protected from future auto-composition
-  (like implicit locking).
-- If an edited task doesn't fit the day: by default it overflows to the next day. User can opt
-  per-task to expand capacity (stack up to 10h+) instead of overflowing, to avoid missing deadlines.
-- A locked Block (fixed date/time) does NOT act as a wall: flexible blocks of that day flow around
-  it normally; the cascade doesn't stop there.
-- No overlaps ever: each day is a strictly sequential queue of blocks/gaps.
-- "Splitting" a task (inserting a priority task in the middle of an already placed task) is a
-  MANUAL user action (drag & drop), not something the engine does automatically. Doing so simply
-  creates a second Block for the same Task — the model already supports this without changes.
-- Gaps: point-in-time for now, no recurrence (can be added later without schema changes).
+
+### Weekly Auto-Composition (Mon-Thu only)
+1. **Monday-Thursday**: Auto-fill sequentially with flexible (unlocked) jobs.
+   - Respect locked blocks: treat them as immovable obstacles, flow flexible jobs around them.
+   - Locked blocks do **not** act as a wall; flexible blocks continue flowing after them.
+   - Respect gaps: treat gaps as occupied time.
+   - Capacity: Fill up to `defaultDayCapacity` (8h by default).
+2. **Friday**: No auto-composition by default. Only accepts:
+   - Overflow from Thursday (if job doesn't fit Mon-Thu)
+   - Manual drag-drop by user
+3. **Weekends**: No auto-composition ever. Only accepts manual drag-drop.
+   - Once a job is manually placed on weekend, it's marked `manually_placed = true`
+   - Future auto-recompositions won't try to move it
+
+### Job Editing: Adding/Removing Hours (LIFO - Last In First Out)
+- **Add hours**: Append to the **last block** of that job.
+  - If job has blocks: Mon 2h + Wed 1h + Fri 3h, adding 2h makes Fri 5h.
+  - Subsequent jobs cascade forward (displaced by the extra 2h).
+- **Remove hours**: Decrement from the **last block**.
+  - If last block becomes 0, it's deleted, and next block becomes the new "last" (keeps decrementing if needed).
+
+### Job Editing: Name/Color Changes
+- No impact on calendar layout or block positions. Just metadata updates.
+
+### Manual Drag-Drop & Merging
+- User can move a **portion** of a job (fragment it) or the entire block.
+- On DROP: Auto-recomposition triggers for remaining calendar.
+- **Auto-merge**: If two blocks of the same job end up adjacent/contiguous, they merge into one.
+
+### Locked Blocks Don't Act as Walls
+- `locked = true` means: "Don't auto-move this block during recomposition"
+- Flexible blocks **flow around** locked blocks normally (don't stop at them)
+- User CAN manually move locked blocks, change duration, or place other jobs around them
+- User CAN toggle `locked` on/off at any time
+
+### Overflow Behavior (Default)
+- If job doesn't fit in current day (exceeds `defaultDayCapacity`), move overflow to next available day.
+- Respects: Mon-Thu auto-fill, Fri/weekend manual-only.
+- If placement would collide with a locked block, recomposition fails (error: "Can't fit job due to blocked slot")
+
+### Edge Cases Handled
+1. **Delete job**: Confirmation required. Blocks deleted in cascade. Calendar recomposes if space frees up.
+2. **Edit total_hours to exceed remaining week**: Distributes across multiple future days (or next week if needed).
+
+---
+
+## UI/UX Behavior
+
+### Calendar View
+- **Horizontal week layout**: Mon-Fri (with Sat/Sun optional)
+- **Time axis**: Vertical, from `workStartTime` to `workEndTime`
+- **Visual blocks**: Colored rectangles for jobs, gray rectangles for gaps
+- **Drag-drop**: Click and drag job blocks to new date/time. Shows ghost/preview during drag.
+
+### Job Management
+- **Create**: Name + Color + Hours (e.g., "Door frame" + Red + 8h)
+  - Auto-places on first available slot (Monday onwards)
+  - Or user specifies a start day
+- **Edit**: Change name, color, total hours (affects last block per LIFO rules)
+- **Delete**: Requires confirmation. Blocks deleted; calendar recomposes.
+- **Lock/Unlock**: Toggle `locked` flag per block
+
+### Gap Management
+- **Create**: Date + Start Time + Duration + Reason (optional)
+- **Edit**: Modify any field
+- **Delete**: Frees up time; auto-recomposition runs if needed
+
+### Settings
+- Work start/end hours, default capacity, gap color, etc.
+
+---
+
+## Composition Algorithm Notes
+
+The per-day placement logic is validated in `recompose-poc.js`. The production implementation should:
+1. Extend it to **weekly chaining** (Mon-Thu overflow to next day, Fri/weekend manual-only)
+2. Support **gaps** as fixed occupancy (treated like locked blocks)
+3. Handle **LIFO editing** (always append/decrement from last block)
+4. Support **manual placement** flag and **auto-merge** for contiguous blocks
+
+---
 
 ## Current Project Status
-- Architecture and business rules finalized (all above). The per-day composition algorithm is
-  validated with a proof-of-concept (`recompose-poc.js` in this directory), covering: default
-  overflow vs. stacking extra hours, a locked block that doesn't act as a wall, and a task split
-  into two blocks with another inserted in between.
 
-## Next Steps
-1. Chain `recomposeDay()` into a weekly function that passes overflow from one day to the next
-   (Mon–Thu), respecting that Fri/weekends don't auto-fill.
-2. Integrate Gaps into the engine (behave like flexible blocks without `task_id`).
-3. Set up technical skeleton (Next.js + SQLite).
-4. Wireframe weekly calendar interface (drag & drop blocks).
+**v0.1 (Current):**
+- ✅ Data model finalized (simplified: Project + Block + Gap only)
+- ✅ Database schema and migrations set up
+- ✅ Composition algorithm (per-day placement) validated in `recompose-poc.js`
+- ✅ Project skeleton (Next.js, TypeScript, SQLite, i18n)
+
+**v0.2 (Next):**
+- [ ] Port `recompose-poc.js` to `src/lib/composition.ts` (weekly chaining + gap support + LIFO editing)
+- [ ] API routes for CRUD (Project, Block, Gap)
+- [ ] Settings screen (work hours, capacity, colors)
+- [ ] Calendar week view component
+- [ ] Drag-drop integration
+- [ ] Database initialization on app startup
+
+---
 
 ## Notes for Development
-- Before writing app code, review `recompose-poc.js` — it already contains validated placement logic;
-  the real implementation should derive from this, not reinvent it.
-- Any change to the business rules above must also be reflected in this file.
-- **All code, comments, variable names, and internal docs must be in English.** Only UI-facing
-  strings go into the i18n translation files.
+
+- **Review `recompose-poc.js` first**: It contains validated per-day placement logic.
+  Production code should derive from this, not reinvent.
+- **Any change to business rules above must update CLAUDE.md** to keep specs in sync.
+- **All code, comments, variable names**: English.
+- **UI strings**: Only in `public/locales/{lang}/common.json`.
+- **Database**: Auto-created `./data/calendar.db` on first run.
+- **Complexity**: Prioritize simplicity. No multi-user, auth, subscriptions, etc. Keep it lean.
