@@ -53,15 +53,33 @@ Enable quick visual reorganization via drag & drop.
 
 **Configurable by the workshop owner:**
 
-- `workStartTime`: Default "07:00" (7 AM), range 00:00-23:59
-- `workEndTime`: Default "19:00" (7 PM), range 00:00-23:59
-  - **Note**: User sets the available hours for the shop (e.g., 7 AM to 7 PM = 12h window)
-- `defaultDayCapacity`: Default 8 (hours), range 1-12
-  - Auto-fill threshold: Mon-Thu auto-compose up to this limit
-  - After limit, overflow goes to next day (unless user opts to expand per job)
-- `gapColor`: Color hex for all gaps (e.g., "#CCCCCC" gray)
+The workshop operates with a **split shift (jornada partida)** structure by default:
 
-**Lunch/breaks:** User manually adds Gap entries (e.g., "Lunch 13:00-14:00")
+- **Period 1 (Morning)**: Start "08:00", End "14:00" (mandatory)
+- **Period 2 (Afternoon)**: Start "15:30", End "19:30" (optional, toggle via checkbox)
+  - The gap between periods (14:00-15:30) is visually implicit (lunch break). No explicit "gap" record is auto-created.
+  - If Period 2 is disabled, the workday ends at Period 1 End.
+- **defaultDayCapacity**: Default 10 hours (6h morning + 4h afternoon when Period 2 active)
+  - Range: 1-12 hours
+  - If Period 2 is disabled, capacity = Period 1 duration (6h in this case)
+- **Visual Margins** (for flexibility in exceptional cases):
+  - `visualMarginTop`: Default 1 hour before Period 1 Start (e.g., 07:00 if Period 1 starts 08:00)
+  - `visualMarginBottom`: Default 1 hour after Period 2 End (e.g., 20:30 if Period 2 ends 19:30)
+  - Margins accept **manual drag-drop only**, no auto-composition
+  - Range: 0-2 hours per margin
+- `gapColor`: Color hex for all user-defined gaps (e.g., "#CCCCCC" gray)
+
+All configuration values are user-editable in the Settings screen and apply to Monday-Friday (extendable to weekends if needed).
+
+**Calendar Timeline Display:**
+```
+07:00 ├─ Visual Margin (manual drag-drop only)
+08:00 ├─ Period 1 Start
+14:00 ├─ Period 1 End / Lunch Break (implicit gap)
+15:30 ├─ Period 2 Start (if enabled)
+19:30 ├─ Period 2 End
+20:30 └─ Visual Margin (manual drag-drop only)
+```
 
 ---
 
@@ -69,10 +87,12 @@ Enable quick visual reorganization via drag & drop.
 
 ### Weekly Auto-Composition (Mon-Thu only)
 1. **Monday-Thursday**: Auto-fill sequentially with flexible (unlocked) jobs.
+   - Respect the **split shift structure**: Period 1 (08:00-14:00) then gap then Period 2 (15:30-19:30 if active).
+   - Jobs can span across the lunch break (e.g., last 2h of morning + first 2h of afternoon).
+   - Capacity: Fill up to `defaultDayCapacity` (10h by default, or 6h if Period 2 disabled).
    - Respect locked blocks: treat them as immovable obstacles, flow flexible jobs around them.
    - Locked blocks do **not** act as a wall; flexible blocks continue flowing after them.
-   - Respect gaps: treat gaps as occupied time.
-   - Capacity: Fill up to `defaultDayCapacity` (8h by default).
+   - Respect user-defined gaps: treat gaps as occupied time.
 2. **Friday**: No auto-composition by default. Only accepts:
    - Overflow from Thursday (if job doesn't fit Mon-Thu)
    - Manual drag-drop by user

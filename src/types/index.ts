@@ -32,8 +32,15 @@ export interface Gap {
 }
 
 export interface Settings {
-  workStartTime: string; // default "07:00", range 00:00-23:59
-  workEndTime: string; // default "19:00", range 00:00-23:59
-  defaultDayCapacity: number; // default 8 hours, range 1-12
-  gapColor: string; // hex color for all gaps, e.g., "#CCCCCC"
+  // Split shift schedule (jornada partida)
+  period1Start: string; // default "08:00", range 00:00-23:59
+  period1End: string; // default "14:00", range 00:00-23:59
+  period2Start: string; // default "15:30", range 00:00-23:59
+  period2End: string; // default "19:30", range 00:00-23:59
+  period2Enabled: boolean; // default true - if false, workday ends at period1End
+  defaultDayCapacity: number; // default 10 hours (6h period1 + 4h period2), range 1-12
+  // Visual margins for manual drag-drop (no auto-composition)
+  visualMarginTop: number; // default 1 hour before period1Start, range 0-2
+  visualMarginBottom: number; // default 1 hour after period2End, range 0-2
+  gapColor: string; // hex color for all user-defined gaps, e.g., "#CCCCCC"
 }

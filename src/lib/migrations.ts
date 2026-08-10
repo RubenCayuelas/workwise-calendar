@@ -55,4 +55,24 @@ export async function runMigrations(): Promise<void> {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Initialize default settings
+  const defaultSettings = {
+    period1Start: "08:00",
+    period1End: "14:00",
+    period2Start: "15:30",
+    period2End: "19:30",
+    period2Enabled: "true",
+    defaultDayCapacity: "10",
+    visualMarginTop: "1",
+    visualMarginBottom: "1",
+    gapColor: "#CCCCCC",
+  };
+
+  for (const [key, value] of Object.entries(defaultSettings)) {
+    await run(
+      `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`,
+      [key, value]
+    );
+  }
 }
