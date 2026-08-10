@@ -1,0 +1,24 @@
+{
+  "app": {
+    "title": "Calendario Workwise",
+    "description": "Gestor de horas y proyectos"
+  },
+  "navigation": {
+    "home": "Inicio",
+    "dashboard": "Panel",
+    "projects": "Proyectos",
+    "calendar": "Calendario",
+    "settings": "Configuración"
+  },
+  "common": {
+    "loading": "Cargando...",
+    "error": "Error",
+    "success": "Éxito",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "add": "Añadir",
+    "close": "Cerrar"
+  }
+}

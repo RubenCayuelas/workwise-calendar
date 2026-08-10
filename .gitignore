@@ -1,0 +1,31 @@
+# Node modules
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+/.next/
+/out/
+.env*.local
+.env*.production
+
+# Testing
+/coverage/
+*.lcov
+.nyc_output
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
