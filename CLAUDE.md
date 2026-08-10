@@ -1,10 +1,10 @@
 # Workwise Calendar - Project Context
 
-**Workwise** is a simple work scheduling app for a small metalworking shop (herrería).
+**Workwise** is a simple work scheduling app for a small workshop.
 
 ## Objective
 
-Help the shop owner see how long the workshop is booked and what dates are available for new jobs.
+Help the workshop owner see how long the workshop is booked and what dates are available for new jobs.
 Track work blocks sequentially across the week, automatically respecting capacity, locks, and gaps.
 Enable quick visual reorganization via drag & drop.
 
@@ -24,10 +24,10 @@ Enable quick visual reorganization via drag & drop.
 
 ## Data Model
 
-**Simplified model for metalworking shop workflow:**
+**Simplified model for workshop workflow:**
 
 - **Project** (id, name, color, total_hours, created_at, updated_at)
-  - Represents a single **job/encargo** (e.g., "Metal door structure", "Railing", "Staircase")
+  - Represents a single **job/work order** (e.g., "Metal door structure", "Railing", "Staircase")
   - `total_hours`: Estimated duration. Edited when work progresses or estimate changes.
   - `color`: Visual identifier on calendar (e.g., #FF5733 for red project)
   - No status, no deadline, no client tracking (out of scope)
@@ -51,7 +51,7 @@ Enable quick visual reorganization via drag & drop.
 
 ## Work Schedule Configuration (Settings)
 
-**Configurable by the shop owner:**
+**Configurable by the workshop owner:**
 
 - `workStartTime`: Default "07:00" (7 AM), range 00:00-23:59
 - `workEndTime`: Default "19:00" (7 PM), range 00:00-23:59
