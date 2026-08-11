@@ -159,6 +159,20 @@
 }
 
 /*
+ * The same strip of edge where a resize would not survive the reflow: no handle, no
+ * cursor of its own (so the body's grab shows through) and no pointer handler, so a press
+ * here moves the unit. It is a hover target for its tooltip and nothing else.
+ */
+.resizeInert {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 7px;
+  cursor: inherit;
+}
+
+/*
  * The settle animation is NOT here: it needs both the released position and the
  * settled one, and only WeekGrid knows both. See `.settling` in WeekGrid.module.css.
  */

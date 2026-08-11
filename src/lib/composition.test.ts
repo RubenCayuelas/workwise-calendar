@@ -34,12 +34,16 @@ import {
   isMovable,
   plannableMinutes,
   resizeBlock,
+  resolveManualPlacement,
   summarizeSchedule,
   type ComposeInput,
   type ComposeResult,
   type ComposeSuccess,
   type EditResult,
   type EditSuccess,
+  type ManualPlacement,
+  type ManualPlacementResult,
+  type ManualPlacementSuccess,
   type PlacedBlock,
 } from './composition';
 
@@ -77,9 +81,11 @@ function withCapacity(hours: number): DayShape {
 }
 
 let sequence = 0;
+let tailSequence = 0;
 
 beforeEach(() => {
   sequence = 0;
+  tailSequence = 0;
 });
 
 /** Creation order, as a sortable timestamp. It is the queue's documented tiebreaker. */
@@ -239,6 +245,32 @@ function jobRows(blocks: readonly Block[], projectId: string): string[] {
 function expectEdited(result: EditResult): EditSuccess {
   if (!result.ok) throw new Error(`expected an edit, got the error "${result.error.code}"`);
   return result;
+}
+
+/** A hand drop of `blockId`, with deterministic ids for the rows a displaced tail needs. */
+function dropOf(blockId: string): ManualPlacement {
+  return {
+    blockId,
+    now: '2026-08-15 09:00:00',
+    newBlockId: () => `cola-${++tailSequence}`,
+  };
+}
+
+function expectPlaced(result: ManualPlacementResult): ManualPlacementSuccess {
+  if (!result.ok) throw new Error(`expected a placement, got the error "${result.error.code}"`);
+  return result;
+}
+
+/** Stored rows as readable calendar lines, in calendar order. */
+function calendarRows(blocks: readonly Block[]): string[] {
+  return [...blocks]
+    .sort((a, b) => compareDates(a.date, b.date) || a.startMinutes - b.startMinutes)
+    .map(
+      (row) =>
+        `${row.date} ${minutesToHHmm(row.startMinutes)}-${minutesToHHmm(
+          row.startMinutes + row.durationMinutes,
+        )} ${row.projectId}${row.locked ? ' [locked]' : ''}`,
+    );
 }
 
 /** A stored block is always a solid rectangle on the clock — never across lunch or the day's end. */
@@ -2346,6 +2378,444 @@ describe('rule — a gap may not be saved on top of work the engine cannot move'
 });
 
 // ---------------------------------------------------------------------------
+// Manual placement — the overlap a drop creates
+// ---------------------------------------------------------------------------
+//
+// The rows `compose` is forbidden to move (weekend, frozen past, locked) come back
+// untouched, so two of them can overlap for ever and the reflow will never notice.
+// A hand drop is what creates that, and it used to be silent: splitting 2 h onto a
+// Saturday the job already occupied left two rows overlapping by an hour, drawn as
+// two lanes side by side.
+//
+// The rules, from the review with the owner:
+//   SAME JOB  -> one row, start = min(starts), duration = SUM(durations).
+//   OTHER JOB -> cut it at the drop's start and push its tail past the drop's end.
+//   A LOCK    -> refuse; never cut, grow or absorb a locked row.
+
+describe('manual placement — the same job merges, and the hours are SUMMED', () => {
+  it('turns Sat 09:00-11:00 plus a 2 h drop at 10:00 into one 09:00-13:00 row of 4 h', () => {
+    // THE VERIFIED BUG. Both rows are on a weekend, so both are outside the movable
+    // pool the instant they are written and `compose` hands them straight back.
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'ya-estaba', project: 'urgencia', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'soltado', project: 'urgencia', date: SAT, from: '10:00', hours: 2 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('soltado')));
+
+    expect(calendarRows(resolved.blocks)).toEqual([`${SAT} 09:00-13:00 urgencia`]);
+    // The earlier row survives, so the write is an UPDATE and not a DELETE plus an
+    // INSERT — the same convention rule 12's auto-merge follows.
+    expect(resolved.blocks[0].id).toBe('ya-estaba');
+    expect(resolved.mergedBlockIds).toEqual(['soltado']);
+    expect(resolved.displacedProjectIds).toEqual([]);
+  });
+
+  it('sums the durations instead of taking the interval union, so no hour is lost', () => {
+    // THE TEST THAT FAILS ON AN INTERVAL UNION. 09:00-11:00 and a 1 h drop at 10:00
+    // share an hour. `union` would answer 09:00-11:00 — one row of 2 h — and the
+    // third hour the owner had on the calendar would simply be gone. The rule is
+    // `min(start)` plus the SUM: 3 h, 09:00-12:00.
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'ya-estaba', project: 'urgencia', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'soltado', project: 'urgencia', date: SAT, from: '10:00', hours: 1 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('soltado')));
+
+    expect(resolved.blocks).toHaveLength(1);
+    expect(resolved.blocks[0].durationMinutes).toBe(3 * 60);
+    expect(resolved.blocks[0].startMinutes).toBe(t('09:00'));
+    expect(resolved.blocks[0].startMinutes + resolved.blocks[0].durationMinutes).toBe(t('12:00'));
+    // The invariant, stated as itself: the job came in with 3 h and still has 3 h.
+    expect(minutesByProject(resolved.blocks)).toEqual(minutesByProject(composeInput.blocks));
+  });
+
+  it('folds a whole stack of overlapping rows of one job into one, keeping every hour', () => {
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'a', project: 'urgencia', date: SAT, from: '09:00', hours: 1 }),
+        block({ id: 'b', project: 'urgencia', date: SAT, from: '09:30', hours: 1 }),
+        block({ id: 'soltado', project: 'urgencia', date: SAT, from: '10:00', hours: 1 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('soltado')));
+
+    expect(calendarRows(resolved.blocks)).toEqual([`${SAT} 09:00-12:00 urgencia`]);
+    expect(minutesByProject(resolved.blocks)).toEqual({ urgencia: 3 * 60 });
+  });
+
+  it('does the same on a frozen past day, which the engine may not rewrite either', () => {
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'ya-estaba', project: 'historial', date: LAST_FRI, from: '09:00', hours: 2 }),
+        block({ id: 'soltado', project: 'historial', date: LAST_FRI, from: '10:00', hours: 2 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('soltado')));
+
+    expect(calendarRows(resolved.blocks)).toEqual([`${LAST_FRI} 09:00-13:00 historial`]);
+  });
+
+  it('leaves a drop the reflow will settle alone — there is nothing to repair', () => {
+    // An unlocked weekday row IS in the movable pool: the reflow puts it somewhere it
+    // overlaps nothing, so resolving here would cut a job for no reason.
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'ya-estaba', project: 'urgencia', date: TUE, from: '09:00', hours: 2 }),
+        block({ id: 'soltado', project: 'urgencia', date: TUE, from: '10:00', hours: 2 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('soltado')));
+
+    expect(calendarRows(resolved.blocks)).toEqual([
+      `${TUE} 09:00-11:00 urgencia`,
+      `${TUE} 10:00-12:00 urgencia`,
+    ]);
+    expect(resolved.mergedBlockIds).toEqual([]);
+  });
+
+  it('is not rule 12: two weekend rows of one job that merely TOUCH stay two rows', () => {
+    // Rule 12 joins rows that touch inside one period, and it deliberately never runs
+    // on the weekend. This mechanism is about an OVERLAP, so touching is not its
+    // business either — otherwise the weekend would start tidying itself.
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'ya-estaba', project: 'urgencia', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'soltado', project: 'urgencia', date: SAT, from: '11:00', hours: 2 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('soltado')));
+
+    expect(calendarRows(resolved.blocks)).toEqual([
+      `${SAT} 09:00-11:00 urgencia`,
+      `${SAT} 11:00-13:00 urgencia`,
+    ]);
+    expect(rows(compose({ ...composeInput, blocks: resolved.blocks }))).toEqual([
+      `${SAT} 09:00-11:00 urgencia`,
+      `${SAT} 11:00-13:00 urgencia`,
+    ]);
+  });
+});
+
+describe('manual placement — another job is cut and its tail pushed past the drop', () => {
+  it('turns A 09:00-11:00 with B dropped at 10:00 into A, B, A with A keeping its 2 h', () => {
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'a', project: 'barandilla', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'b', project: 'porton', date: SAT, from: '10:00', hours: 1 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
+
+    expect(calendarRows(resolved.blocks)).toEqual([
+      `${SAT} 09:00-10:00 barandilla`,
+      `${SAT} 10:00-11:00 porton`,
+      `${SAT} 11:00-12:00 barandilla`,
+    ]);
+    // "If the user does not want it, they move it again" — so the job must not lose
+    // hours in the meantime.
+    expect(minutesByProject(resolved.blocks)).toEqual(minutesByProject(composeInput.blocks));
+    expect(resolved.displacedProjectIds).toEqual(['barandilla']);
+    expect(resolved.mergedBlockIds).toEqual([]);
+  });
+
+  it('reuses the cut row\'s id when the drop covers it from its very start', () => {
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'a', project: 'barandilla', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'b', project: 'porton', date: SAT, from: '09:00', hours: 1 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
+
+    expect(calendarRows(resolved.blocks)).toEqual([
+      `${SAT} 09:00-10:00 porton`,
+      `${SAT} 10:00-12:00 barandilla`,
+    ]);
+    // Nothing was left in front of the drop, so there is no head to keep and the row
+    // is rewritten rather than deleted and inserted.
+    expect(resolved.blocks.find((row) => row.projectId === 'barandilla')?.id).toBe('a');
+  });
+
+  it('splits the tail at the lunch break, because a row is a solid rectangle', () => {
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'a', project: 'barandilla', date: SAT, from: '11:00', hours: 3 }),
+        block({ id: 'b', project: 'porton', date: SAT, from: '12:00', hours: 1 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
+
+    // 1 h in front, the drop, then the 2 h left cannot run through lunch: 13:00-14:00
+    // and 15:30-16:30, two rows of one job — exactly what auto-fill would have done.
+    expect(calendarRows(resolved.blocks)).toEqual([
+      `${SAT} 11:00-12:00 barandilla`,
+      `${SAT} 12:00-13:00 porton`,
+      `${SAT} 13:00-14:00 barandilla`,
+      `${SAT} 15:30-16:30 barandilla`,
+    ]);
+    expect(minutesByProject(resolved.blocks)).toEqual({ barandilla: 3 * 60, porton: 60 });
+  });
+
+  it('carries a Saturday tail that does not fit onto SUNDAY, never onto Monday', () => {
+    // The engine never moves weekend work: pushing the remainder into the week would
+    // be the engine deciding the shop does not work Saturdays after all.
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'a', project: 'barandilla', date: SAT, from: '18:30', hours: 1 }),
+        block({ id: 'b', project: 'porton', date: SAT, from: '18:30', hours: 1 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
+
+    expect(calendarRows(resolved.blocks)).toEqual([
+      `${SAT} 18:30-19:30 porton`,
+      `${SUN} 08:00-09:00 barandilla`,
+    ]);
+    expect(minutesByProject(resolved.blocks)).toEqual({ barandilla: 60, porton: 60 });
+  });
+
+  it('chains a tail off the end of a frozen day into the movable pool, where the reflow takes it', () => {
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'a', project: 'historial', date: LAST_FRI, from: '18:30', hours: 1 }),
+        block({ id: 'b', project: 'revision', date: LAST_FRI, from: '18:30', hours: 1 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
+
+    // Last Friday has no room after 19:30, and the weekend is not this row's to use,
+    // so the hour lands on the first weekday the engine may write to: today.
+    expect(calendarRows(resolved.blocks)).toEqual([
+      `${LAST_FRI} 18:30-19:30 revision`,
+      `${MON} 08:00-09:00 historial`,
+    ]);
+    // And from there it is ordinary movable work.
+    expect(rows(compose({ ...composeInput, blocks: resolved.blocks }))).toEqual([
+      `${LAST_FRI} 18:30-19:30 revision`,
+      `${MON} 08:00-09:00 historial`,
+    ]);
+  });
+
+  it('steps over a gap when it pushes the tail, since gaps are occupied time', () => {
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'a', project: 'barandilla', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'b', project: 'porton', date: SAT, from: '10:00', hours: 1 }),
+      ],
+      gaps: [gap({ date: SAT, from: '11:00', hours: 1, reason: 'Avería' })],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
+
+    expect(calendarRows(resolved.blocks)).toEqual([
+      `${SAT} 09:00-10:00 barandilla`,
+      `${SAT} 10:00-11:00 porton`,
+      `${SAT} 12:00-13:00 barandilla`,
+    ]);
+  });
+
+  it('cuts every job the drop lands across, one after another', () => {
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'a', project: 'barandilla', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'c', project: 'escalera', date: SAT, from: '11:00', hours: 2 }),
+        block({ id: 'b', project: 'porton', date: SAT, from: '10:00', hours: 2 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
+
+    expect(calendarRows(resolved.blocks)).toEqual([
+      `${SAT} 09:00-10:00 barandilla`,
+      `${SAT} 10:00-12:00 porton`,
+      `${SAT} 12:00-13:00 barandilla`,
+      `${SAT} 13:00-14:00 escalera`,
+      `${SAT} 15:30-16:30 escalera`,
+    ]);
+    expect(minutesByProject(resolved.blocks)).toEqual(minutesByProject(composeInput.blocks));
+    expect([...resolved.displacedProjectIds].sort()).toEqual(['barandilla', 'escalera']);
+  });
+});
+
+describe('manual placement — a locked row is never overlapped', () => {
+  it('refuses a drop that lands on another job\'s locked row, naming it', () => {
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'cita', project: 'revision', date: SAT, from: '09:00', hours: 2, locked: true }),
+        block({ id: 'b', project: 'porton', date: SAT, from: '10:00', hours: 1 }),
+      ],
+    });
+
+    const result = resolveManualPlacement(composeInput, dropOf('b'));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('a locked row must never be cut');
+    expect(result.error.code).toBe('overlaps-locked-block');
+    expect(result.error.messageKey).toBe('errors.dropOverLockedBlock');
+    expect(result.error.blockId).toBe('cita');
+    expect(result.error.projectId).toBe('revision');
+    expect(result.error.date).toBe(SAT);
+    expect(result.error.startMinutes).toBe(t('09:00'));
+  });
+
+  it('refuses a drop onto the SAME job\'s locked row rather than growing it', () => {
+    // "A locked block is never grown or shrunk silently" — and a merge would do both:
+    // it moves the survivor's start and changes its duration.
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'cita', project: 'urgencia', date: SAT, from: '09:00', hours: 2, locked: true }),
+        block({ id: 'soltado', project: 'urgencia', date: SAT, from: '10:00', hours: 2 }),
+      ],
+    });
+
+    const result = resolveManualPlacement(composeInput, dropOf('soltado'));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('a locked row must never be absorbed');
+    expect(result.error.code).toBe('overlaps-locked-block');
+    expect(result.error.blockId).toBe('cita');
+  });
+
+  it('says nothing about a locked row the drop merely touches', () => {
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'cita', project: 'revision', date: SAT, from: '09:00', hours: 2, locked: true }),
+        block({ id: 'b', project: 'porton', date: SAT, from: '11:00', hours: 1 }),
+      ],
+    });
+
+    expect(expectPlaced(resolveManualPlacement(composeInput, dropOf('b'))).mergedBlockIds).toEqual([]);
+  });
+
+  it('lets a LOCKED drop displace an unlocked weekend row — the lock is the drop\'s own', () => {
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'a', project: 'barandilla', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'b', project: 'porton', date: SAT, from: '10:00', hours: 1, locked: true }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
+
+    expect(calendarRows(resolved.blocks)).toEqual([
+      `${SAT} 09:00-10:00 barandilla`,
+      `${SAT} 10:00-11:00 porton [locked]`,
+      `${SAT} 11:00-12:00 barandilla`,
+    ]);
+  });
+
+  it('refuses a merge whose sum would run past midnight, rather than clipping it', () => {
+    // A row is a solid rectangle inside ONE day, so there is nowhere for the rest of
+    // the hours to go — and clipping them would be the one thing the sum rule exists
+    // to prevent.
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'ya-estaba', project: 'urgencia', date: SAT, from: '22:00', hours: 2 }),
+        block({ id: 'soltado', project: 'urgencia', date: SAT, from: '23:00', hours: 1 }),
+      ],
+    });
+
+    const result = resolveManualPlacement(composeInput, dropOf('soltado'));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('the merge must not run past midnight');
+    expect(result.error.code).toBe('merge-exceeds-day');
+    expect(result.error.messageKey).toBe('errors.mergeExceedsDay');
+    expect(result.error.date).toBe(SAT);
+  });
+
+  it('refuses when the displaced hours have nowhere left inside the horizon', () => {
+    // One week of horizon: the Saturday tail may only try Saturday and Sunday, and
+    // Sunday is full. Nothing is written, exactly like the horizon failure.
+    const composeInput = input({
+      today: MON,
+      horizonWeeks: 1,
+      blocks: [
+        block({ id: 'a', project: 'barandilla', date: SAT, from: '18:30', hours: 1 }),
+        block({ id: 'b', project: 'porton', date: SAT, from: '18:30', hours: 1 }),
+        block({ id: 'domingo-am', project: 'escalera', date: SUN, from: '08:00', hours: 6 }),
+        block({ id: 'domingo-pm', project: 'escalera', date: SUN, from: '15:30', hours: 4 }),
+      ],
+    });
+
+    const result = resolveManualPlacement(composeInput, dropOf('b'));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('the displaced hours must not vanish');
+    expect(result.error.code).toBe('displaced-hours-unplaceable');
+    expect(result.error.messageKey).toBe('errors.displacedHoursUnplaceable');
+    expect(result.error.projectId).toBe('barandilla');
+  });
+
+  it('reports an unknown row rather than resolving nothing quietly', () => {
+    const result = resolveManualPlacement(input({ today: MON }), dropOf('fantasma'));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('an unknown row must be reported');
+    expect(result.error.code).toBe('unknown-block');
+    expect(result.error.messageKey).toBe('errors.unknownBlock');
+  });
+});
+
+describe('manual placement — what it hands to the engine is already settled', () => {
+  it('leaves a calendar the reflow changes nothing about', () => {
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 4 }),
+        block({ id: 'a', project: 'barandilla', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'b', project: 'porton', date: SAT, from: '10:00', hours: 1 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
+    const placement = compose({ ...composeInput, blocks: resolved.blocks });
+
+    expect(rows(placement)).toEqual([
+      `${MON} 08:00-12:00 escalera`,
+      `${SAT} 09:00-10:00 barandilla`,
+      `${SAT} 10:00-11:00 porton`,
+      `${SAT} 11:00-12:00 barandilla`,
+    ]);
+    expectMinutesConserved({ ...composeInput, blocks: resolved.blocks }, placement);
+    expectSettled({ ...composeInput, blocks: resolved.blocks }, placement);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The summary strip's arithmetic
 // ---------------------------------------------------------------------------
 
@@ -2617,6 +3087,107 @@ describe('the rules hold over generated calendars', () => {
       // The engine settles: this pass, and the ordinary save that follows it.
       expectSettled(composeInput, result);
     }
+  });
+});
+
+describe('manual placement holds over the same generated calendars', () => {
+  // The generator deliberately produces impossible input — rows straddling lunch,
+  // two locked rows on top of each other — which is exactly the state a drop has to
+  // survive. The property that matters is that the resolution is a FIXED POINT:
+  // resolving the same drop twice must change nothing the second time, which is the
+  // only way to say "no overlap was left around the dropped row" without restating
+  // the algorithm in the test.
+  it('resolves a drop on every generated calendar without losing an hour', () => {
+    let resolvedCount = 0;
+    let mergedCount = 0;
+    let displacedCount = 0;
+
+    for (let seed = 1; seed <= 2000; seed += 1) {
+      sequence = 0;
+      tailSequence = 0;
+      const composeInput = generateInput(seed);
+      const fixed = composeInput.blocks.filter((candidate) => !isMovable(candidate, composeInput.today));
+      if (fixed.length === 0) continue;
+
+      const where = `seed ${seed}`;
+      const dropped = fixed[seed % fixed.length];
+      const result = resolveManualPlacement(composeInput, dropOf(dropped.id));
+
+      if (!result.ok) {
+        // The three refusals, all of which write nothing: a lock in the way, a merge
+        // that would run past midnight, and hours with nowhere left inside the horizon.
+        expect(
+          ['overlaps-locked-block', 'merge-exceeds-day', 'displaced-hours-unplaceable'],
+          `${where}: ${result.error.code}`,
+        ).toContain(result.error.code);
+        continue;
+      }
+      resolvedCount += 1;
+      if (result.mergedBlockIds.length > 0) mergedCount += 1;
+      if (result.displacedProjectIds.length > 0) displacedCount += 1;
+
+      // The invariant, first and last: hours are moved, never created or lost.
+      expect(minutesByProject(result.blocks), `${where}: minutes not conserved`).toEqual(
+        minutesByProject(composeInput.blocks),
+      );
+
+      for (const row of result.blocks) {
+        expect(row.durationMinutes, `${where}: an empty row`).toBeGreaterThan(0);
+        expect(row.startMinutes + row.durationMinutes, `${where}: a row past midnight`).toBeLessThanOrEqual(
+          24 * 60,
+        );
+      }
+
+      // Rows the resolution CREATED are placed, not merely written: each sits inside
+      // one working period and touches nothing else on its day.
+      const created = result.blocks.filter((row) => row.id.startsWith('cola-'));
+      for (const row of created) {
+        expect(
+          periodUnion(composeInput, row.date).some(
+            (period) =>
+              row.startMinutes >= period.start && row.startMinutes + row.durationMinutes <= period.end,
+          ),
+          `${where}: displaced hours landed outside the working periods on ${row.date}`,
+        ).toBe(true);
+        for (const other of result.blocks) {
+          if (other === row) continue;
+          expect(
+            Math.min(
+              row.startMinutes + row.durationMinutes,
+              other.startMinutes + other.durationMinutes,
+            ) - Math.max(row.startMinutes, other.startMinutes) <= 0 || other.date !== row.date,
+            `${where}: displaced hours overlap another row on ${row.date}`,
+          ).toBe(true);
+        }
+      }
+
+      // THE FIXED POINT. Nothing overlaps the drop any more, so there is nothing left
+      // for a second pass to merge, cut or push.
+      const again = expectPlaced(
+        resolveManualPlacement({ ...composeInput, blocks: result.blocks }, dropOf(result.placedBlockId)),
+      );
+      expect(again.mergedBlockIds, `${where}: a second pass merged again`).toEqual([]);
+      expect(again.displacedProjectIds, `${where}: a second pass displaced again`).toEqual([]);
+      expect(calendarRows(again.blocks), `${where}: a second pass moved something`).toEqual(
+        calendarRows(result.blocks),
+      );
+
+      // And the engine still settles on what it was handed.
+      const placement = compose({ ...composeInput, blocks: result.blocks });
+      if (!placement.ok) {
+        expect(placement.error.code, where).toBe('horizon-exceeded');
+        continue;
+      }
+      expectMinutesConserved({ ...composeInput, blocks: result.blocks }, placement);
+      expectSettled({ ...composeInput, blocks: result.blocks }, placement);
+    }
+
+    // Guards on the GENERATOR rather than on the engine: a property test that
+    // quietly stopped reaching the merge or the cut would still be green, and the
+    // fixed point above would then be proving nothing.
+    expect(resolvedCount, 'the generator stopped producing resolvable drops').toBeGreaterThan(500);
+    expect(mergedCount, 'the generator stopped producing same-job overlaps').toBeGreaterThan(0);
+    expect(displacedCount, 'the generator stopped producing other-job overlaps').toBeGreaterThan(0);
   });
 });
 

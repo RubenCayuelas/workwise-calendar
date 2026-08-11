@@ -32,11 +32,14 @@ import { listProjects } from './repositories/projects';
 import { readSettings } from './settings';
 import type { Block } from '../types';
 
+const LAST_FRI = '2026-08-07';
 const MON = '2026-08-10';
 const TUE = '2026-08-11';
 const WED = '2026-08-12';
 const THU = '2026-08-13';
 const FRI = '2026-08-14';
+const SAT = '2026-08-15';
+const SUN = '2026-08-16';
 const NEXT_MON = '2026-08-17';
 
 const BLUE = PROJECT_COLORS[0];
@@ -271,6 +274,137 @@ describe('block gestures', () => {
     const error = refusal(() => deleteBlock(listBlocks(db)[0].id, { today: MON }, db));
     expect(error.code).toBe('delete-last-block');
     expect(listBlocks(db)).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A hand drop where the reflow cannot reach
+// ---------------------------------------------------------------------------
+//
+// The weekend and the frozen past are outside the engine, so two rows dropped on top
+// of each other there stay that way: `compose` hands them back untouched and the grid
+// draws them as two lanes. That used to happen silently — verified by splitting 2 h
+// onto a Saturday the job already occupied. `manualPlacementBlockId` closes it inside
+// the same transaction, so the invariant is asserted over the resolved calendar too.
+
+describe('a drop onto the weekend, where the engine may not reflow', () => {
+  it('merges two rows of the SAME job into one, summing the hours', () => {
+    const puerta = job('Puerta', 8);
+    splitBlock(puerta.blocks[0].id, { durationMinutes: 2 * 60, date: SAT, startMinutes: 9 * 60, today: MON }, db);
+    expect(calendar()).toEqual([`${MON} 08:00-14:00 Puerta`, `${SAT} 09:00-11:00 Puerta`]);
+
+    // The second 2 h land ON the first fragment. Sum, not union: 09:00-13:00 is 4 h.
+    const result = splitBlock(
+      listBlocks(db)[0].id,
+      { durationMinutes: 2 * 60, date: SAT, startMinutes: 10 * 60, today: MON },
+      db,
+    );
+
+    expect(calendar()).toEqual([`${MON} 08:00-12:00 Puerta`, `${SAT} 09:00-13:00 Puerta`]);
+    expect(result.mergedBlockIds).toHaveLength(1);
+    expect(result.displacedProjectIds).toEqual([]);
+    // Four hours on Saturday plus four on Monday: the estimate never moved.
+    expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('cuts ANOTHER job and pushes its tail after the drop, keeping its hours', () => {
+    const barandilla = job('Barandilla', 2, GREEN);
+    moveBlock(barandilla.blocks[0].id, { date: SAT, startMinutes: 9 * 60, today: MON }, db);
+    const puerta = job('Puerta', 1);
+
+    const result = moveBlock(puerta.blocks[0].id, { date: SAT, startMinutes: 10 * 60, today: MON }, db);
+
+    expect(calendar()).toEqual([
+      `${SAT} 09:00-10:00 Barandilla`,
+      `${SAT} 10:00-11:00 Puerta`,
+      `${SAT} 11:00-12:00 Barandilla`,
+    ]);
+    expect(result.displacedProjectIds).toEqual([barandilla.project.id]);
+    expect(listProjects(db).find((project) => project.name === 'Barandilla')?.totalMinutes).toBe(2 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('carries a Saturday tail that no longer fits onto Sunday, never into the week', () => {
+    const barandilla = job('Barandilla', 1, GREEN);
+    moveBlock(barandilla.blocks[0].id, { date: SAT, startMinutes: 18 * 60 + 30, today: MON }, db);
+    const puerta = job('Puerta', 1);
+
+    moveBlock(puerta.blocks[0].id, { date: SAT, startMinutes: 18 * 60 + 30, today: MON }, db);
+
+    expect(calendar()).toEqual([
+      `${SAT} 18:30-19:30 Puerta`,
+      `${SUN} 08:00-09:00 Barandilla`,
+    ]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('refuses a drop onto a locked row, names it, and writes nothing', () => {
+    const barandilla = job('Barandilla', 2, GREEN);
+    moveBlock(barandilla.blocks[0].id, { date: SAT, startMinutes: 9 * 60, today: MON }, db);
+    setBlockLock(listBlocks(db)[0].id, true, { today: MON }, db);
+    const puerta = job('Puerta', 1);
+    const before = calendar();
+
+    const error = refusal(() =>
+      moveBlock(puerta.blocks[0].id, { date: SAT, startMinutes: 10 * 60, today: MON }, db),
+    );
+
+    expect(error.code).toBe('overlaps-locked-block');
+    expect(error.messageKey).toBe('errors.dropOverLockedBlock');
+    expect(error.status).toBe(409);
+    expect(error.details).toMatchObject({
+      projectName: 'Barandilla',
+      date: SAT,
+      startTime: '09:00',
+      endTime: '11:00',
+    });
+    // The move is written before the engine runs, so the rollback is what keeps the
+    // calendar exactly as it was.
+    expect(calendar()).toEqual(before);
+  });
+
+  it('leaves the past alone but resolves a drop INTO it, since the past is frozen too', () => {
+    // The owner may edit the past by hand at any time; the engine may not. So a drop
+    // there is resolved the same way, and the displaced hours chain forward out of the
+    // frozen day into the movable pool, where the reflow takes them.
+    const historial = job('Historial', 1, GREEN);
+    moveBlock(historial.blocks[0].id, { date: LAST_FRI, startMinutes: 18 * 60 + 30, today: MON }, db);
+    const puerta = job('Puerta', 1);
+
+    moveBlock(puerta.blocks[0].id, { date: LAST_FRI, startMinutes: 18 * 60 + 30, today: MON }, db);
+
+    expect(calendar()).toEqual([
+      `${LAST_FRI} 18:30-19:30 Puerta`,
+      `${MON} 08:00-09:00 Historial`,
+    ]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('answers with `block: null` when the merge absorbed the very row that was moved', () => {
+    const puerta = job('Puerta', 4);
+    splitBlock(puerta.blocks[0].id, { durationMinutes: 60, date: SAT, startMinutes: 9 * 60, today: MON }, db);
+    const monday = listBlocks(db).find((row) => row.date === MON);
+
+    // The Monday row is dropped ON TOP of the fragment, and ranks after it, so the
+    // fragment survives with the summed hours and the moved id is gone.
+    const result = moveBlock(monday!.id, { date: SAT, startMinutes: 9 * 60 + 30, today: MON }, db);
+
+    expect(calendar()).toEqual([`${SAT} 09:00-13:00 Puerta`]);
+    expect(result.block).toBeNull();
+    expect(result.mergedBlockIds).toEqual([monday!.id]);
+    expect(result.blocks).toHaveLength(1);
+    expect(listProjects(db)[0].totalMinutes).toBe(4 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('reports nothing merged or displaced for a gesture that is not a drop', () => {
+    const puerta = job('Puerta', 4);
+
+    const locked = setBlockLock(puerta.blocks[0].id, true, { today: MON }, db);
+
+    expect(locked.mergedBlockIds).toEqual([]);
+    expect(locked.displacedProjectIds).toEqual([]);
   });
 });
 

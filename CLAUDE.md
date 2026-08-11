@@ -164,16 +164,21 @@ Everything else is a fixed obstacle that flexible work flows around.
   then decides what to do: move or split the locked block, or move or split the new job.
 - **Never split a job to make it fit.** If a job does not fit in the space left in the day, the
   *whole* job moves to the next day.
-- Splitting only happens when a job is **longer than a full day's plannable hours**: it fills
-  complete days and the remainder continues on the next auto-fill day.
+- Splitting only happens when a job is **longer than a full day's plannable hours**. It then fills
+  **the hours left in the day the cursor is already on**, then whole days, and the remainder
+  continues on the next auto-fill day. No hour is wasted: 12 h reached on a day with 2 h left is
+  **2 h today and 10 h tomorrow**, never 10 h tomorrow and 2 h the day after (confirmed with the
+  owner, 2026-08-11).
 - **Strict order end to end.** Once a job overflows, the rest of the queue follows it. Later jobs
   are never brought forward into the space it left. Example: Thursday has 5h free, the queue is
   Staircase (6h) then Door (2h) → the Staircase moves whole to the next day, the Door follows it,
   and Thursday keeps its 5h free for the user to fill by hand.
 
 ### The Past is Frozen
-- The engine **never writes to a date earlier than today**. Past days render read-only in the
-  calendar (dimmed, no drag handles, not a drop target).
+- The engine **never writes to a date earlier than today**. Past days render dimmed and are not a
+  drop target. They keep no hover action bar — but they DO keep the bottom-edge resize handle, since
+  a past row is one the engine will not re-lay out and correcting yesterday's duration is the whole
+  point of *Block Resize*.
 - Why: recomposition reflows unlocked blocks to close holes. If the past were in scope, a Monday cut
   short by a breakdown would get its hole closed by pulling Tuesday's work back into it — silently
   rewriting the record of what the shop actually did.
@@ -185,6 +190,14 @@ Everything else is a fixed obstacle that flexible work flows around.
 Resizing a block is a **transfer inside the job**, with the job's **last block** as the counterparty.
 `total_hours` does not change unless stated otherwise.
 
+**The gesture is only offered where it survives the reflow** (decided with the owner, 2026-08-11):
+on a **locked** row, a row in the **frozen past**, and a row on the **weekend** — exactly the
+complement of *The Movable Pool*. On an unlocked future weekday row the bottom edge is **inert**: the
+engine re-derives that job's segmentation from its total, so a transfer between two adjacent rows of
+one queue item is undone on the next recomposition. That is correct — it is what makes the calendar
+self-tidying and `compose` a fixed point — so the UI must not offer a gesture that silently snaps
+back. Hovering the inert edge names the two things that DO work instead; see *Capping a day*.
+
 | Action | Effect | `total_hours` |
 |---|---|---|
 | Enlarge a block that is **not** the last | Subtract those hours from the last block, cascading backwards (LIFO) and deleting any block that reaches 0 | unchanged |
@@ -194,6 +207,25 @@ Resizing a block is a **transfer inside the job**, with the job's **last block**
 
 This is the normal way to record "yesterday took longer than I noted": enlarge yesterday's block and
 the hours come off the job's furthest block, keeping the estimate intact.
+
+### Capping a Day — "we only do 2 h of this today" (decided with the owner, 2026-08-11)
+Shrinking the block is **not** the answer, and neither is any workaround that would leave a hole the
+engine refuses to fill: **if nothing occupies the rest of the day, the shop IS free then, and the app
+exists to say so.** A hole the engine would not touch would be the app lying. There are exactly two
+honest ways to cap a day, and both already fall out of the rules above:
+
+1. **Put another job after it.** The drop re-ranks the queue, the job splits there, and the day reads
+   `A 2 h, B, A 4 h`.
+2. **Stop the day with a gap.** Plannable hours are `shift − gaps`, so the day genuinely holds less
+   and the work that no longer fits is replanned. This is now a **one-click action** on the block's
+   hover bar ("Cerrar el día aquí"): it pre-fills a gap from a chosen moment to the end of the day's
+   last enabled period, asks only for an optional reason, and states what the day loses and which
+   jobs cannot stay inside the closed stretch. It is an ordinary gap — same endpoint, same refusals,
+   editable and deletable afterwards.
+
+What the action must NOT promise is *where* those hours land: only `compose` knows, over the whole
+calendar, and *Never split a job to make it fit* means a job that no longer fits the hours left moves
+**whole** to the next day with room — leaving the capped morning legitimately free.
 
 ### Job Editing: Adding/Removing Hours (LIFO - Last In First Out)
 - **Add hours**: Append to the **last block** of that job.
@@ -219,6 +251,33 @@ the hours come off the job's furthest block, keeping the estimate intact.
 - User can move a **portion** of a job (fragment it) or the entire block.
 - On DROP: the queue is reordered (see *Queue Order*) and auto-recomposition runs.
 - **Auto-merge**: as described above.
+
+### A Drop That Overlaps (decided with the owner, 2026-08-11)
+A drop onto the **weekend or the frozen past** lands where the engine may not reflow, so both the
+dropped row and whatever was there are fixed obstacles and the reflow will never separate them. The
+overlap is therefore resolved when the drop is saved, in the same transaction, **before**
+recomposition — never by a general pass over the calendar, because two rows that were *already*
+overlapping are somebody's decision and tidying them on an unrelated save is what rule 6 forbids.
+
+- **Same job → one block, hours SUMMED.** Existing Sat 09:00-11:00 plus a 2 h drop at 10:00 becomes a
+  single **09:00-13:00, 4 h** row. Not 09:00-12:00: an interval union would silently eat an hour.
+  The earlier row survives (it keeps its id), so the write is an UPDATE plus a DELETE.
+- **Different jobs → the cut job is split and its tail pushed after the new block.** A at 09:00-11:00
+  with B dropped at 10:00-11:00 becomes A 09:00-10:00, B 10:00-11:00, A 11:00-12:00. A keeps its 2 h.
+  "If the user does not want it, they move it again." Neither piece may straddle a non-working
+  interval, so a pushed tail may itself become two segments; if it does not fit before the end of the
+  day it chains forward like overflow — and a **weekend tail stays on the weekend** (Sat → Sun),
+  because the engine never moves weekend work. A tail pushed out of the frozen past skips the
+  weekend and the Friday buffer (a displaced row is not growth).
+- **A locked block is never overlapped.** A drop onto one is refused (409) with the block named,
+  exactly as a gap over a lock is. A merge is refused even when the lock is the drop's own, since it
+  would move the lock's start; a *cut* is allowed while the drop is the locked one, because then the
+  lock keeps its exact slot and only the other job moves.
+- Both cases hold `SUM(blocks.duration) == projects.total_hours` for every touched project.
+- This is **not** the auto-merge above. Auto-merge joins rows that *touch* inside one period and
+  never runs on the weekend; this resolves an *overlap* a human just created, on any day.
+- An unlocked weekday drop needs none of this: it is in the movable pool, so the reflow settles it
+  where it overlaps nothing.
 
 ### Locked Blocks Don't Act as Walls
 - `locked = true` means: "Don't auto-move this block during recomposition"
@@ -258,6 +317,12 @@ where the decisions in this section come from.
   amber is reserved for the app itself and a free picker would let a job blend into the interface.
 - Hairline borders (`0.5px`), `--radius` rounded corners, generous whitespace.
 - **Icons**: Tabler (`@tabler/icons-react`), bundled locally — no CDN.
+- **No native `<input type="time">` anywhere.** It renders in the BROWSER's locale, not the page's, so
+  on a shop PC with Chrome in English it draws "08:00 AM" beside a grid reading "08:00–14:00". Times
+  are chosen from the shared quarter-hour `TimeSelect` (`src/components/ui/`), whose step is held
+  equal to the drag layer's `SNAP_MINUTES` by a test. A native `<input type="date">` is kept — its
+  value is ISO and its calendar widget earns its place — but the day is **echoed under it** through
+  `useFormat().longDate()`, so a browser writing `08/11` can never be read as the 8th of December.
 
 ### Calendar View
 - **Horizontal week layout**: all seven columns always rendered. Mon-Fri at full width; Sat/Sun
@@ -280,10 +345,14 @@ where the decisions in this section come from.
 
 ### Block Gestures
 - **Drag the body**: move the block — this reorders the queue and triggers a reflow
-- **Drag the bottom edge**: resize, as a transfer inside the job (see *Block Resize*)
+- **Drag the bottom edge**: resize, as a transfer inside the job (see *Block Resize*). Only on a
+  locked, past or weekend row; elsewhere the edge is inert and its tooltip points at the two ways to
+  cap a day.
 - **Click**: open the job panel
-- **Hover**: a small action bar appears with lock, split (scissors) and delete — never behind a
-  modifier key, since on a shop PC an Alt-drag would never be discovered
+- **Hover**: a small action bar appears with lock, *stop the day here*, split (scissors) and delete —
+  never behind a modifier key, since on a shop PC an Alt-drag would never be discovered. *Stop the
+  day here* is absent where it would do nothing: on a row that already ends the day, on the weekend,
+  on a closed day and in the past.
 
 ### Job Panel (side panel)
 - Colour dot + job name + close
@@ -304,6 +373,8 @@ where the decisions in this section come from.
 
 ### Gap Management
 - **Create**: Date + Start Time + Duration + Reason (optional)
+- **Create in one click**: *stop the day here* from a block's action bar — the same form with the day,
+  the moment and the span already filled in, asking only for the reason. See *Capping a Day*.
 - **Edit**: Modify any field
 - **Delete**: Frees up time; auto-recomposition runs if needed
 

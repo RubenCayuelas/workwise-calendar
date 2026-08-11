@@ -23,7 +23,7 @@ import { resizeBlock as resizeBlockHours, type EditSuccess, type ScheduleSummary
 import { conflict, notFound, ERROR_MESSAGE_KEYS } from '../errors';
 import { newId } from '../ids';
 import { nowTimestamp } from '../timestamps';
-import { recompose, runTransaction } from '../scheduler';
+import { recompose, runTransaction, type RecomposeReport } from '../scheduler';
 import {
   findBlock,
   listBlocks,
@@ -49,6 +49,19 @@ export interface BlockMutation {
   summary: ScheduleSummary;
   /** Locked rows a transfer had to touch. Never silent — see CLAUDE.md. */
   touchedLockedBlockIds: string[];
+  /**
+   * Rows of the dropped row's OWN job that the drop absorbed, because it overlapped
+   * them on a day the engine may not reflow (the weekend, the frozen past). The
+   * hours were summed, never unioned, so nothing was lost. Empty for every gesture
+   * that is not a drop.
+   */
+  mergedBlockIds: string[];
+  /**
+   * Jobs whose row the drop cut in two, the tail pushed to just after the dropped
+   * row. Their totals are unchanged. Tell the owner: "if the user does not want it,
+   * they move it again" only works if they are told it happened.
+   */
+  displacedProjectIds: string[];
 }
 
 export interface MoveBlockInput {
@@ -69,6 +82,10 @@ export interface MoveBlockInput {
  * UNLOCKED row dropped into a margin is pulled back into the working periods by
  * this very recomposition, so a margin drop only sticks if the row is also locked.
  * That is margins ("manual drag-drop only") meeting the movable pool, not a bug.
+ *
+ * `manualPlacementBlockId` is what stops the drop leaving a silent overlap where the
+ * reflow cannot reach — the weekend and the frozen past. Same job: one row, hours
+ * summed. Another job: cut, tail pushed after the drop. A lock: refused, 409.
  */
 export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb()): BlockMutation {
   const today = input.today ?? todayLocal();
@@ -79,8 +96,8 @@ export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb
     // block is a solid rectangle inside one day and cannot run past midnight.
     assertFitsInDay(input.startMinutes, block.durationMinutes);
     updateBlock({ ...block, date: input.date, startMinutes: input.startMinutes }, db);
-    const report = recompose(db, { today });
-    return settled(blockId, block.projectId, report.summary, [], db);
+    const report = recompose(db, { today, manualPlacementBlockId: blockId });
+    return settled(blockId, block.projectId, report, [], db);
   });
 }
 
@@ -125,7 +142,7 @@ export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = g
       grownProjectIds: edit.totalMinutesDelta > 0 ? [block.projectId] : undefined,
     });
 
-    return settled(blockId, block.projectId, report.summary, edit.touchedLockedBlockIds, db);
+    return settled(blockId, block.projectId, report, edit.touchedLockedBlockIds, db);
   });
 }
 
@@ -146,8 +163,11 @@ export function setBlockLock(
   return runTransaction(db, () => {
     const block = requireBlock(blockId, db);
     setBlockLocked(blockId, locked, db);
+    // No `manualPlacementBlockId`: the padlock changes no geometry, so it cannot
+    // create an overlap. A row that was unlocked was reflowed clear of everything,
+    // and locking it leaves it exactly there.
     const report = recompose(db, { today });
-    return settled(blockId, block.projectId, report.summary, [], db);
+    return settled(blockId, block.projectId, report, [], db);
   });
 }
 
@@ -173,6 +193,10 @@ export interface SplitBlockInput {
  * The fragment inherits the source's `locked` flag, because splitting is not a
  * decision about mobility. A fragment of an unlocked row is therefore reflowed
  * away from the exact drop time, exactly like any other drop.
+ *
+ * The FRAGMENT is the dropped row, so it is the one whose overlaps are resolved:
+ * splitting 2 h onto a Saturday the job already occupies merges the two into one
+ * row of the summed hours instead of leaving them stacked.
  */
 export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = getDb()): BlockMutation {
   const today = input.today ?? todayLocal();
@@ -188,11 +212,12 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
     }
 
     const now = nowTimestamp();
+    const fragmentId = newId();
     const draft: Block[] = listBlocks(db).map((row) =>
       row.id === blockId ? { ...row, durationMinutes: row.durationMinutes - input.durationMinutes } : row,
     );
     draft.push({
-      id: newId(),
+      id: fragmentId,
       projectId: block.projectId,
       date: input.date,
       startMinutes: input.startMinutes,
@@ -202,8 +227,8 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
       updatedAt: now,
     });
 
-    const report = recompose(db, { today, blocks: draft });
-    return settled(blockId, block.projectId, report.summary, [], db);
+    const report = recompose(db, { today, blocks: draft, manualPlacementBlockId: fragmentId });
+    return settled(blockId, block.projectId, report, [], db);
   });
 }
 
@@ -270,15 +295,17 @@ function requireBlock(blockId: string, db: Db): Block {
 function settled(
   blockId: string,
   projectId: string,
-  summary: ScheduleSummary,
+  report: RecomposeReport,
   touchedLockedBlockIds: string[],
   db: Db,
 ): BlockMutation {
   return {
     block: findBlock(blockId, db) ?? null,
     blocks: listBlocksByProject(projectId, db),
-    summary,
+    summary: report.summary,
     touchedLockedBlockIds,
+    mergedBlockIds: report.mergedBlockIds,
+    displacedProjectIds: report.displacedProjectIds,
   };
 }
 

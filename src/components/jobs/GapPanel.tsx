@@ -14,6 +14,15 @@
  * Lunch is deliberately NOT a gap (it is the space between the two shift periods, set
  * in Settings), which `gapForm.lunchNote` says out loud — otherwise the obvious first
  * thing an owner does with this form is recreate the lunch break by hand.
+ *
+ * SECOND SHAPE: "STOP THE DAY HERE" (`closeDay`). This is now *the* way to say "we only
+ * do two hours of this today", so it cannot be a form the owner has to fill in by hand.
+ * Invoked from a block's action bar, the panel arrives with the gap already worked out —
+ * from the end of that block to the end of the day's last working period — and asks only
+ * for the reason, which stays optional. It also states what it will cost the day and
+ * which jobs cannot stay inside the closed stretch; `src/lib/closeDay.ts` owns that
+ * arithmetic and its comment explains why the panel does not promise where those hours
+ * land. Same endpoint, same validation, same refusals: it is one gap either way.
  */
 
 import { useEffect, useState } from 'react';
@@ -29,6 +38,8 @@ import {
   Input,
   NumberStepper,
   SidePanel,
+  TIME_STEP_MINUTES,
+  TimeSelect,
   useToast,
 } from '../ui';
 import {
@@ -48,6 +59,7 @@ import {
   minutesToHours,
   todayLocal,
 } from '../../lib/dates';
+import { dayEndMinutes, planCloseDay, type CloseDayRequest } from '../../lib/closeDay';
 import { useFormat } from '../../lib/useFormat';
 import { HOUR_STEP, parseClockTime } from './forms';
 import { otherGapConflicts } from './placement';
@@ -63,6 +75,11 @@ export interface GapPanelProps {
   open: boolean;
   /** Omit to create a gap; pass one to edit it. */
   gap?: Gap;
+  /**
+   * "Stop the day here", from a block's action bar: the day, the moment and the span are
+   * already decided, so the form asks only for the reason. Ignored while editing a gap.
+   */
+  closeDay?: CloseDayRequest;
   onClose: () => void;
   /** Fired on every successful write. The parent MUST refetch the week. */
   onChanged?: JobsMutationHandler;
@@ -81,6 +98,7 @@ export interface GapPanelProps {
 export function GapPanel({
   open,
   gap,
+  closeDay,
   onClose,
   onChanged,
   onDeleted,
@@ -106,7 +124,10 @@ export function GapPanel({
   const [deleting, setDeleting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const fallbackStart = defaultStartMinutes ?? shape?.periods[0]?.startMinutes ?? 8 * 60;
+  /** Set only in the "stop the day here" shape: editing a gap always wins over it. */
+  const closing = gap === undefined ? closeDay : undefined;
+  const fallbackStart =
+    closing?.fromMinutes ?? defaultStartMinutes ?? shape?.periods[0]?.startMinutes ?? 8 * 60;
 
   useEffect(() => {
     if (!open) {
@@ -114,18 +135,29 @@ export function GapPanel({
       setConfirmOpen(false);
       return;
     }
-    setDate(gap?.date ?? defaultDate ?? reference);
+    setDate(gap?.date ?? closing?.input.date ?? defaultDate ?? reference);
     setStartTime(minutesToHHmm(gap?.startMinutes ?? fallbackStart));
     setHours(minutesToHours(gap?.durationMinutes ?? defaultDurationMinutes ?? DEFAULT_GAP_MINUTES));
     setReason(gap?.reason ?? '');
     setLocalError(null);
     setActionError(null);
-  }, [open, gap, defaultDate, defaultDurationMinutes, fallbackStart, reference]);
+  }, [open, gap, closing, defaultDate, defaultDurationMinutes, fallbackStart, reference]);
 
   const maxHours =
     shape === undefined
       ? FALLBACK_MAX_HOURS
       : minutesToHours(shape.timelineEndMinutes - shape.timelineStartMinutes);
+
+  /**
+   * The gap the closing shape would save, recomputed from the chosen moment on every
+   * keystroke: the moment is the only thing the owner sets, and the hours the day loses
+   * and the work that has to leave both follow from it.
+   */
+  const plan =
+    closing === undefined
+      ? null
+      : planCloseDay(closing.input, parseClockTime(startTime) ?? closing.fromMinutes);
+  const closeBounds = closing === undefined ? undefined : momentBounds(closing.input.periods);
 
   const submit = async (): Promise<void> => {
     if (saving || deleting) return;
@@ -134,15 +166,30 @@ export function GapPanel({
       setLocalError({ field: 'date', key: 'errors.invalidDate' });
       return;
     }
-    const durationMinutes = hoursToMinutes(hours);
-    if (durationMinutes <= 0) {
-      setLocalError({ field: 'duration', key: 'errors.invalidDuration' });
-      return;
-    }
-    const startMinutes = parseClockTime(startTime);
-    if (startMinutes === undefined || startMinutes + durationMinutes > MINUTES_PER_DAY) {
-      setLocalError({ field: 'startTime', key: 'errors.invalidTime' });
-      return;
+
+    let startMinutes: number;
+    let durationMinutes: number;
+
+    if (closing !== undefined) {
+      // Derived, never typed: from the chosen moment to the end of the last period.
+      if (plan === null || plan.workingMinutes <= 0) {
+        setLocalError({ field: 'startTime', key: 'gapForm.closeDayNoRoom' });
+        return;
+      }
+      startMinutes = plan.startMinutes;
+      durationMinutes = plan.durationMinutes;
+    } else {
+      durationMinutes = hoursToMinutes(hours);
+      if (durationMinutes <= 0) {
+        setLocalError({ field: 'duration', key: 'errors.invalidDuration' });
+        return;
+      }
+      const parsed = parseClockTime(startTime);
+      if (parsed === undefined || parsed + durationMinutes > MINUTES_PER_DAY) {
+        setLocalError({ field: 'startTime', key: 'errors.invalidTime' });
+        return;
+      }
+      startMinutes = parsed;
     }
 
     const trimmed = reason.trim();
@@ -203,6 +250,9 @@ export function GapPanel({
   // The message names one offender; these are the rest of them.
   const conflicts = isApiError(actionError) ? otherGapConflicts(actionError.details) : [];
   const busy = saving || deleting;
+  // Closing at a moment with no plannable time left after it would save a gap that
+  // changes nothing, so the button says no rather than the server doing nothing.
+  const nothingToClose = closing !== undefined && (plan === null || plan.workingMinutes <= 0);
 
   const errorFor = (field: GapField): string | undefined => {
     if (localError?.field === field) return t(localError.key);
@@ -216,12 +266,25 @@ export function GapPanel({
         open={open}
         onClose={onClose}
         closeOnEscape={!confirmOpen}
-        title={t(gap === undefined ? 'gapForm.newTitle' : 'gapForm.editTitle')}
+        title={t(
+          gap !== undefined
+            ? 'gapForm.editTitle'
+            : closing !== undefined
+              ? 'gapForm.closeDayTitle'
+              : 'gapForm.newTitle',
+        )}
         accent={gapColor === undefined ? undefined : <ColorDot color={gapColor} />}
         footer={
           <>
-            <Button className={styles.grow} variant="primary" disabled={busy} onClick={submit}>
-              {saving ? t('common.saving') : t('gapForm.submit')}
+            <Button
+              className={styles.grow}
+              variant="primary"
+              disabled={busy || nothingToClose}
+              onClick={submit}
+            >
+              {saving
+                ? t('common.saving')
+                : t(closing === undefined ? 'gapForm.submit' : 'gapForm.closeDayConfirm')}
             </Button>
             {gap === undefined ? (
               <Button variant="secondary" disabled={busy} onClick={onClose}>
@@ -263,37 +326,100 @@ export function GapPanel({
           </InlineBanner>
         )}
 
-        <Field label={t('gapForm.date')} error={errorFor('date')}>
-          <Input
-            type="date"
-            value={date}
-            disabled={busy}
-            onChange={(event) => setDate(event.target.value)}
-          />
-        </Field>
+        {closing === undefined ? (
+          <>
+            {/* The native date input draws its parts in the BROWSER's locale, so the day
+                is echoed underneath in the page's own words — the value is ISO either
+                way, but "08/12" must not be read as the 8th of December. */}
+            <Field
+              label={t('gapForm.date')}
+              error={errorFor('date')}
+              hint={isValidDate(date) ? format.longDate(date) : undefined}
+            >
+              <Input
+                type="date"
+                value={date}
+                disabled={busy}
+                onChange={(event) => setDate(event.target.value)}
+              />
+            </Field>
 
-        <div className={styles.row}>
-          <Field label={t('gapForm.startTime')} error={errorFor('startTime')}>
-            <Input
-              type="time"
-              value={startTime}
-              disabled={busy}
-              onChange={(event) => setStartTime(event.target.value)}
-            />
-          </Field>
+            <div className={styles.row}>
+              <Field label={t('gapForm.startTime')} error={errorFor('startTime')}>
+                <TimeSelect value={startTime} disabled={busy} onChange={setStartTime} />
+              </Field>
 
-          <Field label={t('gapForm.duration')} error={errorFor('duration')}>
-            <NumberStepper
-              value={hours}
-              min={HOUR_STEP}
-              max={maxHours}
-              step={HOUR_STEP}
-              suffix={t('units.hoursSuffix')}
-              disabled={busy}
-              onChange={setHours}
-            />
-          </Field>
-        </div>
+              <Field label={t('gapForm.duration')} error={errorFor('duration')}>
+                <NumberStepper
+                  value={hours}
+                  min={HOUR_STEP}
+                  max={maxHours}
+                  step={HOUR_STEP}
+                  suffix={t('units.hoursSuffix')}
+                  disabled={busy}
+                  onChange={setHours}
+                />
+              </Field>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={styles.context}>
+              <span className={styles.contextLabel}>{format.longDate(closing.input.date)}</span>
+              <span className={styles.contextValue}>
+                {plan === null
+                  ? t('gapForm.closeDayNoRoom')
+                  : format.timeRange(plan.startMinutes, plan.endMinutes)}
+              </span>
+            </div>
+
+            <Field label={t('gapForm.closeDayWhen')} error={errorFor('startTime')}>
+              <TimeSelect
+                value={startTime}
+                minMinutes={closeBounds?.minMinutes}
+                maxMinutes={closeBounds?.maxMinutes}
+                disabled={busy}
+                onChange={setStartTime}
+              />
+            </Field>
+
+            {plan === null ? null : (
+              <div className={styles.notices}>
+                <p className={styles.hint}>
+                  {t('gapForm.closeDaySpan', {
+                    start: format.time(plan.startMinutes),
+                    end: format.time(plan.endMinutes),
+                    hours: format.hourNumber(plan.workingMinutes),
+                  })}
+                </p>
+
+                {plan.displaced.length === 0 ? (
+                  <p className={styles.hint}>{t('gapForm.closeDayMovesNone')}</p>
+                ) : (
+                  <div>
+                    <p className={styles.hint}>{t('gapForm.closeDayMoves')}</p>
+                    <span className={styles.noticeList}>
+                      {plan.displaced.map((job) => (
+                        <span key={job.projectId} className={styles.noticeLine}>
+                          <span className={styles.noticeLabel}>{format.hours(job.minutes)}</span>
+                          <span className={styles.blockTag}>{job.name}</span>
+                        </span>
+                      ))}
+                    </span>
+                  </div>
+                )}
+
+                {plan.locked.length === 0 ? null : (
+                  <InlineBanner tone="warning">
+                    {t('gapForm.closeDayLocked', {
+                      names: plan.locked.map((block) => block.name).join(', '),
+                    })}
+                  </InlineBanner>
+                )}
+              </div>
+            )}
+          </>
+        )}
 
         <Field label={t('gapForm.reason')} optional error={errorFor('reason')}>
           <Input
@@ -304,9 +430,18 @@ export function GapPanel({
           />
         </Field>
 
-        <p className={styles.hint}>{t('gapForm.hint')}</p>
-        <p className={styles.hint}>{t('gapForm.blockedHint')}</p>
-        <p className={styles.hint}>{t('gapForm.lunchNote')}</p>
+        {closing === undefined ? (
+          <>
+            <p className={styles.hint}>{t('gapForm.hint')}</p>
+            <p className={styles.hint}>{t('gapForm.blockedHint')}</p>
+            <p className={styles.hint}>{t('gapForm.lunchNote')}</p>
+          </>
+        ) : (
+          <>
+            <p className={styles.hint}>{t('gapForm.closeDayHint')}</p>
+            <p className={styles.hint}>{t('gapForm.closeDayWhole')}</p>
+          </>
+        )}
       </SidePanel>
 
       <ConfirmDialog
@@ -330,6 +465,22 @@ export function GapPanel({
 }
 
 type GapField = 'date' | 'startTime' | 'duration' | 'reason';
+
+/**
+ * The moments the day can be stopped at: from the start of the shift to one step before
+ * it ends, since a gap of nothing is not a gap. `undefined` on a day with no periods,
+ * which leaves the control on the whole day rather than on an empty list.
+ */
+function momentBounds(
+  periods: readonly { startMinutes: number; endMinutes: number }[],
+): { minMinutes: number; maxMinutes: number } | undefined {
+  const end = dayEndMinutes(periods);
+  if (end === undefined) return undefined;
+  return {
+    minMinutes: Math.min(...periods.map((period) => period.startMinutes)),
+    maxMinutes: end - TIME_STEP_MINUTES,
+  };
+}
 
 /** The payload keys the API validates, mapped onto this form's controls. */
 const API_FIELD: Record<string, GapField | undefined> = {

@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useFormat } from '../../lib/useFormat';
+import { planCloseDay, type CloseDayInput, type CloseDayRequest } from '../../lib/closeDay';
 import type { Gap } from '../../types';
 import type { WeekBlock, WeekDay, WeekView } from '../../lib/api-client';
 import { CalendarBlock } from './CalendarBlock';
@@ -71,6 +72,11 @@ export interface WeekGridProps {
   /** Wired only when the gap form exists; without it gaps are labels. */
   onOpenGap?: (gap: Gap) => void;
   onToggleLock: (block: WeekBlock) => void;
+  /**
+   * "Stop the day here". Wired only when the gap form exists — it opens that form
+   * pre-filled, since the gap is what makes the day hold fewer hours.
+   */
+  onCloseDay?: (request: CloseDayRequest) => void;
   onSplit: (block: WeekBlock) => void;
   onDelete: (block: WeekBlock) => void;
   metricsRef: React.MutableRefObject<(() => GridMetrics | null) | null>;
@@ -89,6 +95,7 @@ export function WeekGrid({
   onOpenJob,
   onOpenGap,
   onToggleLock,
+  onCloseDay,
   onSplit,
   onDelete,
   metricsRef,
@@ -209,6 +216,7 @@ export function WeekGrid({
               onOpenJob={onOpenJob}
               onOpenGap={onOpenGap}
               onToggleLock={onToggleLock}
+              onCloseDay={onCloseDay}
               onSplit={onSplit}
               onDelete={onDelete}
             />
@@ -303,6 +311,7 @@ interface DayColumnProps {
   onOpenJob: (projectId: string) => void;
   onOpenGap?: (gap: Gap) => void;
   onToggleLock: (block: WeekBlock) => void;
+  onCloseDay?: (request: CloseDayRequest) => void;
   onSplit: (block: WeekBlock) => void;
   onDelete: (block: WeekBlock) => void;
 }
@@ -324,6 +333,7 @@ function DayColumn({
   onOpenJob,
   onOpenGap,
   onToggleLock,
+  onCloseDay,
   onSplit,
   onDelete,
 }: DayColumnProps): React.JSX.Element {
@@ -332,6 +342,30 @@ function DayColumn({
 
   const bands = nonWorkingBands(day.periods, timeline);
   const preview = drag.preview?.date === day.date ? drag.preview : null;
+
+  /**
+   * The day as the "stop the day here" planner reads it, or `null` where the action makes
+   * no sense: the weekend and a closed day have no plannable hours to cap, and the past
+   * is a record rather than a plan.
+   */
+  const closeDayInput = useMemo<CloseDayInput | null>(() => {
+    if (onCloseDay === undefined || day.isPast || day.isWeekend || day.isClosed) return null;
+    return {
+      date: day.date,
+      periods: day.periods,
+      blocks: groups.flatMap((group) =>
+        group.blocks.map((block) => ({
+          id: block.id,
+          projectId: block.projectId,
+          name: block.project.name,
+          startMinutes: block.startMinutes,
+          durationMinutes: block.durationMinutes,
+          locked: block.locked,
+        })),
+      ),
+      gaps,
+    };
+  }, [onCloseDay, day, groups, gaps]);
 
   // "libre" on a working day with nothing on it, "—" on a day the engine never touches.
   const emptyLabel =
@@ -407,6 +441,7 @@ function DayColumn({
 
       {segmentsOf(groups).map((segment) => {
         const target = targetFor(segment.group, day);
+        const closeDay = closeDayAfter(closeDayInput, segment.block);
         return (
           <CalendarBlock
             key={segment.block.id}
@@ -415,6 +450,9 @@ function DayColumn({
             lane={lanes.get(segment.group.id) ?? SINGLE_LANE}
             overflow={isOverflow(segment.group, day)}
             frozen={day.isPast}
+            // The complement of the engine's movable pool: a resize only sticks on a row
+            // the reflow will not re-lay out. See CalendarBlock's file comment.
+            resizable={segment.block.locked || day.isPast || day.isWeekend}
             lifted={drag.activeGroupId === segment.group.id}
             busy={busy}
             onPointerDownBody={(event) => drag.beginMove(event, target)}
@@ -429,6 +467,11 @@ function DayColumn({
             }
             onOpen={() => onOpenJob(segment.block.projectId)}
             onToggleLock={() => onToggleLock(segment.block)}
+            onCloseDay={
+              closeDay === null || onCloseDay === undefined
+                ? undefined
+                : () => onCloseDay(closeDay)
+            }
             onSplit={() => onSplit(segment.block)}
             onDelete={() => onDelete(segment.block)}
           />
@@ -504,6 +547,23 @@ function buildLayout(view: WeekView): WeekLayout {
   }
 
   return { groups, gaps: gapsByDate, lanes };
+}
+
+/**
+ * The "stop the day here" the row offers, or `null` when it has nothing to offer.
+ *
+ * The moment is the END of this row, so the action reads exactly as it is labelled: the
+ * hours up to here stay today and the rest of the day stops being plannable. A row that
+ * already runs to the end of the day, or one with nothing but existing gaps after it, has
+ * nothing to close — the button is then absent rather than disabled, because there is no
+ * state to explain.
+ */
+function closeDayAfter(input: CloseDayInput | null, block: WeekBlock): CloseDayRequest | null {
+  if (input === null) return null;
+  const fromMinutes = block.startMinutes + block.durationMinutes;
+  const plan = planCloseDay(input, fromMinutes);
+  if (plan === null || plan.workingMinutes <= 0) return null;
+  return { input, fromMinutes };
 }
 
 /** Every row of the unit, in queue order — a group moves as a whole. */

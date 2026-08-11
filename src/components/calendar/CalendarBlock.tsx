@@ -3,22 +3,38 @@
 /**
  * One row of a job on the grid, and the whole gesture vocabulary of a block:
  *
- * | gesture              | effect                                                  |
- * |----------------------|---------------------------------------------------------|
- * | drag the body        | move the unit — reorders the queue, then the reflow runs |
- * | drag the bottom edge | resize: a transfer of hours inside the job               |
- * | click                | open the job panel                                      |
- * | hover                | the action bar: lock, split, delete                      |
+ * | gesture              | effect                                                    |
+ * |----------------------|-----------------------------------------------------------|
+ * | drag the body        | move the unit — reorders the queue, then the reflow runs   |
+ * | drag the bottom edge | resize, but ONLY on a row the engine will not re-lay out   |
+ * | click                | open the job panel                                         |
+ * | hover                | the action bar: lock, stop the day here, split, delete     |
  *
  * The action bar is never behind a modifier key: "on a shop PC an Alt-drag would never
  * be discovered" (CLAUDE.md).
+ *
+ * WHY THE RESIZE EDGE IS SOMETIMES INERT (decided with the owner, 2026-08-11). A resize
+ * is a transfer of hours inside the job, so on an unlocked future weekday row — one in
+ * the movable pool — the very next reflow re-derives the job's segmentation from its
+ * total and undoes it. That is correct engine behaviour: it is what makes the calendar
+ * self-tidying. Offering the gesture there would be offering something that silently
+ * snaps back, so the edge is inert and its tooltip names the two things that DO work:
+ * put another job after it, or stop the day with a gap. `resizable` is the complement of
+ * the movable pool — a locked row, a past row and a weekend row all keep what they are
+ * given, and the past is exactly where "yesterday took longer than I noted" is recorded.
  *
  * Every visible string comes from public/locales, and every number goes through
  * `useFormat()` so "6 h" and "2,5 h" are spelled the same here as in the job panel.
  */
 
 import { useTranslation } from 'react-i18next';
-import { IconLock, IconLockOpen, IconScissors, IconTrash } from '@tabler/icons-react';
+import {
+  IconClockStop,
+  IconLock,
+  IconLockOpen,
+  IconScissors,
+  IconTrash,
+} from '@tabler/icons-react';
 import { IconButton } from '../ui';
 import { useFormat } from '../../lib/useFormat';
 import { MIN_LABEL_HEIGHT, type Timeline } from './geometry';
@@ -35,8 +51,14 @@ export interface CalendarBlockProps {
    * overflow or something the owner locked there.
    */
   overflow: boolean;
-  /** A past day: rendered read-only here. The job panel is where it stays editable. */
+  /** A past day: the hover bar is withheld, but the row stays editable by hand. */
   frozen: boolean;
+  /**
+   * The bottom edge accepts a resize. True exactly when the engine will not re-lay this
+   * row out: it is locked, in the frozen past, or on a weekend. On anything else the edge
+   * is inert and explains itself — see the file comment.
+   */
+  resizable: boolean;
   /** This unit is being dragged: the ghost shows the target, this stays put. */
   lifted: boolean;
   /** A mutation is in flight: the action bar locks so nothing is queued twice. */
@@ -45,6 +67,11 @@ export interface CalendarBlockProps {
   onPointerDownResize: (event: React.PointerEvent) => void;
   onOpen: () => void;
   onToggleLock: () => void;
+  /**
+   * "Stop the day here": a gap from the end of this row to the end of the day. Omitted
+   * when there is nothing left to close, or on a day auto-fill never touches.
+   */
+  onCloseDay?: () => void;
   onSplit: () => void;
   onDelete: () => void;
 }
@@ -55,12 +82,14 @@ export function CalendarBlock({
   lane,
   overflow,
   frozen,
+  resizable,
   lifted,
   busy,
   onPointerDownBody,
   onPointerDownResize,
   onOpen,
   onToggleLock,
+  onCloseDay,
   onSplit,
   onDelete,
 }: CalendarBlockProps): React.JSX.Element {
@@ -84,6 +113,10 @@ export function CalendarBlock({
     : overflow
       ? t('block.overflow', { hours: format.hourNumber(block.durationMinutes) })
       : format.hours(block.durationMinutes);
+
+  // Two short lines rather than one long one, joined the way the day header joins its
+  // own: what cannot be done here, then the two things that can.
+  const inertResizeHint = `${t('block.resizeFixedOnly')}\n${t('block.resizeAlternatives')}`;
 
   const classes = [
     styles.block,
@@ -148,6 +181,15 @@ export function CalendarBlock({
             disabled={busy}
             onClick={onToggleLock}
           />
+          {onCloseDay === undefined ? null : (
+            <IconButton
+              size="sm"
+              icon={<IconClockStop size={13} stroke={1.9} />}
+              label={t('block.closeDay')}
+              disabled={busy}
+              onClick={onCloseDay}
+            />
+          )}
           <IconButton
             size="sm"
             icon={<IconScissors size={13} stroke={1.9} />}
@@ -166,7 +208,7 @@ export function CalendarBlock({
         </div>
       )}
 
-      {isLast && !frozen ? (
+      {!isLast ? null : resizable ? (
         <div
           className={styles.resize}
           role="separator"
@@ -174,7 +216,20 @@ export function CalendarBlock({
           title={t('block.resizeHint')}
           onPointerDown={onPointerDownResize}
         />
-      ) : null}
+      ) : (
+        /*
+         * The same strip of edge, with no handle and no cursor of its own, so a press
+         * here falls through to the body and moves the unit like anywhere else. It only
+         * exists to answer the hover: this is the muscle memory the gesture used to have,
+         * so it has to say what replaced it instead of doing nothing.
+         */
+        <div
+          className={styles.resizeInert}
+          role="note"
+          aria-label={inertResizeHint}
+          title={inertResizeHint}
+        />
+      )}
     </div>
   );
 }

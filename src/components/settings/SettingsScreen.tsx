@@ -34,6 +34,7 @@ import {
   InlineBanner,
   NumberStepper,
   Select,
+  TimeSelect,
   useToast,
 } from '../ui';
 import { useLanguage } from '../I18nProvider';
@@ -44,7 +45,7 @@ import {
   isApiError,
   updateSettings,
 } from '../../lib/api-client';
-import { hoursToMinutes, minutesToHHmm } from '../../lib/dates';
+import { hoursToMinutes } from '../../lib/dates';
 import { useFormat } from '../../lib/useFormat';
 import type { Settings } from '../../types';
 import { DayTimelinePreview } from './DayTimelinePreview';
@@ -59,11 +60,9 @@ import {
   changedFields,
   draftIssues,
   hasIssues,
-  isValidTime,
   maxCapacityHours,
   minCapacityHours,
   shiftMinutesOf,
-  timeOptionMinutes,
   timelineOf,
 } from './shift';
 import {
@@ -509,27 +508,17 @@ interface TimeRowProps {
  * A native time input renders in the BROWSER's locale, not the page's: this same form
  * showed "08:00 AM" while the calendar next to it says "08:00–14:00". Times in this app
  * come from `useFormat().time()` precisely so that cannot happen, so the control shows
- * the same 24 h strings the grid does, in both languages.
+ * the same 24 h strings the grid does, in both languages. `TimeSelect` is that control,
+ * shared with the gap form and the split form.
  */
 function TimeRow({ label, value, error, disabled = false, onChange }: TimeRowProps): React.JSX.Element {
-  const format = useFormat();
-
-  const options = timeOptionMinutes(value).map((minutes) => ({
-    value: minutesToHHmm(minutes),
-    label: format.time(minutes),
-  }));
-  // A stored value that is not a time at all still has to be visible rather than
-  // silently replaced by whatever the list happens to start with.
-  if (!isValidTime(value)) options.unshift({ value, label: value });
-
   return (
     <Field label={label} inline error={error}>
-      <Select
+      <TimeSelect
         className={styles.timeSelect}
         value={value}
-        options={options}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={onChange}
       />
     </Field>
   );

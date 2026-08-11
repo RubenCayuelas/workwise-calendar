@@ -21,7 +21,16 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { IconScissors } from '@tabler/icons-react';
-import { Button, ColorDot, Field, InlineBanner, Input, NumberStepper, SidePanel } from '../ui';
+import {
+  Button,
+  ColorDot,
+  Field,
+  InlineBanner,
+  Input,
+  NumberStepper,
+  SidePanel,
+  TimeSelect,
+} from '../ui';
 import {
   apiErrorMessage,
   getProject,
@@ -226,8 +235,15 @@ export function SplitBlockPanel({
           No `min`: CLAUDE.md keeps the PAST frozen for the ENGINE only — "The user can
           still edit the past by hand at any time" — so a fragment may legitimately be
           sent to a day already gone, to record what the shop really did.
+
+          The day is echoed under the input in the page's own words: a native date input
+          orders its parts in the BROWSER's locale, and the two must not disagree.
         */}
-        <Field label={t('gapForm.date')} error={errorFor('date')}>
+        <Field
+          label={t('gapForm.date')}
+          error={errorFor('date')}
+          hint={isValidDate(date) ? format.longDate(date) : undefined}
+        >
           <Input
             type="date"
             value={date}
@@ -236,13 +252,10 @@ export function SplitBlockPanel({
           />
         </Field>
 
+        {/* Quarter hours, like the grid's snap — a native time input would draw
+            "08:00 AM" next to a calendar reading "08:00–14:00". */}
         <Field label={t('gapForm.startTime')} error={errorFor('startTime')}>
-          <Input
-            type="time"
-            value={startTime}
-            disabled={saving}
-            onChange={(event) => setStartTime(event.target.value)}
-          />
+          <TimeSelect value={startTime} disabled={saving} onChange={setStartTime} />
         </Field>
       </div>
 

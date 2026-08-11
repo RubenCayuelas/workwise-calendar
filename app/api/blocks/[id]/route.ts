@@ -4,13 +4,14 @@
  * PATCH  { action: "move",   date, startTime | startMinutes }
  * PATCH  { action: "resize", durationHours | durationMinutes }
  * PATCH  { action: "lock",   locked: boolean }
- *        -> { block, blocks, summary, touchedLockedBlockIds }
+ *        -> { block, blocks, summary, touchedLockedBlockIds,
+ *             mergedBlockIds, displacedProjectIds }
  * DELETE -> { deleted: true, projectId, summary }
  *
  * `action` is the discriminator because all three are edits of the same row and a
  * single endpoint keeps "one gesture, one request, one recomposition" obvious.
  *
- * Two things the UI must handle in the response:
+ * Three things the UI must handle in the response:
  *
  * - `block` is NULL when auto-merge absorbed the edited row into a neighbouring row
  *   of the same job. `blocks` — the job's rows as they now stand — is the answer in
@@ -18,6 +19,12 @@
  * - A MOVE does not pin the row. It sets the row's place in the queue, and the
  *   reflow then settles it contiguously after whatever precedes it. To nail a row to
  *   an exact time, follow the move with `action: "lock"`.
+ * - A MOVE onto the weekend or into the past lands where the reflow may not reach, so
+ *   an overlap there is resolved on the spot: `mergedBlockIds` lists rows of the same
+ *   job the drop absorbed (hours SUMMED, so 2 h onto a 2 h row is one 4 h row), and
+ *   `displacedProjectIds` lists jobs whose row was cut and pushed after the drop.
+ *   Both are empty for `resize` and `lock`. A drop onto a LOCKED row is refused with
+ *   409 `overlaps-locked-block` and nothing is written.
  *
  * DELETE removes those hours from the job, so `total_hours` drops by the row's
  * duration. Deleting a job's only row is refused (`delete-last-block`) — use

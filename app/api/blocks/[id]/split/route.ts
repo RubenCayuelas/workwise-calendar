@@ -2,7 +2,8 @@
  * `/api/blocks/:id/split` — the scissors: move a PORTION of a job out of this row.
  *
  * POST { durationHours | durationMinutes, date, startTime | startMinutes }
- *   -> { block, blocks, summary, touchedLockedBlockIds }
+ *   -> { block, blocks, summary, touchedLockedBlockIds,
+ *        mergedBlockIds, displacedProjectIds }
  *
  * The source row shrinks by that much, the portion becomes a new row of the same job
  * at the drop point, and `total_hours` does not change — no hours are created or
@@ -11,6 +12,12 @@
  *
  * `block` in the response is the SOURCE row (null if auto-merge absorbed it);
  * `blocks` is every row of the job afterwards, which is where the new fragment is.
+ *
+ * The FRAGMENT is the dropped row, so splitting onto a weekend the job already
+ * occupies MERGES the two into one row of the summed hours and reports the absorbed
+ * id in `mergedBlockIds`; splitting onto another job's weekend row cuts that row and
+ * lists it in `displacedProjectIds`; splitting onto a LOCKED row is refused with 409
+ * `overlaps-locked-block`.
  */
 
 import type { NextRequest } from 'next/server';

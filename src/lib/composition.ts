@@ -31,7 +31,15 @@
  */
 
 import type { Block, DayOverride, DayShape, Gap, WorkPeriod } from '../types';
-import { FRIDAY, addDays, compareDates, hoursToMinutes, isWeekend, weekdayOf } from './dates';
+import {
+  FRIDAY,
+  MINUTES_PER_DAY,
+  addDays,
+  compareDates,
+  hoursToMinutes,
+  isWeekend,
+  weekdayOf,
+} from './dates';
 
 /** The i18n key `compose` reports when the hours run past the planning horizon. */
 export const HORIZON_EXCEEDED_KEY = 'errors.horizonExceeded';
@@ -490,11 +498,19 @@ interface Segment {
   durationMinutes: number;
 }
 
-/** Everything the engine needs to know about one day, derived once and cached. */
-interface DayPlan {
+/**
+ * A day's index ruler, plus the date its clock times belong to — everything
+ * `toClockSegments` needs. Both `DayPlan` (auto-fill) and `ManualDayPlan` (a hand
+ * drop displacing somebody else's row) are one.
+ */
+interface ClockRuler {
   date: string;
-  role: DayRole;
   spans: PeriodSpan[];
+}
+
+/** Everything the engine needs to know about one day, derived once and cached. */
+interface DayPlan extends ClockRuler {
+  role: DayRole;
   workingMinutes: number;
   /** Unoccupied stretches of the index ruler. Two stretches are one run iff no obstacle separates them. */
   freeRuns: IndexRange[];
@@ -713,15 +729,15 @@ function takeUpTo(day: DayCursor, wanted: number): Segment[] {
  * boundary: a stored block is always a solid rectangle on the clock, so the two
  * halves around lunch are two rows of the same job.
  */
-function toClockSegments(plan: DayPlan, startIndex: number, minutes: number): Segment[] {
+function toClockSegments(ruler: ClockRuler, startIndex: number, minutes: number): Segment[] {
   const segments: Segment[] = [];
   const endIndex = startIndex + minutes;
-  for (const span of plan.spans) {
+  for (const span of ruler.spans) {
     const from = Math.max(startIndex, span.startIndex);
     const to = Math.min(endIndex, span.endIndex);
     if (to <= from) continue;
     segments.push({
-      date: plan.date,
+      date: ruler.date,
       startMinutes: span.startClock + (from - span.startIndex),
       durationMinutes: to - from,
     });
@@ -1054,6 +1070,395 @@ export function findGapConflicts(
   }
 
   return conflicts;
+}
+
+// ---------------------------------------------------------------------------
+// Manual placement — the overlap a drop creates
+// ---------------------------------------------------------------------------
+//
+// `compose` cannot repair every overlap, and that is deliberate. Rows OUTSIDE the
+// movable pool (locked, past, weekend) come back exactly as they went in, so two of
+// them can sit on top of each other for ever: noticing would mean rewriting a
+// placement the engine did not make, which is the one thing rule 6 forbids.
+//
+// A hand drop is what creates such an overlap. Drop 2 h on a Saturday that already
+// holds a row of the same job and BOTH rows are outside the pool the instant they
+// are written — verified: the two rows overlapped by an hour, the hours invariant
+// held, and the grid drew them as two side-by-side lanes with no warning.
+//
+// Two rules, decided with the owner:
+//
+//  - SAME JOB    -> one row, `start = min(starts)` and `duration = SUM(durations)`.
+//                   Sat 09:00-11:00 plus a 2 h drop at 10:00 is 09:00-13:00, 4 h.
+//                   NOT the interval union (09:00-12:00) — that would quietly eat
+//                   an hour of the owner's work.
+//  - OTHER JOB   -> cut the row the drop lands in and push its tail after the drop.
+//                   A 09:00-11:00 with B dropped at 10:00-11:00 becomes
+//                   A 09:00-10:00, B 10:00-11:00, A 11:00-12:00. A keeps its 2 h.
+//                   "If the user does not want it, they move it again."
+//
+// THIS IS NOT RULE 12's AUTO-MERGE, and the two must stay apart. `mergeTouchingRows`
+// joins rows of one job that TOUCH inside one period on one day, and it never runs
+// on the weekend or the past, because tidying those would undo a human decision.
+// What follows resolves an OVERLAP a human just created, on any day including the
+// weekend, and only around the row that was dropped. Collapsing the two mechanisms
+// would reintroduce exactly the weekend tidying the engine avoids.
+//
+// A LOCKED row is never cut, grown or absorbed: "a locked block is never grown or
+// shrunk silently", so a drop that lands on one is refused with the row named — the
+// same answer `findGapConflicts` gives a gap over a lock. A merge is refused even
+// when the LOCK IS THE DROP'S OWN, because it would move the lock's start; a cut is
+// not, because the lock keeps the exact slot the owner dropped it into and only the
+// other job moves.
+
+export type ManualPlacementErrorCode =
+  | 'unknown-block'
+  | 'overlaps-locked-block'
+  | 'merge-exceeds-day'
+  | 'displaced-hours-unplaceable';
+
+/** i18n keys for the refusals. Translations live in public/locales. */
+export const MANUAL_PLACEMENT_MESSAGE_KEYS: Record<ManualPlacementErrorCode, string> = {
+  'unknown-block': 'errors.unknownBlock',
+  'overlaps-locked-block': 'errors.dropOverLockedBlock',
+  'merge-exceeds-day': 'errors.mergeExceedsDay',
+  'displaced-hours-unplaceable': 'errors.displacedHoursUnplaceable',
+};
+
+export interface ManualPlacementError {
+  code: ManualPlacementErrorCode;
+  /** i18n key, never a translated sentence. */
+  messageKey: string;
+  /** The row the drop collided with, when the refusal is about one. */
+  blockId?: string;
+  projectId?: string;
+  date?: string;
+  startMinutes?: number;
+  durationMinutes?: number;
+}
+
+export interface ManualPlacementSuccess {
+  ok: true;
+  /** The calendar with the overlap resolved, ready to hand straight to `compose`. */
+  blocks: Block[];
+  /**
+   * The id the dropped hours ended up on. It is the id that was passed in, EXCEPT
+   * after a merge, where the earlier row survives and the dropped row's id is in
+   * `mergedBlockIds`. Resolving the same drop again is a no-op — that is the
+   * property that says no overlap was left behind.
+   */
+  placedBlockId: string;
+  /**
+   * Rows of the SAME job the dropped row absorbed. They are gone from `blocks`, so
+   * the caller must DELETE them; the id of the surviving row is the earlier one, so
+   * a merge is an UPDATE plus a DELETE rather than two writes and an INSERT.
+   */
+  mergedBlockIds: string[];
+  /**
+   * Jobs whose row was cut in two so the dropped row could keep the slot. Their
+   * totals are untouched — the tail carries exactly the hours the head lost — but
+   * the owner is told, because a displaced job is a decision they may want to undo.
+   */
+  displacedProjectIds: string[];
+}
+
+export interface ManualPlacementFailure {
+  ok: false;
+  error: ManualPlacementError;
+}
+
+export type ManualPlacementResult = ManualPlacementSuccess | ManualPlacementFailure;
+
+export interface ManualPlacement {
+  /** The row the human just dropped. Must already be present in `input.blocks`. */
+  blockId: string;
+  /** `created_at` / `updated_at` for a row the resolution has to create. */
+  now: string;
+  /** Ids for the rows a displaced tail needs. Called once per row created. */
+  newBlockId: () => string;
+}
+
+/**
+ * Resolves the overlap a hand drop created, leaving a calendar `compose` can take.
+ *
+ * Nothing happens while the dropped row is in the movable pool: the reflow settles
+ * it and a reflowed row never overlaps anything, so there is nothing to repair. In
+ * practice that means this only ever acts on the weekend and the frozen past —
+ * the two places the engine keeps its hands off — plus refusing when a lock is in
+ * the way.
+ *
+ * Every branch conserves hours, so `SUM(blocks.duration) == projects.total_hours`
+ * holds for every touched project by construction rather than by inspection.
+ */
+export function resolveManualPlacement(
+  input: ComposeInput,
+  placement: ManualPlacement,
+): ManualPlacementResult {
+  const draft = input.blocks.map(cloneBlock);
+  let placed = draft.find((block) => block.id === placement.blockId);
+  if (placed === undefined) {
+    return manualFailure('unknown-block', { blockId: placement.blockId });
+  }
+  if (isMovable(placed, input.today)) {
+    return {
+      ok: true,
+      blocks: draft,
+      placedBlockId: placed.id,
+      mergedBlockIds: [],
+      displacedProjectIds: [],
+    };
+  }
+
+  const mergedBlockIds: string[] = [];
+  const displacedProjectIds: string[] = [];
+
+  // 1. Same job: fold every overlapping row into one. Re-checked after each fold
+  //    because the survivor is longer than either row was, so it can reach a row
+  //    neither of them touched.
+  for (;;) {
+    const other = fixedOverlaps(draft, placed, input.today, true)[0];
+    if (other === undefined) break;
+    if (other.locked || placed.locked) {
+      return manualFailure('overlaps-locked-block', other.locked ? other : placed);
+    }
+
+    // SUM, NOT UNION. `min(start) + (a + b)` keeps every hour; the union of the two
+    // intervals would silently drop the hour they share. The result is ONE row even
+    // when it ends up spanning the lunch break, which is the same latitude every hand
+    // drop already has on a day the engine does not fill — the alternative would be
+    // to re-cut it into segments and answer a merge with two rows again.
+    const startMinutes = Math.min(other.startMinutes, placed.startMinutes);
+    const durationMinutes = other.durationMinutes + placed.durationMinutes;
+    if (startMinutes + durationMinutes > MINUTES_PER_DAY) {
+      // A row is a solid rectangle inside ONE day; there is nowhere to put the rest.
+      return manualFailure('merge-exceeds-day', placed);
+    }
+
+    // The earlier row survives, so the write is an UPDATE rather than a DELETE and
+    // an INSERT — the same convention as rule 12's `mergeTouchingRows`.
+    const [survivor, absorbed] = sortedByQueueRank([other, placed]);
+    survivor.startMinutes = startMinutes;
+    survivor.durationMinutes = durationMinutes;
+    draft.splice(draft.indexOf(absorbed), 1);
+    mergedBlockIds.push(absorbed.id);
+    placed = survivor;
+  }
+
+  // 2. Another job: cut every row the drop lands in, then re-lay their tails after
+  //    it, in the order they were cut. Two passes rather than one, so the space the
+  //    cuts free up is available to all of them: cutting and pushing one row at a
+  //    time would make the first tail hop over a row the second cut was about to
+  //    remove, and the jobs would come out interleaved on the clock.
+  const victims = fixedOverlaps(draft, placed, input.today, false);
+  const locked = victims.find((victim) => victim.locked);
+  if (locked !== undefined) return manualFailure('overlaps-locked-block', locked);
+
+  const tails: Array<{ victim: Block; minutes: number; spareIds: string[] }> = [];
+  for (const victim of victims) {
+    const headMinutes = Math.max(0, placed.startMinutes - victim.startMinutes);
+    const minutes = victim.durationMinutes - headMinutes;
+    const spareIds: string[] = [];
+    if (headMinutes > 0) {
+      victim.durationMinutes = headMinutes;
+    } else {
+      // The drop covers the row from its very start: nothing is left in front, so
+      // the row's id is free for the first row of its tail.
+      draft.splice(draft.indexOf(victim), 1);
+      spareIds.push(victim.id);
+    }
+    tails.push({ victim, minutes, spareIds });
+  }
+
+  const afterClock = placed.startMinutes + placed.durationMinutes;
+  for (const tail of tails) {
+    const pushed = pushDisplacedMinutes(input, draft, {
+      date: tail.victim.date,
+      afterClock,
+      minutes: tail.minutes,
+    });
+    if (pushed === null) return manualFailure('displaced-hours-unplaceable', tail.victim);
+
+    for (const segment of pushed) {
+      draft.push({
+        id: tail.spareIds.pop() ?? placement.newBlockId(),
+        projectId: tail.victim.projectId,
+        date: segment.date,
+        startMinutes: segment.startMinutes,
+        durationMinutes: segment.durationMinutes,
+        // Never locked: a locked victim was refused above, so there is no lock here
+        // to inherit, and a tail the engine just placed must stay in the pool.
+        locked: false,
+        createdAt: placement.now,
+        updatedAt: placement.now,
+      });
+    }
+    if (!displacedProjectIds.includes(tail.victim.projectId)) {
+      displacedProjectIds.push(tail.victim.projectId);
+    }
+  }
+
+  return { ok: true, blocks: draft, placedBlockId: placed.id, mergedBlockIds, displacedProjectIds };
+}
+
+// ---------------------------------------------------------------------------
+// Internals — manual placement
+// ---------------------------------------------------------------------------
+
+/**
+ * The rows, in queue order, that overlap `placed` and that `compose` will NOT
+ * repair. Movable rows are ignored on purpose: the reflow moves them out of the way,
+ * so treating one as a collision would cut a job for nothing.
+ */
+function fixedOverlaps(
+  draft: readonly Block[],
+  placed: Block,
+  today: string,
+  sameProject: boolean,
+): Block[] {
+  return sortedByQueueRank(draft).filter(
+    (row) =>
+      row.id !== placed.id &&
+      (row.projectId === placed.projectId) === sameProject &&
+      row.date === placed.date &&
+      !isMovable(row, today) &&
+      overlapMinutes(row, placed) > 0,
+  );
+}
+
+/** Minutes two rows share on the clock. Zero when they merely touch. */
+function overlapMinutes(a: Block, b: Block): number {
+  if (a.date !== b.date) return 0;
+  return (
+    Math.min(a.startMinutes + a.durationMinutes, b.startMinutes + b.durationMinutes) -
+    Math.max(a.startMinutes, b.startMinutes)
+  );
+}
+
+/**
+ * One day as MANUAL placement sees it. `buildDayPlan` answers "what may the engine
+ * fill here" and says zero for a weekend; this answers "where could these hours
+ * physically go", which is the question once a drop has displaced somebody else's
+ * row on a day the engine never fills.
+ */
+interface ManualDayPlan extends ClockRuler {
+  workingMinutes: number;
+  freeRuns: IndexRange[];
+}
+
+function buildManualDayPlan(input: ComposeInput, date: string, blocks: readonly Block[]): ManualDayPlan {
+  const config = input.getDayConfig(date);
+  const { spans, workingMinutes } = buildPeriodSpans(config.periods);
+  if (config.isClosed) return { date, spans, workingMinutes, freeRuns: [] };
+
+  // Every row on the day counts, movable or not: displaced hours must not land on
+  // top of what the owner can currently see, and a row that the reflow later moves
+  // only ever gave the tail a later place in the queue.
+  const obstacles: IndexRange[] = [];
+  for (const gap of input.gaps) {
+    if (gap.date !== date) continue;
+    obstacles.push(...toIndexRanges(spans, gap.startMinutes, gap.startMinutes + gap.durationMinutes));
+  }
+  for (const block of blocks) {
+    if (block.date !== date) continue;
+    obstacles.push(...toIndexRanges(spans, block.startMinutes, block.startMinutes + block.durationMinutes));
+  }
+
+  return { date, spans, workingMinutes, freeRuns: freeRangesOf(mergeRanges(obstacles), workingMinutes) };
+}
+
+/** The first working minute at or after `clock`, as an index. Snaps over lunch and the margins. */
+function indexAtOrAfter(plan: ManualDayPlan, clock: number): number {
+  for (const span of plan.spans) {
+    if (clock <= span.startClock) return span.startIndex;
+    const spanEndClock = span.startClock + (span.endIndex - span.startIndex);
+    if (clock < spanEndClock) return span.startIndex + (clock - span.startClock);
+  }
+  return plan.workingMinutes;
+}
+
+interface DisplacedHours {
+  date: string;
+  /** The clock minute the tail must start at or after — the end of the dropped row. */
+  afterClock: number;
+  minutes: number;
+}
+
+/**
+ * Places the tail of a cut row: from the drop's end, forward only, in the free
+ * working time of the day, then chaining into following days exactly as overflow
+ * does. `null` when the hours do not fit before the planning horizon.
+ *
+ * `toClockSegments` cuts the tail at every period boundary, so neither the head nor
+ * the tail ever straddles a non-working interval — pushing 3 h past 13:00 gives
+ * 13:00-14:00 and 15:30-17:30, two rows of one job, exactly as auto-fill would.
+ */
+function pushDisplacedMinutes(
+  input: ComposeInput,
+  draft: readonly Block[],
+  displaced: DisplacedHours,
+): Segment[] | null {
+  const horizon = horizonEndDate(input.today, input.planningHorizonWeeks);
+  const onWeekend = isWeekend(displaced.date);
+  const segments: Segment[] = [];
+  let remaining = displaced.minutes;
+  let date = displaced.date;
+  let first = true;
+
+  while (remaining > 0) {
+    if (!first && compareDates(date, horizon) > 0) return null;
+    const plan = buildManualDayPlan(input, date, draft);
+    const from = first ? indexAtOrAfter(plan, displaced.afterClock) : 0;
+    for (const run of plan.freeRuns) {
+      if (remaining <= 0) break;
+      const start = Math.max(run.start, from);
+      const available = run.end - start;
+      if (available <= 0) continue;
+      const chunk = Math.min(available, remaining);
+      segments.push(...toClockSegments(plan, start, chunk));
+      remaining -= chunk;
+    }
+    if (remaining <= 0) break;
+    date = nextManualDate(date, onWeekend);
+    first = false;
+  }
+
+  return mergeTouchingSegments(segments);
+}
+
+/**
+ * The next day displaced hours may use.
+ *
+ * A weekend tail STAYS ON THE WEEKEND. The engine never moves weekend work, so
+ * carrying Saturday's remainder onto Monday would be the engine deciding the shop
+ * does not work Saturdays after all — the owner put those hours there.
+ *
+ * Everything else walks the weekdays, skipping the weekend and the Friday buffer:
+ * a row displaced by somebody else's drop is not growth, and the colchón belongs
+ * to growth alone (rule 5).
+ */
+function nextManualDate(date: string, onWeekend: boolean): string {
+  let next = addDays(date, 1);
+  while (onWeekend ? !isWeekend(next) : isWeekend(next) || weekdayOf(next) === FRIDAY) {
+    next = addDays(next, 1);
+  }
+  return next;
+}
+
+function manualFailure(
+  code: ManualPlacementErrorCode,
+  about: Block | { blockId: string },
+): ManualPlacementFailure {
+  const details =
+    'blockId' in about
+      ? { blockId: about.blockId }
+      : {
+          blockId: about.id,
+          projectId: about.projectId,
+          date: about.date,
+          startMinutes: about.startMinutes,
+          durationMinutes: about.durationMinutes,
+        };
+  return { ok: false, error: { code, messageKey: MANUAL_PLACEMENT_MESSAGE_KEYS[code], ...details } };
 }
 
 // ---------------------------------------------------------------------------

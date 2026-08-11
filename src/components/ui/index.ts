@@ -31,6 +31,13 @@ export {
   type SelectProps,
   type TextareaProps,
 } from './Field';
+export { TimeSelect, type TimeSelectProps } from './TimeSelect';
+export {
+  TIME_STEP_MINUTES,
+  clockMinutes,
+  timeOptionMinutes,
+  type TimeOptionsRange,
+} from './timeOptions';
 export { ColorSwatches, type ColorSwatchesProps } from './ColorSwatches';
 export { ColorDot, SidePanel, type SidePanelProps } from './SidePanel';
 export { ConfirmDialog, type ConfirmDialogProps } from './ConfirmDialog';

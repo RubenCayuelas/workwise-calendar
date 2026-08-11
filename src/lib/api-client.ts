@@ -56,6 +56,21 @@ export interface BlockMutation {
   blocks: Block[];
   summary: ScheduleSummary;
   touchedLockedBlockIds: string[];
+  /**
+   * Rows of the dropped row's OWN job that the drop absorbed, because it overlapped
+   * them where the reflow may not reach (the weekend, the frozen past). The hours
+   * were SUMMED — Sat 09:00-11:00 plus a 2 h drop at 10:00 is one 09:00-13:00 row —
+   * so nothing was lost, but the ids listed here no longer exist. Show
+   * `notices.mergedOverlap` with `count`. Empty for anything that is not a drop.
+   */
+  mergedBlockIds: string[];
+  /**
+   * Jobs whose row the drop cut in two, its tail pushed to just after the dropped
+   * row. Their totals are unchanged. Show `notices.displacedBlocks` with `count` and
+   * a `names` list — the owner's rule is "if the user does not want it, they move it
+   * again", which only works if they are told.
+   */
+  displacedProjectIds: string[];
 }
 
 export interface GapMutation {

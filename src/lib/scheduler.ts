@@ -25,18 +25,21 @@
  */
 
 import { getDb, type Db } from './db';
-import { todayLocal } from './dates';
+import { minutesToHHmm, todayLocal } from './dates';
 import {
   compose,
   createDayConfigResolver,
   plannableMinutes,
+  resolveManualPlacement,
   summarizeSchedule,
   type ComposeInput,
   type DayConfig,
+  type ManualPlacementError,
   type ScheduleSummary,
 } from './composition';
-import { conflict, internal, ERROR_MESSAGE_KEYS } from './errors';
+import { conflict, internal, ERROR_MESSAGE_KEYS, type AppError } from './errors';
 import { newId } from './ids';
+import { nowTimestamp } from './timestamps';
 import { dayShapeFromSettings, readSettings } from './settings';
 import {
   blockMinutesByProject,
@@ -48,7 +51,7 @@ import {
 } from './repositories/blocks';
 import { listGaps } from './repositories/gaps';
 import { listDayOverrides } from './repositories/dayOverrides';
-import { totalMinutesByProject } from './repositories/projects';
+import { findProject, totalMinutesByProject } from './repositories/projects';
 import type { Block, DayShape, Gap, Settings } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -150,6 +153,18 @@ export interface RecomposeOptions extends RecomposeIntent {
   blocks?: readonly Block[];
   /** Rows an edit transform already resolved to delete (a row that reached zero). */
   deletedBlockIds?: readonly string[];
+  /**
+   * The row a human just DROPPED, when this recomposition is a placement gesture
+   * (`moveBlock`, `splitBlock`). Overlaps it created are resolved by
+   * `resolveManualPlacement` before the reflow, in this same transaction: same job
+   * merges into one row keeping every hour, another job is cut and its tail pushed
+   * after the drop, and a locked row is refused rather than overlapped.
+   *
+   * Leave it out for every other operation. It must not be a general pass over the
+   * calendar: two fixed rows that were ALREADY overlapping are somebody's decision,
+   * and tidying them on an unrelated save is exactly what rule 6 forbids.
+   */
+  manualPlacementBlockId?: string;
 }
 
 export interface RecomposeReport {
@@ -159,6 +174,10 @@ export interface RecomposeReport {
   insertedBlockIds: string[];
   updatedBlockIds: string[];
   deletedBlockIds: string[];
+  /** Rows of the dropped row's own job that were absorbed into it. */
+  mergedBlockIds: string[];
+  /** Jobs whose row the drop cut in two. Their totals are unchanged. */
+  displacedProjectIds: string[];
   /** The header strip's arithmetic, recomputed from what was just written. */
   summary: ScheduleSummary;
 }
@@ -185,7 +204,7 @@ export function recompose(db: Db, options: RecomposeOptions = {}): RecomposeRepo
   const source = options.blocks ?? [...stored.values()];
   const blocks = source.filter((block) => !dropped.has(block.id));
 
-  const input: ComposeInput = {
+  const snapshot: ComposeInput = {
     today,
     blocks,
     gaps: listGaps(db),
@@ -194,6 +213,13 @@ export function recompose(db: Db, options: RecomposeOptions = {}): RecomposeRepo
     newProjectIds: options.newProjectIds,
     grownProjectIds: options.grownProjectIds,
   };
+
+  // A drop can leave two rows the reflow is forbidden to move sitting on top of each
+  // other, so the overlap is resolved BEFORE composing, inside this same
+  // transaction. `compose` then gets a calendar with no overlap left that it would
+  // be unable to fix.
+  const resolved = resolvePlacement(db, snapshot, options.manualPlacementBlockId);
+  const input: ComposeInput = { ...snapshot, blocks: resolved.blocks };
 
   const result = compose(input);
   if (!result.ok) {
@@ -260,6 +286,8 @@ export function recompose(db: Db, options: RecomposeOptions = {}): RecomposeRepo
       insertedBlockIds,
       updatedBlockIds,
       deletedBlockIds: removedBlockIds,
+      mergedBlockIds: resolved.mergedBlockIds,
+      displacedProjectIds: resolved.displacedProjectIds,
       summary: summarizeSchedule(written, today),
     };
   });
@@ -329,6 +357,64 @@ export function readSummary(db: Db = getDb(), today: string = todayLocal()): Sch
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+/**
+ * The manual-overlap half of a placement gesture, as a value `recompose` can splice
+ * into its snapshot. Without a dropped row it is the identity, which is what keeps
+ * every other operation from tidying overlaps it did not create.
+ *
+ * A refusal is thrown rather than returned, because the caller is already inside a
+ * transaction and a throw is what rolls it back.
+ */
+function resolvePlacement(
+  db: Db,
+  snapshot: ComposeInput,
+  manualPlacementBlockId: string | undefined,
+): { blocks: readonly Block[]; mergedBlockIds: string[]; displacedProjectIds: string[] } {
+  if (manualPlacementBlockId === undefined) {
+    return { blocks: snapshot.blocks, mergedBlockIds: [], displacedProjectIds: [] };
+  }
+
+  const result = resolveManualPlacement(snapshot, {
+    blockId: manualPlacementBlockId,
+    now: nowTimestamp(),
+    newBlockId: newId,
+  });
+
+  if (!result.ok) throw placementRefusal(db, result.error);
+
+  return {
+    blocks: result.blocks,
+    mergedBlockIds: result.mergedBlockIds,
+    displacedProjectIds: result.displacedProjectIds,
+  };
+}
+
+/**
+ * A placement refusal, with everything its translation interpolates.
+ *
+ * The engine reports the row in machine terms (`projectId`, minutes from midnight)
+ * because it may not read the database or invent prose; the sentence the owner sees
+ * names the job and the hours. Exactly the shape `assertGapFits` builds for a gap
+ * over a locked block, so the two refusals read alike.
+ */
+function placementRefusal(db: Db, error: ManualPlacementError): AppError {
+  const project = error.projectId === undefined ? undefined : findProject(error.projectId, db);
+  return conflict(error.code, error.messageKey, {
+    details: {
+      ...(error.blockId === undefined ? {} : { blockId: error.blockId }),
+      ...(error.projectId === undefined ? {} : { projectId: error.projectId }),
+      ...(error.date === undefined ? {} : { date: error.date }),
+      projectName: project?.name ?? '',
+      ...(error.startMinutes === undefined
+        ? {}
+        : {
+            startTime: minutesToHHmm(error.startMinutes),
+            endTime: minutesToHHmm(error.startMinutes + (error.durationMinutes ?? 0)),
+          }),
+    },
+  });
+}
 
 /** True when the engine placed a row somewhere other than where it was stored. */
 function hasMoved(current: Block, placement: BlockPlacement): boolean {

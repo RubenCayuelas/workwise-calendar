@@ -74,10 +74,12 @@ export default function HomePage(): React.JSX.Element {
           onChanged={onChanged}
         />
       )}
-      renderGapForm={({ gap, close, onChanged, today, shape, gapColor, defaultDate }) => (
+      renderGapForm={({ gap, closeDay, close, onChanged, today, shape, gapColor, defaultDate }) => (
         <GapPanel
           open
           gap={gap ?? undefined}
+          // "Stop the day here" is the same gap, pre-filled: same panel, same endpoint.
+          closeDay={closeDay ?? undefined}
           today={today}
           shape={shape}
           gapColor={gapColor}

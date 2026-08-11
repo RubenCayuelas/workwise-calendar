@@ -39,6 +39,7 @@ import {
   type WeekView,
 } from '../../lib/api-client';
 import type { DayShape, Gap } from '../../types';
+import type { CloseDayRequest } from '../../lib/closeDay';
 import { PROJECT_COLORS } from '../../lib/projectColors';
 import { rankFor, createTimeline, type GridMetrics } from './geometry';
 import { SummaryStrip } from './SummaryStrip';
@@ -75,6 +76,12 @@ export interface NewJobContext {
 export interface GapFormContext {
   /** The gap being edited, or `null` for a new one. */
   gap: Gap | null;
+  /**
+   * Set when the owner asked to stop a day early from a block's action bar: the gap is
+   * already worked out (from that moment to the end of the day) and the form only has to
+   * ask for the reason. `null` for the ordinary `Nuevo hueco` form.
+   */
+  closeDay: CloseDayRequest | null;
   close: () => void;
   onChanged: () => void;
   today: string;
@@ -117,7 +124,9 @@ export function CalendarScreen({
 
   const [openJobId, setOpenJobId] = useState<string | null>(null);
   const [newJobOpen, setNewJobOpen] = useState(false);
-  const [gapTarget, setGapTarget] = useState<{ gap: Gap | null } | null>(null);
+  const [gapTarget, setGapTarget] = useState<{ gap: Gap | null; closeDay?: CloseDayRequest } | null>(
+    null,
+  );
   const [splitSource, setSplitSource] = useState<WeekBlock | null>(null);
   const [placing, setPlacing] = useState<PlacingFragment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ block: WeekBlock; totalMinutes: number } | null>(null);
@@ -156,11 +165,35 @@ export function CalendarScreen({
     [],
   );
 
+  /**
+   * The honest consequences of a gesture, none of which the grid can show by itself.
+   *
+   * All three are things the server did that the owner did not ask for in so many words:
+   * a locked row adjusted (never silent, CLAUDE.md), an overlapping drop folded into one
+   * row of the same job (the hours were summed, so nothing was lost but an id is gone),
+   * and another job cut so the drop could have the slot — "if the user does not want it,
+   * they move it again" only works if they are told it happened.
+   */
   const report = useCallback(
     (result: BlockMutation | undefined): void => {
       if (result === undefined) return;
-      const count = result.touchedLockedBlockIds.length;
-      if (count > 0) toast.warning(t('notices.touchedLockedBlocks', { count }));
+
+      const touched = result.touchedLockedBlockIds.length;
+      if (touched > 0) toast.warning(t('notices.touchedLockedBlocks', { count: touched }));
+
+      const merged = result.mergedBlockIds.length;
+      if (merged > 0) toast.info(t('notices.mergedOverlap', { count: merged }));
+
+      if (result.displacedProjectIds.length > 0) {
+        const names = jobNames(result.displacedProjectIds, viewRef.current);
+        // A name that cannot be resolved would leave the sentence naming nothing, and the
+        // calendar behind the toast already shows the move. Say it only when it can name.
+        if (names.length > 0) {
+          toast.info(
+            t('notices.displacedBlocks', { count: names.length, names: names.join(', ') }),
+          );
+        }
+      }
     },
     [t, toast],
   );
@@ -394,6 +427,13 @@ export function CalendarScreen({
                 onPlace={onPlace}
                 onOpenJob={setOpenJobId}
                 onOpenGap={renderGapForm === undefined ? undefined : (gap) => setGapTarget({ gap })}
+                onCloseDay={
+                  renderGapForm === undefined
+                    ? undefined
+                    : // A gap IS how a day stops early, so the action opens the gap form
+                      // with everything but the reason already filled in.
+                      (closeDay) => setGapTarget({ gap: null, closeDay })
+                }
                 onToggleLock={onToggleLock}
                 onSplit={onSplit}
                 onDelete={onDelete}
@@ -480,6 +520,7 @@ export function CalendarScreen({
             ? null
             : renderGapForm({
                 gap: gapTarget.gap,
+                closeDay: gapTarget.closeDay ?? null,
                 close: () => setGapTarget(null),
                 onChanged: week.reload,
                 today: view.today,
@@ -519,6 +560,16 @@ const FALLBACK_TIMELINE = createTimeline({
 
 /** The sticky day-header row plus the frame's hairlines, which are not timeline. */
 const DAY_HEADER_ALLOWANCE = 46;
+
+/** The names behind a list of job ids, from the week on screen, without repeats. */
+function jobNames(projectIds: readonly string[], view: WeekView | null): string[] {
+  const names: string[] = [];
+  for (const projectId of projectIds) {
+    const name = view?.blocks.find((block) => block.projectId === projectId)?.project.name;
+    if (name !== undefined && name !== '' && !names.includes(name)) names.push(name);
+  }
+  return names;
+}
 
 /**
  * The swatch with the fewest hours on the week, ties broken by the palette's order.

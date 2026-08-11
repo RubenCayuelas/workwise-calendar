@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import es from '../../public/locales/es/common.json';
 import en from '../../public/locales/en/common.json';
-import { EDIT_MESSAGE_KEYS, HORIZON_EXCEEDED_KEY } from './composition';
+import { EDIT_MESSAGE_KEYS, HORIZON_EXCEEDED_KEY, MANUAL_PLACEMENT_MESSAGE_KEYS } from './composition';
 import { ERROR_MESSAGE_KEYS } from './errors';
 
 type Json = { [key: string]: string | Json };
@@ -46,6 +46,7 @@ describe('locale files', () => {
     const emitted = [
       ...Object.values(ERROR_MESSAGE_KEYS),
       ...Object.values(EDIT_MESSAGE_KEYS),
+      ...Object.values(MANUAL_PLACEMENT_MESSAGE_KEYS),
       HORIZON_EXCEEDED_KEY,
     ];
     for (const key of new Set(emitted)) {

@@ -16,7 +16,8 @@
  * `workPeriodsOf`, `capCapacity`, `dayShapeFromSettings`.
  */
 
-import { MINUTES_PER_DAY, hhmmToMinutes, hoursToMinutes, minutesToHours } from '../../lib/dates';
+import { MINUTES_PER_DAY, hoursToMinutes, minutesToHours } from '../../lib/dates';
+import { clockMinutes } from '../ui/timeOptions';
 import type { Settings, WorkPeriod } from '../../types';
 
 /** Visual margins: 0-2 hours each (src/lib/settings.ts MIN/MAX_MARGIN_HOURS). */
@@ -29,9 +30,6 @@ export const HORIZON_MAX_WEEKS = 104;
 
 /** Half an hour: the smallest amount the shop plans in. */
 export const HOUR_STEP = 0.5;
-
-/** The grid the period times are chosen on: every quarter of an hour. */
-export const TIME_OPTION_STEP_MINUTES = 15;
 
 /** Every key of `Settings`, in the order the form shows them. */
 export const SETTINGS_KEYS: readonly (keyof Settings)[] = [
@@ -53,42 +51,18 @@ const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 // Times
 // ---------------------------------------------------------------------------
 
-/** Minutes from midnight, or `undefined` while the input holds something unusable. */
+/**
+ * Minutes from midnight, or `undefined` while the input holds something unusable.
+ *
+ * The parse itself lives with the time control (`src/components/ui/timeOptions.ts`),
+ * which is where the option list is built from it — one safe parse for the whole UI.
+ */
 export function timeMinutes(value: string): number | undefined {
-  try {
-    return hhmmToMinutes(value);
-  } catch {
-    // A cleared `<input type="time">` reports "", and a half-typed value is normal
-    // mid-keystroke. Neither is an error to shout about — it just cannot be derived from.
-    return undefined;
-  }
+  return clockMinutes(value);
 }
 
 export function isValidTime(value: string): boolean {
   return timeMinutes(value) !== undefined;
-}
-
-/**
- * The choices a period-time control offers: every quarter hour of the day, plus the
- * current value when it does not sit on that grid.
- *
- * That last part matters. `settings` is a hand-editable key/value table, so a stored
- * `08:10` is possible; dropping it from the list would make simply opening the Settings
- * screen and saving anything quietly move the start of the workshop's day.
- */
-export function timeOptionMinutes(current: string): number[] {
-  const options: number[] = [];
-  for (let minutes = 0; minutes < MINUTES_PER_DAY; minutes += TIME_OPTION_STEP_MINUTES) {
-    options.push(minutes);
-  }
-
-  const exact = timeMinutes(current);
-  if (exact !== undefined && !options.includes(exact)) {
-    options.push(exact);
-    options.sort((a, b) => a - b);
-  }
-
-  return options;
 }
 
 export function isValidColor(value: string): boolean {
