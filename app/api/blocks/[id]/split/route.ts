@@ -1,0 +1,40 @@
+/**
+ * `/api/blocks/:id/split` — the scissors: move a PORTION of a job out of this row.
+ *
+ * POST { durationHours | durationMinutes, date, startTime | startMinutes }
+ *   -> { block, blocks, summary, touchedLockedBlockIds }
+ *
+ * The source row shrinks by that much, the portion becomes a new row of the same job
+ * at the drop point, and `total_hours` does not change — no hours are created or
+ * destroyed. Asking for the whole row is refused (`split-exceeds-block`): moving an
+ * entire block is `PATCH /api/blocks/:id` with `action: "move"`.
+ *
+ * `block` in the response is the SOURCE row (null if auto-merge absorbed it);
+ * `blocks` is every row of the job afterwards, which is where the new fragment is.
+ */
+
+import type { NextRequest } from 'next/server';
+import {
+  readJsonBody,
+  requireDate,
+  requireDurationMinutes,
+  requireStartMinutes,
+  route,
+} from '@/src/lib/api';
+import { splitBlock } from '@/src/lib/operations/blocks';
+
+export const dynamic = 'force-dynamic';
+
+type Context = { params: Promise<{ id: string }> };
+
+export async function POST(request: NextRequest, context: Context): Promise<Response> {
+  return route(async () => {
+    const { id } = await context.params;
+    const body = await readJsonBody(request);
+    return splitBlock(id, {
+      durationMinutes: requireDurationMinutes(body),
+      date: requireDate(body),
+      startMinutes: requireStartMinutes(body),
+    });
+  });
+}

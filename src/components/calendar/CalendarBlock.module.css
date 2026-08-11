@@ -1,0 +1,164 @@
+/*
+ * One row of a job on the grid.
+ *
+ * The wireframe's painting, which app/globals.css already owns: `--ww-block-color` is
+ * set from the job's colour and `--ww-block-tint` follows it, so the fill is a soft
+ * tint and the border the saturated colour. No literal colour appears here.
+ *
+ * A job split around the lunch break is two rows drawn as ONE unit: `.first` rounds the
+ * top, `.last` rounds the bottom, and a continuation's dashed top edge says it carries
+ * on from above.
+ */
+
+.block {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+  padding: 5px 7px;
+  border: var(--ww-hairline) solid var(--ww-block-color);
+  border-radius: 0;
+  /*
+   * The tint is RE-DECLARED here, not inherited from :root.
+   *
+   * `var()` inside a custom property is substituted on the element that DECLARES the
+   * property, so app/globals.css's `--ww-block-tint` resolves against `:root`, where
+   * `--ww-block-color` is unset — every block would inherit the same fallback blue no
+   * matter what colour the job is. Declaring it on the element that also sets
+   * `--ww-block-color` is what makes the recipe work. Same tokens, same formula.
+   */
+  --ww-block-tint: color-mix(
+    in srgb,
+    var(--ww-block-color) var(--ww-block-tint-strength, 12%),
+    var(--ww-surface)
+  );
+  background: var(--ww-block-tint);
+  color: var(--ww-text);
+  text-align: left;
+  line-height: var(--ww-line-tight);
+  cursor: grab;
+  user-select: none;
+  transition: box-shadow var(--ww-duration-fast) ease-out;
+}
+
+.block:hover {
+  box-shadow: var(--ww-shadow-popover);
+}
+
+.block:focus-visible {
+  outline: 2px solid var(--ww-focus-color);
+  outline-offset: 1px;
+}
+
+.first {
+  border-top-left-radius: var(--ww-radius);
+  border-top-right-radius: var(--ww-radius);
+}
+
+.last {
+  border-bottom-left-radius: var(--ww-radius);
+  border-bottom-right-radius: var(--ww-radius);
+}
+
+/* Continues the unit above: the seam is dashed so the two halves read as one job. */
+.continued {
+  border-top-style: dashed;
+}
+
+/*
+ * Friday, the colchón. A distinct border so an overrun week is visible at a glance
+ * without reading a single label.
+ */
+.overflow {
+  border-style: dashed;
+  border-width: 1px;
+}
+
+/* A frozen day. Still legible, clearly not live. */
+.frozen {
+  cursor: default;
+  filter: grayscale(0.85);
+}
+
+/* Being dragged: the row stays where it is and the ghost shows the target. */
+.lifted {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+.name {
+  overflow: hidden;
+  font-size: var(--ww-text-md);
+  font-weight: var(--ww-weight-medium);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.hours {
+  font-size: var(--ww-text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The padlock, in the corner the action bar takes over on hover. */
+.lockMark {
+  position: absolute;
+  top: 4px;
+  right: 5px;
+  display: flex;
+  color: var(--ww-block-color);
+}
+
+.block:hover .lockMark,
+.block:focus-within .lockMark {
+  display: none;
+}
+
+.actions {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: none;
+  gap: 2px;
+}
+
+.block:hover .actions,
+.block:focus-within .actions {
+  display: flex;
+}
+
+/* The unit's single resize handle: the bottom edge of its last row. */
+.resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 7px;
+  cursor: ns-resize;
+}
+
+.resize::after {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  width: 22px;
+  height: 2px;
+  border-radius: var(--ww-radius-pill);
+  background: var(--ww-block-color);
+  content: '';
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity var(--ww-duration-fast) ease-out;
+}
+
+.block:hover .resize::after {
+  opacity: 0.7;
+}
+
+/*
+ * The settle animation is NOT here: it needs both the released position and the
+ * settled one, and only WeekGrid knows both. See `.settling` in WeekGrid.module.css.
+ */

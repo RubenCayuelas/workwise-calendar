@@ -1,0 +1,177 @@
+/*
+ * The job panel, the create form and the two small forms next to it.
+ *
+ * Geometry only: every colour, radius and hairline is a token, so the dark theme
+ * stays a token swap (CLAUDE.md, "never hardcode a colour in a component").
+ * The measurements come from documents/workwise_wireframe_bloque_y_panel.html —
+ * 7px block rows, 0.5px separators, 12px labels.
+ */
+
+/* A titled group inside the panel body. */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-2);
+  min-width: 0;
+}
+
+.sectionTitle {
+  font-size: var(--ww-text-sm);
+  color: var(--ww-text-muted);
+}
+
+/* Two controls across the panel: a date beside a time, a time beside a duration.
+   Two 32px inputs fit comfortably in the 360px panel; a stepper beside the eight-colour
+   palette does not, which is why the job form stacks those two instead. */
+.row {
+  display: flex;
+  gap: var(--ww-space-4);
+  min-width: 0;
+}
+
+.row > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* Gives the palette a control's height, so it lines up with the fields around it. */
+.swatchRow {
+  display: flex;
+  align-items: center;
+  min-height: var(--ww-control-height-lg);
+}
+
+/* --------------------------------------------------------------------------
+   The block list — `Bloques · 11 h en 4 tramos`
+   -------------------------------------------------------------------------- */
+
+.blockList {
+  border-top: var(--ww-hairline) solid var(--ww-border);
+}
+
+.blockRow {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-3);
+  padding: 7px 0;
+  border-bottom: var(--ww-hairline) solid var(--ww-border);
+  font-size: var(--ww-text-md);
+}
+
+.blockRow:last-child {
+  border-bottom: none;
+}
+
+/* The frozen past: dimmed, exactly as the grid dims it. Still editable by hand. */
+.blockRowPast {
+  color: var(--ww-text-muted);
+}
+
+.blockWhen {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.blockHours {
+  flex: none;
+  color: var(--ww-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* `colchón` / `hoy` next to a row, in the day header's own vocabulary. */
+.blockTag {
+  flex: none;
+  font-size: var(--ww-text-xs);
+  color: var(--ww-text-muted);
+}
+
+.empty {
+  font-size: var(--ww-text-sm);
+  color: var(--ww-text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Notices and read-only context
+   -------------------------------------------------------------------------- */
+
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-3);
+  min-width: 0;
+}
+
+/* The dated lines inside a notice: where the hours actually went. */
+.noticeList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: var(--ww-space-1);
+  font-variant-numeric: tabular-nums;
+}
+
+/* One dated line, plus its `colchón` or job-name tag as a separate item — the
+   separators inside the label come from the locale files, so nothing here concatenates
+   punctuation.
+
+   `wrap` plus a `nowrap` label is load bearing, and rendering is what proved it: in a
+   plain row the label SHRINKS and breaks in the middle ("Mié 12 · 15:30–17:30 · 2" then
+   "h" on the next line) while the tag keeps the space beside it. The label is one
+   indivisible fact, so it stays whole and the tag drops to its own line instead. */
+.noticeLine {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: baseline;
+  gap: var(--ww-space-2);
+  min-width: 0;
+}
+
+.noticeLabel {
+  white-space: nowrap;
+}
+
+/* A read-only fact the form is about: the row being split, the shop's load. */
+.context {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-1);
+  padding: var(--ww-space-3);
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius);
+  background: var(--ww-surface);
+  min-width: 0;
+}
+
+.contextLabel {
+  font-size: var(--ww-text-xs);
+  color: var(--ww-text-muted);
+}
+
+.contextValue {
+  font-size: var(--ww-text-md);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Standing explanations: the queue rule, the colchón rule, the gap rule. */
+.hint {
+  font-size: var(--ww-text-xs);
+  line-height: var(--ww-line-loose);
+  color: var(--ww-text-muted);
+}
+
+.loading {
+  font-size: var(--ww-text-sm);
+  color: var(--ww-text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Footer
+   -------------------------------------------------------------------------- */
+
+/* `Guardar` takes the room, `Eliminar` stays its own width — the wireframe's footer. */
+.grow {
+  flex: 1 1 auto;
+}

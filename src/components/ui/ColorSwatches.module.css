@@ -1,0 +1,54 @@
+.group {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-2);
+  min-height: var(--ww-control-height-lg);
+  flex-wrap: wrap;
+}
+
+.swatch {
+  position: relative;
+  display: inline-flex;
+  cursor: pointer;
+}
+
+.input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.chip {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  /* The job's colour is the only place a raw hex reaches the DOM, and it comes from
+     PROJECT_COLORS via the style attribute — never from a stylesheet. */
+  background: var(--ww-swatch-color);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color var(--ww-duration-fast) ease-out;
+}
+
+.swatch:hover .chip {
+  outline-color: var(--ww-border);
+}
+
+/* The wireframe marks the chosen swatch with an offset ring, not a tick. */
+.selected .chip {
+  outline-color: var(--ww-border-strong);
+}
+
+.input:focus-visible + .chip {
+  outline: 2px solid var(--ww-focus-color);
+  outline-offset: 2px;
+}
+
+.disabled {
+  cursor: default;
+  opacity: 0.5;
+}

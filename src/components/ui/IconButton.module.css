@@ -1,0 +1,74 @@
+/* The hover action bar in the wireframe: 24px squares, hairline, surface-alt fill. */
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--ww-control-height);
+  height: var(--ww-control-height);
+  border: var(--ww-hairline) solid var(--ww-border-strong);
+  border-radius: var(--ww-radius);
+  background: var(--ww-surface-alt);
+  color: var(--ww-text);
+  transition: background-color var(--ww-duration-fast) ease-out,
+    border-color var(--ww-duration-fast) ease-out, color var(--ww-duration-fast) ease-out;
+}
+
+.iconButton:hover:not(:disabled) {
+  background: var(--ww-hover-fill);
+}
+
+.iconButton:active:not(:disabled) {
+  background: var(--ww-active-fill);
+}
+
+.iconButton:disabled {
+  opacity: 0.4;
+}
+
+.sm {
+  width: var(--ww-control-height-sm);
+  height: var(--ww-control-height-sm);
+}
+
+.md {
+  width: var(--ww-control-height);
+  height: var(--ww-control-height);
+}
+
+.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ww-text-muted);
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--ww-hover-fill);
+  color: var(--ww-text);
+}
+
+.danger {
+  color: var(--ww-danger);
+  border-color: var(--ww-danger-border);
+}
+
+.danger:hover:not(:disabled) {
+  background: var(--ww-danger-tint);
+}
+
+/* A padlock that is ON, or a toggled filter. */
+.active {
+  background: var(--ww-accent-tint);
+  border-color: var(--ww-accent-border);
+  color: var(--ww-text);
+}
+
+.active:hover:not(:disabled) {
+  background: var(--ww-accent-tint);
+}
+
+.glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

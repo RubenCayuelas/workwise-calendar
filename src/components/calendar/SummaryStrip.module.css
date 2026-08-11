@@ -1,0 +1,36 @@
+/*
+ * The amber strip above the grid.
+ *
+ * "This is the stated objective of the app, so it ships in v0.2" — how far the shop is
+ * booked, how much work is queued, and whether the Friday buffer is still clear. Amber
+ * because it is the app talking about itself; the text is `--ww-warning`
+ * (`--ww-amber-ink`) because pure amber on white is 2.1:1 and unreadable as text.
+ */
+
+.strip {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-3);
+  padding: var(--ww-space-3) var(--ww-space-4);
+  border: var(--ww-hairline) solid var(--ww-accent-border);
+  border-radius: var(--ww-radius);
+  background: var(--ww-accent-tint);
+  color: var(--ww-warning);
+  font-size: var(--ww-text-lg);
+}
+
+.loading {
+  color: var(--ww-text-muted);
+}
+
+.glyph {
+  display: flex;
+  flex: none;
+}
+
+.text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

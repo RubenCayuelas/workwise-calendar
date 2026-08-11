@@ -1,0 +1,68 @@
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ww-space-3);
+  padding: var(--ww-space-3) var(--ww-space-4);
+  border: var(--ww-hairline) solid var(--ww-tone-border);
+  border-radius: var(--ww-radius);
+  background: var(--ww-tone-fill);
+  font-size: var(--ww-text-md);
+  line-height: var(--ww-line);
+}
+
+.error {
+  --ww-tone-ink: var(--ww-danger);
+  --ww-tone-border: var(--ww-danger-border);
+  --ww-tone-fill: var(--ww-danger-tint);
+}
+
+/* Amber-tinted, like the summary strip. The ink is amber-INK, never pure amber:
+   amber on white is 2.1:1 (brand guidelines). */
+.warning {
+  --ww-tone-ink: var(--ww-warning);
+  --ww-tone-border: var(--ww-accent-border);
+  --ww-tone-fill: var(--ww-accent-tint);
+}
+
+.info {
+  --ww-tone-ink: var(--ww-info);
+  --ww-tone-border: var(--ww-border);
+  --ww-tone-fill: var(--ww-surface-alt);
+}
+
+.success {
+  --ww-tone-ink: var(--ww-ok);
+  --ww-tone-border: var(--ww-border);
+  --ww-tone-fill: var(--ww-surface-alt);
+}
+
+.glyph {
+  display: flex;
+  flex: none;
+  margin-top: 1px;
+  color: var(--ww-tone-ink);
+}
+
+.body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  font-weight: var(--ww-weight-medium);
+  color: var(--ww-tone-ink);
+}
+
+.message {
+  color: var(--ww-text);
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ww-space-2);
+}

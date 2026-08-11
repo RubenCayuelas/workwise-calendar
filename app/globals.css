@@ -1,51 +1,392 @@
-* {
-  margin: 0;
-  padding: 0;
+/*
+ * Workwise — base layer.
+ *
+ * Loaded AFTER public/brand/workwise-tokens.css, which owns every brand and
+ * semantic colour (`--ww-amber`, `--ww-surface`, `--ww-border`, `--ww-project-1..8`).
+ * This file adds the non-colour design tokens (type scale, spacing, radii,
+ * hairlines) plus the small number of semantic colours the brand file does not
+ * ship, and then a real base layer: reset, typography, focus rings, layout shell.
+ *
+ * Rules that hold everywhere in this codebase:
+ *
+ * - NEVER hardcode a colour in a component. Go through a token, so the dark theme
+ *   stays a token swap. The only literal hexes in the whole UI are the two
+ *   `--ww-danger` declarations below, because the brand file has no danger colour;
+ *   everything else is `var()` or `color-mix()` of an existing token.
+ * - Light theme only for now. `<html data-theme="light">` keeps the token file's
+ *   `prefers-color-scheme: dark` block dormant. The dark values here follow the same
+ *   shape as the brand file (`[data-theme="dark"]` + a guarded media query) so
+ *   turning dark on later is a one-line change in the layout.
+ * - Hairline borders are `var(--ww-hairline)` (0.5px), corners `var(--ww-radius)`.
+ */
+
+/* --------------------------------------------------------------------------
+   Design tokens that are not colours
+   -------------------------------------------------------------------------- */
+
+:root {
+  /* Barlow is the brand face but is not installed (see brand guidelines); the
+     system stack keeps the dependency surface at zero and reads well at 13px. */
+  --ww-font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, 'Noto Sans', sans-serif;
+  --ww-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* Small type on purpose: the week grid has to fit seven columns of blocks. */
+  --ww-text-xs: 11px;
+  --ww-text-sm: 12px;
+  --ww-text-md: 13px;
+  --ww-text-lg: 15px;
+  --ww-text-xl: 18px;
+  --ww-text-2xl: 22px;
+
+  --ww-weight-regular: 400;
+  --ww-weight-medium: 500;
+  --ww-weight-semibold: 600;
+
+  --ww-line-tight: 1.25;
+  --ww-line: 1.5;
+  --ww-line-loose: 1.7;
+
+  --ww-space-1: 4px;
+  --ww-space-2: 6px;
+  --ww-space-3: 8px;
+  --ww-space-4: 12px;
+  --ww-space-5: 16px;
+  --ww-space-6: 24px;
+  --ww-space-7: 32px;
+  --ww-space-8: 48px;
+
+  --ww-radius-sm: 3px;
+  --ww-radius: 6px;
+  --ww-radius-lg: 10px;
+  --ww-radius-pill: 999px;
+
+  /* The wireframe's borders. 0.5px reads as a true hairline on the shop's screen. */
+  --ww-hairline: 0.5px;
+
+  --ww-control-height-sm: 24px;
+  --ww-control-height: 28px;
+  --ww-control-height-lg: 32px;
+
+  --ww-panel-width: 360px;
+  --ww-z-panel: 40;
+  --ww-z-dialog: 50;
+  --ww-z-toast: 60;
+
+  --ww-duration-fast: 120ms;
+  --ww-duration: 180ms;
+}
+
+/* --------------------------------------------------------------------------
+   Semantic colours the brand file does not ship
+   -------------------------------------------------------------------------- */
+
+:root {
+  /* Stronger than --ww-border, for the outline of an interactive control. */
+  --ww-border-strong: var(--ww-graphite-soft);
+
+  /* The one genuinely new hue in the app. The brand palette has no danger colour
+     and reusing --ww-project-5 would make "delete" look like a job painted red. */
+  --ww-danger: #a32d2d;
+
+  /* Tones for banners and toasts. Reused palette hues rather than new hexes:
+     amber-ink is the app's own accent, and the two greens/blues already exist. */
+  --ww-warning: var(--ww-amber-ink);
+  --ww-ok: var(--ww-project-6);
+  --ww-info: var(--ww-project-1);
+
+  --ww-focus-color: var(--ww-amber-ink);
+
+  /* Tints. `color-mix` keeps every derived surface tied to its source token, so a
+     theme swap needs no second set of hexes. Each one is preceded by a flat
+     fallback for engines without color-mix. */
+  --ww-accent-tint: var(--ww-surface-alt);
+  --ww-accent-tint: color-mix(in srgb, var(--ww-amber) 16%, var(--ww-surface));
+  --ww-accent-border: var(--ww-amber);
+
+  --ww-danger-tint: var(--ww-surface-alt);
+  --ww-danger-tint: color-mix(in srgb, var(--ww-danger) 8%, var(--ww-surface));
+  --ww-danger-border: var(--ww-border);
+  --ww-danger-border: color-mix(in srgb, var(--ww-danger) 45%, var(--ww-border));
+
+  --ww-hover-fill: var(--ww-surface-alt);
+  --ww-hover-fill: color-mix(in srgb, var(--ww-graphite) 5%, var(--ww-surface));
+  --ww-active-fill: var(--ww-surface-alt);
+  --ww-active-fill: color-mix(in srgb, var(--ww-graphite) 10%, var(--ww-surface));
+
+  --ww-scrim: color-mix(in srgb, var(--ww-graphite) 32%, transparent);
+  --ww-shadow-panel: 0 1px 2px color-mix(in srgb, var(--ww-graphite) 8%, transparent),
+    0 10px 30px color-mix(in srgb, var(--ww-graphite) 12%, transparent);
+  --ww-shadow-popover: 0 4px 14px color-mix(in srgb, var(--ww-graphite) 14%, transparent);
+
+  /*
+   * How strongly a project block's fill is tinted with the job's colour. The wireframe
+   * wants a soft tint of `project.color` behind a saturated border in the same colour.
+   *
+   * Only the STRENGTH lives here. The tint itself cannot: a `var()` inside a custom
+   * property is substituted on the element that DECLARES the property, so a
+   * `--ww-block-tint: color-mix(..., var(--ww-block-color), ...)` written here would
+   * resolve against `:root` — where `--ww-block-color` is unset — and the single
+   * resulting colour would then inherit down to every block, painting them all alike.
+   * A component that needs the fill declares the `color-mix` on the same element it
+   * sets `--ww-block-color` on; see CalendarBlock.module.css and WeekGrid.module.css.
+   */
+  --ww-block-tint-strength: 12%;
+}
+
+/* Dark values, dormant while <html data-theme="light">. Same shape as the brand
+   file so both files flip together. */
+[data-theme='dark'] {
+  --ww-border-strong: var(--ww-text-muted);
+  --ww-danger: #e07a72;
+  --ww-block-tint-strength: 26%;
+  --ww-hover-fill: color-mix(in srgb, var(--ww-bone) 8%, var(--ww-surface));
+  --ww-active-fill: color-mix(in srgb, var(--ww-bone) 14%, var(--ww-surface));
+  --ww-scrim: color-mix(in srgb, #000000 55%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --ww-border-strong: var(--ww-text-muted);
+    --ww-danger: #e07a72;
+    --ww-block-tint-strength: 26%;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Reset
+   -------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
-html,
+* {
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  /* Light only: this also stops the browser painting form controls dark. */
+  color-scheme: light;
+  height: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   height: 100%;
-  font-family: system-ui, sans-serif;
+  background: var(--ww-surface);
+  color: var(--ww-text);
+  font-family: var(--ww-font-sans);
+  font-size: var(--ww-text-md);
+  line-height: var(--ww-line);
+  /* Desktop only, mouse driven — no touch or narrow layout (CLAUDE.md). */
+  min-width: 1024px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-main {
-  display: flex;
-  min-height: 100vh;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
+h1,
+h2,
+h3,
+h4 {
+  font-weight: var(--ww-weight-semibold);
+  line-height: var(--ww-line-tight);
 }
 
-.text-center {
-  text-align: center;
+h1 {
+  font-size: var(--ww-text-2xl);
 }
 
-.text-center h1 {
-  font-size: 2.25rem;
-  font-weight: 700;
-  margin-bottom: 16px;
+h2 {
+  font-size: var(--ww-text-xl);
 }
 
-.text-center p {
-  font-size: 1.25rem;
-  color: #666;
-  margin-bottom: 32px;
+h3 {
+  font-size: var(--ww-text-lg);
+}
+
+h4 {
+  font-size: var(--ww-text-md);
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Controls inherit typography; every visual style lives in a CSS Module. No
+   element-selector theming here — that is what made the old file look like a
+   Tailwind stand-in. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
 }
 
 button {
-  padding: 12px 24px;
-  background-color: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 8px;
   cursor: pointer;
-  font-size: 1rem;
-  transition: background-color 0.2s;
 }
 
-button:hover {
-  background-color: #1d4ed8;
+button:disabled {
+  cursor: default;
+}
+
+textarea {
+  resize: vertical;
+}
+
+hr {
+  border: none;
+  border-top: var(--ww-hairline) solid var(--ww-border);
+}
+
+/* --------------------------------------------------------------------------
+   Focus
+   -------------------------------------------------------------------------- */
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ww-focus-color);
+  outline-offset: 1px;
+  border-radius: var(--ww-radius-sm);
+}
+
+/* --------------------------------------------------------------------------
+   Layout shell
+   -------------------------------------------------------------------------- */
+
+/* The whole app: a fixed header strip over a body that owns its own scrolling,
+   so the week grid can scroll under a header that never moves. */
+.ww-app {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+  min-height: 100%;
+}
+
+.ww-app__header {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-4);
+  padding: var(--ww-space-3) var(--ww-space-5);
+  border-bottom: var(--ww-hairline) solid var(--ww-border);
+  background: var(--ww-surface);
+}
+
+.ww-app__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* A padded content column for the screens that are not the grid (Settings). */
+.ww-page {
+  padding: var(--ww-space-6) var(--ww-space-5) var(--ww-space-8);
+  overflow-y: auto;
+}
+
+.ww-page--narrow {
+  width: 100%;
+  max-width: 640px;
+  margin-inline: auto;
+}
+
+.ww-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-2);
+}
+
+.ww-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ww-scroll {
+  overflow: auto;
+  min-height: 0;
+}
+
+/* A card with the wireframe's hairline and radius. */
+.ww-card {
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius-lg);
+  background: var(--ww-surface);
+}
+
+/* --------------------------------------------------------------------------
+   Typography helpers
+   -------------------------------------------------------------------------- */
+
+.ww-muted {
+  color: var(--ww-text-muted);
+}
+
+.ww-small {
+  font-size: var(--ww-text-sm);
+}
+
+.ww-tiny {
+  font-size: var(--ww-text-xs);
+}
+
+.ww-medium {
+  font-weight: var(--ww-weight-medium);
+}
+
+/* Numbers in a column line up: hours, times, capacities. */
+.ww-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.ww-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Motion
+   -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

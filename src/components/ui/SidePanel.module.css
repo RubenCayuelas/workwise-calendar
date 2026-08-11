@@ -1,0 +1,73 @@
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--ww-z-panel);
+  background: var(--ww-scrim);
+}
+
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--ww-z-panel);
+  display: flex;
+  flex-direction: column;
+  width: var(--ww-panel-width);
+  max-width: 100vw;
+  background: var(--ww-surface-alt);
+  border-left: var(--ww-hairline) solid var(--ww-border);
+  box-shadow: var(--ww-shadow-panel);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-3);
+  padding: var(--ww-space-4) var(--ww-space-5);
+  border-bottom: var(--ww-hairline) solid var(--ww-border);
+}
+
+.accent {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--ww-text-lg);
+  font-weight: var(--ww-weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--ww-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-4);
+}
+
+.footer {
+  flex: none;
+  display: flex;
+  gap: var(--ww-space-3);
+  padding: var(--ww-space-4) var(--ww-space-5);
+  border-top: var(--ww-hairline) solid var(--ww-border);
+  background: var(--ww-surface-alt);
+}
+
+/* The colour dot before the job name in the wireframe. */
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--ww-radius-sm);
+  background: var(--ww-dot-color, var(--ww-border-strong));
+  flex: none;
+}

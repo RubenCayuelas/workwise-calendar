@@ -1,0 +1,242 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-1);
+  min-width: 0;
+}
+
+/* Settings rows: label on the left, control on the right.
+   `wrap` plus a full-width hint is load bearing — in a plain row the helper line
+   becomes a THIRD column beside the control instead of a line under the row, and the
+   Settings screen's hints are two sentences long. */
+.inline {
+  flex-flow: row wrap;
+  align-items: center;
+  gap: var(--ww-space-1) var(--ww-space-4);
+}
+
+.inline .label {
+  flex: 1 1 auto;
+}
+
+.inline .control {
+  flex: none;
+}
+
+.inline .hint,
+.inline .error {
+  flex: 1 0 100%;
+}
+
+.label {
+  font-size: var(--ww-text-sm);
+  color: var(--ww-text-muted);
+}
+
+.required {
+  color: var(--ww-danger);
+  margin-left: 2px;
+}
+
+.optional {
+  color: var(--ww-text-muted);
+  font-weight: var(--ww-weight-regular);
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* The helper line. This is where the auto-fill capacity gets explained, so it has to
+   read comfortably at several lines. */
+.hint {
+  font-size: var(--ww-text-xs);
+  line-height: var(--ww-line-loose);
+  color: var(--ww-text-muted);
+}
+
+.error {
+  font-size: var(--ww-text-xs);
+  line-height: var(--ww-line);
+  color: var(--ww-danger);
+}
+
+/* --- controls --- */
+
+.input,
+.textarea,
+.select {
+  width: 100%;
+  min-width: 0;
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius);
+  background: var(--ww-surface);
+  color: var(--ww-text);
+  font-size: var(--ww-text-md);
+  transition: border-color var(--ww-duration-fast) ease-out;
+}
+
+.input,
+.select {
+  height: var(--ww-control-height-lg);
+  padding: 0 var(--ww-space-3);
+}
+
+.textarea {
+  min-height: 46px;
+  padding: 7px var(--ww-space-3);
+  line-height: var(--ww-line);
+}
+
+.select {
+  appearance: none;
+  padding-right: var(--ww-space-6);
+  cursor: pointer;
+}
+
+.selectWrap {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+.selectChevron {
+  position: absolute;
+  top: 50%;
+  right: var(--ww-space-3);
+  transform: translateY(-50%);
+  display: flex;
+  color: var(--ww-text-muted);
+  pointer-events: none;
+}
+
+.input:hover:not(:disabled),
+.textarea:hover:not(:disabled),
+.select:hover:not(:disabled) {
+  border-color: var(--ww-border-strong);
+}
+
+.input:disabled,
+.textarea:disabled,
+.select:disabled {
+  background: var(--ww-surface-alt);
+  color: var(--ww-text-muted);
+  cursor: default;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--ww-text-muted);
+}
+
+.invalid {
+  border-color: var(--ww-danger);
+}
+
+/* --- number stepper --- */
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  height: var(--ww-control-height-lg);
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius);
+  background: var(--ww-surface);
+  overflow: hidden;
+}
+
+.stepper:hover:not(.stepperDisabled) {
+  border-color: var(--ww-border-strong);
+}
+
+.stepperDisabled {
+  background: var(--ww-surface-alt);
+  color: var(--ww-text-muted);
+}
+
+.stepperInput {
+  width: 4.5em;
+  height: 100%;
+  padding: 0 var(--ww-space-3);
+  border: none;
+  background: none;
+  font-size: var(--ww-text-md);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  /* The engine's own +/- are the affordance; the native spinners are 11px tall. */
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.stepperInput::-webkit-outer-spin-button,
+.stepperInput::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.stepperSuffix {
+  padding-right: var(--ww-space-2);
+  font-size: var(--ww-text-sm);
+  color: var(--ww-text-muted);
+}
+
+.stepperButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ww-control-height-lg);
+  height: 100%;
+  flex: none;
+  color: var(--ww-text-muted);
+  border-left: var(--ww-hairline) solid var(--ww-border);
+}
+
+.stepperButton:first-child {
+  border-left: none;
+  border-right: var(--ww-hairline) solid var(--ww-border);
+}
+
+.stepperButton:hover:not(:disabled) {
+  background: var(--ww-hover-fill);
+  color: var(--ww-text);
+}
+
+.stepperButton:disabled {
+  opacity: 0.4;
+}
+
+/* --- checkbox --- */
+
+.checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ww-space-3);
+  cursor: pointer;
+}
+
+.checkboxDisabled {
+  cursor: default;
+  color: var(--ww-text-muted);
+}
+
+.checkboxInput {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  accent-color: var(--ww-accent);
+  cursor: inherit;
+}
+
+.checkboxBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.checkboxLabel {
+  font-size: var(--ww-text-md);
+}

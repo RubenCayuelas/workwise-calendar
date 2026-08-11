@@ -1,0 +1,56 @@
+/* The app header: logo, the week pager in the middle, actions on the right. */
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-2);
+}
+
+.weekLabel {
+  min-width: 15rem;
+  font-size: var(--ww-text-xl);
+  font-weight: var(--ww-weight-medium);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.menu {
+  position: relative;
+}
+
+.menuList {
+  position: absolute;
+  top: calc(100% + var(--ww-space-2));
+  right: 0;
+  z-index: var(--ww-z-panel);
+  min-width: 12rem;
+  padding: var(--ww-space-1);
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius);
+  background: var(--ww-surface);
+  box-shadow: var(--ww-shadow-popover);
+}
+
+.menuItem {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--ww-space-3);
+  padding: var(--ww-space-2) var(--ww-space-3);
+  border-radius: var(--ww-radius-sm);
+  color: var(--ww-text);
+  font-size: var(--ww-text-md);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.menuItem:hover {
+  background: var(--ww-hover-fill);
+  text-decoration: none;
+}
+
+.menuGlyph {
+  display: flex;
+  color: var(--ww-text-muted);
+}

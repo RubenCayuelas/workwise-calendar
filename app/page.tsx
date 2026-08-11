@@ -1,48 +1,92 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+/**
+ * The home screen IS the week view — the workshop opens the app to see how long it is
+ * booked for, so there is nothing to put in front of that.
+ *
+ * This file is only the wiring. `CalendarScreen` owns the grid, the gestures and the
+ * week's data; the job panel, the create-job form, the gap form and the split form are
+ * separate screens that all share one `SidePanel` slot on the right. They plug in
+ * through `CalendarScreen`'s render props, which hand each one the week's own facts
+ * (the shop's `today`, the summary strip, the shift shape) so no form re-fetches or
+ * guesses at them.
+ *
+ * TWO RULES THIS FILE EXISTS TO HONOUR:
+ *
+ * 1. `onChanged` refetches the week, and every panel calls it after a save or a delete.
+ *    A recomposition rewrites rows in weeks this screen is not even showing, so nothing
+ *    is ever patched into local state.
+ * 2. AT MOST ONE PANEL AT A TIME — they occupy the same slot. The job panel therefore
+ *    steps aside while the split form is open, and comes back when it closes.
+ */
 
-export default function Home() {
-  const [mounted, setMounted] = useState(false);
-  const [language, setLanguage] = useState('es');
+import { useState } from 'react';
+import { CalendarScreen } from '../src/components/calendar';
+import { GapPanel, JobPanel, NewJobPanel, SplitBlockPanel } from '../src/components/jobs';
+import type { Block } from '../src/lib/api-client';
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) return null;
-
-  const toggleLanguage = () => {
-    setLanguage(language === 'es' ? 'en' : 'es');
-  };
-
-  const translations = {
-    es: {
-      title: 'Calendario Workwise',
-      description: 'Gestor de horas y proyectos',
-      buttonText: 'Switch to English',
-    },
-    en: {
-      title: 'Workwise Calendar',
-      description: 'Work hours and projects manager',
-      buttonText: 'Cambiar a Español',
-    },
-  };
-
-  const t = translations[language as keyof typeof translations];
+export default function HomePage(): React.JSX.Element {
+  /**
+   * The row the job panel's scissors named. The calendar's own scissors can only reach
+   * a row inside the week on screen; this is how a row in another week gets split.
+   */
+  const [splitting, setSplitting] = useState<Block | null>(null);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-24">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">{t.title}</h1>
-        <p className="text-xl text-gray-600 mb-8">{t.description}</p>
-        <button
-          onClick={toggleLanguage}
-          className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-        >
-          {t.buttonText}
-        </button>
-      </div>
-    </main>
+    <CalendarScreen
+      renderJobPanel={({ projectId, close, onChanged, today }) =>
+        // Compared against the open job, not just checked for null: closing the panel
+        // (or deleting the job) must never leave a row from a previous job armed here.
+        splitting === null || splitting.projectId !== projectId ? (
+          <JobPanel
+            open
+            projectId={projectId}
+            today={today}
+            onClose={() => {
+              setSplitting(null);
+              close();
+            }}
+            onChanged={onChanged}
+            onDeleted={() => {
+              setSplitting(null);
+              close();
+            }}
+            onSplitBlock={setSplitting}
+          />
+        ) : (
+          <SplitBlockPanel
+            open
+            block={splitting}
+            onClose={() => setSplitting(null)}
+            onChanged={onChanged}
+            // Back to the job panel, which reloads and shows the two new rows.
+            onSplit={() => setSplitting(null)}
+          />
+        )
+      }
+      renderNewJob={({ close, onChanged, today, summary, suggestedColor }) => (
+        <NewJobPanel
+          open
+          today={today}
+          summary={summary}
+          defaultColor={suggestedColor}
+          onClose={close}
+          onChanged={onChanged}
+        />
+      )}
+      renderGapForm={({ gap, close, onChanged, today, shape, gapColor, defaultDate }) => (
+        <GapPanel
+          open
+          gap={gap ?? undefined}
+          today={today}
+          shape={shape}
+          gapColor={gapColor}
+          defaultDate={defaultDate}
+          onClose={close}
+          onChanged={onChanged}
+          onDeleted={close}
+        />
+      )}
+    />
   );
 }

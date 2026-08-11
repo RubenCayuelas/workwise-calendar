@@ -1,0 +1,149 @@
+/* Generous spacing and hairlines, as the wireframes have them: this screen is read
+   once in a while and has to be unambiguous, not dense. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-5);
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-1);
+}
+
+.title {
+  font-size: var(--ww-text-xl);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-2);
+  padding: var(--ww-space-5);
+}
+
+.sectionTitle {
+  font-size: var(--ww-text-lg);
+  font-weight: var(--ww-weight-medium);
+}
+
+.sectionHint {
+  font-size: var(--ww-text-xs);
+  line-height: var(--ww-line-loose);
+  color: var(--ww-text-muted);
+}
+
+/* One row per setting, separated by the wireframe's hairline. */
+.rows {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--ww-space-2);
+}
+
+.rows > * + * {
+  margin-top: var(--ww-space-4);
+  padding-top: var(--ww-space-4);
+  border-top: var(--ww-hairline) solid var(--ww-border);
+}
+
+/* A row that is not a `Field` (the afternoon checkbox), so it lines up with the rest. */
+.row {
+  display: flex;
+  flex-direction: column;
+}
+
+/* A closing sentence under a section's rows: the shift total, the horizon warning. */
+.note {
+  font-size: var(--ww-text-xs);
+  line-height: var(--ww-line-loose);
+  color: var(--ww-text-muted);
+}
+
+/* Controls in an inline `Field` size themselves, so they need an explicit width. The
+   doubled class raises specificity over `.input` / `.select` in Field.module.css, whose
+   `width: 100%` would otherwise win or lose depending on stylesheet order. */
+.timeSelect.timeSelect {
+  width: 7.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.selectControl.selectControl {
+  width: 11rem;
+}
+
+.colorControl {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-3);
+}
+
+/* A swatch that is also the picker. No hardcoded palette here: gaps are one free
+   #RRGGBB in the settings table, unlike project colours, which are the fixed
+   `--ww-project-1..8` set. */
+.colorInput {
+  width: 44px;
+  height: var(--ww-control-height-lg);
+  padding: 2px;
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius);
+  background: var(--ww-surface);
+  cursor: pointer;
+}
+
+.colorInput:hover {
+  border-color: var(--ww-border-strong);
+}
+
+.colorInput::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.colorInput::-webkit-color-swatch {
+  border: none;
+  border-radius: var(--ww-radius-sm);
+}
+
+.colorInput::-moz-color-swatch {
+  border: none;
+  border-radius: var(--ww-radius-sm);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-4);
+  padding-bottom: var(--ww-space-5);
+}
+
+/* The confirmation's body. `ConfirmDialog` renders `description` inside a paragraph, so
+   these are spans turned into blocks rather than <p>/<ul> — nesting those inside a <p>
+   is invalid HTML and React says so at runtime. */
+.warnLine {
+  display: block;
+}
+
+.warnLine + .warnLine,
+.warnList + .warnLine {
+  margin-top: var(--ww-space-3);
+}
+
+/* Scrolls instead of stretching the dialog: `ConfirmDialog` centres a box with no
+   max-height, so twenty stranded blocks would run off the top and bottom of the window. */
+.warnList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-1);
+  max-height: 168px;
+  overflow-y: auto;
+  margin-top: var(--ww-space-2);
+  padding-left: var(--ww-space-4);
+  border-left: 2px solid var(--ww-border);
+}
+
+.warnItem {
+  display: block;
+  font-size: var(--ww-text-sm);
+  color: var(--ww-text-muted);
+}

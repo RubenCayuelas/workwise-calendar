@@ -14,8 +14,11 @@ node_modules/
 *.lcov
 .nyc_output
 
-# Database
+# Database (WAL mode adds -wal and -shm sidecars next to the file)
+/data/
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 
@@ -32,3 +35,6 @@ Thumbs.db
 
 # Docs
 documents/*
+
+# Build artifacts
+*.tsbuildinfo

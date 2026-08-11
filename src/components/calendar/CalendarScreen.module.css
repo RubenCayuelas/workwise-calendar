@@ -1,0 +1,42 @@
+/* The week view screen: strip, banners, grid, legend. */
+
+.screen {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--ww-space-4);
+  padding: var(--ww-space-4) var(--ww-space-5);
+}
+
+/*
+ * The space the grid gets. Measured, so the timeline can pick a scale that shows the
+ * whole working day instead of making the owner scroll to see the afternoon.
+ */
+.gridArea {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.loading {
+  display: grid;
+  flex: 1 1 auto;
+  place-items: center;
+  color: var(--ww-text-muted);
+}
+
+/* The two lines the wireframe prints under the grid, plus the drag hint that replaces
+   them while a block is in the air. */
+.legend {
+  display: flex;
+  min-height: 2.4em;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--ww-text-muted);
+  font-size: var(--ww-text-sm);
+}
+
+.hint {
+  color: var(--ww-warning);
+}

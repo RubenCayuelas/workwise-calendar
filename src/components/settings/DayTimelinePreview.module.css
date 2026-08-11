@@ -1,0 +1,108 @@
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-2);
+}
+
+/* Proportional bands: `flex-grow` carries the band's length in minutes, so the shape of
+   the day is literally to scale. `flex-basis: 0` on the children is what makes grow the
+   only thing that decides height. */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  height: 340px;
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius);
+  overflow: hidden;
+}
+
+.band {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ww-space-3);
+  flex-basis: 0;
+  /* A 30 min band still has to be readable, so text never gets squeezed out. */
+  min-height: 26px;
+  padding: var(--ww-space-1) var(--ww-space-3);
+  border-top: var(--ww-hairline) solid var(--ww-border);
+  font-size: var(--ww-text-sm);
+}
+
+.band:first-child {
+  border-top: none;
+}
+
+.work {
+  background: var(--ww-surface);
+}
+
+/* The two grey bands of the wireframe: manual drag-drop only, never auto-filled. */
+.margin {
+  background: var(--ww-margin-fill);
+  color: var(--ww-text-muted);
+}
+
+.lunch {
+  background: var(--ww-gap-fill);
+  color: var(--ww-text-muted);
+}
+
+.bandTime {
+  flex: none;
+  width: 3.5em;
+  color: var(--ww-text-muted);
+}
+
+.bandLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.work .bandLabel {
+  font-weight: var(--ww-weight-medium);
+}
+
+.bandHours {
+  flex: none;
+  color: var(--ww-text-muted);
+}
+
+/* Where auto-fill stops when the capacity is below the full shift. Amber, because it is
+   the app talking about its own behaviour rather than about the shop's hours. */
+.stop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed var(--ww-accent-border);
+  pointer-events: none;
+}
+
+.stopLabel {
+  position: absolute;
+  top: 0;
+  right: var(--ww-space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-2);
+  transform: translateY(-50%);
+  padding: 0 var(--ww-space-2);
+  border-radius: var(--ww-radius-pill);
+  background: var(--ww-accent-tint);
+  color: var(--ww-amber-ink);
+  font-size: var(--ww-text-xs);
+  white-space: nowrap;
+}
+
+/* The closing "20:30 └─" of the diagram. */
+.end {
+  padding-left: var(--ww-space-3);
+  font-size: var(--ww-text-sm);
+  color: var(--ww-text-muted);
+}
+
+.caption {
+  font-size: var(--ww-text-xs);
+  line-height: var(--ww-line-loose);
+  color: var(--ww-text-muted);
+}
