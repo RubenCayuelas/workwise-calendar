@@ -1,0 +1,78 @@
+/* Workwise — brand tokens
+   Amber is the only fixed brand color. Graphite is structural and swaps to
+   bone on dark surfaces, so the logo never needs to be repainted. */
+
+:root {
+  /* Brand */
+  --ww-amber: #ef9f27;
+  --ww-amber-soft: #fac775;
+  --ww-amber-ink: #854f0b; /* accessible amber for text and thin strokes */
+  --ww-graphite: #2c2c2a;
+  --ww-graphite-soft: #444441;
+  --ww-bone: #f1efe8;
+
+  /* Semantic — light theme */
+  --ww-surface: #ffffff;
+  --ww-surface-alt: var(--ww-bone);
+  --ww-border: #d3d1c7;
+  --ww-text: var(--ww-graphite);
+  --ww-text-muted: #6b6a64;
+  --ww-accent: var(--ww-amber);
+  --ww-on-accent: var(--ww-graphite);
+  --ww-logo-ink: var(--ww-graphite);
+
+  /* Calendar */
+  --ww-gap-fill: #d3d1c7; /* gapColor default in settings */
+  --ww-locked-stroke: var(--ww-graphite);
+  --ww-margin-fill: #e8e6de; /* visual margins, drag-drop only */
+}
+
+[data-theme="dark"] {
+  --ww-surface: #1e1e1c;
+  --ww-surface-alt: #262624;
+  --ww-border: #45443f;
+  --ww-text: var(--ww-bone);
+  --ww-text-muted: #a3a199;
+  --ww-accent: var(--ww-amber);
+  --ww-on-accent: var(--ww-graphite);
+  --ww-logo-ink: var(--ww-bone);
+
+  --ww-gap-fill: #3a3936;
+  --ww-locked-stroke: var(--ww-bone);
+  --ww-margin-fill: #2a2a27;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ww-surface: #1e1e1c;
+    --ww-surface-alt: #262624;
+    --ww-border: #45443f;
+    --ww-text: var(--ww-bone);
+    --ww-text-muted: #a3a199;
+    --ww-logo-ink: var(--ww-bone);
+    --ww-gap-fill: #3a3936;
+    --ww-locked-stroke: var(--ww-bone);
+    --ww-margin-fill: #2a2a27;
+  }
+}
+
+/* Project colors for calendar blocks.
+   Amber is reserved for the brand, so it is not in this list — a job painted
+   amber would be indistinguishable from the app's own accent. */
+:root {
+  --ww-project-1: #185fa5;
+  --ww-project-2: #1d9e75;
+  --ww-project-3: #d85a30;
+  --ww-project-4: #534ab7;
+  --ww-project-5: #a32d2d;
+  --ww-project-6: #0f6e56;
+  --ww-project-7: #d4537e;
+  --ww-project-8: #5f5e5a;
+}
+
+/* Logo usage: the SVG files with `currentColor` inherit from --ww-logo-ink. */
+.ww-logo {
+  color: var(--ww-logo-ink);
+  display: inline-block;
+  height: 28px;
+}
