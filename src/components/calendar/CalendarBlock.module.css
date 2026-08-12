@@ -117,6 +117,28 @@
   border-bottom-style: solid;
 }
 
+/*
+ * A hand-placed row: the WHOLE outline drawn solid, because what the owner chose here is
+ * the whole rectangle's place — the day and the slot, not one edge of it.
+ *
+ * It has to do one more job than the ruler does. On Friday it is the difference between
+ * "the week overran and the engine parked hours on the colchón" (`.overflow`, dashed all
+ * round) and "the owner said do this on Friday" (solid all round). The two never appear
+ * together — `isOverflow` excludes a hand-placed unit — so this is a contrast rather
+ * than a cascade fight.
+ *
+ * `.continued` still wins on the top edge: the dashed seam is what makes the two halves
+ * of a lunch-split unit read as one job, and a hand-placed drop across lunch IS two rows.
+ */
+.handPlaced {
+  border-width: 1.5px;
+  border-style: solid;
+}
+
+.handPlaced.continued {
+  border-top-style: dashed;
+}
+
 /* The marks, in the corner the action bar takes over on hover. */
 .marks {
   position: absolute;
@@ -132,8 +154,11 @@
   display: none;
 }
 
-/* The ruler sits a shade back from the padlock: it is state, not a warning. */
-.manualMark {
+/*
+ * The two hand marks sit a shade back from the padlock: they are state the owner set,
+ * not a warning. The padlock stays at full strength — it is the strictest of the three.
+ */
+.softMark {
   display: flex;
   opacity: 0.75;
 }

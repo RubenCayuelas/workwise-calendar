@@ -173,6 +173,36 @@ export function nonWorkingBands(
   return bands;
 }
 
+/**
+ * Where a day's "libre" / "—" label belongs: the middle of the day's LONGEST WORKING
+ * STRETCH.
+ *
+ * Not the middle of the column, which is what it used to be and which is a trap with the
+ * documented shift: 07:00 to 20:30 has its midpoint at 13:45, fifteen minutes above the
+ * 14:00 rule and right on the edge of the grey lunch band. The word landed on a line
+ * instead of in the day and read as debris left over from something else.
+ *
+ * The longest period is the part of the column that IS the working day, and its middle
+ * is strictly inside a period — never on a boundary, never inside a band — for every
+ * shift the settings can produce. A day with no periods at all (a closed day, or a
+ * broken configuration) has no working stretch to sit in, so it falls back to the middle
+ * of the axis, which is then the middle of one uninterrupted grey band.
+ */
+export function emptyLabelMinutes(periods: readonly WorkPeriod[], timeline: Timeline): number {
+  let longest: WorkPeriod | undefined;
+  for (const period of periods) {
+    const span = period.endMinutes - period.startMinutes;
+    if (span <= 0) continue;
+    if (longest === undefined || span > longest.endMinutes - longest.startMinutes) longest = period;
+  }
+
+  const middle =
+    longest === undefined
+      ? (timeline.startMinutes + timeline.endMinutes) / 2
+      : (longest.startMinutes + longest.endMinutes) / 2;
+  return clamp(middle, timeline.startMinutes, timeline.endMinutes);
+}
+
 // ---------------------------------------------------------------------------
 // The time axis
 // ---------------------------------------------------------------------------

@@ -179,15 +179,30 @@
   opacity: 1;
 }
 
+/*
+ * "libre" on an empty working day, "—" on a day the engine never touches.
+ *
+ * `top` is set inline, from `emptyLabelMinutes`: the middle of the day's own longest
+ * working stretch, not the middle of the column. The column's middle is 13:45 with the
+ * documented shift — a quarter of an hour above the 14:00 rule and on the lip of the
+ * grey lunch band — and the word landed there looking like something left behind rather
+ * than a label for the day.
+ *
+ * It is also drawn as a small pill rather than as bare text. A word floating over the
+ * hour lines reads as debris whatever height it is at; a shape with a background reads
+ * as a deliberate statement about the column, which is what it is.
+ */
 .empty {
   position: absolute;
-  top: 50%;
-  right: 0;
-  left: 0;
+  left: 50%;
+  padding: 2px var(--ww-space-3);
+  border: var(--ww-hairline) dashed var(--ww-border-strong);
+  border-radius: var(--ww-radius-pill);
+  background: var(--ww-surface);
   color: var(--ww-text-muted);
   font-size: var(--ww-text-md);
-  text-align: center;
-  transform: translateY(-50%);
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
   pointer-events: none;
 }
 
@@ -268,6 +283,17 @@
   border-color: var(--ww-danger);
   background: var(--ww-danger-tint);
   color: var(--ww-danger);
+}
+
+/*
+ * The second rectangle of a drop that crosses the lunch break — the drop IS stored as two
+ * rows (CLAUDE.md, *A Drop Is Stored In Segments*), so the preview draws two. Its top edge
+ * is the seam, drawn the way a stored continuation draws it, and it carries no label: the
+ * span and the hours belong to the gesture, which is one thing.
+ */
+.ghostContinued {
+  border-top-style: solid;
+  opacity: 0.85;
 }
 
 /*

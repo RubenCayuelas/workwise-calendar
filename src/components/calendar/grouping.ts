@@ -51,6 +51,18 @@ export interface BlockGroup {
    * `length === blocks.length` means the whole unit is the length the owner drew.
    */
   manualBlockIds: string[];
+  /**
+   * Every row of the unit the engine has stopped laying out BECAUSE A HUMAN SAID SO:
+   * a hand-set length (`manualDuration`), a hand-placed day (`handPlaced`), or both.
+   * `manualBlockIds` is a subset of it.
+   *
+   * This — not `manualBlockIds` — is what *back to automatic* sends, because the release
+   * clears both marks in one action (CLAUDE.md, *A Hand-Placed Row*): "neither mark is
+   * visible in the calendar's geometry, and an owner who pressed the wrong of two
+   * buttons would still have a row that would not move". Empty means the engine already
+   * owns the whole unit and the action is absent rather than disabled.
+   */
+  releasableBlockIds: string[];
 }
 
 /** One row, with the group it belongs to and its place in it. */
@@ -90,6 +102,7 @@ export function groupBlocks(
       open.endMinutes = block.startMinutes + block.durationMinutes;
       open.locked = open.locked && block.locked;
       if (block.manualDuration) open.manualBlockIds.push(block.id);
+      if (isReleasable(block)) open.releasableBlockIds.push(block.id);
       continue;
     }
 
@@ -103,10 +116,16 @@ export function groupBlocks(
       endMinutes: block.startMinutes + block.durationMinutes,
       locked: block.locked,
       manualBlockIds: block.manualDuration ? [block.id] : [],
+      releasableBlockIds: isReleasable(block) ? [block.id] : [],
     });
   }
 
   return groups;
+}
+
+/** A row whose stillness is the owner's decision, and therefore theirs to undo. */
+function isReleasable(block: WeekBlock): boolean {
+  return block.manualDuration || block.handPlaced;
 }
 
 /** Every row of every group, flattened, so the grid can map straight to elements. */

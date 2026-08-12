@@ -17,6 +17,7 @@ import {
   axisTicks,
   createTimeline,
   dateAtX,
+  emptyLabelMinutes,
   maxDurationFrom,
   nonWorkingBands,
   rankFor,
@@ -104,6 +105,33 @@ describe('nonWorkingBands', () => {
     const shape: DayShape = { ...SHAPE, periods: [MORNING], timelineEndMinutes: 15 * 60 };
     const bands = nonWorkingBands(shape.periods, createTimeline(shape, { pixelsPerHour: 60 }));
     expect(bands.map((band) => band.kind)).toEqual(['marginTop', 'marginBottom']);
+  });
+});
+
+describe('emptyLabelMinutes', () => {
+  it('sits in the middle of the morning, not on the 14:00 rule', () => {
+    const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
+    // The column's own midpoint is 13:45 — fifteen minutes above the boundary and on
+    // the edge of the lunch band, which is why "libre" read as debris. 11:00 is inside
+    // the day's longest working stretch, clear of every band and every rule.
+    expect(emptyLabelMinutes(SHAPE.periods, timeline)).toBe(11 * 60);
+    expect(emptyLabelMinutes(SHAPE.periods, timeline)).not.toBe(
+      (timeline.startMinutes + timeline.endMinutes) / 2,
+    );
+  });
+
+  it('follows the longest period when the afternoon is the long one', () => {
+    const periods: WorkPeriod[] = [
+      { startMinutes: 8 * 60, endMinutes: 10 * 60 },
+      { startMinutes: 12 * 60, endMinutes: 20 * 60 },
+    ];
+    const timeline = createTimeline({ ...SHAPE, periods }, { pixelsPerHour: 60 });
+    expect(emptyLabelMinutes(periods, timeline)).toBe(16 * 60);
+  });
+
+  it('falls back to the middle of the axis on a day with no working stretch', () => {
+    const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
+    expect(emptyLabelMinutes([], timeline)).toBe((timeline.startMinutes + timeline.endMinutes) / 2);
   });
 });
 
@@ -199,6 +227,7 @@ function block(partial: Partial<WeekBlock> & { startMinutes: number; durationMin
     durationMinutes: partial.durationMinutes,
     locked: partial.locked ?? false,
     manualDuration: partial.manualDuration ?? false,
+    handPlaced: partial.handPlaced ?? false,
     createdAt: partial.createdAt ?? `2026-08-11 08:00:0${sequence}`,
     updatedAt: partial.updatedAt ?? '2026-08-11 08:00:00',
     project: partial.project ?? { id: projectId, name: projectId, color: '#185FA5' },

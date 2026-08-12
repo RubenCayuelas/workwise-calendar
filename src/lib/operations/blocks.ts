@@ -3,24 +3,28 @@
  *
  * | gesture                  | what it means                                        |
  * |--------------------------|------------------------------------------------------|
- * | drag the body            | reorder the queue, then reflow                        |
+ * | drag the body            | reorder the queue (or pin the day), then reflow       |
  * | drag the bottom edge     | a transfer of hours inside the job                    |
  * | padlock                  | toggle the only exemption from auto-move              |
  * | scissors                 | move a portion of the job out of this row             |
  *
- * The one thing to hold on to while reading: a drag DOES NOT PIN a block.
- * CLAUDE.md is explicit — "Dragging a block reorders the queue — it does not pin
- * the block", and "a dropped block does not stay at the exact time it was dropped
- * at. It keeps that position in the sequence and then settles contiguously after
- * the preceding block." So a move writes the drop point as the row's QUEUE RANK
+ * The one thing to hold on to while reading: on the days the engine auto-fills, a drag
+ * DOES NOT PIN a block. CLAUDE.md is explicit — "Dragging a block reorders the queue —
+ * it does not pin the block", and "a dropped block does not stay at the exact time it
+ * was dropped at. It keeps that position in the sequence and then settles contiguously
+ * after the preceding block." So a move writes the drop point as the row's QUEUE RANK
  * and lets the reflow settle it. To nail a row to a time, lock it.
+ *
+ * The exception is the one place a rank means nothing: the Friday buffer and the
+ * weekend, where the reflow's only possible answer to a hand drop is to undo it. There
+ * the drop pins (`handPlaced`) — see `moveBlock`.
  */
 
 import { getDb, type Db } from '../db';
 import { assertFitsInDay } from '../validation';
 import { todayLocal } from '../dates';
 import {
-  releaseBlockDuration as releaseBlockHours,
+  releaseBlock as releaseBlockMarks,
   resizeBlock as resizeBlockHours,
   type EditSuccess,
   type ScheduleSummary,
@@ -28,7 +32,7 @@ import {
 import { conflict, notFound, ERROR_MESSAGE_KEYS } from '../errors';
 import { newId } from '../ids';
 import { nowTimestamp } from '../timestamps';
-import { recompose, runTransaction, type RecomposeReport } from '../scheduler';
+import { getDayConfig, recompose, runTransaction, type RecomposeReport } from '../scheduler';
 import {
   findBlock,
   listBlocks,
@@ -79,18 +83,32 @@ export interface MoveBlockInput {
  * A drop. Writes the new queue rank and reflows.
  *
  * No intent is passed: a drag is not growth, so it must not spend the Friday
- * colchón. Dropping ONTO Friday still works — the row is already dated there when
- * the engine runs, and a buffer day accepts an item that is already on it — which
- * is what stops an unrelated save from shoving it into next week.
+ * colchón.
  *
- * A drop into a visual margin, or onto a weekend, is accepted as-is; note that an
- * UNLOCKED row dropped into a margin is pulled back into the working periods by
- * this very recomposition, so a margin drop only sticks if the row is also locked.
+ * ON A MON-THU DAY the drop RE-RANKS, it does not pin: the row settles contiguously
+ * after whatever precedes it, and to nail it to a time the owner locks it. That is a
+ * decision the owner made deliberately, and it is unchanged.
+ *
+ * ON THE FRIDAY BUFFER OR THE WEEKEND it PINS, via `handPlaced` — because there the
+ * reflow's only possible answer is to undo it. Friday is in the movable pool so the
+ * engine can park growth overflow there and take it back when Mon-Thu frees up; the
+ * cost was that a hand drop onto Friday was pulled straight back and the request
+ * answered 200 with nothing changed. The mark is what tells the two apart, and the
+ * weekend gets it too so "a human put this here" means one thing on every day the
+ * engine would otherwise have recovered from.
+ *
+ * Dropping the row back onto Mon-Thu CLEARS the mark: the same gesture that sets it
+ * takes it away, and *back to automatic* is the one-click alternative.
+ *
+ * A drop into a visual margin is accepted as-is; note that an UNLOCKED row dropped
+ * into a Mon-Thu margin is pulled back into the working periods by this very
+ * recomposition, so a margin drop only sticks if the row is also locked or hand-placed.
  * That is margins ("manual drag-drop only") meeting the movable pool, not a bug.
  *
  * `manualPlacementBlockId` is what stops the drop leaving a silent overlap where the
- * reflow cannot reach — the weekend and the frozen past. Same job: one row, hours
- * summed. Another job: cut, tail pushed after the drop. A lock: refused, 409.
+ * reflow cannot reach — the weekend, the frozen past, and now a hand-placed Friday row.
+ * Same job: one row, hours summed. Another job: cut, tail pushed after the drop. A
+ * lock: refused, 409. And the drop is stored in segments, never across the lunch break.
  */
 export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb()): BlockMutation {
   const today = input.today ?? todayLocal();
@@ -100,10 +118,30 @@ export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb
     // The row keeps its duration, so the drop point has to leave room for it: a
     // block is a solid rectangle inside one day and cannot run past midnight.
     assertFitsInDay(input.startMinutes, block.durationMinutes);
-    updateBlock({ ...block, date: input.date, startMinutes: input.startMinutes }, db);
+    updateBlock(
+      {
+        ...block,
+        date: input.date,
+        startMinutes: input.startMinutes,
+        handPlaced: pinsToTheDay(input.date, db),
+      },
+      db,
+    );
     const report = recompose(db, { today, manualPlacementBlockId: blockId });
     return settled(blockId, block.projectId, report, [], db);
   });
+}
+
+/**
+ * Whether a drop onto `date` pins the row to it.
+ *
+ * The policy the engine's `handPlaced` flag is the mechanism for, in one place: a day
+ * the engine auto-fills (Mon-Thu) takes a drop as a queue rank, while the Friday buffer
+ * and the weekend — the days whose whole point is that the engine does not decide what
+ * sits there — keep exactly what the owner dropped.
+ */
+function pinsToTheDay(date: string, db: Db): boolean {
+  return getDayConfig(date, db).role !== 'auto';
 }
 
 export interface ResizeBlockInput {
@@ -160,19 +198,23 @@ export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = g
 }
 
 /**
- * "Back to automatic": the row gives its length back to the engine.
+ * "Back to automatic": the row gives the engine back its LENGTH and its DAY — both
+ * marks a hand gesture can leave on it (`manualDuration`, `handPlaced`).
  *
- * The counterpart of the resize, and not a nicety. A hand-set length is a decision
- * the engine then obeys for ever, and the only way it shows is that the row stops
- * reflowing — so without a one-click release the owner cannot undo it, and hand-set
- * lengths accumulate until the engine manages nothing. Releasing changes no
- * geometry; the recomposition that follows is what re-derives the job's segmentation
- * and closes the day the stretch was holding open.
+ * The counterpart of the resize and of a drop onto the buffer, and not a nicety. Both
+ * marks are decisions the engine then obeys for ever, and the only way either one shows
+ * is that the row stops reflowing — so without a one-click release the owner cannot
+ * undo them and they accumulate until the engine manages nothing. One action for both,
+ * because pressing the wrong one of two would leave a row that still would not move.
+ *
+ * Releasing changes no geometry itself; the recomposition that follows is what
+ * re-derives the job's segmentation, closes the day a hand-set stretch was holding open,
+ * and pulls a released Friday row back into Monday-Thursday.
  *
  * No intent is passed: giving hours back to the engine is not growth, so it must not
  * spend the Friday colchón.
  */
-export function releaseBlockDuration(
+export function releaseBlock(
   blockId: string,
   options: { today?: string } = {},
   db: Db = getDb(),
@@ -181,7 +223,7 @@ export function releaseBlockDuration(
 
   return runTransaction(db, () => {
     const block = requireBlock(blockId, db);
-    const edit = requireEdit(releaseBlockHours(listBlocks(db), blockId));
+    const edit = requireEdit(releaseBlockMarks(listBlocks(db), blockId));
     const report = recompose(db, { today, blocks: edit.blocks });
     return settled(blockId, block.projectId, report, [], db);
   });
@@ -275,6 +317,9 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
       // A fragment's length is the portion the owner chose to MOVE, not a length
       // drawn on the calendar; `locked` is what pins a fragment to a slot.
       manualDuration: false,
+      // The fragment IS the drop, so it follows the same rule a move does: pinned on
+      // the buffer and the weekend, an ordinary queue rank on Monday to Thursday.
+      handPlaced: pinsToTheDay(input.date, db),
       createdAt: now,
       updatedAt: now,
     });

@@ -12,17 +12,29 @@
  * them — the calendar draws them as one grouped unit, the panel tells the truth about
  * the rows.
  *
- * This is also the only place a HAND-SET length can be released on a row that is not in
- * the week on screen — the panel lists every row of the job, across every week, and a
- * hand-set row is one the engine has stopped re-laying out, so it can sit weeks away
- * holding a day open.
+ * This is also the only place a HAND MARK can be released on a row that is not in the
+ * week on screen — the panel lists every row of the job, across every week, and a marked
+ * row is one the engine has stopped re-laying out, so it can sit weeks away holding a
+ * day open.
+ *
+ * TWO MARKS REACH THIS LIST, and *back to automatic* clears both in one call: a hand-set
+ * LENGTH (`manualDuration`, the ruler) and a hand-placed DAY (`handPlaced`, the hand).
+ * Keying the action off the length alone — which is what it did — left a row pinned to
+ * Friday with a perfectly automatic length showing a mark and no way back.
  *
  * The list is display + two toggles. The requests belong to the panel, which owns the
  * refetch and the error banner.
  */
 
 import { useTranslation } from 'react-i18next';
-import { IconLock, IconLockOpen, IconRuler, IconRulerOff, IconScissors } from '@tabler/icons-react';
+import {
+  IconHandFinger,
+  IconLock,
+  IconLockOpen,
+  IconRestore,
+  IconRuler,
+  IconScissors,
+} from '@tabler/icons-react';
 import { IconButton } from '../ui';
 import { useFormat } from '../../lib/useFormat';
 import { FRIDAY, compareDates, weekdayOf } from '../../lib/dates';
@@ -38,9 +50,10 @@ export interface BlockRowsProps {
   /** Toggles the padlock. Omit to render the state read-only. */
   onToggleLock?: (block: Block) => void;
   /**
-   * "Back to automatic" on a row whose length was set by hand. Omit to render the mark
-   * without its undo — the mark itself is always shown, since a row that has stopped
-   * reflowing must never be a silent state.
+   * "Back to automatic" on a row carrying either hand mark — a length set by hand, a day
+   * chosen by hand, or both. Omit to render the marks without their undo; the marks
+   * themselves are always shown, since a row that has stopped reflowing must never be a
+   * silent state.
    */
   onReleaseDuration?: (block: Block) => void;
   /** Adds the scissors to each row. The panel is the only way to reach another week's rows. */
@@ -96,24 +109,42 @@ export function BlockRows({
                 {tag === undefined ? null : <span className={styles.blockTag}>{t(tag)}</span>}
 
                 {/*
-                 * The hand-set length. Shown either way: with the release action when
-                 * the panel wired one, and as a plain mark when it did not, because the
-                 * whole point of the mark is that the row's stillness has a reason.
+                 * The marks the owner put there, each naming what it fixes: the ruler
+                 * the row's LENGTH, the hand the row's DAY. Always shown — the whole
+                 * point of a mark is that the row's stillness has a visible reason.
                  */}
-                {!block.manualDuration ? null : onReleaseDuration === undefined ? (
+                {!block.manualDuration ? null : (
                   <span
                     className={styles.blockTag}
                     aria-label={t('block.manualDuration')}
-                    title={t('block.manualDurationHint')}
+                    title={t('block.markManualDuration')}
                   >
                     <IconRuler size={15} stroke={1.75} />
                   </span>
-                ) : (
+                )}
+
+                {!block.handPlaced ? null : (
+                  <span
+                    className={styles.blockTag}
+                    aria-label={t('block.handPlaced')}
+                    title={t('block.markHandPlaced')}
+                  >
+                    <IconHandFinger size={15} stroke={1.75} />
+                  </span>
+                )}
+
+                {/*
+                 * One undo for both marks, offered whenever either is set. It is a
+                 * separate control from the marks now rather than a toggled version of
+                 * the ruler: a row can carry two marks and there is still only one way
+                 * back, and a ruler-off glyph would name half of what it does.
+                 */}
+                {onReleaseDuration === undefined || !(block.manualDuration || block.handPlaced) ? null : (
                   <IconButton
                     size="sm"
                     variant="ghost"
                     active
-                    icon={<IconRulerOff size={15} stroke={1.75} />}
+                    icon={<IconRestore size={15} stroke={1.75} />}
                     label={t('block.releaseDuration')}
                     disabled={disabled || busy}
                     onClick={() => onReleaseDuration(block)}

@@ -9,8 +9,9 @@
  *
  * The pure modules are exported too, because they are the parts worth testing and
  * reusing: `geometry` (minutes <-> pixels, pointer -> slot), `grouping` (the rows of a
- * job drawn as one unit, and lanes for hand-made overlaps) and `dropEffect` (what the
- * drop under the pointer will do to the row it lands on).
+ * job drawn as one unit, and lanes for hand-made overlaps), `dropEffect` (what the drop
+ * under the pointer will do to the row it lands on) and `dropOutcome` (what became of it
+ * once the server answered).
  */
 
 export {
@@ -45,6 +46,7 @@ export {
   columnOf,
   createTimeline,
   dateAtX,
+  emptyLabelMinutes,
   maxDurationFrom,
   nonWorkingBands,
   rankFor,
@@ -74,8 +76,17 @@ export {
 
 export {
   dropEffectOf,
+  dropFootprint,
   type DropEffect,
   type DropEffectInput,
   type DropEffectKind,
   type DropRow,
 } from './dropEffect';
+
+export {
+  describeDrop,
+  type DropOutcome,
+  type DropOutcomeInput,
+  type DropOutcomeKind,
+  type DropPoint,
+} from './dropOutcome';

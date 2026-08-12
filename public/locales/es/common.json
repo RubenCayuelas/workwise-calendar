@@ -105,7 +105,7 @@
     "dropHere": "Soltar aquí",
     "dropRankHint": "Al soltar, el bloque toma este puesto en la cola y se recoloca justo detrás del anterior. Bloquéalo si quieres fijarlo a una hora.",
     "loadingWeek": "Cargando la semana…",
-    "dropCuts": "Partirá «{{name}}»: el resto seguirá justo detrás.",
+    "dropCuts": "Partirá «{{name}}»: el resto continúa justo detrás y, si no cabe en el día, sigue en el siguiente.",
     "dropMerges": "Se unirá con «{{name}}»: las horas se suman en un solo bloque.",
     "dropBlocked": "Ahí no cabe: «{{name}}» está bloqueado. No se guardará nada."
   },
@@ -134,7 +134,10 @@
     "splitConfirm": "Dividir",
     "resizeHint": "Alargar un bloque quita esas horas del último bloque del trabajo; acortarlo se las devuelve. El total no cambia y la duración queda fija hasta que la devuelvas a automático.",
     "manualDuration": "Duración fija",
-    "manualDurationHint": "Duración puesta a mano: el motor la respeta y el trabajo continúa el día siguiente.",
+    "handPlaced": "Colocado a mano",
+    "markManualDuration": "Duración fija · la longitud la has puesto tú",
+    "markHandPlaced": "Colocado a mano · tú has elegido este día",
+    "markLocked": "Bloqueado · el motor no lo mueve de aquí",
     "releaseDuration": "Volver a automático"
   },
   "jobPanel": {
@@ -249,6 +252,11 @@
     "touchedLockedBlocks_other": "Se han ajustado {{count}} bloques bloqueados porque el trabajo no tenía horas libres.",
     "recomposed": "El calendario se ha recompuesto.",
     "dropSettles": "El bloque toma el puesto donde lo has soltado y se recoloca justo detrás del anterior. Bloquéalo para fijarlo a una hora.",
+    "dropPinned": "«{{name}}» se queda donde lo has soltado, el {{day}}: ahí mandas tú y el motor no lo mueve. Usa «Volver a automático» para devolvérselo.",
+    "dropLeftWeek": "«{{name}}» ya no cabía en esta semana: sus horas continúan el {{date}}.",
+    "dropUnchanged": "El calendario ha dejado «{{name}}» donde estaba: de lunes a jueves soltar cambia el puesto en la cola, no la hora. Bloquéalo si quieres fijarlo.",
+    "dropAbsorbed": "Esas horas se han unido al bloque del mismo trabajo que había al lado. No se ha perdido ninguna hora.",
+    "dropRefusedPast": "Ahí no se puede soltar: el pasado está congelado y el motor no escribe en él. Corrige ese día desde la ficha del trabajo.",
     "mergedOverlap_one": "Se ha unido con el bloque del mismo trabajo que ya estaba ahí. No se ha perdido ninguna hora.",
     "mergedOverlap_other": "Se ha unido con {{count}} bloques del mismo trabajo que ya estaban ahí. No se ha perdido ninguna hora.",
     "displacedBlocks_one": "Se ha partido «{{names}}» y el resto ha quedado justo detrás. Si no te sirve, vuelve a moverlo.",
@@ -256,7 +264,7 @@
     "nothingSaved": "No se ha guardado nada.",
     "resizeShrunk": "«{{name}}» se queda en {{hours}} h aquí y esa duración queda fija. Las horas que sobran pasan al último bloque del trabajo, el resto continúa el siguiente día y el hueco lo ocupa lo que venga detrás en la cola.",
     "resizeGrown": "«{{name}}» pasa a {{hours}} h aquí y esa duración queda fija. Esas horas salen del último bloque del trabajo; si era el último, sube el total del trabajo.",
-    "released": "Duración otra vez automática. El motor recoloca el trabajo; el bloque conserva su puesto en la cola."
+    "released": "Vuelve a mandar el motor: recupera la duración y el día que le hubieras fijado a mano. El bloque conserva su puesto en la cola."
   },
   "weekdays": {
     "short": {
@@ -317,6 +325,7 @@
     "transferExceedsJob": "El trabajo no tiene tantas horas en bloques posteriores para ceder.",
     "reductionExceedsJob": "No se pueden quitar más horas de las que tiene el trabajo.",
     "gapOverLockedBlock": "Ese hueco pisa «{{projectName}}», que está bloqueado el {{date}} de {{startTime}} a {{endTime}}. Desbloquéalo o muévelo antes de guardar.",
+    "gapOverHandPlacedBlock": "Ese hueco pisa «{{projectName}}», que colocaste a mano el {{date}} de {{startTime}} a {{endTime}}. Devuélvelo a automático o muévelo antes de guardar.",
     "gapOverPastBlock": "Ese hueco pisa «{{projectName}}», que está en un día ya pasado ({{date}}, de {{startTime}} a {{endTime}}). Corrige ese bloque a mano antes de guardar.",
     "gapOverWeekendBlock": "Ese hueco pisa «{{projectName}}», que está en fin de semana ({{date}}, de {{startTime}} a {{endTime}}). Muévelo a mano antes de guardar.",
     "dropOverLockedBlock": "Ahí no cabe: pisa «{{projectName}}», que está bloqueado el {{date}} de {{startTime}} a {{endTime}}. Desbloquéalo o suéltalo en otro sitio. No se ha guardado nada.",

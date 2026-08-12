@@ -12,14 +12,26 @@
  * It mirrors `resolveManualPlacement`, which is the authority; this is a read-only
  * echo of its two branches:
  *
- * | the drop is…                              | it collides with… | same job | other job |
- * |-------------------------------------------|-------------------|----------|-----------|
- * | FIXED (weekend day, or a locked unit)      | the day's FIXED rows | merged, hours summed | cut, tail pushed after |
- * | REFLOWED (weekday, unlocked)               | the day's MOVABLE rows | nothing — the reflow lays them out contiguously and auto-merge joins them | cut, but only a row that STARTS BEFORE the drop |
+ * | the drop is…                                  | it collides with… | same job | other job |
+ * |-----------------------------------------------|-------------------|----------|-----------|
+ * | FIXED (weekend, the Friday buffer, or locked)  | the day's FIXED rows | merged, hours summed | cut, tail pushed after |
+ * | REFLOWED (Mon-Thu, unlocked)                   | the day's MOVABLE rows | nothing — the reflow lays them out contiguously and auto-merge joins them | cut, but only a row that STARTS BEFORE the drop |
+ *
+ * FRIDAY IS ON THE FIXED SIDE because a drop there is hand-placed (`handPlaced`), which
+ * takes it out of the movable pool — that is how work stays on the colchón at all. So is
+ * any row already carrying that mark, whatever day it is on.
  *
  * and a LOCKED row is never overlapped: on the fixed side that is the 409
  * `overlaps-locked-block`, on the reflowed side the row is simply ignored, because
  * flexible work flows around it.
+ *
+ * THE DROP'S FOOTPRINT IS ITS SEGMENTS, not the rectangle the pointer draws. A drop is
+ * stored cut at the break between two working periods (CLAUDE.md, *A Drop Is Stored In
+ * Segments*), so 6 h released at 10:00 occupies 10:00-14:00 and 15:30-17:30 and NOT the
+ * lunch band between them. That rule is `segmentDroppedRow` in src/lib/dropSegments.ts,
+ * imported rather than restated: the engine and this file must give the same answer, and
+ * a row sitting inside the lunch band would otherwise be announced as cut by a drop that
+ * never touches it.
  *
  * TWO APPROXIMATIONS, both deliberate and both safe in the same direction — they can
  * only make the preview silent, never make it promise something that will not happen:
@@ -30,6 +42,9 @@
  *   drag layer before it gets here.
  */
 
+import { overlapsSegments, segmentDroppedRow, type DropSegment } from '../../lib/dropSegments';
+import type { WorkPeriod } from '../../types';
+
 /** The row shapes this needs. `WeekBlock` satisfies it; a test can build one by hand. */
 export interface DropRow {
   id: string;
@@ -37,6 +52,8 @@ export interface DropRow {
   startMinutes: number;
   durationMinutes: number;
   locked: boolean;
+  /** A human put this row here, so the engine will not move it either. */
+  handPlaced: boolean;
   project: { name: string };
 }
 
@@ -49,8 +66,19 @@ export interface DropEffectInput {
   projectId: string;
   /** Every row of a weekend day is fixed, whatever its padlock says. */
   dayIsWeekend: boolean;
+  /**
+   * The target day is the Friday buffer, where a drop is hand-placed and therefore
+   * fixed. Unlike the weekend it does NOT make the rows already there fixed: an
+   * engine-placed Friday row is still movable and the reflow can recover it.
+   */
+  dayIsBuffer: boolean;
   /** The dragged unit is locked, so the reflow will not lay it out either. */
   locked: boolean;
+  /**
+   * The target day's working periods, which are where the drop is cut. Without them a
+   * drop across the lunch break would be measured over the band it does not occupy.
+   */
+  periods: readonly WorkPeriod[];
   /** The ghost, in minutes from midnight. */
   startMinutes: number;
   durationMinutes: number;
@@ -83,21 +111,22 @@ export interface DropEffect {
  * where nothing is saved at all.
  */
 export function dropEffectOf(input: DropEffectInput): DropEffect | null {
-  const endMinutes = input.startMinutes + input.durationMinutes;
+  // The clock the drop will really hold once it is stored: its segments, with the break
+  // it skips left out of them.
+  const footprint = dropFootprint(input);
   // The drop's own side of the calendar: a fixed drop lands where the reflow may not
   // reach, so it collides with the other fixed rows and nothing will separate them.
-  const reflowed = !input.locked && !input.dayIsWeekend;
+  const reflowed = !input.locked && !input.dayIsWeekend && !input.dayIsBuffer;
 
   const overlapping = [...input.rows]
     .filter(
       (row) =>
         !input.movingBlockIds.includes(row.id) &&
-        row.startMinutes < endMinutes &&
-        row.startMinutes + row.durationMinutes > input.startMinutes &&
+        overlapsSegments(footprint, row.startMinutes, row.durationMinutes) &&
         // Each branch only ever sees its own side. `isMovable` reduces to this here:
-        // the day is neither past (the drag layer refuses those) nor, on the reflowed
-        // branch, a weekend.
-        (input.dayIsWeekend || row.locked) !== reflowed,
+        // the day is not past (the drag layer refuses those), so a row is fixed iff the
+        // day is a weekend, or it is locked, or a human placed it.
+        (input.dayIsWeekend || row.locked || row.handPlaced) !== reflowed,
     )
     .sort((a, b) => a.startMinutes - b.startMinutes || (a.id < b.id ? -1 : 1));
 
@@ -132,4 +161,23 @@ export function dropEffectOf(input: DropEffectInput): DropEffect | null {
 
 function effect(kind: DropEffectKind, row: DropRow, cutMinutes: number): DropEffect {
   return { kind, blockId: row.id, projectName: row.project.name, cutMinutes };
+}
+
+/**
+ * The rows the drop will be stored as — what the ghost should draw, and what the
+ * collision test above measures against.
+ *
+ * Exported because WeekGrid draws the ghost from it: one rectangle per segment, so the
+ * preview shows the two rows the server will write rather than one rectangle running
+ * through the lunch band.
+ */
+export function dropFootprint(input: {
+  periods: readonly WorkPeriod[];
+  startMinutes: number;
+  durationMinutes: number;
+}): DropSegment[] {
+  return segmentDroppedRow(input.periods, {
+    startMinutes: input.startMinutes,
+    durationMinutes: input.durationMinutes,
+  });
 }

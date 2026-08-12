@@ -25,7 +25,7 @@ import { createProject, deleteProject, patchProject } from './operations/project
 import {
   deleteBlock,
   moveBlock,
-  releaseBlockDuration,
+  releaseBlock,
   resizeBlock,
   setBlockLock,
   splitBlock,
@@ -190,6 +190,94 @@ describe('the Friday buffer is opt-in', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// A drop the engine used to undo
+// ---------------------------------------------------------------------------
+//
+// THE REPRODUCED DEFECT. `PATCH /api/blocks/:id {action:"move", date:<a Friday>,
+// startMinutes:600}` answered 200 and changed nothing. Friday is in the movable pool —
+// the engine may put growth overflow there AND recover it — so the reflow pulled the
+// hand-dropped row straight back. The same move to a Saturday worked, and to a past
+// Monday worked; only Friday failed, silently, which is the worst mode.
+
+describe('a drop onto the Friday colchon', () => {
+  it('stays on Friday, in the slot it was dropped in', () => {
+    const puerta = job('Puerta', 4);
+    expect(calendar()).toEqual([`${MON} 08:00-12:00 Puerta`]);
+
+    const result = moveBlock(puerta.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: MON }, db);
+
+    expect(calendar()).toEqual([`${FRI} 10:00-14:00 Puerta`]);
+    expect(result.block?.handPlaced).toBe(true);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('survives the churn that used to undo it: another job created, then deleted', () => {
+    const puerta = job('Puerta', 4);
+    moveBlock(puerta.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: MON }, db);
+
+    const barandilla = job('Barandilla', 4, GREEN);
+    expect(calendar()).toEqual([`${MON} 08:00-12:00 Barandilla`, `${FRI} 10:00-14:00 Puerta`]);
+
+    deleteProject(barandilla.project.id, { today: MON }, db);
+    expect(calendar()).toEqual([`${FRI} 10:00-14:00 Puerta`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('comes home when the row is put back to automatic', () => {
+    const puerta = job('Puerta', 4);
+    moveBlock(puerta.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: MON }, db);
+
+    const released = releaseBlock(puerta.blocks[0].id, { today: MON }, db);
+
+    expect(released.block?.handPlaced).toBe(false);
+    expect(calendar()).toEqual([`${MON} 08:00-12:00 Puerta`]);
+  });
+
+  it('leaves an ordinary weekday drop unmarked — it re-ranks the queue, it does not pin', () => {
+    job('Puerta', 4);
+    const barandilla = job('Barandilla', 2, GREEN);
+
+    const result = moveBlock(barandilla.blocks[0].id, { date: MON, startMinutes: 7 * 60, today: MON }, db);
+
+    expect(result.block?.handPlaced).toBe(false);
+    expect(calendar()).toEqual([`${MON} 08:00-10:00 Barandilla`, `${MON} 10:00-14:00 Puerta`]);
+  });
+
+  it('marks a weekend drop too, where the engine already kept its hands off', () => {
+    const puerta = job('Puerta', 4);
+
+    const result = moveBlock(puerta.blocks[0].id, { date: SAT, startMinutes: 9 * 60, today: MON }, db);
+
+    expect(result.block?.handPlaced).toBe(true);
+    expect(calendar()).toEqual([`${SAT} 09:00-13:00 Puerta`]);
+  });
+
+  it('clears the mark when the row is dragged back into the auto-fill week', () => {
+    const puerta = job('Puerta', 4);
+    moveBlock(puerta.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: MON }, db);
+
+    const result = moveBlock(puerta.blocks[0].id, { date: TUE, startMinutes: 10 * 60, today: MON }, db);
+
+    expect(result.block?.handPlaced).toBe(false);
+    // Back under the engine, which settles it at the top of the week.
+    expect(calendar()).toEqual([`${MON} 08:00-12:00 Puerta`]);
+  });
+
+  it('gives the scissors the same rule: a fragment dropped on Friday stays there', () => {
+    const puerta = job('Puerta', 8);
+
+    splitBlock(puerta.blocks[0].id, { durationMinutes: 2 * 60, date: FRI, startMinutes: 9 * 60, today: MON }, db);
+
+    expect(calendar()).toEqual([
+      `${MON} 08:00-14:00 Puerta`,
+      `${FRI} 09:00-11:00 Puerta`,
+    ]);
+    expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+});
+
 describe('block gestures', () => {
   it('reorders the queue on a drop rather than pinning the block', () => {
     job('Puerta', 4);
@@ -284,7 +372,7 @@ describe('block gestures', () => {
       `${TUE} 08:00-14:00 Puerta`,
     ]);
 
-    const released = releaseBlockDuration(puerta.blocks[0].id, { today: MON }, db);
+    const released = releaseBlock(puerta.blocks[0].id, { today: MON }, db);
 
     // Releasing gives back the LENGTH, not the queue position. Barandilla now ranks
     // between Puerta's two runs on the calendar, and queue order IS calendar order, so
@@ -294,7 +382,11 @@ describe('block gestures', () => {
     expect(calendar()).toEqual([
       `${MON} 08:00-10:00 Puerta`,
       `${MON} 10:00-14:00 Barandilla`,
-      `${TUE} 08:00-14:00 Puerta`,
+      // Puerta's second run is a CONTINUATION — the job already started this morning —
+      // so it fills Monday's afternoon and finishes on Tuesday, instead of moving whole
+      // to Tuesday and leaving 15:30-19:30 empty. Monday is booked to its 10 h stop line.
+      `${MON} 15:30-19:30 Puerta`,
+      `${TUE} 08:00-10:00 Puerta`,
     ]);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
@@ -306,7 +398,7 @@ describe('block gestures', () => {
     resizeBlock(puerta.blocks[0].id, { durationMinutes: 2 * 60, today: MON }, db);
     expect(calendar()).toEqual([`${MON} 08:00-10:00 Puerta`, `${TUE} 08:00-14:00 Puerta`]);
 
-    releaseBlockDuration(puerta.blocks[0].id, { today: MON }, db);
+    releaseBlock(puerta.blocks[0].id, { today: MON }, db);
 
     expect(calendar()).toEqual(automatic);
     expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
@@ -364,6 +456,46 @@ describe('block gestures', () => {
     ]);
     expect(result.displacedProjectIds).toHaveLength(1);
     expect(listProjects(db).find((project) => project.name === 'Barandilla')?.totalMinutes).toBe(6 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('fills the rest of the day with the tail a drop displaced, instead of jumping a week', () => {
+    // The third reproduced defect, in the owner's words: «al mover un bloque a otro, en
+    // vez de adaptarse, desplazó el bloque al día siguiente sin partirlo ni nada,
+    // dejando el día vacío después de la tarea que he movido».
+    job('Barandilla', 12, GREEN, THU);
+    const marquesina = job('Marquesina', 2, BLUE, THU);
+    const dropped = listBlocks(db).find((row) => row.projectId === marquesina.project.id);
+
+    moveBlock(dropped!.id, { date: THU, startMinutes: 10 * 60, today: THU }, db);
+
+    expect(calendar()).toEqual([
+      `${THU} 08:00-10:00 Barandilla`,
+      `${THU} 10:00-12:00 Marquesina`,
+      // The 10 h tail used to leave Thursday 12:00-19:30 empty and land whole on the
+      // following Monday. A continuation fills forward from where it was cut.
+      `${THU} 12:00-14:00 Barandilla`,
+      `${THU} 15:30-19:30 Barandilla`,
+      `${NEXT_MON} 08:00-12:00 Barandilla`,
+    ]);
+    expect(listProjects(db).find((project) => project.name === 'Barandilla')?.totalMinutes).toBe(12 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('stores a drop that crosses the lunch break as two rows', () => {
+    // The fourth reproduced defect: a 360 min drop at 10:00 was stored as ONE row
+    // running straight through 14:00-15:30. `duration` is net working time, so that row
+    // was a lie, and the grid, the overlap arithmetic and auto-merge all assume it
+    // cannot happen.
+    const puerta = job('Puerta', 6);
+
+    moveBlock(puerta.blocks[0].id, { date: LAST_FRI, startMinutes: 10 * 60, today: MON }, db);
+
+    expect(calendar()).toEqual([
+      `${LAST_FRI} 10:00-14:00 Puerta`,
+      `${LAST_FRI} 15:30-17:30 Puerta`,
+    ]);
+    expect(listProjects(db)[0].totalMinutes).toBe(6 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 

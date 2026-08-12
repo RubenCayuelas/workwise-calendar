@@ -127,6 +127,7 @@ export const ERROR_MESSAGE_KEYS = {
   splitExceedsBlock: 'errors.splitExceedsBlock',
   deleteLastBlock: 'errors.deleteLastBlock',
   gapOverLockedBlock: 'errors.gapOverLockedBlock',
+  gapOverHandPlacedBlock: 'errors.gapOverHandPlacedBlock',
   gapOverPastBlock: 'errors.gapOverPastBlock',
   gapOverWeekendBlock: 'errors.gapOverWeekendBlock',
   invariantViolated: 'errors.invariantViolated',

@@ -25,6 +25,7 @@ function block(overrides: Partial<WeekBlock> & { id: string }): WeekBlock {
     durationMinutes: 60,
     locked: false,
     manualDuration: false,
+    handPlaced: false,
     createdAt: '2026-08-11T09:00:00.000Z',
     updatedAt: '2026-08-11T09:00:00.000Z',
     project: { id: 'barandilla', name: 'Barandilla', color: '#2F6FEB' },
@@ -82,5 +83,44 @@ describe('groupBlocks — the hand-set mark', () => {
       PERIODS,
     );
     expect(groups.map((group) => group.manualBlockIds)).toEqual([['a'], []]);
+  });
+});
+
+describe('groupBlocks — what *back to automatic* releases', () => {
+  it('is empty while the engine owns the unit', () => {
+    expect(groupBlocks([block({ id: 'a' })], PERIODS)[0].releasableBlockIds).toEqual([]);
+  });
+
+  it('covers a hand-PLACED row whose length is perfectly automatic', () => {
+    // The Friday defect's row: pinned to a day, sized by the engine. Keying the action
+    // off `manualBlockIds` alone would leave it with no visible way back.
+    const groups = groupBlocks([block({ id: 'viernes', handPlaced: true })], PERIODS);
+    expect(groups[0].manualBlockIds).toEqual([]);
+    expect(groups[0].releasableBlockIds).toEqual(['viernes']);
+  });
+
+  it('names each row once when a row carries both marks', () => {
+    const groups = groupBlocks(
+      [block({ id: 'ambas', manualDuration: true, handPlaced: true })],
+      PERIODS,
+    );
+    expect(groups[0].releasableBlockIds).toEqual(['ambas']);
+  });
+
+  it('gathers both halves of a unit the owner pinned and then sized', () => {
+    const groups = groupBlocks(
+      [
+        block({ id: 'morning', startMinutes: 13 * 60, durationMinutes: 60, handPlaced: true }),
+        block({
+          id: 'afternoon',
+          startMinutes: 15 * 60 + 30,
+          durationMinutes: 60,
+          manualDuration: true,
+        }),
+      ],
+      PERIODS,
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].releasableBlockIds).toEqual(['morning', 'afternoon']);
   });
 });

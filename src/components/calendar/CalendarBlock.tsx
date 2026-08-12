@@ -28,6 +28,26 @@
  *   except that the row stopped reflowing, so without a one-click release the owner
  *   cannot undo it and the marks accumulate until the engine manages nothing.
  *
+ * THREE MARKS, NOT TWO (2026-08-12). `hand_placed` — "a human chose this DAY" — is a
+ * third independent reason a row has stopped reflowing, and it needed its own glyph
+ * rather than a shade of an existing one:
+ *
+ * | mark            | what it fixes | how it reads                                    |
+ * |-----------------|---------------|-------------------------------------------------|
+ * | padlock         | the POSITION  | never auto-moved, wherever it is; survives a drag |
+ * | ruler           | the LENGTH    | plus a solid bottom edge — the edge that was dragged |
+ * | pointing hand   | the DAY       | plus a solid border — the whole outline the owner drew |
+ *
+ * They are not combinable. A Friday row can be pinned with a perfectly automatic length,
+ * and a Monday row can be hand-sized without anyone choosing Monday; folding the two
+ * into one mark would make *back to automatic* ambiguous about what it gives back. What
+ * IS folded is the ACTION: one release clears both hand marks, because neither is
+ * visible in the geometry and pressing the wrong of two buttons would leave a row that
+ * still would not move (CLAUDE.md, *A Hand-Placed Row*).
+ *
+ * The solid border also does the work of separating a hand-placed Friday row from an
+ * engine-placed one on the very same column: `desborde 2 h` is drawn dashed.
+ *
  * Every visible string comes from public/locales, and every number goes through
  * `useFormat()` so "6 h" and "2,5 h" are spelled the same here as in the job panel.
  */
@@ -35,10 +55,11 @@
 import { useTranslation } from 'react-i18next';
 import {
   IconClockStop,
+  IconHandFinger,
   IconLock,
   IconLockOpen,
+  IconRestore,
   IconRuler,
-  IconRulerOff,
   IconScissors,
   IconTrash,
 } from '@tabler/icons-react';
@@ -53,9 +74,10 @@ export interface CalendarBlockProps {
   timeline: Timeline;
   lane: LanePlacement;
   /**
-   * Placed on Friday by the engine, i.e. work that grew past its estimate. There is no
-   * `manually_placed` flag by design, so this is derived: the colchón only ever holds
-   * overflow or something the owner locked there.
+   * Placed on Friday BY THE ENGINE, i.e. work that grew past its estimate. Derived from
+   * the buffer rule rather than stored: the colchón only ever holds overflow, a lock, or
+   * a row a human pinned there — and the last of those carries `handPlaced` and reads as
+   * that instead. See `isOverflow` in WeekGrid.
    */
   overflow: boolean;
   /** A past day: the hover bar is withheld, but the row stays editable by hand. */
@@ -75,9 +97,10 @@ export interface CalendarBlockProps {
   onOpen: () => void;
   onToggleLock: () => void;
   /**
-   * "Back to automatic": give the unit's hand-set length back to the engine. Present
-   * exactly when some row of the unit carries the mark. It returns the LENGTH, not the
-   * queue position — the row keeps whatever place the calendar now gives it.
+   * "Back to automatic": give the engine back whatever a hand gesture took from it on
+   * this unit — a hand-set LENGTH, a hand-placed DAY, or both. Present exactly when some
+   * row of the unit carries either mark. It never returns the queue POSITION; the row
+   * keeps whatever place the calendar now gives it.
    */
   onReleaseDuration?: () => void;
   /**
@@ -128,9 +151,18 @@ export function CalendarBlock({
       ? t('block.overflow', { hours: format.hourNumber(block.durationMinutes) })
       : format.hours(block.durationMinutes);
 
-  // One short line, the way the day header words its own state: what this row is, then
-  // the one consequence that explains why it stopped moving with the rest.
-  const manualHint = `${t('block.manualDuration')}\n${t('block.manualDurationHint')}`;
+  /*
+   * ONE LINE PER MARK, each naming the mark and the single thing it fixes. Three marks
+   * is a lot for one small rectangle, so the wording is what has to keep them apart:
+   * "Bloqueado · el motor no lo mueve de aquí", "Duración fija · la longitud la has
+   * puesto tú", "Colocado a mano · tú has elegido este día". Each icon carries its own
+   * line, and the row's tooltip carries all the lines it has.
+   */
+  const markHints = [
+    block.manualDuration ? t('block.markManualDuration') : null,
+    block.handPlaced ? t('block.markHandPlaced') : null,
+    block.locked ? t('block.markLocked') : null,
+  ].filter((line): line is string => line !== null);
 
   const classes = [
     styles.block,
@@ -140,6 +172,7 @@ export function CalendarBlock({
     frozen ? styles.frozen : '',
     lifted ? styles.lifted : '',
     block.manualDuration ? styles.manual : '',
+    block.handPlaced ? styles.handPlaced : '',
     cutAtMinutes === undefined ? '' : styles.cutting,
   ]
     .filter(Boolean)
@@ -159,11 +192,10 @@ export function CalendarBlock({
         end: format.time(endMinutes),
         hours: format.hourNumber(block.durationMinutes),
       })}
-      title={
-        block.manualDuration
-          ? `${format.dayTimeHours(block.date, block.startMinutes, block.durationMinutes)}\n${manualHint}`
-          : format.dayTimeHours(block.date, block.startMinutes, block.durationMinutes)
-      }
+      title={[
+        format.dayTimeHours(block.date, block.startMinutes, block.durationMinutes),
+        ...markHints,
+      ].join('\n')}
       style={{
         '--ww-block-color': block.project.color,
         top: `${timeline.yOf(block.startMinutes)}px`,
@@ -182,20 +214,26 @@ export function CalendarBlock({
       {height >= MIN_LABEL_HEIGHT ? <span className={styles.hours}>{hoursLabel}</span> : null}
 
       {/*
-       * The two marks share the corner the action bar takes over on hover, and they are
-       * independent states, so both can be up at once: the padlock says the engine may
-       * not MOVE this row, the ruler says it may not RESIZE it.
+       * The three marks share the corner the action bar takes over on hover, and they
+       * are independent states, so all three can be up at once: the padlock says the
+       * engine may not MOVE this row, the ruler says it may not RESIZE it, the hand says
+       * a human chose the DAY it is on.
        */}
-      {block.locked || block.manualDuration ? (
+      {markHints.length === 0 ? null : (
         <span className={styles.marks} aria-hidden="true">
           {block.manualDuration ? (
-            <span className={styles.manualMark} title={manualHint}>
+            <span className={styles.softMark} title={t('block.markManualDuration')}>
               <IconRuler size={13} stroke={1.9} />
+            </span>
+          ) : null}
+          {block.handPlaced ? (
+            <span className={styles.softMark} title={t('block.markHandPlaced')}>
+              <IconHandFinger size={13} stroke={1.9} />
             </span>
           ) : null}
           {block.locked ? <IconLock size={13} stroke={1.9} /> : null}
         </span>
-      ) : null}
+      )}
 
       {/*
        * Where the drop in progress will cut this row. Absolutely positioned against the
@@ -224,9 +262,13 @@ export function CalendarBlock({
             onClick={onToggleLock}
           />
           {onReleaseDuration === undefined ? null : (
+            // NOT the ruler-off glyph it used to be: the action gives back a hand-set
+            // LENGTH and a hand-placed DAY together, so a ruler would name half of it
+            // and would be plainly wrong on a Friday row of automatic length. `restore`
+            // is about the undoing, which is the part both marks share.
             <IconButton
               size="sm"
-              icon={<IconRulerOff size={13} stroke={1.9} />}
+              icon={<IconRestore size={13} stroke={1.9} />}
               label={t('block.releaseDuration')}
               disabled={busy}
               onClick={onReleaseDuration}

@@ -47,6 +47,10 @@ CREATE TABLE IF NOT EXISTS projects (
 -- 'manual_duration' marks a row whose length the owner set by hand (the
 -- bottom-edge drag). The engine then keeps that length instead of re-deriving the
 -- job's segmentation from its total, and the job's run ENDS at that row.
+-- 'hand_placed' marks a row a human dropped where the engine would otherwise have
+-- recovered it — the Friday buffer or the weekend. The engine then treats it as a
+-- fixed obstacle, which is what tells "the owner said Friday" apart from "the engine
+-- parked overflow on Friday".
 CREATE TABLE IF NOT EXISTS blocks (
   id              TEXT PRIMARY KEY,
   project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -55,6 +59,7 @@ CREATE TABLE IF NOT EXISTS blocks (
   duration        REAL NOT NULL CHECK (duration > 0),
   locked          INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
   manual_duration INTEGER NOT NULL DEFAULT 0 CHECK (manual_duration IN (0, 1)),
+  hand_placed     INTEGER NOT NULL DEFAULT 0 CHECK (hand_placed IN (0, 1)),
   created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -146,6 +151,11 @@ const ADDED_COLUMNS: ReadonlyArray<{ table: string; column: string; definition: 
     table: 'blocks',
     column: 'manual_duration',
     definition: 'INTEGER NOT NULL DEFAULT 0 CHECK (manual_duration IN (0, 1))',
+  },
+  {
+    table: 'blocks',
+    column: 'hand_placed',
+    definition: 'INTEGER NOT NULL DEFAULT 0 CHECK (hand_placed IN (0, 1))',
   },
 ];
 

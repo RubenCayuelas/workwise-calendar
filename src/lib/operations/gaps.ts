@@ -161,6 +161,7 @@ interface ReportedConflict extends GapConflict {
 
 const CONFLICT_KEYS: Record<GapConflict['reason'], string> = {
   locked: ERROR_MESSAGE_KEYS.gapOverLockedBlock,
+  'hand-placed': ERROR_MESSAGE_KEYS.gapOverHandPlacedBlock,
   past: ERROR_MESSAGE_KEYS.gapOverPastBlock,
   weekend: ERROR_MESSAGE_KEYS.gapOverWeekendBlock,
 };
@@ -168,9 +169,9 @@ const CONFLICT_KEYS: Record<GapConflict['reason'], string> = {
 /**
  * Refuses the save when the gap covers a row the engine may not move, naming it.
  *
- * A locked conflict is reported in preference to a past or weekend one when both
- * are present, because it is the actionable one: the owner can unlock the block,
- * whereas the past being frozen is not something to be argued with.
+ * The ACTIONABLE conflicts are reported in preference to the others when several are
+ * present: the owner can unlock a locked block or put a hand-placed one back to
+ * automatic, whereas the past being frozen is not something to be argued with.
  */
 function assertGapFits(
   gap: { date: string; startMinutes: number; durationMinutes: number },
@@ -191,7 +192,10 @@ function assertGapFits(
     startTime: minutesToHHmm(item.startMinutes),
     endTime: minutesToHHmm(item.startMinutes + item.durationMinutes),
   }));
-  const headline = reported.find((item) => item.reason === 'locked') ?? reported[0];
+  const headline =
+    reported.find((item) => item.reason === 'locked') ??
+    reported.find((item) => item.reason === 'hand-placed') ??
+    reported[0];
 
   throw conflict('gap-over-fixed-block', CONFLICT_KEYS[headline.reason], {
     details: {

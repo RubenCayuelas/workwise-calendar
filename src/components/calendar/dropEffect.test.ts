@@ -10,7 +10,13 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { dropEffectOf, type DropEffectInput, type DropRow } from './dropEffect';
+import { dropEffectOf, dropFootprint, type DropEffectInput, type DropRow } from './dropEffect';
+
+/** The documented shift: 08:00-14:00, lunch, 15:30-19:30. */
+const PERIODS = [
+  { startMinutes: 8 * 60, endMinutes: 14 * 60 },
+  { startMinutes: 15 * 60 + 30, endMinutes: 19 * 60 + 30 },
+];
 
 function row(overrides: Partial<DropRow> & { id: string }): DropRow {
   return {
@@ -18,6 +24,7 @@ function row(overrides: Partial<DropRow> & { id: string }): DropRow {
     startMinutes: 8 * 60,
     durationMinutes: 6 * 60,
     locked: false,
+    handPlaced: false,
     project: { name: 'Barandilla' },
     ...overrides,
   };
@@ -29,7 +36,9 @@ function input(overrides: Partial<DropEffectInput> = {}): DropEffectInput {
     movingBlockIds: ['dropped'],
     projectId: 'porton',
     dayIsWeekend: false,
+    dayIsBuffer: false,
     locked: false,
+    periods: PERIODS,
     startMinutes: 10 * 60,
     durationMinutes: 2 * 60,
     ...overrides,
@@ -118,6 +127,56 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
     });
   });
 
+  it('puts a Friday drop on the fixed side, because the buffer pins it', () => {
+    // A drop onto the colchón is hand-placed, so it leaves the movable pool and the
+    // reflow will never separate it from what it lands on — exactly the weekend's case.
+    const mine = row({
+      id: 'viernes',
+      projectId: 'porton',
+      handPlaced: true,
+      project: { name: 'Portón' },
+    });
+    expect(dropEffectOf(input({ dayIsBuffer: true, rows: [mine] }))).toMatchObject({
+      kind: 'merge',
+      blockId: 'viernes',
+    });
+    expect(
+      dropEffectOf(input({ dayIsBuffer: true, rows: [row({ id: 'a-mano', handPlaced: true })] })),
+    ).toMatchObject({ kind: 'cut', blockId: 'a-mano' });
+    // ...but only against the rows that are themselves fixed. An engine-placed Friday
+    // row is still movable — that is the buffer self-cleaning — so the reflow lays it
+    // out around the drop and there is nothing to promise.
+    expect(dropEffectOf(input({ dayIsBuffer: true, rows: [row({ id: 'desborde' })] }))).toBeNull();
+  });
+
+  it('treats a hand-placed row as fixed on the reflowed side too, so it is passed by', () => {
+    // A Mon-Thu drop flows around a row a human pinned, exactly as it flows around a
+    // lock: the server ignores fixed rows on that side and cuts nothing.
+    expect(dropEffectOf(input({ rows: [row({ id: 'a-mano', handPlaced: true })] }))).toBeNull();
+  });
+
+  it('measures the drop by its SEGMENTS, so it never claims the lunch band', () => {
+    // 6 h released at 10:00 is stored as 10:00-14:00 plus 15:30-17:30 (CLAUDE.md, *A
+    // Drop Is Stored In Segments*), so a row sitting inside the break is untouched. The
+    // raw 10:00-16:00 rectangle the pointer draws would have announced a cut the server
+    // will never perform — the one direction a preview must not be wrong in.
+    const inLunch = row({ id: 'comida', startMinutes: 14 * 60 + 15, durationMinutes: 45 });
+    expect(
+      dropEffectOf(
+        input({ dayIsWeekend: true, startMinutes: 10 * 60, durationMinutes: 6 * 60, rows: [inLunch] }),
+      ),
+    ).toBeNull();
+
+    // ...and the hours pushed past the break by that same cut DO reach further down the
+    // afternoon than the rectangle does: 17:00 is inside the drop, 16:00 was its edge.
+    const afternoon = row({ id: 'tarde', startMinutes: 17 * 60, durationMinutes: 60 });
+    expect(
+      dropEffectOf(
+        input({ dayIsWeekend: true, startMinutes: 10 * 60, durationMinutes: 6 * 60, rows: [afternoon] }),
+      ),
+    ).toMatchObject({ kind: 'cut', blockId: 'tarde' });
+  });
+
   it('reports the merge before the cut, the order the server resolves them in', () => {
     const effect = dropEffectOf(
       input({
@@ -131,5 +190,20 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
       }),
     );
     expect(effect).toMatchObject({ kind: 'merge', blockId: 'mine' });
+  });
+});
+
+describe('dropFootprint — what the ghost draws', () => {
+  it('is one rectangle for a drop that stays inside a period', () => {
+    expect(dropFootprint({ periods: PERIODS, startMinutes: 10 * 60, durationMinutes: 2 * 60 })).toEqual([
+      { startMinutes: 10 * 60, durationMinutes: 2 * 60 },
+    ]);
+  });
+
+  it('is the two rows the server will store when the drop crosses lunch', () => {
+    expect(dropFootprint({ periods: PERIODS, startMinutes: 10 * 60, durationMinutes: 6 * 60 })).toEqual([
+      { startMinutes: 10 * 60, durationMinutes: 4 * 60 },
+      { startMinutes: 15 * 60 + 30, durationMinutes: 2 * 60 },
+    ]);
   });
 });

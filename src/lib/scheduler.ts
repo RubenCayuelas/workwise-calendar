@@ -253,6 +253,7 @@ export function recompose(db: Db, options: RecomposeOptions = {}): RecomposeRepo
         durationMinutes: placed.durationMinutes,
         locked: placed.locked,
         manualDuration: placed.manualDuration,
+        handPlaced: placed.handPlaced,
       };
       const current = stored.get(id);
       if (current === undefined) {
@@ -425,9 +426,10 @@ function hasMoved(current: Block, placement: BlockPlacement): boolean {
     current.startMinutes !== placement.startMinutes ||
     current.durationMinutes !== placement.durationMinutes ||
     current.locked !== placement.locked ||
-    // Setting or releasing a hand-set duration can leave the geometry untouched, and
-    // it must still reach the table — that flag is the whole reason the row keeps its
-    // length on the next pass.
-    current.manualDuration !== placement.manualDuration
+    // Setting or releasing either hand mark can leave the geometry untouched, and both
+    // must still reach the table — they are the whole reason the row keeps its length,
+    // and its day, on the next pass.
+    current.manualDuration !== placement.manualDuration ||
+    current.handPlaced !== placement.handPlaced
   );
 }

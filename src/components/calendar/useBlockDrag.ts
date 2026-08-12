@@ -87,6 +87,15 @@ export interface BlockDragOptions {
   enabled: boolean;
   onMove: (target: DragTarget, drop: { date: string; startMinutes: number }) => void;
   onResize: (target: DragTarget, durationMinutes: number) => void;
+  /**
+   * The drag ended somewhere nothing can be written — a past day, which `allowed`
+   * marks and the ghost draws in red.
+   *
+   * It used to be a bare `return`: the ghost vanished and the block stayed put, which
+   * is precisely what a drop the app has quietly swallowed looks like. A gesture the
+   * app refuses has to say so, in the same breath as one it accepts.
+   */
+  onRejected: (target: DragTarget, drop: { date: string; startMinutes: number }) => void;
   onClick: (target: DragTarget) => void;
 }
 
@@ -212,7 +221,14 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         }
 
         const settled = current.preview;
-        if (settled === null || !settled.allowed) return;
+        if (settled === null) return;
+        if (!settled.allowed) {
+          live.current.onRejected(current.target, {
+            date: settled.date,
+            startMinutes: settled.startMinutes,
+          });
+          return;
+        }
 
         if (current.kind === 'move') {
           if (settled.date === current.target.date && settled.startMinutes === current.target.startMinutes) return;

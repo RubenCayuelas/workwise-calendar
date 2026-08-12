@@ -25,12 +25,13 @@ import type { WeekBlock, WeekDay, WeekView } from '../../lib/api-client';
 import { CalendarBlock } from './CalendarBlock';
 import {
   axisTicks,
+  emptyLabelMinutes,
   nonWorkingBands,
   slotAt,
   type GridMetrics,
   type Timeline,
 } from './geometry';
-import { dropEffectOf, type DropEffect } from './dropEffect';
+import { dropEffectOf, dropFootprint, type DropEffect } from './dropEffect';
 import { groupBlocks, packDay, segmentsOf, type BlockGroup } from './grouping';
 import type { DragController, DragTarget } from './useBlockDrag';
 import styles from './WeekGrid.module.css';
@@ -73,7 +74,11 @@ export interface WeekGridProps {
   /** Wired only when the gap form exists; without it gaps are labels. */
   onOpenGap?: (gap: Gap) => void;
   onToggleLock: (block: WeekBlock) => void;
-  /** "Back to automatic" for a whole unit: the rows whose length was set by hand. */
+  /**
+   * "Back to automatic" for a whole unit: every row the engine stopped laying out
+   * because a human said so — a hand-set length, a hand-placed day, or both. One
+   * action clears both marks, so one list covers them.
+   */
   onReleaseDuration: (blockIds: readonly string[]) => void;
   /**
    * "Stop the day here". Wired only when the gap form exists — it opens that form
@@ -365,11 +370,44 @@ function DayColumn({
       movingBlockIds: drag.target.blockIds,
       projectId: drag.target.projectId,
       dayIsWeekend: day.isWeekend,
+      // Friday pins a drop instead of re-ranking it, so the preview reads the fixed side.
+      dayIsBuffer: day.role === 'buffer',
       locked: drag.target.locked,
+      // The drop is cut at this day's own break, so its footprint is measured against
+      // this day's periods rather than the rectangle the pointer drew.
+      periods: day.periods,
       startMinutes: preview.startMinutes,
       durationMinutes: preview.durationMinutes,
     });
-  }, [preview, drag.target, groups, day.isWeekend]);
+  }, [preview, drag.target, groups, day.isWeekend, day.role, day.periods]);
+
+  /**
+   * The rectangles the ghost is drawn as: one per row the drop will be STORED as.
+   *
+   * A move crossing the lunch break comes back from the server as two rows (CLAUDE.md,
+   * *A Drop Is Stored In Segments*), so drawing one rectangle straight through the grey
+   * band promises a shape that will never exist. A resize cannot cross a break — the
+   * drag is capped at the end of its own period — so it is left as the single rectangle
+   * it is.
+   */
+  const ghostRows = useMemo(() => {
+    if (preview === null) return [];
+    if (preview.kind !== 'move') {
+      return [{ startMinutes: preview.startMinutes, durationMinutes: preview.durationMinutes }];
+    }
+    return dropFootprint({
+      periods: day.periods,
+      startMinutes: preview.startMinutes,
+      durationMinutes: preview.durationMinutes,
+    });
+  }, [preview, day.periods]);
+
+  /** Where the whole drop ends on the clock — its last segment's end, lunch included. */
+  const ghostEndMinutes =
+    ghostRows.length === 0
+      ? 0
+      : ghostRows[ghostRows.length - 1].startMinutes +
+        ghostRows[ghostRows.length - 1].durationMinutes;
 
   /**
    * The day as the "stop the day here" planner reads it, or `null` where the action makes
@@ -434,7 +472,18 @@ function DayColumn({
         />
       ))}
 
-      {emptyLabel === null ? null : <span className={styles.empty}>{emptyLabel}</span>}
+      {emptyLabel === null ? null : (
+        // Placed on the day's own working time rather than at the column's midpoint,
+        // which with the documented shift is 13:45 — on the lip of the lunch band and
+        // a hair above the 14:00 rule, where the word read as debris. See
+        // `emptyLabelMinutes`.
+        <span
+          className={styles.empty}
+          style={{ top: `${timeline.yOf(emptyLabelMinutes(day.periods, timeline))}px` }}
+        >
+          {emptyLabel}
+        </span>
+      )}
 
       {gaps.map((gap) => {
         const lane = lanes.get(gap.id) ?? SINGLE_LANE;
@@ -498,13 +547,15 @@ function DayColumn({
             }
             onOpen={() => onOpenJob(segment.block.projectId)}
             onToggleLock={() => onToggleLock(segment.block)}
-            // One release for the whole unit: a hand-set stretch cut at the lunch break
-            // is two marked rows, and giving the engine back only half of it would
-            // leave the other half holding the day open for no visible reason.
+            // One release for the whole unit, covering BOTH marks: a hand-set stretch
+            // cut at the lunch break is two marked rows, and giving the engine back only
+            // half of it would leave the other half holding the day open for no visible
+            // reason. `releasableBlockIds` is what makes a row pinned to Friday with an
+            // automatic length offer the action at all.
             onReleaseDuration={
-              segment.group.manualBlockIds.length === 0
+              segment.group.releasableBlockIds.length === 0
                 ? undefined
-                : () => onReleaseDuration(segment.group.manualBlockIds)
+                : () => onReleaseDuration(segment.group.releasableBlockIds)
             }
             onCloseDay={
               closeDay === null || onCloseDay === undefined
@@ -517,48 +568,85 @@ function DayColumn({
         );
       })}
 
-      {preview === null ? null : (
-        <div
-          className={[
-            styles.ghost,
-            // A refusal is drawn like a forbidden day: the save writes nothing either
-            // way. (`dropEffect` is null unless `allowed`, so this reads as one test.)
-            preview.allowed && dropEffect?.kind !== 'blocked' ? '' : styles.ghostDenied,
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          style={{
-            '--ww-block-color': preview.color,
-            top: `${timeline.yOf(preview.startMinutes)}px`,
-            height: `${timeline.heightOf(preview.durationMinutes)}px`,
-          } as React.CSSProperties}
-        >
-          <span className={styles.ghostMeta}>
-            {format.timeRange(preview.startMinutes, preview.startMinutes + preview.durationMinutes)}
-          </span>
-          <span className={styles.ghostMeta}>{format.hours(preview.durationMinutes)}</span>
-          {dropEffect === null ? null : (
-            <span className={styles.ghostEffect}>
-              {t(DROP_EFFECT_KEYS[dropEffect.kind], { name: dropEffect.projectName })}
-            </span>
-          )}
-        </div>
-      )}
+      {preview === null
+        ? null
+        : ghostRows.map((row, index) => (
+            <div
+              key={row.startMinutes}
+              className={[
+                styles.ghost,
+                index === 0 ? '' : styles.ghostContinued,
+                // A refusal is drawn like a forbidden day: the save writes nothing either
+                // way. (`dropEffect` is null unless `allowed`, so this reads as one test.)
+                preview.allowed && dropEffect?.kind !== 'blocked' ? '' : styles.ghostDenied,
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              style={{
+                '--ww-block-color': preview.color,
+                top: `${timeline.yOf(row.startMinutes)}px`,
+                // Both edges through `yOf`, which clamps to the axis: a long unit dropped
+                // late in the day genuinely runs past the last period once the lunch break
+                // is added back, and the ghost must not escape the grid to say so.
+                height: `${Math.max(1, timeline.yOf(row.startMinutes + row.durationMinutes) - timeline.yOf(row.startMinutes))}px`,
+              } as React.CSSProperties}
+            >
+              {/*
+               * The first rectangle carries the whole gesture — the span it runs over and
+               * the NET hours it is — exactly as a stored unit puts its name and hours on
+               * its first row and leaves the continuation bare. Per-rectangle labels would
+               * read as two separate drops, which is the one thing this is not.
+               */}
+              {index === 0 ? (
+                <>
+                  <span className={styles.ghostMeta}>
+                    {format.timeRange(preview.startMinutes, ghostEndMinutes)}
+                  </span>
+                  <span className={styles.ghostMeta}>{format.hours(preview.durationMinutes)}</span>
+                  {dropEffect === null ? null : (
+                    <span className={styles.ghostEffect}>
+                      {t(DROP_EFFECT_KEYS[dropEffect.kind], { name: dropEffect.projectName })}
+                    </span>
+                  )}
+                </>
+              ) : null}
+            </div>
+          ))}
 
-      {placing === null || placingSlot === null || placingSlot.date !== day.date ? null : (
-        <div
-          className={[styles.ghost, day.isPast ? styles.ghostDenied : ''].filter(Boolean).join(' ')}
-          style={{
-            '--ww-block-color': placing.color,
-            top: `${timeline.yOf(placingSlot.startMinutes)}px`,
-            height: `${timeline.heightOf(placing.durationMinutes)}px`,
-          } as React.CSSProperties}
-        >
-          <span className={styles.ghostName}>{placing.projectName}</span>
-          <span className={styles.ghostMeta}>{format.hours(placing.durationMinutes)}</span>
-          <span className={styles.ghostMeta}>{t('grid.dropHere')}</span>
-        </div>
-      )}
+      {/* A split fragment waiting for its target. It is a drop like any other, so it is
+          previewed in segments too — a 5 h fragment placed at 10:00 crosses lunch and is
+          stored as two rows exactly as a dragged one is. */}
+      {placing === null || placingSlot === null || placingSlot.date !== day.date
+        ? null
+        : dropFootprint({
+            periods: day.periods,
+            startMinutes: placingSlot.startMinutes,
+            durationMinutes: placing.durationMinutes,
+          }).map((row, index) => (
+            <div
+              key={row.startMinutes}
+              className={[
+                styles.ghost,
+                index === 0 ? '' : styles.ghostContinued,
+                day.isPast ? styles.ghostDenied : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              style={{
+                '--ww-block-color': placing.color,
+                top: `${timeline.yOf(row.startMinutes)}px`,
+                height: `${Math.max(1, timeline.yOf(row.startMinutes + row.durationMinutes) - timeline.yOf(row.startMinutes))}px`,
+              } as React.CSSProperties}
+            >
+              {index === 0 ? (
+                <>
+                  <span className={styles.ghostName}>{placing.projectName}</span>
+                  <span className={styles.ghostMeta}>{format.hours(placing.durationMinutes)}</span>
+                  <span className={styles.ghostMeta}>{t('grid.dropHere')}</span>
+                </>
+              ) : null}
+            </div>
+          ))}
     </div>
   );
 }
@@ -643,15 +731,22 @@ function targetFor(group: BlockGroup, day: WeekDay): DragTarget {
 }
 
 /**
- * Friday's `desborde` label.
+ * Friday's `desborde` label: hours the ENGINE parked on the colchón.
  *
- * There is no `manually_placed` flag by design, so this is derived from the buffer rule
- * itself: the colchón "receives only overflow generated by the growth of already-placed
- * work", so anything the engine could have put there IS overflow. A locked row was
- * parked there on purpose and a past Friday is a record, so neither counts.
+ * Derived from the buffer rule itself — the colchón "receives only overflow generated by
+ * the growth of already-placed work", so anything the engine could have put there IS
+ * overflow. Everything the engine could NOT have put there is excluded, and that is now
+ * three things rather than two: a locked row was parked there on purpose, a past Friday
+ * is a record, and a HAND-PLACED row is the owner saying "do this on Friday".
+ *
+ * The last one is the point of `hand_placed`, and it has to read differently from
+ * `desborde 2 h` on the very same column (CLAUDE.md): one means the week overran, the
+ * other means the owner planned it. `some` rather than `every`, because a unit with any
+ * hand-placed row in it is not something the engine decided.
  */
 function isOverflow(group: BlockGroup, day: WeekDay): boolean {
-  return day.role === 'buffer' && !day.isPast && !group.locked;
+  if (day.role !== 'buffer' || day.isPast || group.locked) return false;
+  return !group.blocks.some((block) => block.handPlaced);
 }
 
 // ---------------------------------------------------------------------------

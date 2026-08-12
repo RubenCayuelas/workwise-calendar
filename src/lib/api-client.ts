@@ -429,7 +429,21 @@ export function deleteProject(
 // Blocks
 // ---------------------------------------------------------------------------
 
-/** A drop: sets the row's place in the queue, then the whole calendar reflows. */
+/**
+ * A drop.
+ *
+ * On MONDAY-THURSDAY it sets the row's place in the queue and the whole calendar
+ * reflows; the row settles contiguously after whatever precedes it rather than staying
+ * at the minute it was dropped at.
+ *
+ * On the FRIDAY buffer or the WEEKEND it PINS: the row comes back with
+ * `handPlaced: true`, keeps the exact slot, and the engine never recovers it — which is
+ * how work stays on the colchón at all. Dropping it back onto Mon-Thu clears the mark,
+ * and so does `releaseBlockDuration`.
+ *
+ * Either way the row is stored in SEGMENTS: a drop crossing the lunch break comes back
+ * as two rows of one job, and `block` is the first of them.
+ */
 export function moveBlock(
   blockId: string,
   input: MoveBlockInput,
@@ -466,7 +480,14 @@ export function resizeBlock(
   );
 }
 
-/** "Back to automatic": drops a hand-set length so the engine owns the row again. */
+/**
+ * "Back to automatic": gives the engine back the row's hand-set LENGTH
+ * (`manualDuration`) and its hand-placed DAY (`handPlaced`) in one action, so it owns
+ * the row again. Offer it whenever EITHER mark is set — a row pinned to Friday with an
+ * automatic length has no other way back.
+ *
+ * The name is the older of the two marks; it releases both.
+ */
 export function releaseBlockDuration(
   blockId: string,
   options?: RequestOptions,
@@ -542,8 +563,10 @@ export function listGaps(
 /**
  * A gap is time: it consumes the day's plannable hours like locked work does, so
  * saving one pushes the flexible work forward. Refused with `gap-over-fixed-block`
- * when the space is held by a row the engine may not move (locked, past, weekend) —
- * the error's `details` name the job and the times.
+ * when the space is held by a row the engine may not move — `details.reason` is
+ * `locked`, `hand-placed`, `past` or `weekend`, and `details` also names the job and
+ * the times. The first two are the ones the owner can act on, so they are reported in
+ * preference when several rows conflict.
  */
 export function createGap(
   input: CreateGapInput,

@@ -44,6 +44,7 @@ import type { DayShape, Gap } from '../../types';
 import type { CloseDayRequest } from '../../lib/closeDay';
 import { PROJECT_COLORS } from '../../lib/projectColors';
 import { rankFor, createTimeline, type GridMetrics } from './geometry';
+import { describeDrop, type DropOutcomeKind } from './dropOutcome';
 import { SummaryStrip } from './SummaryStrip';
 import { WeekHeader } from './WeekHeader';
 import { WeekGrid, type PlacingFragment, type SettleRequest } from './WeekGrid';
@@ -217,6 +218,15 @@ export function CalendarScreen({
    * Each is its own transaction, so the calendar is never half-written; the cost is that
    * a refusal partway through a two-row unit leaves the first row moved, which the error
    * banner names and a second drag fixes.
+   *
+   * A DROP ALWAYS ANSWERS FOR ITSELF. That is this app's oldest sharp edge: a drop
+   * writes a queue RANK, so the row lands where the reflow puts it — which may be the
+   * same place it started, another week, or nowhere at all if a row of its own job
+   * absorbed it — and every one of those is indistinguishable on screen from a drag the
+   * app ignored. Friday was the case that shipped (200, nothing moved, no message). So
+   * `describeDrop` reads what the server actually stored and the outcome is stated,
+   * unless the calendar itself is already the answer. A REFUSAL is not one of these:
+   * nothing was written, the request threw, and the banner carries the server's reason.
    */
   const onMove = useCallback(
     (target: DragTarget, drop: { date: string; startMinutes: number }): void => {
@@ -243,10 +253,54 @@ export function CalendarScreen({
         // would silently swallow "and it split somebody else's job" on exactly the
         // drops that now do it — every ordinary weekday drop onto occupied time.
         return mergeMutations(results);
-      }).then(report);
+      }).then((result) => {
+        report(result);
+        if (result === undefined) return;
+
+        // The row the pointer released, as the LAST transaction left it. Read from the
+        // mutation rather than from the refetched week, so the sentence cannot race the
+        // reload — and `null` (the id is gone) is itself one of the answers.
+        const landed = result.blocks.find((row) => row.id === target.blockIds[0]);
+        const outcome = describeDrop({
+          from: { date: target.date, startMinutes: target.startMinutes },
+          to: drop,
+          landed:
+            landed === undefined
+              ? null
+              : {
+                  date: landed.date,
+                  startMinutes: landed.startMinutes,
+                  handPlaced: landed.handPlaced,
+                },
+          merged: result.mergedBlockIds.length > 0,
+          visibleDates: viewRef.current?.week.dates ?? [],
+        });
+        if (outcome === null) return;
+
+        toast.info(
+          t(DROP_OUTCOME_KEYS[outcome.kind], {
+            name: target.name,
+            day: format.dayHeader(outcome.date),
+            date: format.longDate(outcome.date),
+          }),
+        );
+      });
     },
-    [mutate, report],
+    [format, mutate, report, t, toast],
   );
+
+  /**
+   * A drag released where nothing can be written — today only the frozen past, which
+   * `DragPreview.allowed` marks and the ghost draws in red.
+   *
+   * Said out loud rather than left to the ghost disappearing. "The engine never writes
+   * to a date earlier than today" is a rule about the ENGINE, and the owner can still
+   * edit that day by hand from the job panel, so the refusal has a next step and is
+   * worth a sentence.
+   */
+  const onRejected = useCallback((): void => {
+    toast.warning(t('notices.dropRefusedPast'));
+  }, [t, toast]);
 
   /**
    * The bottom edge. Two things the grid cannot show by itself, so both are said here:
@@ -340,6 +394,7 @@ export function CalendarScreen({
     enabled: timeline !== null && !busy && !loading && placing === null,
     onMove,
     onResize,
+    onRejected,
     onClick: (target) => setOpenJobId(target.projectId),
   });
 
@@ -399,9 +454,25 @@ export function CalendarScreen({
             fragment.durationMinutes,
           ),
         }),
-      ).then(report);
+      ).then((result) => {
+        report(result);
+        if (result === undefined) return;
+        // The fragment IS a drop, so it follows the same rule a move does: the buffer
+        // and the weekend PIN it. Its id is minted by the server and is not in the
+        // response, so the day's own rule is what the notice is read from — which is
+        // exactly what `pinsToTheDay` decides on the other side.
+        if (day.role !== 'auto') {
+          toast.info(
+            t('notices.dropPinned', {
+              name: fragment.projectName,
+              day: format.dayHeader(slot.date),
+              date: format.longDate(slot.date),
+            }),
+          );
+        }
+      });
     },
-    [dayAt, mutate, placing, report, takenStartsOn, timeline],
+    [dayAt, format, mutate, placing, report, t, takenStartsOn, timeline, toast],
   );
 
   // Stable, so the grid's layout effect is not re-armed by every unrelated render.
@@ -417,17 +488,6 @@ export function CalendarScreen({
   // -------------------------------------------------------------------------
   // Effects
   // -------------------------------------------------------------------------
-
-  // A drop writes a QUEUE RANK, so the row lands where the reflow put it. When that is
-  // somewhere else, say so once — the grid's slide shows it, this explains it.
-  useEffect(() => {
-    if (settle === null || view === null || settle.after === view) return;
-    const landed = view.blocks.find((block) => block.id === settle.blockId);
-    if (landed === undefined) return;
-    if (landed.date !== settle.date || Math.abs(landed.startMinutes - settle.startMinutes) >= 60) {
-      toast.info(t('notices.dropSettles'));
-    }
-  }, [settle, view, t, toast]);
 
   // Left/right page the week. Paging is a GET, so holding a key down is harmless.
   useEffect(() => {
@@ -678,6 +738,18 @@ function mergeMutations(results: readonly BlockMutation[]): BlockMutation | unde
     displacedProjectIds: union((result) => result.displacedProjectIds),
   };
 }
+
+/**
+ * What the toast says about each way a drop can end. One key per branch of
+ * `describeDrop`, which is where the branches themselves are decided and tested.
+ */
+const DROP_OUTCOME_KEYS: Record<DropOutcomeKind, string> = {
+  pinned: 'notices.dropPinned',
+  settled: 'notices.dropSettles',
+  leftWeek: 'notices.dropLeftWeek',
+  unchanged: 'notices.dropUnchanged',
+  absorbed: 'notices.dropAbsorbed',
+};
 
 /** The names behind a list of job ids, from the week on screen, without repeats. */
 function jobNames(projectIds: readonly string[], view: WeekView | null): string[] {
