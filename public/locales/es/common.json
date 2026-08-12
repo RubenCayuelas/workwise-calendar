@@ -343,6 +343,7 @@
     "invalidAction": "Esa acción no existe.",
     "projectNotFound": "Ese trabajo ya no existe.",
     "gapNotFound": "Ese hueco ya no existe.",
+    "rowExceedsDay": "Ese bloque no cabe en el día: empezando a las {{startTime}} del {{date}} se saldría de la medianoche. Acórtalo o muévelo a otra hora. No se ha guardado nada.",
     "splitExceedsBlock": "La parte que quieres separar tiene que ser menor que el bloque. Para mover el bloque entero, arrástralo.",
     "deleteLastBlock": "Es el único bloque del trabajo. Para quitarlo, elimina el trabajo entero.",
     "invariantViolated": "Las horas de los bloques no cuadran con las del trabajo. No se ha guardado nada.",

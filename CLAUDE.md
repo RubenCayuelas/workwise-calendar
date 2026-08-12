@@ -398,10 +398,20 @@ calendar, and *Never split a job to make it fit* means a job that no longer fits
 **whole** to the next day with room — leaving the capped morning legitimately free.
 
 ### Job Editing: Adding/Removing Hours (LIFO - Last In First Out)
-- **Add hours**: Append to the **last block** of that job.
+- **Add hours**: Append to the job's last block **that the engine can still place** — its last block
+  in the movable pool (not locked, not hand-placed, not in the past, not on a weekend).
   - If job has blocks: Mon 2h + Wed 1h + Fri 3h, adding 2h makes Fri 5h.
   - Subsequent jobs cascade forward (displaced by the extra 2h).
-- **Remove hours**: Decrement from the **last block**.
+  - If the job's last block is **outside** the pool, the new hours get their **own new block**, which
+    the engine then places normally. The growth target must agree exactly with the movable pool, and
+    this is not a nicety: while it only tested `locked` and `hand_placed`, adding hours to a job whose
+    last row sat in the **past** wrote them straight onto that untouchable row, which then ran through
+    the lunch break, and past midnight took the whole week view down with
+    `RangeError: Invalid minutes "1500"`. No gesture was needed to reach it — a row on *today* is a
+    past row tomorrow. Fixed 2026-08-12, with a write-path guard so no transaction can store a row
+    running past the end of its day even if some future path gets the target wrong again.
+- **Remove hours**: Decrement from the **last block**, reaching every block including those outside
+  the pool — shrinking frees space rather than claiming it, so it cannot produce an illegal row.
   - If last block becomes 0, it's deleted, and next block becomes the new "last" (keeps decrementing if needed).
 
 ### Job Editing: Name/Description/Color Changes
@@ -736,27 +746,6 @@ they are easy to revisit rather than buried in the code.
 
 Still unanswered; do not invent an answer, ask first.
 
-- 🐞 **A past row still absorbs LIFO growth, and can straddle the lunch break or crash the grid.**
-  Found in the v0.4 browser pass (2026-08-12) and **not fixed** — it is a defect against an invariant
-  this file already states twice ("a stored block never straddles a non-working interval", "`duration`
-  is always net working hours"), so the rule needs no decision; what needs the owner's word is only
-  whether to fix it now or with the resize-in-the-past question below, which is the same seam.
-  Reproduced over HTTP on a clean database, today = Wed 2026-08-12:
-  1. a 2 h job whose one row sits on Tue 11 (yesterday) at `12:00-14:00`;
-  2. the owner raises the estimate to 6 h — the ordinary "it took longer than I noted" edit;
-  3. stored: **`Tue 2026-08-11 12:00-18:00, 6 h`**, one row straight through 14:00-15:30. It renders as
-     a single rectangle across the grey lunch band, and claims 6 h where the clock holds 4.5 h.
-  4. raise it to 13 h and the row becomes `12:00-25:00`, which takes the **whole calendar page down**
-     with `RangeError: Invalid minutes "1500": expected 0-1440` out of `useFormat().time`. There is no
-     way back to the week view from the UI after that.
-  Cause: `lastAutomatic` skips `locked` and `handPlaced` but not `date < today`, while its own doc
-  comment says the rule is "every row outside the pool". The past is the reachable hole because
-  `pinsToTheDay` never marks a past Mon-Thu row (their role is `auto`); the weekend is masked in
-  practice only because every hand drop onto Sat/Sun sets `hand_placed`. **No gesture is needed to get
-  there** — a row on *today* becomes a past row overnight, so any job carrying yesterday's work is one
-  hours edit away from it. Likely shape of the fix: give `lastAutomatic` `today` and test
-  `!isMovable(block, today)`, so the hours get their own row via `createdRowAfter` as they already do
-  for a locked or hand-placed last row; plus a guard so no write can produce `start + duration > 1440`.
 - **Does `colchón` belong on a hand-placed Friday row?** `BlockRows.tagOf` labels every Friday row
   `colchón`, including one the owner dropped there. The tag names the DAY's role, not the row's
   provenance, and the hand glyph beside it says who chose the day — but the owner may read `colchón`
@@ -953,9 +942,10 @@ bottom edges, *Volver a automático* from the hover bar — and the stored rows 
   said so (*El calendario ha dejado «Reja» donde estaba…*). The weekend kept its rows through every
   resize, release, refusal and churn in the session. Shrinking a job's last block by dragging is a
   spoken 409 that writes nothing. Hours were conserved after every single gesture.
-- **Not fixed, found here**: 🐞 *A past row still absorbs LIFO growth* — see Open Decisions. It is the
-  same omission as Defect 1's, one predicate further on, and it can straddle the lunch break silently
-  or take the whole page down.
+- **Found here and since fixed** (2026-08-12): growing a job whose last row sat in the past wrote the
+  hours onto that untouchable row, straddling the lunch break and, past midnight, taking the whole
+  page down. The growth target now agrees with the movable pool, and a write-path guard makes an
+  out-of-day row impossible to store. See *Job Editing: Adding/Removing Hours*.
 
 ---
 

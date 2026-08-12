@@ -343,6 +343,7 @@
     "invalidAction": "That action does not exist.",
     "projectNotFound": "That job no longer exists.",
     "gapNotFound": "That gap no longer exists.",
+    "rowExceedsDay": "That block does not fit inside the day: starting at {{startTime}} on {{date}} it would run past midnight. Shorten it or move it to another time. Nothing was saved.",
     "splitExceedsBlock": "The part you are splitting off must be smaller than the block. To move the whole block, drag it.",
     "deleteLastBlock": "This is the job's only block. To remove it, delete the whole job.",
     "invariantViolated": "The block hours do not add up to the job's hours. Nothing was saved.",

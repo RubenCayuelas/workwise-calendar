@@ -33,7 +33,7 @@ import {
 import { createGap, deleteGap } from './operations/gaps';
 import { updateSettings } from './operations/settings';
 import { readWeek } from './operations/views';
-import { listBlocks } from './repositories/blocks';
+import { insertBlock, listBlocks, updateBlock } from './repositories/blocks';
 import { listGaps } from './repositories/gaps';
 import { listProjects } from './repositories/projects';
 import { readSettings } from './settings';
@@ -537,6 +537,154 @@ describe('block gestures', () => {
     const error = refusal(() => deleteBlock(listBlocks(db)[0].id, { today: MON }, db));
     expect(error.code).toBe('delete-last-block');
     expect(listBlocks(db)).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Growing a job whose last row is in the frozen past
+// ---------------------------------------------------------------------------
+//
+// The worst defect found on v0.4, and the one that needed no unusual gesture at all: a
+// row on TODAY becomes a past row overnight, so any job carrying yesterday's work was
+// one hours-edit away from a dead app.
+//
+// Reproduced over HTTP on a clean database with today = Wed 2026-08-12: a 2 h job whose
+// one row sat on Tue 11 at 12:00-14:00, raised to 6 h, was stored as `Tue 12:00 + 360
+// min` — one row straight through the 14:00-15:30 lunch break, claiming 6 h where the
+// clock holds 4.5 h. Raised to 13 h it became `12:00-25:00`, and the week view died with
+// `RangeError: Invalid minutes "1500"` out of `useFormat().time`.
+//
+// Two independent fixes, and the second one matters even though the first closes the
+// path: the LIFO growth target now agrees with the movable pool, AND no transaction can
+// store a row running past the end of its day whatever produced it.
+
+describe('raising the hours of a job whose only row is in the frozen past', () => {
+  /** A 2 h job whose single row sits on yesterday at 12:00, today being Wednesday. */
+  function yesterdaysWork() {
+    const puerta = job('Puerta', 2, BLUE, WED);
+    moveBlock(puerta.blocks[0].id, { date: TUE, startMinutes: 12 * 60, today: WED }, db);
+    expect(calendar()).toEqual([`${TUE} 12:00-14:00 Puerta`]);
+    return { project: puerta.project, blockId: listBlocks(db)[0].id };
+  }
+
+  it('gives the added hours their own row instead of inflating yesterday', () => {
+    const { project, blockId } = yesterdaysWork();
+
+    patchProject(project.id, { totalMinutes: 6 * 60, today: WED }, db);
+
+    // Yesterday is the RECORD of what the shop did: 2 h, unchanged and never straddling
+    // the lunch break. The 4 h are a row of their own, placed by the engine.
+    expect(calendar()).toEqual([`${TUE} 12:00-14:00 Puerta`, `${WED} 08:00-12:00 Puerta`]);
+    expect(listBlocks(db).find((row) => row.id === blockId)?.durationMinutes).toBe(2 * 60);
+    expect(listProjects(db)[0].totalMinutes).toBe(6 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('keeps every stored row inside its day when the estimate is raised to 13 h', () => {
+    // The step that used to write `12:00-25:00` and take the page down.
+    const { project } = yesterdaysWork();
+
+    patchProject(project.id, { totalMinutes: 6 * 60, today: WED }, db);
+    patchProject(project.id, { totalMinutes: 13 * 60, today: WED }, db);
+
+    expect(calendar()).toEqual([
+      `${TUE} 12:00-14:00 Puerta`,
+      `${WED} 08:00-14:00 Puerta`,
+      `${WED} 15:30-19:30 Puerta`,
+      `${THU} 08:00-09:00 Puerta`,
+    ]);
+    for (const row of listBlocks(db)) {
+      expect(row.startMinutes + row.durationMinutes, `${row.date} runs past the end of the day`).toBeLessThanOrEqual(
+        24 * 60,
+      );
+    }
+    expect(listProjects(db)[0].totalMinutes).toBe(13 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('still lets the owner take hours off yesterday: shrinking frees space', () => {
+    const { project, blockId } = yesterdaysWork();
+
+    patchProject(project.id, { totalMinutes: 90, today: WED }, db);
+
+    expect(listBlocks(db).find((row) => row.id === blockId)?.durationMinutes).toBe(90);
+    expect(calendar()).toEqual([`${TUE} 12:00-13:30 Puerta`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+});
+
+describe('no transaction may store a row that runs past the end of its day', () => {
+  // The belt to the LIFO fix's braces. A rendering crash from bad stored data must be
+  // impossible, not merely unreachable through the paths that were fixed — so the guard
+  // sits on the write itself, where every row goes through regardless of what produced it.
+
+  it('refuses a resize that would push a past row past midnight, and writes nothing', () => {
+    // Reachable by hand: *Block Resize* is deliberately offered on past rows so
+    // yesterday can be corrected, and over HTTP the duration is not capped by the
+    // drag layer's own limit.
+    const puerta = job('Puerta', 2, BLUE, WED);
+    moveBlock(puerta.blocks[0].id, { date: TUE, startMinutes: 12 * 60, today: WED }, db);
+    const before = calendar();
+
+    const error = refusal(() =>
+      resizeBlock(listBlocks(db)[0].id, { durationMinutes: 13 * 60, today: WED }, db),
+    );
+
+    expect(error.status).toBe(409);
+    expect(error.code).toBe('row-exceeds-day');
+    expect(error.messageKey).toBe('errors.rowExceedsDay');
+    expect(error.details).toMatchObject({ date: TUE, startTime: '12:00' });
+    expect(calendar()).toEqual(before);
+    expect(listProjects(db)[0].totalMinutes).toBe(2 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('refuses the INSERT and the UPDATE alike, so no caller can slip past it', () => {
+    const puerta = job('Puerta', 2, BLUE, WED);
+    const stored = listBlocks(db)[0];
+    const overrunning = {
+      id: 'imposible',
+      projectId: puerta.project.id,
+      date: WED,
+      startMinutes: 23 * 60,
+      durationMinutes: 2 * 60,
+      locked: false,
+      manualDuration: false,
+      handPlaced: false,
+    };
+
+    const inserted = refusal(() => insertBlock(overrunning, db));
+    expect(inserted.status).toBe(409);
+    expect(inserted.code).toBe('row-exceeds-day');
+    expect(inserted.details).toMatchObject({ startTime: '23:00', durationMinutes: 2 * 60 });
+
+    const updated = refusal(() => updateBlock({ ...overrunning, id: stored.id }, db));
+    expect(updated.code).toBe('row-exceeds-day');
+
+    // Nothing was written by either attempt.
+    expect(calendar()).toEqual([`${WED} 08:00-10:00 Puerta`]);
+  });
+
+  it('accepts a row that ends exactly at midnight, which is inside the day', () => {
+    const puerta = job('Puerta', 2, BLUE, WED);
+    const stored = listBlocks(db)[0];
+
+    expect(() =>
+      updateBlock(
+        {
+          id: stored.id,
+          projectId: puerta.project.id,
+          date: WED,
+          startMinutes: 22 * 60,
+          durationMinutes: 2 * 60,
+          locked: true,
+          manualDuration: false,
+          handPlaced: false,
+        },
+        db,
+      ),
+    ).not.toThrow();
+    expect(calendar()).toEqual([`${WED} 22:00-24:00 Puerta [locked]`]);
   });
 });
 

@@ -17,7 +17,7 @@
  *   as UTC) would.
  */
 
-import { minutesToHHmm, minutesToHours, parseDate, weekdayOf } from './dates';
+import { MINUTES_PER_DAY, minutesToHHmm, minutesToHours, parseDate, weekdayOf } from './dates';
 import { intlLocaleOf } from './i18n';
 
 /** A translate function, structurally — so this module never imports i18next. */
@@ -56,8 +56,38 @@ export function hourInputValue(minutes: number): number {
   return minutesToHours(minutes);
 }
 
-/** Minutes from midnight as a 24 h clock time: 480 -> "08:00". */
+/**
+ * What a time outside the calendar day renders as. Deliberately a shape no real time
+ * has, so it reads as "this row is wrong" rather than as a plausible hour.
+ */
+export const INVALID_TIME = '--:--';
+
+/**
+ * Minutes from midnight as a 24 h clock time: 480 -> "08:00".
+ *
+ * FAILS SOFT, and only here. `minutesToHHmm` throws on a value outside the day, which is
+ * right for the engine and for every write — but on the RENDER path that throw took the
+ * whole week view down (`Invalid minutes "1500"`, out of `useFormat().time`) and left the
+ * owner an "Application error" with no way back to the calendar. The row it could not
+ * draw was the very row they needed to reach in order to fix it.
+ *
+ * `assertRowInsideDay` now makes that row unstorable, so this should never fire again
+ * from a fresh write — but a database written BEFORE the guard existed still holds one,
+ * and a shop PC's `data/calendar.db` is not something a fix can retroactively repair. The
+ * app has to be able to display the mistake in order to let the owner correct it.
+ *
+ * It does not hide a real bug, which was the argument for leaving it throwing:
+ *  - `minutesToHHmm` is untouched, so the engine, the repositories, the API and every
+ *    test still throw on such a value — the loud path stays loud where it can act;
+ *  - the placeholder is VISIBLE on screen, which is louder than a clamp that would have
+ *    quietly drawn 25:00 as 01:00;
+ *  - and it complains to the console with the offending value.
+ */
 export function formatTime(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes < 0 || minutes > MINUTES_PER_DAY) {
+    console.error(`formatTime: ${minutes} is not a time of day; a stored row is out of range`);
+    return INVALID_TIME;
+  }
   return minutesToHHmm(minutes);
 }
 

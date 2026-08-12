@@ -21,7 +21,7 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
-import { compareDates, hhmmToMinutes as t, isWeekend, minutesToHHmm } from './dates';
+import { MINUTES_PER_DAY, compareDates, hhmmToMinutes as t, isWeekend, minutesToHHmm } from './dates';
 import { DEFAULT_SETTINGS, dayShapeFromSettings } from './settings';
 import type { Block, DayOverride, DayShape, Gap } from '../types';
 import {
@@ -2496,6 +2496,91 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
     expect(edit.blocks.find((row) => row.id === 'colchon')?.durationMinutes).toBe(60);
   });
 
+  it('never grows a row in the FROZEN PAST: the added hours get a row the engine can place', () => {
+    // The defect that took the whole calendar page down (found 2026-08-12). A job whose
+    // one row sits on YESTERDAY, raised from 2 h to 6 h, was stored as `Tue 12:00 + 360
+    // min` — a single row running straight through the 14:00-15:30 lunch break, claiming
+    // 6 h where the clock holds 4.5 h. Raised again to 13 h it became `12:00-25:00` and
+    // `useFormat().time` threw `Invalid minutes "1500"`, with no way back to the week.
+    //
+    // NO GESTURE IS NEEDED TO REACH IT: a row on today becomes a past row overnight, so
+    // any job carrying yesterday's work was one hours-edit away from a dead app. The
+    // cause was `lastAutomatic` testing the two MARKS (`locked`, `handPlaced`) while its
+    // own rule is "every row outside the movable pool", which the past is.
+    const yesterday = [block({ id: 'ayer', project: 'escalera', date: TUE, from: '12:00', hours: 2 })];
+
+    const edit = expectEdited(
+      changeProjectMinutes(yesterday, {
+        projectId: 'escalera',
+        deltaMinutes: 4 * 60,
+        today: WED,
+        newBlockId: 'nueva',
+        now: '2026-08-12 09:00:00',
+      }),
+    );
+
+    // Yesterday's record is untouched, and the 4 h are a row of their own.
+    expect(edit.blocks.find((row) => row.id === 'ayer')?.durationMinutes).toBe(120);
+    expect(edit.blocks.find((row) => row.id === 'nueva')?.durationMinutes).toBe(240);
+    // ...which the engine then places on the calendar it still owns.
+    const composeInput = input({ today: WED, blocks: edit.blocks });
+    const result = compose(composeInput);
+    expect(rows(result)).toEqual([`${TUE} 12:00-14:00 escalera`, `${WED} 08:00-12:00 escalera`]);
+    expectMinutesConserved(composeInput, result);
+    for (const placed of expectOk(result).blocks) expectInsideOneWorkingPeriod(placed);
+  });
+
+  it('never grows a WEEKEND row either — the pool is the rule, not the mark', () => {
+    // The weekend was masked only in practice: every hand drop onto Sat/Sun sets
+    // `hand_placed`, so the old predicate happened to skip those rows. A row that never
+    // went through that gesture — an older calendar, an imported one, a hand-edited
+    // database — was grown just like the past one above.
+    const saturday = [block({ id: 'sabado', project: 'porton', date: SAT, from: '12:00', hours: 2 })];
+
+    const edit = expectEdited(
+      changeProjectMinutes(saturday, {
+        projectId: 'porton',
+        deltaMinutes: 4 * 60,
+        today: MON,
+        newBlockId: 'nueva',
+        now: '2026-08-10 09:00:00',
+      }),
+    );
+
+    expect(edit.blocks.find((row) => row.id === 'sabado')?.durationMinutes).toBe(120);
+    expect(edit.blocks.find((row) => row.id === 'nueva')?.durationMinutes).toBe(240);
+    expect(rows(compose(input({ today: MON, blocks: edit.blocks })))).toEqual([
+      `${MON} 08:00-12:00 porton`,
+      `${SAT} 12:00-14:00 porton`,
+    ]);
+  });
+
+  it('still takes hours OFF a past row, since shrinking one frees space', () => {
+    // The asymmetry is the whole point: LIFO has to be able to reach the job's hours
+    // wherever they are, and taking hours away can never produce a row that runs over
+    // the day's other work or past its end.
+    const yesterday = [
+      block({ id: 'ayer', project: 'escalera', date: TUE, from: '12:00', hours: 2 }),
+      block({ id: 'sabado', project: 'escalera', date: SAT, from: '12:00', hours: 1 }),
+    ];
+
+    const edit = expectEdited(
+      changeProjectMinutes(yesterday, {
+        projectId: 'escalera',
+        deltaMinutes: -150,
+        today: WED,
+        newBlockId: 'nueva',
+        now: '2026-08-12 09:00:00',
+      }),
+    );
+
+    // The Saturday row empties and the last half hour comes off yesterday: LIFO from the
+    // far end, through rows the engine itself may not move.
+    expect(edit.deletedBlockIds).toEqual(['sabado']);
+    expect(edit.blocks.find((row) => row.id === 'ayer')?.durationMinutes).toBe(30);
+    expect(edit.totalMinutesDelta).toBe(-150);
+  });
+
   it('reports a reduction bigger than the job instead of inventing negative hours', () => {
     const result = changeProjectMinutes(job(), {
       projectId: 'escalera',
@@ -2536,28 +2621,28 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   ];
 
   it('takes the hours off the last block when a block that is not the last grows', () => {
-    const edit = expectEdited(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 240 }));
+    const edit = expectEdited(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 240, today: MON }));
 
     expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-12:00`, `${FRI} 08:00-09:00`]);
     expect(edit.totalMinutesDelta).toBe(0);
   });
 
   it('gives the hours to the last block when a block that is not the last shrinks', () => {
-    const edit = expectEdited(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 60 }));
+    const edit = expectEdited(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 60, today: MON }));
 
     expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-09:00`, `${FRI} 08:00-12:00`]);
     expect(edit.totalMinutesDelta).toBe(0);
   });
 
   it("raises the job's total when the LAST block grows, since there is nothing farther to draw from", () => {
-    const edit = expectEdited(resizeBlock(job(), { blockId: 'viernes', durationMinutes: 300 }));
+    const edit = expectEdited(resizeBlock(job(), { blockId: 'viernes', durationMinutes: 300, today: MON }));
 
     expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-10:00`, `${FRI} 08:00-13:00`]);
     expect(edit.totalMinutesDelta).toBe(120);
   });
 
   it('refuses to shrink the last block — the blocks would stop summing to the total', () => {
-    const result = resizeBlock(job(), { blockId: 'viernes', durationMinutes: 60 });
+    const result = resizeBlock(job(), { blockId: 'viernes', durationMinutes: 60, today: MON });
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('shrinking the last block must be refused');
@@ -2566,7 +2651,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   });
 
   it('refuses a growth the rest of the job cannot pay for', () => {
-    const result = resizeBlock(job(), { blockId: 'lunes', durationMinutes: 600 });
+    const result = resizeBlock(job(), { blockId: 'lunes', durationMinutes: 600, today: MON });
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('the transfer must be refused');
@@ -2580,7 +2665,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
       block({ id: 'viernes', project: 'escalera', date: FRI, from: '08:00', hours: 1 }),
     ];
 
-    const edit = expectEdited(resizeBlock(blocks, { blockId: 'lunes', durationMinutes: 240 }));
+    const edit = expectEdited(resizeBlock(blocks, { blockId: 'lunes', durationMinutes: 240, today: MON }));
 
     expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-12:00`]);
     expect(edit.deletedBlockIds.sort()).toEqual(['martes', 'viernes']);
@@ -2595,7 +2680,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
       block({ id: 'jueves', project: 'escalera', date: THU, from: '08:00', hours: 4 }),
     ];
 
-    const edit = expectEdited(resizeBlock(blocks, { blockId: 'ayer', durationMinutes: 180 }));
+    const edit = expectEdited(resizeBlock(blocks, { blockId: 'ayer', durationMinutes: 180, today: TUE }));
     expect(edit.totalMinutesDelta).toBe(0);
 
     const composeInput = input({ today: TUE, blocks: edit.blocks });
@@ -2607,23 +2692,44 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     expectMinutesConserved(composeInput, result);
   });
 
+  it('hands the freed hours to a row the ENGINE lays out, not to a weekend row behind it', () => {
+    // The same rule as LIFO's, on the same predicate: a transfer that ADDS hours to a
+    // row the reflow cannot touch writes them straight onto the clock, where nothing
+    // settles them afterwards. The last row is on Saturday and carries no mark, so only
+    // the pool tells them apart.
+    const blocks = [
+      block({ id: 'mar', project: 'escalera', date: TUE, from: '08:00', hours: 3 }),
+      block({ id: 'jue', project: 'escalera', date: THU, from: '08:00', hours: 2 }),
+      block({ id: 'sabado', project: 'escalera', date: SAT, from: '12:00', hours: 2 }),
+    ];
+
+    const edit = expectEdited(resizeBlock(blocks, { blockId: 'mar', durationMinutes: 60, today: TUE }));
+
+    expect(jobRows(edit.blocks, 'escalera')).toEqual([
+      `${TUE} 08:00-09:00`,
+      `${THU} 08:00-12:00`,
+      `${SAT} 12:00-14:00`,
+    ]);
+    expect(edit.totalMinutesDelta).toBe(0);
+  });
+
   it('rejects a duration that is not a duration', () => {
-    expect(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 0 }).ok).toBe(false);
-    expect(resizeBlock(job(), { blockId: 'lunes', durationMinutes: -60 }).ok).toBe(false);
-    expect(resizeBlock(job(), { blockId: 'no-existe', durationMinutes: 60 }).ok).toBe(false);
+    expect(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 0, today: MON }).ok).toBe(false);
+    expect(resizeBlock(job(), { blockId: 'lunes', durationMinutes: -60, today: MON }).ok).toBe(false);
+    expect(resizeBlock(job(), { blockId: 'no-existe', durationMinutes: 60, today: MON }).ok).toBe(false);
   });
 
   it('marks the row it resized, and marks nothing when it refuses', () => {
-    const grown = expectEdited(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 240 }));
+    const grown = expectEdited(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 240, today: MON }));
     expect(handSetIds(grown.blocks)).toEqual(['lunes']);
 
     // Even a resize to the length the row already had: the owner dropped the edge,
     // so the row is theirs. It makes the gesture total — same request, same state.
-    const unchanged = expectEdited(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 120 }));
+    const unchanged = expectEdited(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 120, today: MON }));
     expect(handSetIds(unchanged.blocks)).toEqual(['lunes']);
 
     // A refusal must not leave a mark behind: the caller writes nothing at all.
-    expect(resizeBlock(job(), { blockId: 'viernes', durationMinutes: 60 }).ok).toBe(false);
+    expect(resizeBlock(job(), { blockId: 'viernes', durationMinutes: 60, today: MON }).ok).toBe(false);
   });
 
   it('drops the mark from a row whose length something ELSE rewrote', () => {
@@ -2634,7 +2740,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
 
     // The counterparty of another row's resize: the 1 h lands on the marked row, so
     // the number the owner drew is no longer the number on it.
-    const transfer = expectEdited(resizeBlock(handSet, { blockId: 'lunes', durationMinutes: 60 }));
+    const transfer = expectEdited(resizeBlock(handSet, { blockId: 'lunes', durationMinutes: 60, today: MON }));
     expect(jobRows(transfer.blocks, 'escalera')).toEqual([`${MON} 08:00-09:00`, `${FRI} 08:00-12:00`]);
     expect(handSetIds(transfer.blocks)).toEqual(['lunes']);
 
@@ -2694,7 +2800,7 @@ describe('a hand-set duration — the resize survives the reflow', () => {
   });
 
   it('the worked example, row by row: the hours it frees go to the job behind it', () => {
-    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120 }));
+    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120, today: WED }));
 
     // The transfer is unchanged: the 4 h come off Wednesday and land on the job's
     // LAST block, and the estimate does not move.
@@ -2725,7 +2831,7 @@ describe('a hand-set duration — the resize survives the reflow', () => {
   });
 
   it('recomposing twice changes nothing — the fixed point the earlier defect broke', () => {
-    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120 }));
+    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120, today: WED }));
     const composeInput = input({ today: WED, blocks: edit.blocks });
 
     const once = compose(composeInput);
@@ -2741,7 +2847,7 @@ describe('a hand-set duration — the resize survives the reflow', () => {
   });
 
   it('survives an unrelated save: another job created, and a job deleted', () => {
-    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120 }));
+    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120, today: WED }));
 
     // A brand-new job appended at the end of the queue.
     const withNewJob = input({
@@ -2769,7 +2875,7 @@ describe('a hand-set duration — the resize survives the reflow', () => {
   });
 
   it('gives the length back to the engine when the mark is released', () => {
-    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120 }));
+    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120, today: WED }));
     const released = expectEdited(releaseBlock(edit.blocks, 'bar-am'));
 
     expect(handSetIds(released.blocks)).toEqual([]);
@@ -2848,7 +2954,7 @@ describe('a hand-set duration — the resize survives the reflow', () => {
       block({ id: 'jue', project: 'escalera', date: THU, from: '08:00', hours: 4 }),
     ];
 
-    const edit = expectEdited(resizeBlock(blocks, { blockId: 'mie', durationMinutes: 300 }));
+    const edit = expectEdited(resizeBlock(blocks, { blockId: 'mie', durationMinutes: 300, today: WED }));
     expect(jobRows(edit.blocks, 'escalera')).toEqual([`${WED} 08:00-13:00`, `${THU} 08:00-09:00`]);
     expect(edit.totalMinutesDelta).toBe(0);
 
@@ -2859,7 +2965,7 @@ describe('a hand-set duration — the resize survives the reflow', () => {
 
     // Enlarging the LAST row has nothing farther to draw from, so the estimate grows
     // and the row is marked all the same.
-    const last = expectEdited(resizeBlock(blocks, { blockId: 'jue', durationMinutes: 360 }));
+    const last = expectEdited(resizeBlock(blocks, { blockId: 'jue', durationMinutes: 360, today: WED }));
     expect(last.totalMinutesDelta).toBe(120);
     expect(handSetIds(last.blocks)).toEqual(['jue']);
   });
@@ -4266,6 +4372,110 @@ describe('a drop the reflow WILL settle holds over the same generated calendars'
     // row, the fixed point above would be proving nothing.
     expect(resolvedCount, 'the generator stopped producing movable drops').toBeGreaterThan(500);
     expect(cutCount, 'the generator stopped producing movable overlaps').toBeGreaterThan(0);
+  });
+});
+
+describe("editing a job's hours holds over the same generated calendars", () => {
+  // The property the worst defect in the app would have failed on every seed that put a
+  // job's last row in the past, on a weekend or under a mark. It is stated over the
+  // ROWS rather than over the placement, because that is where the damage was done:
+  // hours were written onto a row nothing would ever settle, and the calendar then
+  // carried a rectangle that lied about the day — or one that could not be drawn at all.
+  const HOURS = [30, 60, 150, 8 * 60];
+
+  it('never grows a row outside the movable pool, and never overruns a day', () => {
+    let grewCount = 0;
+    let createdCount = 0;
+    let shrankCount = 0;
+
+    for (let seed = 1; seed <= 2000; seed += 1) {
+      sequence = 0;
+      const composeInput = generateInput(seed);
+      const projects = [...new Set(composeInput.blocks.map((row) => row.projectId))];
+      if (projects.length === 0) continue;
+
+      const where = `seed ${seed}`;
+      const projectId = projects[seed % projects.length];
+      const own = composeInput.blocks.filter((row) => row.projectId === projectId);
+      const fixed = own.filter((row) => !isMovable(row, composeInput.today));
+      const change = {
+        projectId,
+        today: composeInput.today,
+        newBlockId: 'nueva',
+        now: '2026-08-12 09:00:00',
+      };
+
+      // ADDING hours. Every row outside the pool must come back at exactly the length it
+      // went in with; the delta is either on a movable row or on a row of its own.
+      const added = expectEdited(
+        changeProjectMinutes(composeInput.blocks, { ...change, deltaMinutes: HOURS[seed % HOURS.length] }),
+      );
+      grewCount += 1;
+      for (const before of fixed) {
+        expect(
+          added.blocks.find((row) => row.id === before.id)?.durationMinutes,
+          `${where}: grew ${before.id}, which the engine cannot settle`,
+        ).toBe(before.durationMinutes);
+      }
+      expect(minutesByProject(added.blocks)[projectId], `${where}: the delta went missing`).toBe(
+        minutesByProject(own)[projectId] + HOURS[seed % HOURS.length],
+      );
+      if (added.blocks.some((row) => row.id === 'nueva')) createdCount += 1;
+
+      // A row the engine will NOT re-place has to be inside its day already, because the
+      // draft's own numbers are what get stored for it. (For a movable row the start is a
+      // queue RANK, not a position — 17:30 + 8 h is a legitimate draft, and the reflow is
+      // what turns it into hours on the clock. So the bound is asserted twice, on the two
+      // different things it means.)
+      for (const row of added.blocks.filter((candidate) => !isMovable(candidate, composeInput.today))) {
+        expect(
+          row.startMinutes + row.durationMinutes,
+          `${where}: ${row.id} runs past the end of ${row.date} and nothing will move it`,
+        ).toBeLessThanOrEqual(MINUTES_PER_DAY);
+      }
+
+      // ...and the engine settles the result, once, with every PLACED row inside its day:
+      // that is the shape that took the whole calendar page down.
+      const placement = compose({ ...composeInput, blocks: added.blocks, grownProjectIds: [projectId] });
+      if (placement.ok) {
+        for (const placed of placement.blocks) {
+          expect(
+            placed.startMinutes + placed.durationMinutes,
+            `${where}: ${describeBlock(placed)} runs past the end of the day`,
+          ).toBeLessThanOrEqual(MINUTES_PER_DAY);
+        }
+        expectMinutesConserved({ ...composeInput, blocks: added.blocks }, placement);
+        expectSettled({ ...composeInput, blocks: added.blocks }, placement, where);
+      } else {
+        expect(placement.error.code, where).toBe('horizon-exceeded');
+      }
+
+      // REMOVING hours is the asymmetry, and it must still reach every row: shrinking one
+      // frees space rather than claiming it, so a past or weekend row is fair game.
+      const total = minutesByProject(own)[projectId];
+      const removal = Math.min(total, HOURS[(seed + 1) % HOURS.length]);
+      const removed = changeProjectMinutes(composeInput.blocks, { ...change, deltaMinutes: -removal });
+      if (removal === total) {
+        // The job would be left with no hours at all; the transform empties every row.
+        expectEdited(removed);
+        continue;
+      }
+      const shrunk = expectEdited(removed);
+      shrankCount += 1;
+      expect(minutesByProject(shrunk.blocks)[projectId], `${where}: the removal did not land`).toBe(
+        total - removal,
+      );
+      expect(shrunk.blocks.every((row) => row.durationMinutes > 0), `${where}: an empty row survived`).toBe(
+        true,
+      );
+    }
+
+    // Guards on the GENERATOR: the whole point is the rows the engine cannot settle, so
+    // if it stopped producing them, or stopped needing a row of their own, the property
+    // above would be green and would be proving nothing.
+    expect(grewCount, 'the generator stopped producing jobs to grow').toBeGreaterThan(1000);
+    expect(createdCount, 'no job ever needed a row of its own').toBeGreaterThan(100);
+    expect(shrankCount, 'the generator stopped producing jobs to shrink').toBeGreaterThan(500);
   });
 });
 

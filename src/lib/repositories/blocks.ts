@@ -19,6 +19,7 @@
 
 import { getDb, type Db } from '../db';
 import { hoursToMinutes, minutesToHHmm, minutesToHours } from '../dates';
+import { assertRowInsideDay } from '../validation';
 import { mapBlockRow, type Block, type BlockRow } from '../../types';
 import { prepared } from './statements';
 
@@ -133,7 +134,19 @@ export function blockMinutesByProject(db: Db = getDb()): Map<string, number> {
   return sums;
 }
 
+/**
+ * The engine's decision as SQL parameters — and the one gate every stored row passes
+ * through, since `insertBlock` and `updateBlock` are the only two writes that touch a
+ * block's geometry (`setBlockLocked` changes a flag and nothing else).
+ *
+ * `assertRowInsideDay` sits here rather than in the operations for exactly that reason:
+ * a row running past midnight is unrenderable — it threw out of `useFormat().time` and
+ * took the whole week view down — so the guard has to be somewhere no caller can go
+ * around, present or future, whatever produced the row. It throws, which inside
+ * `recompose`'s transaction is what rolls the write back.
+ */
 function toParams(placement: BlockPlacement): Record<string, unknown> {
+  assertRowInsideDay(placement);
   return {
     id: placement.id,
     project_id: placement.projectId,

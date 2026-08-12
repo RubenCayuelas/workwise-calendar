@@ -6,7 +6,9 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { minutesToHHmm } from './dates';
 import {
+  INVALID_TIME,
   formatHourNumber,
   formatLongDate,
   formatMediumDate,
@@ -44,6 +46,31 @@ describe('formatTime', () => {
     expect(formatTime(480)).toBe('08:00');
     expect(formatTime(930)).toBe('15:30');
     expect(formatTime(1170)).toBe('19:30');
+    expect(formatTime(1440)).toBe('24:00');
+  });
+
+  it('renders a time outside the day as a visible placeholder instead of throwing', () => {
+    // A row stored before the write guard existed can still hold `12:00 + 780 min`, and
+    // 25:00 used to throw out of `useFormat().time` and take the whole week view down —
+    // leaving no way to reach the row and correct it. The label is the loud kind of soft:
+    // the owner sees that the row is wrong, and the page survives to let them fix it.
+    const complaints: unknown[][] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => complaints.push(args);
+    try {
+      expect(formatTime(1500)).toBe(INVALID_TIME);
+      expect(formatTime(-1)).toBe(INVALID_TIME);
+      expect(formatTime(Number.NaN)).toBe(INVALID_TIME);
+    } finally {
+      console.error = original;
+    }
+    expect(complaints).toHaveLength(3);
+  });
+
+  it('does NOT soften the domain: the engine and every write still throw on it', () => {
+    // The guard is a rendering guard only. Softening `minutesToHHmm` would hide a real
+    // engine defect behind a placeholder on screen, which is the opposite of the point.
+    expect(() => minutesToHHmm(1500)).toThrow(RangeError);
   });
 });
 

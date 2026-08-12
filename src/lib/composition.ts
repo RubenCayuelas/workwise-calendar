@@ -1077,7 +1077,7 @@ function clamp(value: number, min: number, max: number): number {
 // they never place anything. The caller applies one of them, then hands the
 // result to `compose` in the same transaction:
 //
-//     const edit = resizeBlock(blocks, { blockId, durationMinutes });
+//     const edit = resizeBlock(blocks, { blockId, durationMinutes, today });
 //     if (!edit.ok) return edit.error;                  // nothing written
 //     const placement = compose({ ...input, blocks: edit.blocks });
 //
@@ -1162,14 +1162,14 @@ export function changeProjectMinutes(blocks: readonly Block[], change: HoursChan
   const own = sortedByQueueRank(draft.filter((block) => block.projectId === change.projectId));
 
   if (delta > 0) {
-    const target = lastAutomatic(own);
+    const target = lastAutomatic(own, change.today);
     if (target !== undefined) {
       setDuration(target, target.durationMinutes + delta);
       return settledEdit(draft, [], delta, []);
     }
-    // Every row of the job is outside the pool — locked or hand-placed — or it has
-    // none at all: give the hours a row of their own rather than growing one the
-    // reflow cannot settle afterwards. `compose` places it.
+    // Every row of the job is outside the pool — locked, hand-placed, on a weekend or in
+    // the frozen past — or it has none at all: give the hours a row of their own rather
+    // than growing one the reflow cannot settle afterwards. `compose` places it.
     draft.push(createdRowAfter(own[own.length - 1], draft, delta, change));
     return settledEdit(draft, [], delta, []);
   }
@@ -1191,6 +1191,13 @@ export interface BlockResize {
   blockId: string;
   /** The new net working minutes for that row. */
   durationMinutes: number;
+  /**
+   * Local `YYYY-MM-DD`. Needed for the same reason `HoursChange` needs it: the row the
+   * freed hours are handed to must be one the reflow can settle, and "is this row in the
+   * movable pool" is not answerable without today. Not having it here is what let the
+   * frozen past absorb growth — see `lastAutomatic`.
+   */
+  today: string;
 }
 
 /**
@@ -1252,8 +1259,14 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
   }
 
   if (delta < 0) {
-    // Shrinking a block that is not the last hands its hours to the last one.
-    const receiver = lastAutomatic(counterparties) ?? counterparties[counterparties.length - 1];
+    // Shrinking a block that is not the last hands its hours to the last one — the last
+    // one the ENGINE lays out, for the reason in `lastAutomatic`. The fallback is the
+    // difference from the job form's LIFO: a transfer has no row to create, so when the
+    // job has nothing in the pool at all the hours still have to land somewhere. Whether
+    // that case should instead be refused is an Open Decision in CLAUDE.md ("a resize
+    // that overlaps another job in the frozen past"), so it is left exactly as it was;
+    // the write guard is what keeps it from producing an unrenderable row.
+    const receiver = lastAutomatic(counterparties, resize.today) ?? counterparties[counterparties.length - 1];
     pinDuration(target, next);
     setDuration(receiver, receiver.durationMinutes + -delta);
     return settledEdit(draft, [], 0, receiver.locked ? [receiver.id] : []);
@@ -1945,20 +1958,30 @@ function pinDuration(block: Block, durationMinutes: number): void {
  * The job's last row THE ENGINE STILL LAYS OUT — the counterparty every transfer that
  * ADDS hours uses.
  *
- * Locked and hand-placed rows are both skipped, and for the same reason: hours added to
- * a row the reflow cannot touch are written straight onto the clock, where they can run
- * over the day's other work or through the lunch break with nothing to settle them
- * afterwards. "A locked block is never grown or shrunk silently" generalises to every
- * row outside the pool. The added hours get a row of their own instead
- * (`createdRowAfter`), which `compose` then places properly.
+ * IT IS THE MOVABLE POOL, `isMovable`, and nothing narrower. Hours added to a row the
+ * reflow cannot touch are written straight onto the clock, where they can run over the
+ * day's other work, through the lunch break, or past the end of the day with nothing to
+ * settle them afterwards. "A locked block is never grown or shrunk silently" therefore
+ * covers every row outside the pool: locked, hand-placed, on a weekend, AND in the
+ * frozen past. The added hours get a row of their own instead (`createdRowAfter`), which
+ * `compose` then places properly.
+ *
+ * This used to test the two stored MARKS (`locked`, `handPlaced`) only, which read like
+ * the whole rule because a hand drop onto Sat/Sun always sets `handPlaced` — so the
+ * weekend was covered in practice and only the past was reachable. It was the worst
+ * defect in the app and needed no unusual gesture at all: a past Mon-Thu row is never
+ * marked (its day role is `auto`), and a row on TODAY becomes a past row overnight. A
+ * 2 h job on yesterday raised to 6 h was stored as `12:00 + 360 min`, one row straight
+ * through the lunch break claiming 6 h where the clock holds 4.5 h; raised to 13 h it
+ * became `12:00-25:00` and took the whole calendar page down from `useFormat().time`.
  *
  * Taking hours AWAY is not symmetrical and is left alone: shrinking a fixed row frees
  * space rather than claiming it, and LIFO has to be able to reach the job's hours
- * wherever they are.
+ * wherever they are — see `takeMinutes`.
  */
-function lastAutomatic(ordered: readonly Block[]): Block | undefined {
+function lastAutomatic(ordered: readonly Block[], today: string): Block | undefined {
   for (let index = ordered.length - 1; index >= 0; index -= 1) {
-    if (!ordered[index].locked && !ordered[index].handPlaced) return ordered[index];
+    if (isMovable(ordered[index], today)) return ordered[index];
   }
   return undefined;
 }

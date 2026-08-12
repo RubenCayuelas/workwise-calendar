@@ -124,6 +124,7 @@ export const ERROR_MESSAGE_KEYS = {
   projectNotFound: 'errors.projectNotFound',
   blockNotFound: 'errors.unknownBlock',
   gapNotFound: 'errors.gapNotFound',
+  rowExceedsDay: 'errors.rowExceedsDay',
   splitExceedsBlock: 'errors.splitExceedsBlock',
   deleteLastBlock: 'errors.deleteLastBlock',
   gapOverLockedBlock: 'errors.gapOverLockedBlock',

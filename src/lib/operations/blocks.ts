@@ -174,7 +174,9 @@ export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = g
 
   return runTransaction(db, () => {
     const block = requireBlock(blockId, db);
-    const edit = requireEdit(resizeBlockHours(listBlocks(db), { blockId, durationMinutes: input.durationMinutes }));
+    const edit = requireEdit(
+      resizeBlockHours(listBlocks(db), { blockId, durationMinutes: input.durationMinutes, today }),
+    );
 
     if (edit.totalMinutesDelta !== 0) {
       const project = findProject(block.projectId, db);
