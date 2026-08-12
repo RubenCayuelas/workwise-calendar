@@ -36,13 +36,19 @@ Enable quick visual reorganization via drag & drop.
   - **No order column.** The queue order is derived from calendar position — see
     *Queue Order* below.
 
-- **Block** (id, project_id, date, start_time, duration, locked, created_at, updated_at)
+- **Block** (id, project_id, date, start_time, duration, locked, manual_duration, created_at, updated_at)
   - Represents a **time slot on the calendar** where part of a project sits
   - `date`: YYYY-MM-DD (e.g., "2025-01-13" for Monday)
   - `start_time`: HH:mm (e.g., "09:00")
   - `duration`: Hours as decimal (e.g., 2.5 for 2h 30min). Always **net working hours**.
   - `locked`: Boolean. The **only** exemption from auto-move. If true, the engine never moves the
     block; the user still can, by hand.
+  - `manual_duration`: Boolean. The **length** was set by hand (the bottom-edge drag), so the engine
+    keeps it instead of re-deriving the job's segmentation from its total, and the job's run **ends**
+    at that row. It exempts the row's *duration*, never its *position* — a hand-set row is still
+    moved by the reflow. See *A Hand-Set Duration*.
+    A flag rather than a second copy of the minutes: `duration` stays the single source of truth for
+    how long the row is, so the two can never disagree.
   - **One Project can have multiple Blocks** across different days (e.g., Job A = Mon 2h + Tue 2h + Wed 1h)
   - **A stored block never straddles a non-working interval** (lunch break, end of day). Work that
     crosses the lunch break is two blocks of the same job — see *Blocks and the Lunch Break*.
@@ -177,8 +183,8 @@ Everything else is a fixed obstacle that flexible work flows around.
 ### The Past is Frozen
 - The engine **never writes to a date earlier than today**. Past days render dimmed and are not a
   drop target. They keep no hover action bar — but they DO keep the bottom-edge resize handle, since
-  a past row is one the engine will not re-lay out and correcting yesterday's duration is the whole
-  point of *Block Resize*.
+  correcting yesterday's duration is the whole point of *Block Resize*. A past row is one the engine
+  will not re-lay out, so the length holds there without any mark being needed.
 - Why: recomposition reflows unlocked blocks to close holes. If the past were in scope, a Monday cut
   short by a breakdown would get its hole closed by pulling Tuesday's work back into it — silently
   rewriting the record of what the shop actually did.
@@ -190,13 +196,11 @@ Everything else is a fixed obstacle that flexible work flows around.
 Resizing a block is a **transfer inside the job**, with the job's **last block** as the counterparty.
 `total_hours` does not change unless stated otherwise.
 
-**The gesture is only offered where it survives the reflow** (decided with the owner, 2026-08-11):
-on a **locked** row, a row in the **frozen past**, and a row on the **weekend** — exactly the
-complement of *The Movable Pool*. On an unlocked future weekday row the bottom edge is **inert**: the
-engine re-derives that job's segmentation from its total, so a transfer between two adjacent rows of
-one queue item is undone on the next recomposition. That is correct — it is what makes the calendar
-self-tidying and `compose` a fixed point — so the UI must not offer a gesture that silently snaps
-back. Hovering the inert edge names the two things that DO work instead; see *Capping a day*.
+**The gesture works on EVERY row** (decided with the owner, 2026-08-12). It used to be offered only
+where it survived the reflow — locked, past and weekend rows — because on an unlocked future weekday
+row the engine re-derived that job's segmentation from its total and undid the transfer: the request
+answered 200 with the block unchanged. Storing the intent (`manual_duration`) is what fixes it; see
+*A Hand-Set Duration* for what the stored intent then means for the rest of the week.
 
 | Action | Effect | `total_hours` |
 |---|---|---|
@@ -205,23 +209,97 @@ back. Hovering the inert edge names the two things that DO work instead; see *Ca
 | Enlarge the **last** block (or the only block) | No farther block to draw from | **increases** |
 | Shrink the **last** block (or the only block) | Not allowed — it would leave the blocks summing to less than the total. Reduce the hours in the job form instead | unchanged |
 
+The refusal is a **409 with an i18n code** (`shrink-last-block` / `errors.shrinkLastBlock`) and writes
+nothing. A refused resize is never a silent no-op.
+
 This is the normal way to record "yesterday took longer than I noted": enlarge yesterday's block and
 the hours come off the job's furthest block, keeping the estimate intact.
 
-### Capping a Day — "we only do 2 h of this today" (decided with the owner, 2026-08-11)
-Shrinking the block is **not** the answer, and neither is any workaround that would leave a hole the
-engine refuses to fill: **if nothing occupies the rest of the day, the shop IS free then, and the app
-exists to say so.** A hole the engine would not touch would be the app lying. There are exactly two
-honest ways to cap a day, and both already fall out of the rules above:
+### A Hand-Set Duration (decided with the owner, 2026-08-12)
+A row whose length was set by the bottom-edge drag carries `manual_duration = 1`, and:
+
+> **A block with a hand-set duration ends its job's run there. The job's remaining hours go to the
+> next auto-fill day, and the space it frees that day is filled by the jobs that follow in the queue.**
+
+Worked example. Example_A 14 h sits Wed 08:00-14:00 (6 h) + Wed 15:30-19:30 (4 h) + Thu 08:00-12:00
+(4 h), with Example_B 8 h behind it. The owner shrinks the Wednesday morning row to 2 h:
+```
+Wed 08:00-10:00  Example_A 2 h   <- hand-set
+Wed 10:00-14:00  Example_B       <- the next job fills the freed space
+Wed 15:30-19:30  Example_B
+Thu 08:00-...    Example_A       <- the remainder, on the next day
+```
+So **a newer job starts before the older job's remainder, and strict order is deliberately broken for
+that day**. That is the price of honouring a hand-set duration, and it was chosen over leaving a hole.
+If no job follows in the queue, the hours stay free: the shop really is free then.
+
+Mechanically, two rules do it, and both are stated over the **day**, not over "the next item", so they
+hold again on the following pass:
+- once a hand-set stretch of job X lands on day D, **no more of X is placed on D**;
+- the remainder is held back while the jobs behind it fill D, and placed as soon as one of them would
+  have to leave D. It may overtake other jobs, never another item of **its own** job — reordering two
+  items of one job would leave them adjacent, regroup them on the next pass, and lay the same hours
+  out differently.
+
+Everything else still applies unchanged: the Friday buffer (a displaced remainder is not growth, so it
+skips the colchón), the weekend, the frozen past, plannable hours, and the lunch-break segmentation —
+a hand-set stretch longer than the morning is stored as two rows that both carry the mark, and the
+engine reads them back as one stretch.
+
+**Why this is safe for the engine.** Breaking a job's run on a *stored column* is layout-independent,
+so `compose` stays a fixed point. Breaking it on anything *derived from the placement* is what caused
+an earlier critical defect, where grouping was derived from the layout while the layout was derived
+from the grouping and an unrelated save silently resized the owner's blocks. Recomposing twice must
+change nothing; the 2000-seed property harness asserts it with hand-set rows in the generated
+calendars.
+
+**Setting, keeping and losing the mark.** The mark stands for one specific number the owner drew, so
+it lives exactly as long as that number does:
+- **set** by a resize, on the row that was resized — including a resize to the length it already had,
+  which makes the gesture total (same request, same state);
+- **kept** through a move or a drop of that row (position changes, length does not), through any other
+  job's edits, and through every recomposition;
+- **released** by the explicit *back to automatic* action (`PATCH /api/blocks/:id {action:"release"}`).
+  Required, not a nicety: a hand-set length is invisible except that the row stops reflowing, so
+  without a one-click release the marks accumulate until the engine manages nothing. It gives back the
+  **length**, not the queue position — the row's place in the order is whatever the calendar now says,
+  exactly as after any drag;
+- **lost** whenever something other than a resize rewrites the row's length: the LIFO transfer from the
+  job form, being the counterparty of another row's resize, the scissors, or a drop that cuts the row.
+  The row is then back under the engine, which is what the owner just asked for by making the edit.
+
+The two gestures most likely to be asked about, stated outright because "does my 2 h survive this?" is
+the question the owner will actually have (both verified over HTTP):
+
+- **The job's total changes** (the job form's stepper). LIFO works on the job's **last unlocked** row,
+  so the mark is lost **only if that is the hand-set row itself**. A hand-set row anywhere else keeps
+  its mark and its exact length, and the added or removed hours go to the last row as usual — raising a
+  14 h job to 17 h leaves the hand-set 2 h at 2 h. When the total is cut so far back that LIFO eats
+  backwards into the hand-set row, that row's length is being rewritten by the owner's own edit, so it
+  goes back to automatic.
+- **The block is dragged.** The mark is **kept**: a drag sets the row's place in the queue and the
+  reflow settles it, but nothing rewrites its length. A hand-set 2 h row dragged to Thursday is a
+  hand-set 2 h row on Thursday, still closing that job's day there. The one exception is the drop that
+  lands *inside* the row and cuts it (above): a cut rewrites the length, so it releases.
+
+### Capping a Day — "we only do 2 h of this today" (decided 2026-08-11, revised 2026-08-12)
+Three honest ways, all of which fall out of the rules above:
 
 1. **Put another job after it.** The drop re-ranks the queue, the job splits there, and the day reads
    `A 2 h, B, A 4 h`.
 2. **Stop the day with a gap.** Plannable hours are `shift − gaps`, so the day genuinely holds less
-   and the work that no longer fits is replanned. This is now a **one-click action** on the block's
+   and the work that no longer fits is replanned. This is a **one-click action** on the block's
    hover bar ("Cerrar el día aquí"): it pre-fills a gap from a chosen moment to the end of the day's
    last enabled period, asks only for an optional reason, and states what the day loses and which
    jobs cannot stay inside the closed stretch. It is an ordinary gap — same endpoint, same refusals,
    editable and deletable afterwards.
+3. **Shrink the block** (new). It now sticks — see *A Hand-Set Duration* — and the hours it frees go
+   to the jobs behind it in the queue, so the day is not left with a hole unless there is genuinely
+   nothing else to do. Its cost is the one the owner accepted: a newer job starts before the older
+   job's remainder, so strict order is broken for that day.
+
+What none of them may do is leave a hole the engine refuses to fill for no reason: **if nothing
+occupies the rest of the day, the shop IS free then, and the app exists to say so.**
 
 What the action must NOT promise is *where* those hours land: only `compose` knows, over the whole
 calendar, and *Never split a job to make it fit* means a job that no longer fits the hours left moves
@@ -252,7 +330,7 @@ calendar, and *Never split a job to make it fit* means a job that no longer fits
 - On DROP: the queue is reordered (see *Queue Order*) and auto-recomposition runs.
 - **Auto-merge**: as described above.
 
-### A Drop That Overlaps (decided with the owner, 2026-08-11)
+### A Drop That Overlaps (decided with the owner, 2026-08-11; extended 2026-08-12)
 A drop onto the **weekend or the frozen past** lands where the engine may not reflow, so both the
 dropped row and whatever was there are fixed obstacles and the reflow will never separate them. The
 overlap is therefore resolved when the drop is saved, in the same transaction, **before**
@@ -276,8 +354,23 @@ overlapping are somebody's decision and tidying them on an unrelated save is wha
 - Both cases hold `SUM(blocks.duration) == projects.total_hours` for every touched project.
 - This is **not** the auto-merge above. Auto-merge joins rows that *touch* inside one period and
   never runs on the weekend; this resolves an *overlap* a human just created, on any day.
-- An unlocked weekday drop needs none of this: it is in the movable pool, so the reflow settles it
-  where it overlaps nothing.
+
+**A drop onto a movable row is cut too** (2026-08-12). The reflow settles both rows, but it settles
+them *in queue order*, and queue order is `date, start_time`: without the cut, dropping B at 10:00
+into A's 08:00-14:00 row leaves the queue reading `A, B`, so A is laid out whole and B lands after the
+entire block — the drop is silently ignored. Cutting A at the drop's start makes the queue read
+`A, B, A`, and the engine's forward fill produces `A, B, A` on the clock by itself. Same resolver, far
+less machinery, because on this side nothing is *placed*, only *ranked*:
+- only a row that **starts before** the drop is cut; one starting at or after it already ranks behind
+  the drop and needs no help;
+- the tail is one row ranked just after the drop's end — a queue rank, not a position, exactly like the
+  provisional row every drop and every new job is written as;
+- **fixed rows are ignored** on this side, because flexible work flows around them. A movable drop over
+  a locked row is therefore *not* refused, and a locked row is still never cut, grown or absorbed;
+- there is no same-job merge on this side: two movable rows of one job are laid out contiguously and
+  joined by auto-merge anyway, so folding them here would be tidying rather than repairing;
+- cutting a row rewrites its length, so a **hand-set duration on the row that is cut is released** —
+  the drop is the newer, more explicit gesture.
 
 ### Locked Blocks Don't Act as Walls
 - `locked = true` means: "Don't auto-move this block during recomposition"
@@ -344,29 +437,50 @@ where the decisions in this section come from.
 - **Header**: logo, `‹ Semana 33 · 10–16 ago 2026 ›`, and the actions `Hoy`, `+ Nuevo trabajo`,
   language, overflow menu.
 - **Visual blocks**: tinted fill with a saturated border in the project colour, name + hours. A
-  padlock icon marks locked blocks. Continuation segments read `2 h · sigue`. Engine-placed Friday
-  blocks read `desborde 2 h` and get a distinct border so an overrun week is visible at a glance.
+  padlock icon marks locked blocks, and a **hand-set length is marked too** — the row has stopped
+  reflowing and the owner must be able to see why, and to undo it (*back to automatic*). The two
+  marks are deliberately unalike, because they are independent and mean different things: the padlock
+  fixes the row's POSITION, a ruler icon plus a solid (rather than hairline) bottom edge — the very
+  edge that was dragged — fixes its LENGTH. A row can carry either, both or neither. Continuation
+  segments read `2 h · sigue`. Engine-placed Friday blocks read `desborde 2 h` and get a distinct
+  border so an overrun week is visible at a glance.
 - **Past days**: desaturated and not a drop target; still editable by hand.
 - **Drag-drop**: click and drag job blocks to a new position. Ghost/preview during drag. Mouse only.
+  Since an overlapping drop CUTS the row underneath on any day (*A Drop That Overlaps*), the ghost
+  also says what the drop will do to that row before the mouse is released — cut it here (drawn as a
+  seam across it), merge into it (hours summed), or be refused because it is locked. Announcing it
+  afterwards in a toast would be telling the owner about somebody else's block only once it had
+  already been split.
 
 ### Block Gestures
 - **Drag the body**: move the block — this reorders the queue and triggers a reflow
-- **Drag the bottom edge**: resize, as a transfer inside the job (see *Block Resize*). Only on a
-  locked, past or weekend row; elsewhere the edge is inert and its tooltip points at the two ways to
-  cap a day.
+- **Drag the bottom edge**: resize, as a transfer inside the job (see *Block Resize*). Offered on
+  **every** row — every day, and every row OF A UNIT. A unit has one handle for the move, because it
+  is one thing to drag, but its segments are separate rectangles with the lunch band between them and
+  each has a real bottom edge; without an edge on the first one, *A Hand-Set Duration*'s own worked
+  example ("shrink the Wednesday morning row to 2 h") would be unreachable from the calendar. The
+  drag is capped at the end of that row's own period, so it can never produce a row straddling the
+  break. On a row the engine reflows, the new length sticks and marks the row hand-set, which
+  is a visible, releasable state — see *A Hand-Set Duration*. The consequence is never local, so the
+  save reports it: the hours went to the job's last block, the remainder starts on the next day, and
+  the jobs behind it took the space the day gained. The refusal (409 `shrink-last-block`) is said the
+  same way, since it is the one failure with a concrete next step.
 - **Click**: open the job panel
-- **Hover**: a small action bar appears with lock, *stop the day here*, split (scissors) and delete —
-  never behind a modifier key, since on a shop PC an Alt-drag would never be discovered. *Stop the
-  day here* is absent where it would do nothing: on a row that already ends the day, on the weekend,
-  on a closed day and in the past.
+- **Hover**: a small action bar appears with lock, *back to automatic*, *stop the day here*, split
+  (scissors) and delete — never behind a modifier key, since on a shop PC an Alt-drag would never be
+  discovered. Two of them are absent where they would do nothing: *stop the day here* on a row that
+  already ends the day, on the weekend, on a closed day and in the past; *back to automatic* on a
+  unit no part of whose length was set by hand. It releases the WHOLE unit — a hand-set stretch cut
+  at the lunch break is two marked rows, and giving back only half of it would leave the other half
+  still closing the day.
 
 ### Job Panel (side panel)
 - Colour dot + job name + close
 - Fields: `Nombre`, `Descripción`, `Horas totales` (stepper), `Color` (swatches)
 - `Bloques · 11 h en 4 tramos`: the job's blocks listed as `Mié 12 · 08:00–14:00 · 6 h` with a
-  per-block lock toggle. Note how the wireframe lists the two halves around lunch as two separate
-  rows (`Mar 11 · 13:00–14:00 · 1 h` and `Mar 11 · 15:30–17:30 · 2 h`) — that is the segment model
-  above, confirmed by the design.
+  per-block lock toggle, and a *back to automatic* action on any row whose length is hand-set. Note
+  how the wireframe lists the two halves around lunch as two separate rows (`Mar 11 · 13:00–14:00 · 1 h`
+  and `Mar 11 · 15:30–17:30 · 2 h`) — that is the segment model above, confirmed by the design.
 - Actions: `Guardar`, `Eliminar`
 
 ### Job Management
@@ -376,6 +490,8 @@ where the decisions in this section come from.
 - **Edit**: Change name, description, color, total hours (affects last block per LIFO rules)
 - **Delete**: Requires confirmation. Blocks deleted; calendar recomposes.
 - **Lock/Unlock**: Toggle `locked` flag per block
+- **Back to automatic**: clear a hand-set length so the engine owns the row again
+  (`PATCH /api/blocks/:id {action:"release"}`)
 
 ### Gap Management
 - **Create**: Date + Start Time + Duration + Reason (optional)
@@ -472,7 +588,7 @@ tokens, the README, the dead config and the tracked `tsbuildinfo`.
 - [x] API routes for Project, Block, Gap, Settings, week and summary
 - [x] Week view, job panel, job form, gap form, split form, Settings screen
 - [x] Drag-drop (mouse only), the hover action bar, *stop the day here*, the resize edge
-      restricted to rows the engine will not re-lay out
+      (then restricted to rows the engine will not re-lay out — see v0.3)
 - [x] Every time and every day chosen from `TimeSelect` / `DateSelect`, never a native input
 
 Verified on 2026-08-12: `tsc --noEmit` clean, `vitest run` 381 passing across 16 files,
@@ -484,6 +600,65 @@ that a gap or a drop would have overlapped, and the Friday rule both ways (a new
 colchón for next Monday; the growth of an existing job lands on it).
 
 **Not in v0.2**, and both already listed above: the Settings UI for `day_overrides`, and backups.
+
+**v0.3 — the two defects found on v0.2, engine and persistence done (2026-08-12).**
+Both were reproduced over real HTTP against a clean database, and both are fixed and re-verified the
+same way:
+- **A resize was a silent no-op** on any row the engine re-lays out — 200 with the block unchanged.
+  Fixed by storing the intent in `blocks.manual_duration` and giving it the meaning in *A Hand-Set
+  Duration*, with the explicit *back to automatic* release. The refusal path is a 409 with an i18n
+  code, never a no-op.
+- **An overlapping drop did not cut a movable row**, so `A, B, A` was unreachable on a weekday: the
+  drop landed after the whole block instead. Fixed by extending `resolveManualPlacement` to cut
+  movable rows — see *A Drop That Overlaps*. The fixed-row paths are unchanged.
+
+**v0.3 — the interface, done.** The bottom edge is offered on every row (the two strings that used to
+explain why it was inert are deleted, not just unused); a hand-set row carries the ruler mark and the
+solid bottom edge; *back to automatic* is on the block's hover bar and on every hand-set row of the
+job panel's list; a resize reports where the hours went and a refused one says so where the gesture
+happened; and the drag ghost names what the drop will do to the row underneath, which matters far
+more now that an ordinary weekday drop cuts.
+
+Verified: `tsc --noEmit` clean, `vitest run` 423 passing across 18 files, `next lint` clean,
+`next build` succeeds, and the property harness runs 2000 seeds with hand-set rows in the generated
+calendars asserting hours conservation, no overlap and the fixed point. The drop preview mirrors
+`resolveManualPlacement` branch for branch and has its own test file, because a preview that promises
+a cut the server will not perform is worse than no preview at all.
+
+**v0.3 — closed, verified end to end (2026-08-12).** `tsc --noEmit` exit 0, `vitest run` 423 passing
+across 18 files, `next lint` clean, `next build` succeeds. Re-checked over real HTTP against clean
+databases (`WORKWISE_DB_PATH` on a scratch path, `next start`), with today = Wed 2026-08-12:
+
+- **Defect A.** `PATCH {action:"resize", durationMinutes:120}` on the unlocked 6 h Wednesday morning
+  row answers 200 with the block **at 120 min and `manualDuration: true`** — it used to answer 200
+  with the row unchanged at 360. The calendar that comes back is *A Hand-Set Duration*'s worked
+  example row for row: `Wed 08:00-10:00 Barandilla 2 h [hand-set] / Wed 10:00-14:00 + 15:30-19:30
+  Porton / Thu 08:00-14:00 + 15:30-19:30 Barandilla / Mon 08:00-10:00 Barandilla`. Both totals
+  unchanged (14 h and 8 h), every job's blocks still summing to its total.
+- **It is a fixed point.** Creating an unrelated job leaves the hand-set 2 h at 2 h; deleting it again
+  leaves the whole calendar byte-identical to before.
+- **Back to automatic** clears the mark, and once the job that had taken the freed hours is gone the
+  engine re-derives the job from its total (`Wed 6 h + 4 h, Thu 4 h`) — confirming the release gives
+  the **length** back, while the queue position stays where the calendar now puts it.
+- **The refusal.** Shrinking a job's last block answers **409** `shrink-last-block` /
+  `errors.shrinkLastBlock` and writes nothing.
+- **Defect B.** Dropping Porton at Wed 10:00 inside Barandilla's 08:00-14:00 movable row now cuts it:
+  `Barandilla 08:00-10:00, Porton 10:00-12:00, Barandilla 12:00-14:00`, both totals intact, with the
+  cut job named in `displacedProjectIds`. A movable drop onto a **locked** row is still accepted, and
+  the locked row is neither cut, grown nor absorbed.
+- **The mark's lifecycle**, as documented above: a hand-set row keeps its length through a drag (only
+  its position moves) and through a job-total edit that lands on another row; it is released by the
+  cut, and by LIFO reaching the row itself.
+- **Nothing regressed**: a new job skips the Friday colchón for next Monday while the growth of placed
+  work lands on Friday and is pulled back off it when room reappears; weekend work survives the
+  "delete one job, create another" churn with no lock; the engine never writes to a past day the owner
+  moved work onto; a gap over a locked block is a 409 naming the block, and a gap on movable time is
+  accepted.
+- **In a real browser** (Chromium, the same clean database): every block carries its own bottom-edge
+  handle including the first row of a lunch-split unit; dragging that edge from 6 h to 2 h reproduces
+  the worked example on screen; the row draws the ruler mark and a 2 px solid bottom edge; the toast
+  reads *«Barandilla» se queda en 2 h aquí y esa duración queda fija…*; *Volver a automático* on the
+  hover bar clears it, and appears only on the hand-set row. Zero console errors.
 
 ---
 

@@ -19,7 +19,12 @@
 import { getDb, type Db } from '../db';
 import { assertFitsInDay } from '../validation';
 import { todayLocal } from '../dates';
-import { resizeBlock as resizeBlockHours, type EditSuccess, type ScheduleSummary } from '../composition';
+import {
+  releaseBlockDuration as releaseBlockHours,
+  resizeBlock as resizeBlockHours,
+  type EditSuccess,
+  type ScheduleSummary,
+} from '../composition';
 import { conflict, notFound, ERROR_MESSAGE_KEYS } from '../errors';
 import { newId } from '../ids';
 import { nowTimestamp } from '../timestamps';
@@ -117,6 +122,14 @@ export interface ResizeBlockInput {
  * one case that can generate overflow, and therefore the only one that names the
  * project in `grownProjectIds`: a pure transfer takes hours OFF the job's furthest
  * row, which relieves pressure on the week instead of adding to it.
+ *
+ * IT WORKS ON EVERY ROW, and it did not use to. The transfer was applied and then
+ * quietly undone by the recomposition that follows it, because `compose` re-derives
+ * a job's segmentation from its total — so on an unlocked weekday row the request
+ * answered 200 with the block unchanged. The engine now stores the intent
+ * (`manualDuration`), keeps the length through the reflow, and ends the job's run
+ * there. The refusals stay refusals: shrinking a job's last (or only) row is a 409
+ * carrying `errors.shrinkLastBlock`, never a silent no-op.
  */
 export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = getDb()): BlockMutation {
   const today = input.today ?? todayLocal();
@@ -143,6 +156,34 @@ export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = g
     });
 
     return settled(blockId, block.projectId, report, edit.touchedLockedBlockIds, db);
+  });
+}
+
+/**
+ * "Back to automatic": the row gives its length back to the engine.
+ *
+ * The counterpart of the resize, and not a nicety. A hand-set length is a decision
+ * the engine then obeys for ever, and the only way it shows is that the row stops
+ * reflowing — so without a one-click release the owner cannot undo it, and hand-set
+ * lengths accumulate until the engine manages nothing. Releasing changes no
+ * geometry; the recomposition that follows is what re-derives the job's segmentation
+ * and closes the day the stretch was holding open.
+ *
+ * No intent is passed: giving hours back to the engine is not growth, so it must not
+ * spend the Friday colchón.
+ */
+export function releaseBlockDuration(
+  blockId: string,
+  options: { today?: string } = {},
+  db: Db = getDb(),
+): BlockMutation {
+  const today = options.today ?? todayLocal();
+
+  return runTransaction(db, () => {
+    const block = requireBlock(blockId, db);
+    const edit = requireEdit(releaseBlockHours(listBlocks(db), blockId));
+    const report = recompose(db, { today, blocks: edit.blocks });
+    return settled(blockId, block.projectId, report, [], db);
   });
 }
 
@@ -214,7 +255,15 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
     const now = nowTimestamp();
     const fragmentId = newId();
     const draft: Block[] = listBlocks(db).map((row) =>
-      row.id === blockId ? { ...row, durationMinutes: row.durationMinutes - input.durationMinutes } : row,
+      row.id === blockId
+        ? {
+            ...row,
+            durationMinutes: row.durationMinutes - input.durationMinutes,
+            // The scissors rewrite the source row's length, so a hand-set length on
+            // it no longer stands for anything: the engine takes the row back.
+            manualDuration: false,
+          }
+        : row,
     );
     draft.push({
       id: fragmentId,
@@ -223,6 +272,9 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
       startMinutes: input.startMinutes,
       durationMinutes: input.durationMinutes,
       locked: block.locked,
+      // A fragment's length is the portion the owner chose to MOVE, not a length
+      // drawn on the calendar; `locked` is what pins a fragment to a slot.
+      manualDuration: false,
       createdAt: now,
       updatedAt: now,
     });

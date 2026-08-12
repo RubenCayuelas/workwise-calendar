@@ -104,7 +104,10 @@
     "emptyDay": "—",
     "dropHere": "Soltar aquí",
     "dropRankHint": "Al soltar, el bloque toma este puesto en la cola y se recoloca justo detrás del anterior. Bloquéalo si quieres fijarlo a una hora.",
-    "loadingWeek": "Cargando la semana…"
+    "loadingWeek": "Cargando la semana…",
+    "dropCuts": "Partirá «{{name}}»: el resto seguirá justo detrás.",
+    "dropMerges": "Se unirá con «{{name}}»: las horas se suman en un solo bloque.",
+    "dropBlocked": "Ahí no cabe: «{{name}}» está bloqueado. No se guardará nada."
   },
   "block": {
     "continues": "{{hours}} h · sigue",
@@ -119,8 +122,6 @@
     "open": "Abrir el trabajo",
     "actions": "Acciones del bloque",
     "resize": "Cambiar la duración",
-    "resizeFixedOnly": "Aquí no se cambia la duración: el motor recoloca este bloque y volvería a su tamaño.",
-    "resizeAlternatives": "Para hacer hoy solo una parte: pon otro trabajo detrás, o usa «Cerrar el día aquí».",
     "drag": "Arrastrar para cambiar el puesto en la cola",
     "label": "{{name}} · {{day}} · {{start}}–{{end}} · {{hours}} h",
     "deleteTitle": "¿Quitar este bloque?",
@@ -131,7 +132,10 @@
     "splitHours": "Horas que se separan",
     "splitHint": "La parte separada toma un puesto en la cola y se recoloca; no se queda en la hora donde la sueltes. Bloquéala si quieres fijarla.",
     "splitConfirm": "Dividir",
-    "resizeHint": "Alargar un bloque quita esas horas del último bloque del trabajo; acortarlo se las devuelve. El total no cambia."
+    "resizeHint": "Alargar un bloque quita esas horas del último bloque del trabajo; acortarlo se las devuelve. El total no cambia y la duración queda fija hasta que la devuelvas a automático.",
+    "manualDuration": "Duración fija",
+    "manualDurationHint": "Duración puesta a mano: el motor la respeta y el trabajo continúa el día siguiente.",
+    "releaseDuration": "Volver a automático"
   },
   "jobPanel": {
     "title": "Trabajo",
@@ -249,7 +253,10 @@
     "mergedOverlap_other": "Se ha unido con {{count}} bloques del mismo trabajo que ya estaban ahí. No se ha perdido ninguna hora.",
     "displacedBlocks_one": "Se ha partido «{{names}}» y el resto ha quedado justo detrás. Si no te sirve, vuelve a moverlo.",
     "displacedBlocks_other": "Se han partido {{count}} trabajos ({{names}}) y sus restos han quedado justo detrás. Si no te sirve, vuelve a moverlos.",
-    "nothingSaved": "No se ha guardado nada."
+    "nothingSaved": "No se ha guardado nada.",
+    "resizeShrunk": "«{{name}}» se queda en {{hours}} h aquí y esa duración queda fija. Las horas que sobran pasan al último bloque del trabajo, el resto continúa el siguiente día y el hueco lo ocupa lo que venga detrás en la cola.",
+    "resizeGrown": "«{{name}}» pasa a {{hours}} h aquí y esa duración queda fija. Esas horas salen del último bloque del trabajo; si era el último, sube el total del trabajo.",
+    "released": "Duración otra vez automática. El motor recoloca el trabajo; el bloque conserva su puesto en la cola."
   },
   "weekdays": {
     "short": {

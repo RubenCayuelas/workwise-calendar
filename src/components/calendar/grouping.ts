@@ -35,6 +35,22 @@ export interface BlockGroup {
   endMinutes: number;
   /** True only when every row of the group is locked. */
   locked: boolean;
+  /**
+   * The rows of the unit whose LENGTH was set by hand, in clock order.
+   *
+   * `locked` above is rolled up into one boolean because its only consumer asks a
+   * yes/no question about the whole unit. A hand-set length cannot be, for two
+   * reasons that pull in opposite directions: the unit is one gesture on screen
+   * (one resize handle, one *back to automatic*), but the mark is per row — a
+   * hand-set stretch cut at the lunch break comes back as TWO marked rows, and a
+   * hand-set row can sit next to an automatic row of the same job, which is exactly
+   * why the engine refuses to join them into one queue item.
+   *
+   * So the group carries the ids instead of a flag: empty means the engine owns the
+   * unit's length, non-empty is precisely what the release action must send, and
+   * `length === blocks.length` means the whole unit is the length the owner drew.
+   */
+  manualBlockIds: string[];
 }
 
 /** One row, with the group it belongs to and its place in it. */
@@ -73,6 +89,7 @@ export function groupBlocks(
       open.totalMinutes += block.durationMinutes;
       open.endMinutes = block.startMinutes + block.durationMinutes;
       open.locked = open.locked && block.locked;
+      if (block.manualDuration) open.manualBlockIds.push(block.id);
       continue;
     }
 
@@ -85,6 +102,7 @@ export function groupBlocks(
       startMinutes: block.startMinutes,
       endMinutes: block.startMinutes + block.durationMinutes,
       locked: block.locked,
+      manualBlockIds: block.manualDuration ? [block.id] : [],
     });
   }
 

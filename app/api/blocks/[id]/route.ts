@@ -1,15 +1,25 @@
 /**
  * `/api/blocks/:id` — the gestures on one row of the calendar.
  *
- * PATCH  { action: "move",   date, startTime | startMinutes }
- * PATCH  { action: "resize", durationHours | durationMinutes }
- * PATCH  { action: "lock",   locked: boolean }
+ * PATCH  { action: "move",    date, startTime | startMinutes }
+ * PATCH  { action: "resize",  durationHours | durationMinutes }
+ * PATCH  { action: "release" }
+ * PATCH  { action: "lock",    locked: boolean }
  *        -> { block, blocks, summary, touchedLockedBlockIds,
  *             mergedBlockIds, displacedProjectIds }
  * DELETE -> { deleted: true, projectId, summary }
  *
- * `action` is the discriminator because all three are edits of the same row and a
+ * `action` is the discriminator because all four are edits of the same row and a
  * single endpoint keeps "one gesture, one request, one recomposition" obvious.
+ *
+ * RESIZE sets the row's length by hand and it STICKS: the row comes back with
+ * `manualDuration: true`, the engine stops re-deriving that job's segmentation
+ * there, and the job's remaining hours start on the next auto-fill day while the
+ * jobs behind it take the hours the day just gained. RELEASE is the way back —
+ * `manualDuration: false` and the row rejoins its run on the same recomposition.
+ * Both are offered on EVERY row; a resize that would leave a job's blocks summing to
+ * less than its total (shrinking its last or only row) is refused with 409
+ * `shrink-last-block`, never quietly ignored.
  *
  * Three things the UI must handle in the response:
  *
@@ -41,13 +51,19 @@ import {
   requireStartMinutes,
   route,
 } from '@/src/lib/api';
-import { deleteBlock, moveBlock, resizeBlock, setBlockLock } from '@/src/lib/operations/blocks';
+import {
+  deleteBlock,
+  moveBlock,
+  releaseBlockDuration,
+  resizeBlock,
+  setBlockLock,
+} from '@/src/lib/operations/blocks';
 
 export const dynamic = 'force-dynamic';
 
 type Context = { params: Promise<{ id: string }> };
 
-const ACTIONS = ['move', 'resize', 'lock'] as const;
+const ACTIONS = ['move', 'resize', 'release', 'lock'] as const;
 
 export async function PATCH(request: NextRequest, context: Context): Promise<Response> {
   return route(async () => {
@@ -59,6 +75,8 @@ export async function PATCH(request: NextRequest, context: Context): Promise<Res
         return moveBlock(id, { date: requireDate(body), startMinutes: requireStartMinutes(body) });
       case 'resize':
         return resizeBlock(id, { durationMinutes: requireDurationMinutes(body) });
+      case 'release':
+        return releaseBlockDuration(id);
       case 'lock':
         return setBlockLock(id, requireFlag(body, 'locked'));
     }

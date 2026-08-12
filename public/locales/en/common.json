@@ -104,7 +104,10 @@
     "emptyDay": "—",
     "dropHere": "Drop here",
     "dropRankHint": "Dropping sets the block's place in the queue; it then settles right behind the block before it. Lock it to pin it to an exact time.",
-    "loadingWeek": "Loading the week…"
+    "loadingWeek": "Loading the week…",
+    "dropCuts": "This will cut \"{{name}}\": the rest carries on right behind.",
+    "dropMerges": "This will merge with \"{{name}}\": the hours are summed into one block.",
+    "dropBlocked": "It does not fit: \"{{name}}\" is locked. Nothing will be saved."
   },
   "block": {
     "continues": "{{hours}} h · continues",
@@ -119,8 +122,6 @@
     "open": "Open the job",
     "actions": "Block actions",
     "resize": "Change the duration",
-    "resizeFixedOnly": "The duration cannot be changed here: the engine re-lays this block out and it would snap back.",
-    "resizeAlternatives": "To do only part of it today: put another job after it, or use \"Stop the day here\".",
     "drag": "Drag to change its place in the queue",
     "label": "{{name}} · {{day}} · {{start}}–{{end}} · {{hours}} h",
     "deleteTitle": "Remove this block?",
@@ -131,7 +132,10 @@
     "splitHours": "Hours to split off",
     "splitHint": "The split-off part takes a place in the queue and then settles; it does not stay at the time you drop it. Lock it if you need it pinned.",
     "splitConfirm": "Split",
-    "resizeHint": "Enlarging a block takes those hours off the job's last block; shrinking it gives them back. The total does not change."
+    "resizeHint": "Enlarging a block takes those hours off the job's last block; shrinking it gives them back. The total does not change, and the length stays fixed until you set it back to automatic.",
+    "manualDuration": "Fixed duration",
+    "manualDurationHint": "Length set by hand: the engine keeps it and the job carries on the next day.",
+    "releaseDuration": "Back to automatic"
   },
   "jobPanel": {
     "title": "Job",
@@ -249,7 +253,10 @@
     "mergedOverlap_other": "It was merged with {{count}} blocks of the same job that were already there. No hours were lost.",
     "displacedBlocks_one": "\"{{names}}\" was split and its remainder now sits right behind. Move it again if that is not what you wanted.",
     "displacedBlocks_other": "{{count}} jobs were split ({{names}}) and their remainders now sit right behind. Move them again if that is not what you wanted.",
-    "nothingSaved": "Nothing was saved."
+    "nothingSaved": "Nothing was saved.",
+    "resizeShrunk": "\"{{name}}\" now runs {{hours}} h here and that length is fixed. The spare hours go to the job's last block, the rest carries on the next day, and whatever follows in the queue takes the space.",
+    "resizeGrown": "\"{{name}}\" now runs {{hours}} h here and that length is fixed. Those hours come off the job's last block; if it was the last one, the job's total goes up.",
+    "released": "The length is automatic again. The engine re-lays the job out; the block keeps its place in the queue."
   },
   "weekdays": {
     "short": {

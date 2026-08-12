@@ -33,6 +33,7 @@ import {
   horizonEndDate,
   isMovable,
   plannableMinutes,
+  releaseBlockDuration,
   resizeBlock,
   resolveManualPlacement,
   summarizeSchedule,
@@ -101,6 +102,8 @@ interface BlockSpec {
   from: string;
   hours: number;
   locked?: boolean;
+  /** The owner drew this row's length by hand. The engine must keep it. */
+  handSet?: boolean;
   createdAt?: string;
 }
 
@@ -113,6 +116,7 @@ function block(spec: BlockSpec): Block {
     startMinutes: t(spec.from),
     durationMinutes: Math.round(spec.hours * 60),
     locked: spec.locked ?? false,
+    manualDuration: spec.handSet ?? false,
     createdAt: spec.createdAt ?? creationStamp(index),
     updatedAt: creationStamp(index),
   };
@@ -206,6 +210,7 @@ function reload(result: ComposeResult): Block[] {
     durationMinutes: placed.durationMinutes,
     startMinutes: placed.startMinutes,
     locked: placed.locked,
+    manualDuration: placed.manualDuration,
     createdAt: creationStamp(index),
     updatedAt: creationStamp(index),
   }));
@@ -217,16 +222,18 @@ function reload(result: ComposeResult): Block[] {
  * an engine that is not a fixed point reshapes the calendar while the owner
  * watches, on a save that had nothing to do with the rows that moved.
  */
-function expectSettled(composeInput: ComposeInput, result: ComposeResult): void {
+function expectSettled(composeInput: ComposeInput, result: ComposeResult, where = 'the reflow'): void {
   const later = compose({
     ...composeInput,
     blocks: reload(result),
     newProjectIds: undefined,
     grownProjectIds: undefined,
   });
-  expect(rows(later)).toEqual(rows(result));
-  expect(expectOk(later).deletedBlockIds).toEqual([]);
-  expect(expectOk(later).blocks.every((placed) => placed.id !== null)).toBe(true);
+  expect(rows(later), `${where}: the second pass moved something`).toEqual(rows(result));
+  expect(expectOk(later).deletedBlockIds, `${where}: the second pass deleted a row`).toEqual([]);
+  expect(expectOk(later).blocks.every((placed) => placed.id !== null), `${where}: the second pass inserted a row`).toBe(
+    true,
+  );
 }
 
 /** The rows of one job, as `date HH:mm-HH:mm` lines, for the hour-editing tests. */
@@ -245,6 +252,17 @@ function jobRows(blocks: readonly Block[], projectId: string): string[] {
 function expectEdited(result: EditResult): EditSuccess {
   if (!result.ok) throw new Error(`expected an edit, got the error "${result.error.code}"`);
   return result;
+}
+
+/** The rows carrying a hand-set length, in queue order. */
+function handSetIds(blocks: readonly Block[]): string[] {
+  return sortedIds(blocks.filter((block) => block.manualDuration));
+}
+
+function sortedIds(blocks: readonly Block[]): string[] {
+  return [...blocks]
+    .sort((a, b) => compareDates(a.date, b.date) || a.startMinutes - b.startMinutes)
+    .map((block) => block.id);
 }
 
 /** A hand drop of `blockId`, with deterministic ids for the rows a displaced tail needs. */
@@ -370,6 +388,7 @@ describe('rule 1 — the queue order is the calendar order', () => {
         durationMinutes: 240,
         isNew: false,
         grown: false,
+        manualDuration: false,
         originalDates: [MON],
       },
     ]);
@@ -932,6 +951,7 @@ describe('rule 10 — the past is frozen', () => {
         startMinutes: t('15:30'),
         durationMinutes: 120,
         locked: false,
+        manualDuration: false,
       },
     ]);
   });
@@ -2324,6 +2344,285 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     expect(resizeBlock(job(), { blockId: 'lunes', durationMinutes: -60 }).ok).toBe(false);
     expect(resizeBlock(job(), { blockId: 'no-existe', durationMinutes: 60 }).ok).toBe(false);
   });
+
+  it('marks the row it resized, and marks nothing when it refuses', () => {
+    const grown = expectEdited(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 240 }));
+    expect(handSetIds(grown.blocks)).toEqual(['lunes']);
+
+    // Even a resize to the length the row already had: the owner dropped the edge,
+    // so the row is theirs. It makes the gesture total — same request, same state.
+    const unchanged = expectEdited(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 120 }));
+    expect(handSetIds(unchanged.blocks)).toEqual(['lunes']);
+
+    // A refusal must not leave a mark behind: the caller writes nothing at all.
+    expect(resizeBlock(job(), { blockId: 'viernes', durationMinutes: 60 }).ok).toBe(false);
+  });
+
+  it('drops the mark from a row whose length something ELSE rewrote', () => {
+    const handSet = [
+      block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
+      block({ id: 'viernes', project: 'escalera', date: FRI, from: '08:00', hours: 3, handSet: true }),
+    ];
+
+    // The counterparty of another row's resize: the 1 h lands on the marked row, so
+    // the number the owner drew is no longer the number on it.
+    const transfer = expectEdited(resizeBlock(handSet, { blockId: 'lunes', durationMinutes: 60 }));
+    expect(jobRows(transfer.blocks, 'escalera')).toEqual([`${MON} 08:00-09:00`, `${FRI} 08:00-12:00`]);
+    expect(handSetIds(transfer.blocks)).toEqual(['lunes']);
+
+    // The job form's LIFO edit, same reasoning.
+    const lifo = expectEdited(
+      changeProjectMinutes(handSet, {
+        projectId: 'escalera',
+        deltaMinutes: 60,
+        today: MON,
+        newBlockId: 'nueva',
+        now: '2026-08-10 09:00:00',
+      }),
+    );
+    expect(handSetIds(lifo.blocks)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A hand-set duration — the resize that survives the reflow
+// ---------------------------------------------------------------------------
+//
+// The gesture used to be a silent no-op on any row the engine re-lays out: the
+// transfer above was applied and then undone, because `compose` re-derives a job's
+// segmentation from its total. Storing the intent is what fixes it, and the owner's
+// decision (2026-08-12) is what the stored intent MEANS:
+//
+//   "A block with a hand-set duration ends its job's run there. The job's remaining
+//   hours go to the next auto-fill day, and the space it frees that day is filled by
+//   the jobs that follow in the queue."
+//
+// So a newer job starts before an older job's remainder, and strict order is
+// deliberately broken for that one day. That was chosen over leaving a hole.
+
+describe('a hand-set duration — the resize survives the reflow', () => {
+  /** CLAUDE.md's worked example: Barandilla 14 h from Wednesday, Porton 8 h behind it. */
+  const worked = (): Block[] => [
+    block({ id: 'bar-am', project: 'barandilla', date: WED, from: '08:00', hours: 6 }),
+    block({ id: 'bar-pm', project: 'barandilla', date: WED, from: '15:30', hours: 4 }),
+    block({ id: 'bar-jue', project: 'barandilla', date: THU, from: '08:00', hours: 4 }),
+    block({ id: 'porton', project: 'porton', date: THU, from: '12:00', hours: 8 }),
+  ];
+
+  const AUTOMATIC = [
+    `${WED} 08:00-14:00 barandilla`,
+    `${WED} 15:30-19:30 barandilla`,
+    `${THU} 08:00-12:00 barandilla`,
+    `${NEXT_MON} 08:00-14:00 porton`,
+    `${NEXT_MON} 15:30-17:30 porton`,
+  ];
+
+  it('leaves the automatic layout alone while nothing is hand-set', () => {
+    const composeInput = input({ today: WED, blocks: worked() });
+    const result = compose(composeInput);
+
+    expect(rows(result)).toEqual(AUTOMATIC);
+    expect(expectOk(result).blocks.every((placed) => !placed.manualDuration)).toBe(true);
+  });
+
+  it('the worked example, row by row: the hours it frees go to the job behind it', () => {
+    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120 }));
+
+    // The transfer is unchanged: the 4 h come off Wednesday and land on the job's
+    // LAST block, and the estimate does not move.
+    expect(jobRows(edit.blocks, 'barandilla')).toEqual([
+      `${WED} 08:00-10:00`,
+      `${WED} 15:30-19:30`,
+      `${THU} 08:00-16:00`,
+    ]);
+    expect(edit.totalMinutesDelta).toBe(0);
+    expect(handSetIds(edit.blocks)).toEqual(['bar-am']);
+
+    const composeInput = input({ today: WED, blocks: edit.blocks });
+    const result = compose(composeInput);
+
+    expect(rows(result)).toEqual([
+      `${WED} 08:00-10:00 barandilla`,
+      // The next job in the queue takes the hours Wednesday just gained...
+      `${WED} 10:00-14:00 porton`,
+      `${WED} 15:30-19:30 porton`,
+      // ...and the remainder starts on the next auto-fill day. Friday is skipped:
+      // a displaced remainder is not growth, so it may not spend the colchon.
+      `${THU} 08:00-14:00 barandilla`,
+      `${THU} 15:30-19:30 barandilla`,
+      `${NEXT_MON} 08:00-10:00 barandilla`,
+    ]);
+    expectMinutesConserved(composeInput, result);
+    expectSettled(composeInput, result);
+  });
+
+  it('recomposing twice changes nothing — the fixed point the earlier defect broke', () => {
+    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120 }));
+    const composeInput = input({ today: WED, blocks: edit.blocks });
+
+    const once = compose(composeInput);
+    const twice = compose({ ...composeInput, blocks: reload(once) });
+    const thrice = compose({ ...composeInput, blocks: reload(twice) });
+
+    expect(rows(twice)).toEqual(rows(once));
+    expect(rows(thrice)).toEqual(rows(once));
+    expect(expectOk(twice).deletedBlockIds).toEqual([]);
+    expect(expectOk(twice).blocks.filter((placed) => placed.manualDuration).map(describeBlock)).toEqual([
+      `${WED} 08:00-10:00 barandilla`,
+    ]);
+  });
+
+  it('survives an unrelated save: another job created, and a job deleted', () => {
+    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120 }));
+
+    // A brand-new job appended at the end of the queue.
+    const withNewJob = input({
+      today: WED,
+      blocks: [...edit.blocks, block({ id: 'nuevo', project: 'remate', date: NEXT_MON, from: '10:00', hours: 2 })],
+      newProjectIds: ['remate'],
+    });
+    expect(rows(compose(withNewJob))).toContain(`${WED} 08:00-10:00 barandilla`);
+
+    // Deleting Porton frees Wednesday, and the hand-set row still does not grow back
+    // into it. The hole is honest: the shop IS free then, and the remainder is not
+    // allowed onto the day the stretch closed.
+    const withoutPorton = input({
+      today: WED,
+      blocks: edit.blocks.filter((row) => row.projectId !== 'porton'),
+    });
+    const result = compose(withoutPorton);
+    expect(rows(result)).toEqual([
+      `${WED} 08:00-10:00 barandilla`,
+      `${THU} 08:00-14:00 barandilla`,
+      `${THU} 15:30-19:30 barandilla`,
+      `${NEXT_MON} 08:00-10:00 barandilla`,
+    ]);
+    expectSettled(withoutPorton, result);
+  });
+
+  it('gives the length back to the engine when the mark is released', () => {
+    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120 }));
+    const released = expectEdited(releaseBlockDuration(edit.blocks, 'bar-am'));
+
+    expect(handSetIds(released.blocks)).toEqual([]);
+    // Back to exactly the automatic layout: the job is one run again.
+    expect(rows(compose(input({ today: WED, blocks: released.blocks })))).toEqual(AUTOMATIC);
+    expect(releaseBlockDuration(edit.blocks, 'no-existe').ok).toBe(false);
+  });
+
+  it('makes a hand-set row its own queue item, and rejoins the halves of one stretch', () => {
+    const beside = input({
+      today: WED,
+      blocks: [
+        block({ id: 'fijo', project: 'escalera', date: WED, from: '08:00', hours: 2, handSet: true }),
+        block({ id: 'resto', project: 'escalera', date: WED, from: '10:00', hours: 3 }),
+      ],
+    });
+    expect(buildQueue(beside).map((item) => item.blockIds)).toEqual([['fijo'], ['resto']]);
+    expect(buildQueue(beside).map((item) => item.manualDuration)).toEqual([true, false]);
+
+    // The two halves of one hand-set stretch around lunch: one item of 3 h, not two.
+    const aroundLunch = input({
+      today: WED,
+      blocks: [
+        block({ id: 'antes', project: 'escalera', date: WED, from: '13:00', hours: 1, handSet: true }),
+        block({ id: 'despues', project: 'escalera', date: WED, from: '15:30', hours: 2, handSet: true }),
+      ],
+    });
+    expect(buildQueue(aroundLunch).map((item) => item.blockIds)).toEqual([['antes', 'despues']]);
+    expect(buildQueue(aroundLunch)[0].durationMinutes).toBe(180);
+
+    // On different days they are two stretches: each closes its own day.
+    const twoDays = input({
+      today: WED,
+      blocks: [
+        block({ id: 'mie', project: 'escalera', date: WED, from: '08:00', hours: 2, handSet: true }),
+        block({ id: 'jue', project: 'escalera', date: THU, from: '08:00', hours: 2, handSet: true }),
+      ],
+    });
+    expect(buildQueue(twoDays).map((item) => item.blockIds)).toEqual([['mie'], ['jue']]);
+  });
+
+  it('cuts a hand-set stretch at the lunch break and still keeps it whole', () => {
+    const composeInput = input({
+      today: WED,
+      blocks: [block({ id: 'largo', project: 'escalera', date: WED, from: '08:00', hours: 7, handSet: true })],
+    });
+    const result = compose(composeInput);
+
+    // A stored row never straddles a non-working interval, so 7 h is two rows — and
+    // both carry the mark, which is what makes the next pass see one 7 h stretch.
+    expect(rows(result)).toEqual([`${WED} 08:00-14:00 escalera`, `${WED} 15:30-16:30 escalera`]);
+    expect(expectOk(result).blocks.every((placed) => placed.manualDuration)).toBe(true);
+    expectSettled(composeInput, result);
+  });
+
+  it('enlarging works the same way, and raises the estimate on the last row', () => {
+    const blocks = [
+      block({ id: 'mie', project: 'escalera', date: WED, from: '08:00', hours: 2 }),
+      block({ id: 'jue', project: 'escalera', date: THU, from: '08:00', hours: 4 }),
+    ];
+
+    const edit = expectEdited(resizeBlock(blocks, { blockId: 'mie', durationMinutes: 300 }));
+    expect(jobRows(edit.blocks, 'escalera')).toEqual([`${WED} 08:00-13:00`, `${THU} 08:00-09:00`]);
+    expect(edit.totalMinutesDelta).toBe(0);
+
+    const composeInput = input({ today: WED, blocks: edit.blocks });
+    const result = compose(composeInput);
+    expect(rows(result)).toEqual([`${WED} 08:00-13:00 escalera`, `${THU} 08:00-09:00 escalera`]);
+    expectSettled(composeInput, result);
+
+    // Enlarging the LAST row has nothing farther to draw from, so the estimate grows
+    // and the row is marked all the same.
+    const last = expectEdited(resizeBlock(blocks, { blockId: 'jue', durationMinutes: 360 }));
+    expect(last.totalMinutesDelta).toBe(120);
+    expect(handSetIds(last.blocks)).toEqual(['jue']);
+  });
+
+  it('keeps the Friday buffer, the weekend and the frozen past exactly as they were', () => {
+    const composeInput = input({
+      today: THU,
+      blocks: [
+        // Yesterday, hand-set: frozen, so it is an obstacle rather than a queue item.
+        block({ id: 'ayer', project: 'historial', date: WED, from: '08:00', hours: 3, handSet: true }),
+        block({ id: 'fijo', project: 'escalera', date: THU, from: '08:00', hours: 2, handSet: true }),
+        block({ id: 'resto', project: 'escalera', date: THU, from: '10:00', hours: 8 }),
+        // A Saturday row a human put there. Never auto-placed, never auto-recovered.
+        block({ id: 'sabado', project: 'porton', date: SAT, from: '09:00', hours: 2, handSet: true }),
+      ],
+    });
+    const result = compose(composeInput);
+
+    expect(rows(result)).toEqual([
+      `${WED} 08:00-11:00 historial`,
+      `${THU} 08:00-10:00 escalera`,
+      `${SAT} 09:00-11:00 porton`,
+      // The remainder skips the colchon — it is displaced work, not growth — and the
+      // weekend is outside the engine, so it lands on next Monday.
+      `${NEXT_MON} 08:00-14:00 escalera`,
+      `${NEXT_MON} 15:30-17:30 escalera`,
+    ]);
+    expectMinutesConserved(composeInput, result);
+    expectSettled(composeInput, result);
+  });
+
+  it('does not let a hand-set stretch of a grown job skip past the buffer', () => {
+    // Growth still reaches Friday: the mark changes WHERE a job's run ends, never
+    // which days the job is allowed on.
+    const composeInput = input({
+      today: THU,
+      blocks: [
+        block({ id: 'fijo', project: 'escalera', date: THU, from: '08:00', hours: 2, handSet: true }),
+        block({ id: 'resto', project: 'escalera', date: THU, from: '10:00', hours: 4 }),
+      ],
+      grownProjectIds: ['escalera'],
+    });
+
+    expect(rows(compose(composeInput))).toEqual([
+      `${THU} 08:00-10:00 escalera`,
+      `${FRI} 08:00-12:00 escalera`,
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -2816,6 +3115,139 @@ describe('manual placement — what it hands to the engine is already settled', 
 });
 
 // ---------------------------------------------------------------------------
+// A drop onto a row the reflow WILL settle
+// ---------------------------------------------------------------------------
+//
+// The other half of the same resolver, and the fix for the second reproduced
+// defect. Dropping Porton at Wednesday 10:00, inside Barandilla's 08:00-14:00 row,
+// used to land Porton at 15:30 — after the whole block — and push Barandilla to
+// Thursday, because nothing cut the row and the queue therefore read `A, B`. The cut
+// makes it read `A, B, A`, and the forward fill does the rest by itself: no hours are
+// placed here, only ranked.
+
+describe('a drop onto a movable row is cut too, so the queue reads A, B, A', () => {
+  const dropped = (): Block[] => [
+    block({ id: 'bar', project: 'barandilla', date: WED, from: '08:00', hours: 6 }),
+    // Porton, just dropped at 10:00 — inside Barandilla's row.
+    block({ id: 'porton', project: 'porton', date: WED, from: '10:00', hours: 2 }),
+  ];
+
+  it('cuts the row at the drop and the engine draws A, B, A', () => {
+    const composeInput = input({ today: WED, blocks: dropped() });
+
+    // Without the cut the queue reads `barandilla, porton` and Porton lands after the
+    // whole 6 h block — the defect, stated as the behaviour it replaces.
+    expect(rows(compose(composeInput))).toEqual([
+      `${WED} 08:00-14:00 barandilla`,
+      `${WED} 15:30-17:30 porton`,
+    ]);
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('porton')));
+    expect(resolved.displacedProjectIds).toEqual(['barandilla']);
+    expect(resolved.mergedBlockIds).toEqual([]);
+    expect(resolved.placedBlockId).toBe('porton');
+
+    const placement = compose({ ...composeInput, blocks: resolved.blocks });
+    expect(rows(placement)).toEqual([
+      `${WED} 08:00-10:00 barandilla`,
+      `${WED} 10:00-12:00 porton`,
+      `${WED} 12:00-14:00 barandilla`,
+      `${WED} 15:30-17:30 barandilla`,
+    ]);
+    // Barandilla keeps every one of its 6 h; the cut moved hours, it did not spend them.
+    expectMinutesConserved({ ...composeInput, blocks: resolved.blocks }, placement);
+    expectSettled({ ...composeInput, blocks: resolved.blocks }, placement);
+  });
+
+  it('resolving the same drop again does nothing — there is no overlap left', () => {
+    const composeInput = input({ today: WED, blocks: dropped() });
+    const once = expectPlaced(resolveManualPlacement(composeInput, dropOf('porton')));
+    const twice = expectPlaced(
+      resolveManualPlacement({ ...composeInput, blocks: once.blocks }, dropOf('porton')),
+    );
+
+    expect(twice.displacedProjectIds).toEqual([]);
+    expect(calendarRows(twice.blocks)).toEqual(calendarRows(once.blocks));
+  });
+
+  it('leaves a row that starts at or after the drop alone — it already ranks behind it', () => {
+    const composeInput = input({
+      today: WED,
+      blocks: [
+        block({ id: 'porton', project: 'porton', date: WED, from: '08:00', hours: 2 }),
+        block({ id: 'bar', project: 'barandilla', date: WED, from: '08:30', hours: 4 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('porton')));
+    expect(resolved.displacedProjectIds).toEqual([]);
+    expect(calendarRows(resolved.blocks)).toEqual(calendarRows(composeInput.blocks));
+  });
+
+  it('never cuts a locked row, and never refuses the drop over one', () => {
+    // Flexible work flows around a lock, so the reflow settles this with no help and
+    // the drop must not be turned into a 409 the way a weekend drop is.
+    const composeInput = input({
+      today: WED,
+      blocks: [
+        block({ id: 'bar', project: 'barandilla', date: WED, from: '08:00', hours: 6, locked: true }),
+        block({ id: 'porton', project: 'porton', date: WED, from: '10:00', hours: 2 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('porton')));
+    expect(resolved.displacedProjectIds).toEqual([]);
+    expect(calendarRows(resolved.blocks)).toEqual(calendarRows(composeInput.blocks));
+
+    const placement = compose({ ...composeInput, blocks: resolved.blocks });
+    expect(rows(placement)).toEqual([
+      `${WED} 08:00-14:00 barandilla [locked]`,
+      `${WED} 15:30-17:30 porton`,
+    ]);
+  });
+
+  it('leaves a drop onto the job\'s OWN movable row to the reflow', () => {
+    // Two movable rows of one job are laid out contiguously and joined by rule 12, so
+    // folding them here would be tidying rather than repairing.
+    const composeInput = input({
+      today: WED,
+      blocks: [
+        block({ id: 'primero', project: 'escalera', date: WED, from: '08:00', hours: 4 }),
+        block({ id: 'segundo', project: 'escalera', date: WED, from: '10:00', hours: 2 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('segundo')));
+    expect(resolved.mergedBlockIds).toEqual([]);
+    expect(resolved.displacedProjectIds).toEqual([]);
+    expect(rows(compose({ ...composeInput, blocks: resolved.blocks }))).toEqual([
+      `${WED} 08:00-14:00 escalera`,
+    ]);
+  });
+
+  it('cuts a hand-set row and gives its length back to the engine', () => {
+    // The drop is the newer, more explicit gesture, and it rewrites the row's length —
+    // so the mark goes with it rather than claiming an intent that is no longer there.
+    const composeInput = input({
+      today: WED,
+      blocks: [
+        block({ id: 'bar', project: 'barandilla', date: WED, from: '08:00', hours: 6, handSet: true }),
+        block({ id: 'porton', project: 'porton', date: WED, from: '10:00', hours: 2 }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('porton')));
+    expect(handSetIds(resolved.blocks)).toEqual([]);
+    expect(rows(compose({ ...composeInput, blocks: resolved.blocks }))).toEqual([
+      `${WED} 08:00-10:00 barandilla`,
+      `${WED} 10:00-12:00 porton`,
+      `${WED} 12:00-14:00 barandilla`,
+      `${WED} 15:30-17:30 barandilla`,
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The summary strip's arithmetic
 // ---------------------------------------------------------------------------
 
@@ -2918,6 +3350,9 @@ function generateInput(seed: number): ComposeInput {
         from: minutesToHHmm(t('08:00') + Math.floor(random() * 20) * 30),
         hours: 0.5 + Math.floor(random() * 8) * 0.5,
         locked: random() < 0.25,
+        // A length the owner drew: it ends its job's run, closes its day to that job
+        // and must come back out of the engine unchanged, whatever else is going on.
+        handSet: random() < 0.2,
       }),
     );
   }
@@ -3076,17 +3511,61 @@ describe('the rules hold over generated calendars', () => {
         ).toBe(true);
       }
 
+      const queue = buildQueue(composeInput);
+
+      // A hand-set length is kept to the minute, and its job takes no more of the day
+      // it landed on — the two halves of "the resize survives the reflow".
+      const handSet = result.blocks.filter((placed) => placed.manualDuration && !isFixed(placed.id));
+      for (const item of queue.filter((candidate) => candidate.manualDuration)) {
+        const own = handSet.filter((placed) => placed.projectId === item.projectId);
+        expect(own.length, `${where}: a hand-set stretch of ${item.projectId} vanished`).toBeGreaterThan(0);
+      }
+      for (const placed of handSet) {
+        // Nothing automatic of that job may follow the stretch on that day. Hours it
+        // had ALREADY taken earlier in the day are not in scope: the rule closes the
+        // rest of the day, it does not evict what the cursor had passed.
+        const after = result.blocks.filter(
+          (other) =>
+            !isFixed(other.id) &&
+            !other.manualDuration &&
+            other.projectId === placed.projectId &&
+            other.date === placed.date &&
+            other.startMinutes >= placed.startMinutes,
+        );
+        expect(
+          after.map(describeBlock),
+          `${where}: ${placed.projectId} kept filling ${placed.date} after a hand-set stretch`,
+        ).toEqual([]);
+      }
+
       // Rule 9 — strict order: the queue's projects come out in the queue's order.
+      // A hand-set stretch is the one documented exception: the jobs behind it take
+      // the hours it freed, so its own remainder is overtaken for that day.
       const collapse = (projects: readonly string[]): string[] =>
         projects.filter((project, index) => project !== projects[index - 1]);
-      expect(
-        collapse(result.blocks.filter((placed) => !isFixed(placed.id)).map((placed) => placed.projectId)),
-        `${where}: the queue order was not preserved`,
-      ).toEqual(collapse(buildQueue(composeInput).map((item) => item.projectId)));
+      if (!queue.some((item) => item.manualDuration)) {
+        expect(
+          collapse(result.blocks.filter((placed) => !isFixed(placed.id)).map((placed) => placed.projectId)),
+          `${where}: the queue order was not preserved`,
+        ).toEqual(collapse(queue.map((item) => item.projectId)));
+      }
 
       // The engine settles: this pass, and the ordinary save that follows it.
-      expectSettled(composeInput, result);
+      expectSettled(composeInput, result, where);
     }
+  });
+
+  it('generates the hand-set stretches these properties are about', () => {
+    // A guard on the GENERATOR, not on the engine: if it stopped producing hand-set
+    // rows in the movable pool, everything above would still be green and would be
+    // proving nothing about them.
+    let withHandSet = 0;
+    for (let seed = 1; seed <= 2000; seed += 1) {
+      sequence = 0;
+      const composeInput = generateInput(seed);
+      if (buildQueue(composeInput).some((item) => item.manualDuration)) withHandSet += 1;
+    }
+    expect(withHandSet, 'the generator stopped producing hand-set stretches').toBeGreaterThan(300);
   });
 });
 
@@ -3188,6 +3667,80 @@ describe('manual placement holds over the same generated calendars', () => {
     expect(resolvedCount, 'the generator stopped producing resolvable drops').toBeGreaterThan(500);
     expect(mergedCount, 'the generator stopped producing same-job overlaps').toBeGreaterThan(0);
     expect(displacedCount, 'the generator stopped producing other-job overlaps').toBeGreaterThan(0);
+  });
+});
+
+describe('a drop the reflow WILL settle holds over the same generated calendars', () => {
+  // The other side of the resolver, over the same impossible input. It writes ranks
+  // rather than placements, so what has to hold is different: the drop itself is never
+  // touched, the hours are all still there, the cut is a fixed point, and the calendar
+  // it hands to the engine settles in one pass.
+  it('cuts, keeps every hour and settles, on every generated calendar', () => {
+    let resolvedCount = 0;
+    let cutCount = 0;
+
+    for (let seed = 1; seed <= 2000; seed += 1) {
+      sequence = 0;
+      tailSequence = 0;
+      const composeInput = generateInput(seed);
+      const movable = composeInput.blocks.filter((candidate) => isMovable(candidate, composeInput.today));
+      if (movable.length === 0) continue;
+
+      const where = `seed ${seed}`;
+      const dropped = movable[seed % movable.length];
+      const result = resolveManualPlacement(composeInput, dropOf(dropped.id));
+
+      // There is nothing here to refuse: a lock is flowed around rather than cut, and
+      // no hours are placed, so none can fail to fit.
+      const resolved = expectPlaced(result);
+      resolvedCount += 1;
+      if (resolved.displacedProjectIds.length > 0) cutCount += 1;
+
+      expect(resolved.placedBlockId, `${where}: the drop lost its row`).toBe(dropped.id);
+      expect(resolved.mergedBlockIds, `${where}: a reflowed drop must never merge`).toEqual([]);
+      expect(minutesByProject(resolved.blocks), `${where}: minutes not conserved`).toEqual(
+        minutesByProject(composeInput.blocks),
+      );
+
+      // The dropped row keeps exactly what the owner dropped; only what it landed in moves.
+      const after = resolved.blocks.find((row) => row.id === dropped.id);
+      expect(
+        `${after?.date} ${after?.startMinutes} ${after?.durationMinutes} ${after?.locked}`,
+        `${where}: the drop itself was rewritten`,
+      ).toBe(`${dropped.date} ${dropped.startMinutes} ${dropped.durationMinutes} ${dropped.locked}`);
+
+      // A locked row is never cut, whatever the drop lands on.
+      for (const before of composeInput.blocks.filter((row) => row.locked)) {
+        const still = resolved.blocks.find((row) => row.id === before.id);
+        expect(
+          `${still?.date} ${still?.startMinutes} ${still?.durationMinutes}`,
+          `${where}: a locked row was cut`,
+        ).toBe(`${before.date} ${before.startMinutes} ${before.durationMinutes}`);
+      }
+
+      // THE FIXED POINT. Nothing starts before the drop and runs into it any more.
+      const again = expectPlaced(
+        resolveManualPlacement({ ...composeInput, blocks: resolved.blocks }, dropOf(dropped.id)),
+      );
+      expect(again.displacedProjectIds, `${where}: a second pass cut again`).toEqual([]);
+      expect(calendarRows(again.blocks), `${where}: a second pass moved something`).toEqual(
+        calendarRows(resolved.blocks),
+      );
+
+      // And the engine settles on what it was handed, in one pass.
+      const placement = compose({ ...composeInput, blocks: resolved.blocks });
+      if (!placement.ok) {
+        expect(placement.error.code, where).toBe('horizon-exceeded');
+        continue;
+      }
+      expectMinutesConserved({ ...composeInput, blocks: resolved.blocks }, placement);
+      expectSettled({ ...composeInput, blocks: resolved.blocks }, placement, where);
+    }
+
+    // Guards on the GENERATOR: without a drop that actually lands inside another job's
+    // row, the fixed point above would be proving nothing.
+    expect(resolvedCount, 'the generator stopped producing movable drops').toBeGreaterThan(500);
+    expect(cutCount, 'the generator stopped producing movable overlaps').toBeGreaterThan(0);
   });
 });
 

@@ -198,6 +198,7 @@ function block(partial: Partial<WeekBlock> & { startMinutes: number; durationMin
     startMinutes: partial.startMinutes,
     durationMinutes: partial.durationMinutes,
     locked: partial.locked ?? false,
+    manualDuration: partial.manualDuration ?? false,
     createdAt: partial.createdAt ?? `2026-08-11 08:00:0${sequence}`,
     updatedAt: partial.updatedAt ?? '2026-08-11 08:00:00',
     project: partial.project ?? { id: projectId, name: projectId, color: '#185FA5' },

@@ -446,7 +446,12 @@ export function moveBlock(
 /**
  * Dragging the bottom edge. A transfer INSIDE the job, with its last row as the
  * counterparty — the total only changes when the row being resized IS the last one.
- * Shrinking the last row is refused (`shrink-last-block`).
+ * Shrinking the last row is refused (`shrink-last-block`, 409).
+ *
+ * The length STICKS on any row, including an unlocked weekday one: the row comes
+ * back with `manualDuration: true`, the job's run ends there, its remaining hours
+ * start on the next auto-fill day, and the jobs behind it take the hours this day
+ * gained. `releaseBlockDuration` is the way back.
  */
 export function resizeBlock(
   blockId: string,
@@ -457,6 +462,19 @@ export function resizeBlock(
     'PATCH',
     `/blocks/${encodeURIComponent(blockId)}`,
     { action: 'resize', durationMinutes },
+    options,
+  );
+}
+
+/** "Back to automatic": drops a hand-set length so the engine owns the row again. */
+export function releaseBlockDuration(
+  blockId: string,
+  options?: RequestOptions,
+): Promise<BlockMutation> {
+  return send<BlockMutation>(
+    'PATCH',
+    `/blocks/${encodeURIComponent(blockId)}`,
+    { action: 'release' },
     options,
   );
 }

@@ -57,6 +57,12 @@ export interface DragTarget {
   blockIds: string[];
   /** The single row a resize applies to: the LAST of the unit. */
   blockId: string;
+  /**
+   * Every row of the unit is locked, so it stays a fixed obstacle wherever it lands.
+   * Read only by the drop preview, which needs it to pick the side an overlapping drop
+   * is resolved on — see `dropEffect.ts`.
+   */
+  locked: boolean;
 }
 
 export interface DragPreview {
@@ -86,6 +92,12 @@ export interface BlockDragOptions {
 
 export interface DragController {
   preview: DragPreview | null;
+  /**
+   * What is being dragged, while it is being dragged. `preview` says WHERE the unit
+   * would land; this says WHAT would land there, which is what the grid needs to work
+   * out whether the drop cuts, merges or is refused.
+   */
+  target: DragTarget | null;
   /** The unit currently being dragged, for the "lifted" styling. */
   activeGroupId: string | null;
   kind: DragKind | null;
@@ -114,6 +126,9 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
 
   const [preview, setPreview] = useState<DragPreview | null>(null);
   const [kind, setKind] = useState<DragKind | null>(null);
+  // Published only once the press has become a drag, so it always arrives and leaves
+  // with `preview` and the grid never sees one without the other.
+  const [target, setTarget] = useState<DragTarget | null>(null);
   const session = useRef<Session | null>(null);
   const teardown = useRef<(() => void) | null>(null);
 
@@ -128,6 +143,7 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
     session.current = null;
     setPreview(null);
     setKind(null);
+    setTarget(null);
   }, []);
 
   useEffect(() => finish, [finish]);
@@ -164,6 +180,7 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
           if (travelled < DRAG_THRESHOLD) return;
           current.moved = true;
           setKind(current.kind);
+          setTarget(current.target);
         }
 
         const nextMetrics = live.current.measure();
@@ -185,6 +202,7 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         session.current = null;
         setPreview(null);
         setKind(null);
+        setTarget(null);
         if (current === null) return;
 
         // A press that never travelled is a click: open the job.
@@ -250,6 +268,7 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
 
   return {
     preview,
+    target,
     activeGroupId: preview?.groupId ?? null,
     kind,
     beginMove,

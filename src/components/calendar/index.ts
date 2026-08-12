@@ -8,8 +8,9 @@
  * they arrive through the three `render*` props, which is the only wiring the page does.
  *
  * The pure modules are exported too, because they are the parts worth testing and
- * reusing: `geometry` (minutes <-> pixels, pointer -> slot) and `grouping` (the rows of
- * a job drawn as one unit, and lanes for hand-made overlaps).
+ * reusing: `geometry` (minutes <-> pixels, pointer -> slot), `grouping` (the rows of a
+ * job drawn as one unit, and lanes for hand-made overlaps) and `dropEffect` (what the
+ * drop under the pointer will do to the row it lands on).
  */
 
 export {
@@ -70,3 +71,11 @@ export {
   type LaneItem,
   type LanePlacement,
 } from './grouping';
+
+export {
+  dropEffectOf,
+  type DropEffect,
+  type DropEffectInput,
+  type DropEffectKind,
+  type DropRow,
+} from './dropEffect';

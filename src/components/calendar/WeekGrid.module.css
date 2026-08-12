@@ -270,6 +270,20 @@
   color: var(--ww-danger);
 }
 
+/*
+ * What the drop will do to the row underneath: cut it, merge into it, or be refused.
+ * Wraps, because it names a job and job names are as long as the owner made them.
+ */
+.ghostEffect {
+  margin-top: 2px;
+  font-size: var(--ww-text-xs);
+  color: var(--ww-text-muted);
+}
+
+.ghostDenied .ghostEffect {
+  color: var(--ww-danger);
+}
+
 /* --------------------------------------------------------------------------
    The settle
    -------------------------------------------------------------------------- */

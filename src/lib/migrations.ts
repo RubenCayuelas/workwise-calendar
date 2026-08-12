@@ -5,8 +5,14 @@ import { DEFAULT_SETTINGS, serializeSettings } from './settings';
  * The whole schema, as one idempotent `CREATE ... IF NOT EXISTS` sequence.
  *
  * There is no released version to migrate from, so there is no migration
- * framework either: this file IS the schema. When it changes before release,
- * delete `data/calendar.db` and let it be rebuilt.
+ * framework either: this file IS the schema.
+ *
+ * `CREATE TABLE IF NOT EXISTS` alone is not enough for a column ADDED to a table
+ * that already exists on disk — the statement is skipped wholesale and the shop's
+ * `data/calendar.db` would silently keep the old shape. So every column added
+ * after the first run is also listed in `ADDED_COLUMNS`, which is applied with an
+ * idempotent `ALTER TABLE ... ADD COLUMN`. Both paths end at the same schema,
+ * whether the file is brand new or already holds a season of work.
  *
  * Two conventions worth knowing:
  *
@@ -18,6 +24,7 @@ import { DEFAULT_SETTINGS, serializeSettings } from './settings';
  */
 export function runMigrations(db: Db): void {
   db.exec(SCHEMA);
+  addMissingColumns(db);
   seedDefaultSettings(db);
 }
 
@@ -37,15 +44,19 @@ CREATE TABLE IF NOT EXISTS projects (
 -- A slice of a project sitting on the calendar. One project has many blocks.
 -- A block never straddles a non-working interval: work across lunch is two rows.
 -- 'locked' is the only exemption from auto-move; there is no manually_placed flag.
+-- 'manual_duration' marks a row whose length the owner set by hand (the
+-- bottom-edge drag). The engine then keeps that length instead of re-deriving the
+-- job's segmentation from its total, and the job's run ENDS at that row.
 CREATE TABLE IF NOT EXISTS blocks (
-  id         TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  date       TEXT NOT NULL,
-  start_time TEXT NOT NULL,
-  duration   REAL NOT NULL CHECK (duration > 0),
-  locked     INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  id              TEXT PRIMARY KEY,
+  project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  date            TEXT NOT NULL,
+  start_time      TEXT NOT NULL,
+  duration        REAL NOT NULL CHECK (duration > 0),
+  locked          INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
+  manual_duration INTEGER NOT NULL DEFAULT 0 CHECK (manual_duration IN (0, 1)),
+  created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- A hole in the schedule (maintenance, breakdown, admin). Gaps are time: they
@@ -117,6 +128,34 @@ BEGIN
   UPDATE settings SET updated_at = CURRENT_TIMESTAMP WHERE key = NEW.key;
 END;
 `;
+
+/**
+ * Columns added to a table after its first release into `data/calendar.db`.
+ *
+ * Kept as a list rather than a version counter because the whole schema is one
+ * idempotent script: reading `PRAGMA table_info` and adding what is missing gives
+ * the same answer however many times it runs, and needs no `schema_version` row to
+ * be right about a file whose history nobody recorded.
+ *
+ * SQLite's `ADD COLUMN` cannot add a NOT NULL column without a default, which is
+ * exactly why every flag here defaults to the value that means "as it was before":
+ * existing rows keep the engine's automatic behaviour.
+ */
+const ADDED_COLUMNS: ReadonlyArray<{ table: string; column: string; definition: string }> = [
+  {
+    table: 'blocks',
+    column: 'manual_duration',
+    definition: 'INTEGER NOT NULL DEFAULT 0 CHECK (manual_duration IN (0, 1))',
+  },
+];
+
+function addMissingColumns(db: Db): void {
+  for (const { table, column, definition } of ADDED_COLUMNS) {
+    const existing = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (existing.some((row) => row.name === column)) continue;
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
 
 /**
  * Seeds the factory settings. `INSERT OR IGNORE` keeps it idempotent and never

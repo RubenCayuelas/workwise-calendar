@@ -103,18 +103,57 @@
   text-overflow: ellipsis;
 }
 
-/* The padlock, in the corner the action bar takes over on hover. */
-.lockMark {
+/*
+ * A hand-set length: the row's own bottom edge, drawn as a solid rule instead of the
+ * hairline the other three sides get.
+ *
+ * This is the quiet half of the mark and the one that reads without a legend — the edge
+ * the owner dragged is the edge that is now emphasised, and it is nowhere near the
+ * padlock's vocabulary, which is what CLAUDE.md asks for: the padlock fixes the
+ * POSITION, this fixes the LENGTH.
+ */
+.manual {
+  border-bottom-width: 2px;
+  border-bottom-style: solid;
+}
+
+/* The marks, in the corner the action bar takes over on hover. */
+.marks {
   position: absolute;
   top: 4px;
   right: 5px;
   display: flex;
+  gap: 2px;
   color: var(--ww-block-color);
 }
 
-.block:hover .lockMark,
-.block:focus-within .lockMark {
+.block:hover .marks,
+.block:focus-within .marks {
   display: none;
+}
+
+/* The ruler sits a shade back from the padlock: it is state, not a warning. */
+.manualMark {
+  display: flex;
+  opacity: 0.75;
+}
+
+/*
+ * A drop in progress lands inside this row and will cut it. The seam is where the cut
+ * falls; the row keeps its colour, because the hours are not going anywhere — the tail
+ * carries on right after the dropped block.
+ */
+.cutting {
+  box-shadow: var(--ww-shadow-popover);
+}
+
+.cutSeam {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 0;
+  border-top: 2px dashed var(--ww-block-color);
+  pointer-events: none;
 }
 
 .actions {
@@ -156,20 +195,6 @@
 
 .block:hover .resize::after {
   opacity: 0.7;
-}
-
-/*
- * The same strip of edge where a resize would not survive the reflow: no handle, no
- * cursor of its own (so the body's grab shows through) and no pointer handler, so a press
- * here moves the unit. It is a hover target for its tooltip and nothing else.
- */
-.resizeInert {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 7px;
-  cursor: inherit;
 }
 
 /*

@@ -181,6 +181,13 @@ export interface PlacedBlock {
   startMinutes: number;
   durationMinutes: number;
   locked: boolean;
+  /**
+   * Carried through untouched for a fixed row, and copied from the queue item for a
+   * reflowed one — every row an item with a hand-set duration produces keeps the
+   * mark, so a stretch the owner sized by hand that had to be cut at the lunch break
+   * is still one hand-set stretch on the next pass.
+   */
+  manualDuration: boolean;
 }
 
 export type ComposeErrorCode = 'horizon-exceeded';
@@ -247,6 +254,30 @@ export type ComposeResult = ComposeSuccess | ComposeFailure;
  * the same day is rejoined into one item, so it may hop the lock whole and leave
  * the hole in front of it empty (rules 7 and 8 applied to the whole job). The
  * documented way to nail hours down is `locked`, on the half being kept.
+ *
+ * THE ONE THING THAT DOES BREAK A RUN — a HAND-SET DURATION (`Block.manualDuration`).
+ * A row the owner sized with the bottom-edge drag is its own item, and the job's
+ * remaining hours are the item after it. Read against the paragraph above, this is
+ * the case that looks dangerous and is not, so the distinction is worth stating
+ * exactly:
+ *
+ *   The earlier defect broke a run at a FIXED block — a property of the LAYOUT
+ *   (`locked`, or the date being past or a weekend, which the reflow itself moves
+ *   rows across). Grouping was therefore a function of the placement while the
+ *   placement was a function of the grouping, so an unrelated save re-cut the queue
+ *   and resized somebody's blocks. `manualDuration` is a COLUMN. It is written only
+ *   by the gesture that sets it and cleared only by the gestures that overwrite the
+ *   duration it stands for (see *A Hand-Set Duration* in CLAUDE.md); no reflow ever
+ *   sets or clears it, and moving a row across days does not change it. Grouping
+ *   therefore stays a function of (stored flags x movable order), both of which the
+ *   reflow preserves, and `compose` stays a fixed point — the property the
+ *   "recomposing twice is not a second reflow" test and the 2000-seed harness pin
+ *   down.
+ *
+ * Consecutive hand-set rows of one job ON ONE DAY are one item, because that is the
+ * shape a hand-set stretch comes back as when it had to be cut at the lunch break:
+ * regrouping them keeps the second pass looking at the same 7 h the owner drew,
+ * rather than at a 2 h item and a 5 h item.
  */
 export interface QueueItem {
   projectId: string;
@@ -257,6 +288,12 @@ export interface QueueItem {
   isNew: boolean;
   /** True when the project is listed in `ComposeInput.grownProjectIds`. */
   grown: boolean;
+  /**
+   * The owner set this stretch's length by hand. The engine keeps it, ends the job's
+   * run here, and lets no more of that job onto the day it lands on — see
+   * `compose`'s "a hand-set stretch closes its job's day".
+   */
+  manualDuration: boolean;
   /**
    * The dates this item's rows already sit on. Only consulted for the Friday
    * buffer, where it is what keeps an unrelated save from pushing absorbed
@@ -270,20 +307,32 @@ export interface QueueItem {
  * `createdAt` then `id` so the ordering is total and the engine deterministic.
  * Fixed blocks (locked, past, weekend) are obstacles, not queue items, and they
  * are skipped without breaking the run around them — see `QueueItem` for why the
- * grouping has to ignore them.
+ * grouping has to ignore them, and for why a hand-set duration may break one.
  */
 export function buildQueue(input: ComposeInput): QueueItem[] {
   const newProjects = new Set(input.newProjectIds ?? []);
   const grownProjects = new Set(input.grownProjectIds ?? []);
   const items: QueueItem[] = [];
   let open: QueueItem | null = null;
+  let openDate = '';
 
   for (const block of sortedByQueueRank(input.blocks)) {
     if (!isMovable(block, input.today)) continue;
-    if (open !== null && open.projectId === block.projectId) {
+    // An automatic run absorbs the next automatic block of the same job; a hand-set
+    // stretch absorbs only another hand-set row of the same job on the same day (the
+    // two halves of one stretch around lunch). The two kinds never join, which is
+    // what makes the hand-set length survive the reflow.
+    const joins =
+      open !== null &&
+      open.projectId === block.projectId &&
+      open.manualDuration === block.manualDuration &&
+      (!block.manualDuration || openDate === block.date);
+
+    if (open !== null && joins) {
       open.blockIds.push(block.id);
       open.durationMinutes += block.durationMinutes;
       if (!open.originalDates.includes(block.date)) open.originalDates.push(block.date);
+      openDate = block.date;
       continue;
     }
     open = {
@@ -292,8 +341,10 @@ export function buildQueue(input: ComposeInput): QueueItem[] {
       durationMinutes: block.durationMinutes,
       isNew: newProjects.has(block.projectId),
       grown: grownProjects.has(block.projectId),
+      manualDuration: block.manualDuration,
       originalDates: [block.date],
     };
+    openDate = block.date;
     items.push(open);
   }
 
@@ -352,6 +403,23 @@ export function horizonEndDate(today: string, planningHorizonWeeks: number): str
  * separate segments of the same project, since a stored block is always a solid
  * rectangle on the clock; touching segments of the same project inside the same
  * period are merged back into one row.
+ *
+ * A HAND-SET STRETCH CLOSES ITS JOB'S DAY, and this is the one place strict order
+ * is deliberately broken (decided with the owner, 2026-08-12). A row whose length
+ * the owner drew keeps that length, so the job's remaining hours cannot simply
+ * continue after it — they would flow straight back into the hours just given up
+ * and auto-merge would undo the gesture. Two rules do it:
+ *
+ *  - once a hand-set stretch of job X lands on day D, no more of X may be placed
+ *    on D. Stated over the DAY rather than over "the next item", so it holds again
+ *    on the following pass, when the remainder is no longer the next item;
+ *  - the remainder is DEFERRED while the jobs behind it fill the hours the stretch
+ *    freed on D, and placed as soon as one of them would have to leave D. So the
+ *    remainder starts on the next auto-fill day and the day is not left with a hole.
+ *
+ * The deferral only ever fires on the pass that follows the resize: afterwards the
+ * remainder is no longer adjacent to the stretch in the queue and lands in exactly
+ * the same place by ordinary forward fill, which is what keeps this a fixed point.
  */
 export function compose(input: ComposeInput): ComposeResult {
   const horizon = horizonEndDate(input.today, input.planningHorizonWeeks);
@@ -379,39 +447,60 @@ export function compose(input: ComposeInput): ComposeResult {
       startMinutes: block.startMinutes,
       durationMinutes: block.durationMinutes,
       locked: block.locked,
+      manualDuration: block.manualDuration,
     });
   }
 
   const deletedBlockIds: string[] = [];
   const reflowed: PlacedBlock[] = [];
 
+  /** `date|projectId` pairs a hand-set stretch has closed for the rest of the day. */
+  const closedDays = new Set<string>();
+
   // The forward-only cursor: a date, plus how far into that date we have got.
   let cursorDate = input.today;
   let cursor = openDay(planFor(cursorDate));
+  /** The day the hand-set stretch just placed ended on — the day its remainder must leave. */
+  let handSetDate = '';
 
-  for (const item of buildQueue(input)) {
+  /**
+   * The first day from the cursor onwards that can hold the item WHOLE (never split
+   * to make it fit). Days in between are abandoned: the rest of the queue follows
+   * the item, it is never brought forward.
+   */
+  const targetFor = (item: QueueItem): ItemTarget | null => {
+    for (let date = cursorDate; compareDates(date, horizon) <= 0; date = addDays(date, 1)) {
+      const day = date === cursorDate ? cursor : openDay(planFor(date));
+      if (!acceptsItem(day.plan, item, closedDays)) continue;
+      const spot = findWholeFit(day, item.durationMinutes);
+      if (spot !== null) return { date, day, ...spot };
+    }
+    return null;
+  };
+
+  /** True when the item would start on `date` — used to know when the cursor is about to leave it. */
+  const startsOn = (item: QueueItem, date: string): boolean => {
+    // An empty item is dropped rather than placed, so it leaves no day.
+    if (item.durationMinutes <= 0) return true;
+    if (cursorDate !== date) return false;
+    const target = targetFor(item);
+    if (target !== null) return target.date === date;
+    // The split path: an item no single day can hold starts wherever the cursor
+    // stands, as long as this day can still take something of it.
+    return acceptsItem(cursor.plan, item, closedDays) && remainingRoom(cursor) > 0;
+  };
+
+  /** Places one item, or reports the engine's single failure without writing anything. */
+  const placeItem = (item: QueueItem): ComposeError | null => {
     if (item.durationMinutes <= 0) {
       // Defensive: a zero-length row is not valid data (the schema forbids it)
       // and has no place on the calendar.
       deletedBlockIds.push(...item.blockIds);
-      continue;
+      return null;
     }
 
     const segments: Segment[] = [];
-
-    // 1. Place the item WHOLE on the first day that can hold it (never split to
-    //    make it fit). Days between the cursor and that day are abandoned: the
-    //    rest of the queue follows the item, it is never brought forward.
-    let target: { date: string; day: DayCursor; runIndex: number; startIndex: number } | null = null;
-    for (let date = cursorDate; compareDates(date, horizon) <= 0; date = addDays(date, 1)) {
-      const day = date === cursorDate ? cursor : openDay(planFor(date));
-      if (!acceptsItem(day.plan, item)) continue;
-      const spot = findWholeFit(day, item.durationMinutes);
-      if (spot !== null) {
-        target = { date, day, ...spot };
-        break;
-      }
-    }
+    const target = targetFor(item);
 
     if (target !== null) {
       cursorDate = target.date;
@@ -420,13 +509,13 @@ export function compose(input: ComposeInput): ComposeResult {
       cursor.positionIndex = target.startIndex;
       segments.push(...takeExactly(cursor, item.durationMinutes));
     } else {
-      // 2. No single day within the horizon could hold it whole, so this job is
-      //    longer than a day: it fills complete days from where the cursor
-      //    stands and the remainder continues on the next fillable day.
+      // No single day within the horizon could hold it whole, so this job is
+      // longer than a day: it fills complete days from where the cursor stands
+      // and the remainder continues on the next fillable day.
       let remaining = item.durationMinutes;
       for (let date = cursorDate; remaining > 0 && compareDates(date, horizon) <= 0; date = addDays(date, 1)) {
         const day = date === cursorDate ? cursor : openDay(planFor(date));
-        if (!acceptsItem(day.plan, item)) continue;
+        if (!acceptsItem(day.plan, item, closedDays)) continue;
         const taken = takeUpTo(day, remaining);
         if (taken.length === 0) continue;
         for (const segment of taken) remaining -= segment.durationMinutes;
@@ -438,16 +527,18 @@ export function compose(input: ComposeInput): ComposeResult {
       if (remaining > 0) {
         // One clean failure, no placement to roll back by hand.
         return {
-          ok: false,
-          error: {
-            code: 'horizon-exceeded',
-            messageKey: HORIZON_EXCEEDED_KEY,
-            projectId: item.projectId,
-            unplacedMinutes: remaining,
-            horizonEndDate: horizon,
-          },
+          code: 'horizon-exceeded',
+          messageKey: HORIZON_EXCEEDED_KEY,
+          projectId: item.projectId,
+          unplacedMinutes: remaining,
+          horizonEndDate: horizon,
         };
       }
+    }
+
+    if (item.manualDuration) {
+      for (const segment of segments) closedDays.add(dayKey(segment.date, item.projectId));
+      handSetDate = segments[segments.length - 1].date;
     }
 
     // The item's rows reuse the ids it was built from, in order; the ones left
@@ -461,10 +552,59 @@ export function compose(input: ComposeInput): ComposeResult {
         startMinutes: segment.startMinutes,
         durationMinutes: segment.durationMinutes,
         locked: false,
+        manualDuration: item.manualDuration,
       });
     });
     deletedBlockIds.push(...item.blockIds.slice(rows.length));
+    return null;
+  };
+
+  // Remainders of hand-set stretches, held back while the jobs behind them take the
+  // hours those stretches freed, and let go the moment an item would have to leave
+  // the day. One per stretch, in queue order, so a week with two hand-set rows on
+  // different jobs drains them in the order the queue had them.
+  const deferred: QueueItem[] = [];
+  let deferralDate: string | null = null;
+  let remainderOf: string | null = null;
+
+  const drain = (): ComposeError | null => {
+    const waiting = deferred.splice(0);
+    deferralDate = null;
+    for (const item of waiting) {
+      const failure = placeItem(item);
+      if (failure !== null) return failure;
+    }
+    return null;
+  };
+
+  const queue = buildQueue(input);
+  // Where each job's LAST item sits. The deferral is allowed to overtake other jobs
+  // and nothing else: reordering two items of ONE job would leave them adjacent on
+  // the calendar with no item of another job between them, the next pass would group
+  // them into one, and the same hours would come out laid out differently. That is
+  // the grouping drift this engine is built to avoid, so a remainder with more of its
+  // own job behind it in the queue is simply placed in turn.
+  const lastItemOfProject = new Map<string, number>();
+  queue.forEach((item, index) => lastItemOfProject.set(item.projectId, index));
+
+  for (const [index, item] of queue.entries()) {
+    if (remainderOf === item.projectId && lastItemOfProject.get(item.projectId) === index) {
+      deferred.push(item);
+      if (deferralDate === null) deferralDate = handSetDate;
+      continue;
+    }
+    if (deferralDate !== null && !startsOn(item, deferralDate)) {
+      const drained = drain();
+      if (drained !== null) return { ok: false, error: drained };
+    }
+    remainderOf = null;
+    const failure = placeItem(item);
+    if (failure !== null) return { ok: false, error: failure };
+    if (item.manualDuration) remainderOf = item.projectId;
   }
+
+  const drained = drain();
+  if (drained !== null) return { ok: false, error: drained };
 
   // Auto-merge is about what ends up touching on the calendar, not about what the
   // queue thought, so the last word on it is taken over the whole reflowed set.
@@ -525,6 +665,19 @@ interface DayCursor {
   budgetMinutes: number;
   runIndex: number;
   positionIndex: number;
+}
+
+/** Where an item is about to be placed whole: the day, and the spot inside it. */
+interface ItemTarget {
+  date: string;
+  day: DayCursor;
+  runIndex: number;
+  startIndex: number;
+}
+
+/** The key of "job X may take no more of day D". The date is fixed width, so it never aliases. */
+function dayKey(date: string, projectId: string): string {
+  return `${date}|${projectId}`;
 }
 
 function roleOf(date: string): DayRole {
@@ -658,12 +811,28 @@ function openDay(plan: DayPlan): DayCursor {
  * Testing membership by DATE rather than by weekday is what makes the rule a
  * fixed point — the item's own rows are the evidence, and they are exactly what
  * the previous pass wrote.
+ *
+ * `closedDays` is the other refusal: a day a hand-set stretch of this same job has
+ * already taken. Stated over the day so it survives into the next pass, when the
+ * remainder is no longer the item right behind the stretch.
  */
-function acceptsItem(plan: DayPlan, item: QueueItem): boolean {
+function acceptsItem(plan: DayPlan, item: QueueItem, closedDays: ReadonlySet<string>): boolean {
   if (!plan.fillable) return false;
+  if (closedDays.has(dayKey(plan.date, item.projectId))) return false;
   if (plan.role !== 'buffer') return true;
   if (item.isNew) return false;
   return item.grown || item.originalDates.includes(plan.date);
+}
+
+/** What `takeUpTo` could still take from this day: the free runs ahead of the cursor, capped by the budget. */
+function remainingRoom(day: DayCursor): number {
+  let free = 0;
+  for (let index = day.runIndex; index < day.plan.freeRuns.length; index += 1) {
+    const run = day.plan.freeRuns[index];
+    const start = index === day.runIndex ? Math.max(day.positionIndex, run.start) : run.start;
+    free += Math.max(0, run.end - start);
+  }
+  return Math.min(free, day.budgetMinutes);
 }
 
 /**
@@ -779,6 +948,11 @@ function mergeTouchingSegments(segments: Segment[]): Segment[] {
  * The surviving row keeps the first real id of the group so the caller writes an
  * UPDATE rather than a DELETE plus an INSERT; the ids it absorbed are the rows to
  * delete. `rows` must already be in calendar order.
+ *
+ * A row with a HAND-SET duration is never joined to anything, in either direction:
+ * merging is what would quietly hand those hours back and undo the gesture. The two
+ * halves of one hand-set stretch around lunch are already one row each by the time
+ * they get here, since `mergeTouchingSegments` settled them inside the item.
  */
 function mergeTouchingRows(rows: PlacedBlock[], deletedBlockIds: string[]): PlacedBlock[] {
   const merged: PlacedBlock[] = [];
@@ -786,6 +960,8 @@ function mergeTouchingRows(rows: PlacedBlock[], deletedBlockIds: string[]): Plac
     const last = merged[merged.length - 1];
     if (
       last !== undefined &&
+      !last.manualDuration &&
+      !row.manualDuration &&
       last.projectId === row.projectId &&
       last.date === row.date &&
       last.startMinutes + last.durationMinutes === row.startMinutes
@@ -923,7 +1099,7 @@ export function changeProjectMinutes(blocks: readonly Block[], change: HoursChan
   if (delta > 0) {
     const target = lastUnlocked(own);
     if (target !== undefined) {
-      target.durationMinutes += delta;
+      setDuration(target, target.durationMinutes + delta);
       return settledEdit(draft, [], delta, []);
     }
     // Every row of the job is locked (or it has none at all): give the hours a
@@ -965,6 +1141,15 @@ export interface BlockResize {
  * This is how "yesterday took longer than I noted" is recorded: yesterday is
  * frozen, so enlarging its row keeps the new duration and the hours come off the
  * job's furthest future row, leaving the estimate intact.
+ *
+ * THE ROW IS MARKED `manualDuration` on every success, including a resize to the
+ * length it already had. Without the mark the transfer above is undone on the very
+ * next recomposition — `compose` re-derives the job's segmentation from its total —
+ * which is what made the gesture a silent no-op on an unlocked weekday row. With
+ * it, the length survives, the job's run ends at that row, and the day it freed goes
+ * to the jobs behind it. Marking a no-delta resize too keeps the gesture total: the
+ * same request twice leaves the same state, and dropping the edge where it already
+ * was is still the owner saying "this row is this long".
  */
 export function resizeBlock(blocks: readonly Block[], resize: BlockResize): EditResult {
   const draft = blocks.map(cloneBlock);
@@ -977,33 +1162,34 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
   }
 
   const delta = next - target.durationMinutes;
-  if (delta === 0) return settledEdit(draft, [], 0, []);
-
   const own = sortedByQueueRank(draft.filter((block) => block.projectId === target.projectId));
   const counterparties = own.filter((block) => block.id !== target.id);
+  const isLast = counterparties.length === 0 || own[own.length - 1].id === target.id;
 
-  if (counterparties.length === 0) {
-    // The only block of the job: there is no counterparty at all.
-    if (delta < 0) {
-      return failedEdit('shrink-last-block', { blockId: target.id, projectId: target.projectId });
-    }
-    target.durationMinutes = next;
-    return settledEdit(draft, [], delta, []);
+  // Refusals first, so a rejected resize marks nothing: the blocks would end up
+  // summing to less than the job's total, and the job form is where hours are
+  // removed.
+  if (delta < 0 && isLast) {
+    return failedEdit('shrink-last-block', { blockId: target.id, projectId: target.projectId });
   }
 
-  if (own[own.length - 1].id === target.id) {
-    if (delta < 0) {
-      return failedEdit('shrink-last-block', { blockId: target.id, projectId: target.projectId });
-    }
-    target.durationMinutes = next;
+  if (delta === 0) {
+    pinDuration(target, next);
+    return settledEdit(draft, [], 0, []);
+  }
+
+  if (isLast) {
+    // Enlarging the last (or only) block: nothing farther to draw from, so the
+    // estimate grows.
+    pinDuration(target, next);
     return settledEdit(draft, [], delta, []);
   }
 
   if (delta < 0) {
     // Shrinking a block that is not the last hands its hours to the last one.
     const receiver = lastUnlocked(counterparties) ?? counterparties[counterparties.length - 1];
-    target.durationMinutes = next;
-    receiver.durationMinutes += -delta;
+    pinDuration(target, next);
+    setDuration(receiver, receiver.durationMinutes + -delta);
     return settledEdit(draft, [], 0, receiver.locked ? [receiver.id] : []);
   }
 
@@ -1011,13 +1197,31 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
   if (!taken.ok) {
     return failedEdit('transfer-exceeds-job', { blockId: target.id, projectId: target.projectId });
   }
-  target.durationMinutes = next;
+  pinDuration(target, next);
   return settledEdit(
     draft.filter((block) => block.durationMinutes > 0),
     taken.deletedBlockIds,
     0,
     taken.touchedLockedBlockIds,
   );
+}
+
+/**
+ * Gives the engine back the row's length: "back to automatic". The next
+ * recomposition re-derives the job's segmentation from its total, so the row rejoins
+ * whatever run it sits in.
+ *
+ * It exists because a hand-set length is invisible to the engine's own rules — the
+ * row simply stops reflowing — and a calendar whose rows have quietly accumulated
+ * hand-set lengths is one the engine no longer manages. Releasing has to be as easy
+ * as setting.
+ */
+export function releaseBlockDuration(blocks: readonly Block[], blockId: string): EditResult {
+  const draft = blocks.map(cloneBlock);
+  const target = draft.find((block) => block.id === blockId);
+  if (target === undefined) return failedEdit('unknown-block', { blockId });
+  target.manualDuration = false;
+  return settledEdit(draft, [], 0, []);
 }
 
 // ---------------------------------------------------------------------------
@@ -1076,6 +1280,10 @@ export function findGapConflicts(
 // Manual placement — the overlap a drop creates
 // ---------------------------------------------------------------------------
 //
+// A drop that lands ON somebody else's row is a statement about ORDER: "this goes
+// here, and what was here carries on afterwards". Two very different mechanisms are
+// needed to honour it, because the reflow reaches some rows and not others.
+//
 // `compose` cannot repair every overlap, and that is deliberate. Rows OUTSIDE the
 // movable pool (locked, past, weekend) come back exactly as they went in, so two of
 // them can sit on top of each other for ever: noticing would mean rewriting a
@@ -1110,6 +1318,24 @@ export function findGapConflicts(
 // when the LOCK IS THE DROP'S OWN, because it would move the lock's start; a cut is
 // not, because the lock keeps the exact slot the owner dropped it into and only the
 // other job moves.
+//
+// A MOVABLE DROP ONTO A MOVABLE ROW IS CUT TOO, and it needs far less machinery
+// (decided with the owner, 2026-08-12). The reflow settles both rows, so nothing has
+// to be placed here — but it settles them IN QUEUE ORDER, and queue order is
+// `date, start_time`. Without the cut, dropping B at 10:00 into A's 08:00-14:00 row
+// leaves the queue reading `A, B`, so A is laid out whole and B lands after the
+// entire block: the drop is silently ignored. Cutting A at the drop's start makes
+// the queue read `A, B, A`, and the forward fill then produces `A, B, A` on the clock
+// by itself. So on this side the resolution writes RANKS, not placements:
+//
+//  - only a row that STARTS BEFORE the drop is cut. One starting at or after it
+//    already ranks behind the drop, so the reflow needs no help;
+//  - the tail is one row ranked just after the drop's end. It is a queue rank, not a
+//    position — `compose` re-places it, exactly as it does the provisional row every
+//    drop and every new job is written as;
+//  - fixed rows are ignored on this side, because the reflow flows around them.
+//
+// Same resolver, same two rules, one branch on whether the reflow can reach the rows.
 
 export type ManualPlacementErrorCode =
   | 'unknown-block'
@@ -1181,11 +1407,14 @@ export interface ManualPlacement {
 /**
  * Resolves the overlap a hand drop created, leaving a calendar `compose` can take.
  *
- * Nothing happens while the dropped row is in the movable pool: the reflow settles
- * it and a reflowed row never overlaps anything, so there is nothing to repair. In
- * practice that means this only ever acts on the weekend and the frozen past —
- * the two places the engine keeps its hands off — plus refusing when a lock is in
- * the way.
+ * Which half runs depends on whether the reflow can reach the rows:
+ *
+ * - the dropped row is OUTSIDE the movable pool (weekend, frozen past, locked): the
+ *   overlap is permanent unless it is resolved here, so rows of the same job are
+ *   merged and rows of another job are cut and their tails PLACED;
+ * - the dropped row is inside it: the reflow settles everything, so all that is
+ *   needed is for the queue to read `A, B, A` — the overlapped rows of other jobs
+ *   are cut and their tails given a rank behind the drop, and nothing is placed.
  *
  * Every branch conserves hours, so `SUM(blocks.duration) == projects.total_hours`
  * holds for every touched project by construction rather than by inspection.
@@ -1199,24 +1428,20 @@ export function resolveManualPlacement(
   if (placed === undefined) {
     return manualFailure('unknown-block', { blockId: placement.blockId });
   }
-  if (isMovable(placed, input.today)) {
-    return {
-      ok: true,
-      blocks: draft,
-      placedBlockId: placed.id,
-      mergedBlockIds: [],
-      displacedProjectIds: [],
-    };
-  }
 
+  const reflowed = isMovable(placed, input.today);
   const mergedBlockIds: string[] = [];
   const displacedProjectIds: string[] = [];
 
   // 1. Same job: fold every overlapping row into one. Re-checked after each fold
   //    because the survivor is longer than either row was, so it can reach a row
   //    neither of them touched.
-  for (;;) {
-    const other = fixedOverlaps(draft, placed, input.today, true)[0];
+  //
+  //    Only where the reflow will not separate them. Two movable rows of one job
+  //    are already going to be laid out contiguously and auto-merged by rule 12, so
+  //    folding them here would be tidying rather than repairing.
+  while (!reflowed) {
+    const other = sameJobOverlaps(draft, placed, input.today)[0];
     if (other === undefined) break;
     if (other.locked || placed.locked) {
       return manualFailure('overlaps-locked-block', other.locked ? other : placed);
@@ -1238,7 +1463,7 @@ export function resolveManualPlacement(
     // an INSERT — the same convention as rule 12's `mergeTouchingRows`.
     const [survivor, absorbed] = sortedByQueueRank([other, placed]);
     survivor.startMinutes = startMinutes;
-    survivor.durationMinutes = durationMinutes;
+    setDuration(survivor, durationMinutes);
     draft.splice(draft.indexOf(absorbed), 1);
     mergedBlockIds.push(absorbed.id);
     placed = survivor;
@@ -1249,7 +1474,7 @@ export function resolveManualPlacement(
   //    cuts free up is available to all of them: cutting and pushing one row at a
   //    time would make the first tail hop over a row the second cut was about to
   //    remove, and the jobs would come out interleaved on the clock.
-  const victims = fixedOverlaps(draft, placed, input.today, false);
+  const victims = otherJobOverlaps(draft, placed, input.today, reflowed);
   const locked = victims.find((victim) => victim.locked);
   if (locked !== undefined) return manualFailure('overlaps-locked-block', locked);
 
@@ -1259,10 +1484,11 @@ export function resolveManualPlacement(
     const minutes = victim.durationMinutes - headMinutes;
     const spareIds: string[] = [];
     if (headMinutes > 0) {
-      victim.durationMinutes = headMinutes;
+      setDuration(victim, headMinutes);
     } else {
       // The drop covers the row from its very start: nothing is left in front, so
-      // the row's id is free for the first row of its tail.
+      // the row's id is free for the first row of its tail. (A movable victim never
+      // gets here — one that does not start before the drop already ranks after it.)
       draft.splice(draft.indexOf(victim), 1);
       spareIds.push(victim.id);
     }
@@ -1271,11 +1497,11 @@ export function resolveManualPlacement(
 
   const afterClock = placed.startMinutes + placed.durationMinutes;
   for (const tail of tails) {
-    const pushed = pushDisplacedMinutes(input, draft, {
-      date: tail.victim.date,
-      afterClock,
-      minutes: tail.minutes,
-    });
+    // A rank behind the drop is all a reflowed tail needs; a fixed one has to be
+    // given real free time, because nothing will move it afterwards.
+    const pushed = reflowed
+      ? [{ date: tail.victim.date, startMinutes: Math.min(afterClock, MAX_RANK_MINUTES), durationMinutes: tail.minutes }]
+      : pushDisplacedMinutes(input, draft, { date: tail.victim.date, afterClock, minutes: tail.minutes });
     if (pushed === null) return manualFailure('displaced-hours-unplaceable', tail.victim);
 
     for (const segment of pushed) {
@@ -1288,6 +1514,8 @@ export function resolveManualPlacement(
         // Never locked: a locked victim was refused above, so there is no lock here
         // to inherit, and a tail the engine just placed must stay in the pool.
         locked: false,
+        // These hours were cut out of another row, not drawn by hand.
+        manualDuration: false,
         createdAt: placement.now,
         updatedAt: placement.now,
       });
@@ -1305,23 +1533,45 @@ export function resolveManualPlacement(
 // ---------------------------------------------------------------------------
 
 /**
- * The rows, in queue order, that overlap `placed` and that `compose` will NOT
- * repair. Movable rows are ignored on purpose: the reflow moves them out of the way,
- * so treating one as a collision would cut a job for nothing.
+ * Rows of the DROP'S OWN job, in queue order, that overlap it and that `compose`
+ * will not repair. Movable rows are ignored on purpose: the reflow lays them out
+ * contiguously and rule 12 joins them, so folding one here would be tidying.
  */
-function fixedOverlaps(
+function sameJobOverlaps(draft: readonly Block[], placed: Block, today: string): Block[] {
+  return sortedByQueueRank(draft).filter(
+    (row) =>
+      row.id !== placed.id &&
+      row.projectId === placed.projectId &&
+      row.date === placed.date &&
+      !isMovable(row, today) &&
+      overlapMinutes(row, placed) > 0,
+  );
+}
+
+/**
+ * Rows of ANOTHER job the drop lands in and that the drop must therefore cut.
+ *
+ * `reflowed` picks the side: a fixed drop collides with the other fixed rows, which
+ * nothing will ever separate, while a reflowed drop collides with the other movable
+ * rows, which the reflow will separate but only in queue order. A reflowed drop
+ * ignores fixed rows entirely — flexible work flows around them — and only cuts a row
+ * that STARTS BEFORE it, since one starting at or after the drop already ranks behind
+ * it and needs no cut.
+ */
+function otherJobOverlaps(
   draft: readonly Block[],
   placed: Block,
   today: string,
-  sameProject: boolean,
+  reflowed: boolean,
 ): Block[] {
   return sortedByQueueRank(draft).filter(
     (row) =>
       row.id !== placed.id &&
-      (row.projectId === placed.projectId) === sameProject &&
+      row.projectId !== placed.projectId &&
       row.date === placed.date &&
-      !isMovable(row, today) &&
-      overlapMinutes(row, placed) > 0,
+      isMovable(row, today) === reflowed &&
+      overlapMinutes(row, placed) > 0 &&
+      (!reflowed || row.startMinutes < placed.startMinutes),
   );
 }
 
@@ -1534,7 +1784,7 @@ function takeMinutes(ordered: readonly Block[], minutes: number): TakeOutcome {
       if (block.locked !== lockedPass) continue;
       const take = Math.min(block.durationMinutes, remaining);
       if (take <= 0) continue;
-      block.durationMinutes -= take;
+      setDuration(block, block.durationMinutes - take);
       remaining -= take;
       if (lockedPass) touchedLockedBlockIds.push(block.id);
       if (block.durationMinutes === 0) deletedBlockIds.push(block.id);
@@ -1542,6 +1792,27 @@ function takeMinutes(ordered: readonly Block[], minutes: number): TakeOutcome {
   }
 
   return { ok: remaining === 0, deletedBlockIds, touchedLockedBlockIds };
+}
+
+/**
+ * Writes a row's new length and DROPS any hand-set mark on it.
+ *
+ * The mark stands for one specific number the owner drew. Once anything else has
+ * rewritten that number — the LIFO transfer from the job form, being the
+ * counterparty of another row's resize, a drop that cut the row in two — the mark
+ * would claim an intent that is no longer on the row, and the owner would be left
+ * with a block the engine had stopped managing for no visible reason. So exactly one
+ * gesture sets it (`resizeBlock`, on its own target) and everything else clears it.
+ */
+function setDuration(block: Block, durationMinutes: number): void {
+  block.durationMinutes = durationMinutes;
+  block.manualDuration = false;
+}
+
+/** The one place the hand-set mark is set: the row the owner just sized. */
+function pinDuration(block: Block, durationMinutes: number): void {
+  block.durationMinutes = durationMinutes;
+  block.manualDuration = true;
 }
 
 function lastUnlocked(ordered: readonly Block[]): Block | undefined {
@@ -1586,6 +1857,8 @@ function createdRowAfter(
     startMinutes,
     durationMinutes: minutes,
     locked: false,
+    // Hours the engine invented, not a length the owner drew.
+    manualDuration: false,
     createdAt: change.now,
     updatedAt: change.now,
   };

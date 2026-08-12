@@ -49,6 +49,18 @@ export interface Block {
   durationMinutes: number;
   /** The only exemption from auto-move. The owner can still move it by hand. */
   locked: boolean;
+  /**
+   * The duration on this row was set BY HAND (the bottom-edge drag), so the engine
+   * must not re-derive it from the job's total. It ends the job's run there: the
+   * remaining hours start on the next auto-fill day and the space freed on this one
+   * goes to the jobs that follow in the queue.
+   *
+   * A flag, not a second copy of the minutes: `duration` stays the single source of
+   * truth for how long the row is, so the two can never disagree. Cleared by anything
+   * OTHER than a resize that changes the row's duration — see CLAUDE.md, *A Hand-Set
+   * Duration*.
+   */
+  manualDuration: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -152,6 +164,8 @@ export interface BlockRow {
   start_time: string;
   duration: number;
   locked: number;
+  /** 0/1: the duration was set by hand and the engine may not re-derive it. */
+  manual_duration: number;
   created_at: string;
   updated_at: string;
 }
@@ -202,6 +216,7 @@ export function mapBlockRow(row: BlockRow): Block {
     startMinutes: hhmmToMinutes(row.start_time),
     durationMinutes: hoursToMinutes(row.duration),
     locked: toBoolean(row.locked),
+    manualDuration: toBoolean(row.manual_duration),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -250,6 +265,7 @@ export function toBlockRow(block: Block): BlockRow {
     start_time: minutesToHHmm(block.startMinutes),
     duration: minutesToHours(block.durationMinutes),
     locked: block.locked ? 1 : 0,
+    manual_duration: block.manualDuration ? 1 : 0,
     created_at: block.createdAt,
     updated_at: block.updatedAt,
   };

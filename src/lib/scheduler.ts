@@ -252,6 +252,7 @@ export function recompose(db: Db, options: RecomposeOptions = {}): RecomposeRepo
         startMinutes: placed.startMinutes,
         durationMinutes: placed.durationMinutes,
         locked: placed.locked,
+        manualDuration: placed.manualDuration,
       };
       const current = stored.get(id);
       if (current === undefined) {
@@ -416,13 +417,17 @@ function placementRefusal(db: Db, error: ManualPlacementError): AppError {
   });
 }
 
-/** True when the engine placed a row somewhere other than where it was stored. */
+/** True when the row the engine returned differs in any way from the one on disk. */
 function hasMoved(current: Block, placement: BlockPlacement): boolean {
   return (
     current.projectId !== placement.projectId ||
     current.date !== placement.date ||
     current.startMinutes !== placement.startMinutes ||
     current.durationMinutes !== placement.durationMinutes ||
-    current.locked !== placement.locked
+    current.locked !== placement.locked ||
+    // Setting or releasing a hand-set duration can leave the geometry untouched, and
+    // it must still reach the table — that flag is the whole reason the row keeps its
+    // length on the next pass.
+    current.manualDuration !== placement.manualDuration
   );
 }

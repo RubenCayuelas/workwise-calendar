@@ -7,7 +7,7 @@
  *   `Block.startMinutes` / `Block.durationMinutes` are integers above.
  *   `mapBlockRow` converts, and `toBlockRow`'s halves are inlined into the write
  *   statements because an INSERT lets SQLite fill the timestamps.
- * - `locked` is 0/1 on disk and a real boolean above.
+ * - `locked` and `manual_duration` are 0/1 on disk and real booleans above.
  *
  * The default order is `ORDER BY date, start_time`, which is not cosmetic: per
  * CLAUDE.md the QUEUE ORDER IS THE VISUAL ORDER, so this ordering is the engine's
@@ -21,7 +21,8 @@ import { hoursToMinutes, minutesToHHmm, minutesToHours } from '../dates';
 import { mapBlockRow, type Block, type BlockRow } from '../../types';
 import { prepared } from './statements';
 
-const COLUMNS = 'id, project_id, date, start_time, duration, locked, created_at, updated_at';
+const COLUMNS =
+  'id, project_id, date, start_time, duration, locked, manual_duration, created_at, updated_at';
 const QUEUE_ORDER = 'ORDER BY date, start_time, created_at, id';
 
 /**
@@ -36,6 +37,8 @@ export interface BlockPlacement {
   startMinutes: number;
   durationMinutes: number;
   locked: boolean;
+  /** The duration was set by hand, so the engine keeps it. See CLAUDE.md. */
+  manualDuration: boolean;
 }
 
 /** The whole calendar in queue order. Small table; the engine wants all of it. */
@@ -69,8 +72,8 @@ export function findBlock(id: string, db: Db = getDb()): Block | undefined {
 export function insertBlock(placement: BlockPlacement, db: Db = getDb()): void {
   prepared(
     db,
-    `INSERT INTO blocks (id, project_id, date, start_time, duration, locked)
-     VALUES (@id, @project_id, @date, @start_time, @duration, @locked)`,
+    `INSERT INTO blocks (id, project_id, date, start_time, duration, locked, manual_duration)
+     VALUES (@id, @project_id, @date, @start_time, @duration, @locked, @manual_duration)`,
   ).run(toParams(placement));
 }
 
@@ -79,11 +82,12 @@ export function updateBlock(placement: BlockPlacement, db: Db = getDb()): boolea
   const result = prepared(
     db,
     `UPDATE blocks
-        SET project_id = @project_id,
-            date       = @date,
-            start_time = @start_time,
-            duration   = @duration,
-            locked     = @locked
+        SET project_id      = @project_id,
+            date            = @date,
+            start_time      = @start_time,
+            duration        = @duration,
+            locked          = @locked,
+            manual_duration = @manual_duration
       WHERE id = @id`,
   ).run(toParams(placement));
   return result.changes > 0;
@@ -92,6 +96,18 @@ export function updateBlock(placement: BlockPlacement, db: Db = getDb()): boolea
 /** The lock toggle, on its own: it is the one edit that changes no geometry. */
 export function setBlockLocked(id: string, locked: boolean, db: Db = getDb()): boolean {
   return prepared(db, 'UPDATE blocks SET locked = ? WHERE id = ?').run(locked ? 1 : 0, id).changes > 0;
+}
+
+/**
+ * "Back to automatic": drops the hand-set duration so the engine owns the row's
+ * length again. Its own statement because releasing changes no geometry either —
+ * the reflow that follows is what re-derives the segmentation.
+ */
+export function setBlockManualDuration(id: string, manualDuration: boolean, db: Db = getDb()): boolean {
+  return (
+    prepared(db, 'UPDATE blocks SET manual_duration = ? WHERE id = ?').run(manualDuration ? 1 : 0, id)
+      .changes > 0
+  );
 }
 
 export function deleteBlock(id: string, db: Db = getDb()): boolean {
@@ -133,5 +149,6 @@ function toParams(placement: BlockPlacement): Record<string, unknown> {
     start_time: minutesToHHmm(placement.startMinutes),
     duration: minutesToHours(placement.durationMinutes),
     locked: placement.locked ? 1 : 0,
+    manual_duration: placement.manualDuration ? 1 : 0,
   };
 }

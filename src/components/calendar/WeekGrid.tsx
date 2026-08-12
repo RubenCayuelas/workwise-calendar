@@ -30,6 +30,7 @@ import {
   type GridMetrics,
   type Timeline,
 } from './geometry';
+import { dropEffectOf, type DropEffect } from './dropEffect';
 import { groupBlocks, packDay, segmentsOf, type BlockGroup } from './grouping';
 import type { DragController, DragTarget } from './useBlockDrag';
 import styles from './WeekGrid.module.css';
@@ -72,6 +73,8 @@ export interface WeekGridProps {
   /** Wired only when the gap form exists; without it gaps are labels. */
   onOpenGap?: (gap: Gap) => void;
   onToggleLock: (block: WeekBlock) => void;
+  /** "Back to automatic" for a whole unit: the rows whose length was set by hand. */
+  onReleaseDuration: (blockIds: readonly string[]) => void;
   /**
    * "Stop the day here". Wired only when the gap form exists — it opens that form
    * pre-filled, since the gap is what makes the day hold fewer hours.
@@ -95,6 +98,7 @@ export function WeekGrid({
   onOpenJob,
   onOpenGap,
   onToggleLock,
+  onReleaseDuration,
   onCloseDay,
   onSplit,
   onDelete,
@@ -216,6 +220,7 @@ export function WeekGrid({
               onOpenJob={onOpenJob}
               onOpenGap={onOpenGap}
               onToggleLock={onToggleLock}
+              onReleaseDuration={onReleaseDuration}
               onCloseDay={onCloseDay}
               onSplit={onSplit}
               onDelete={onDelete}
@@ -311,6 +316,7 @@ interface DayColumnProps {
   onOpenJob: (projectId: string) => void;
   onOpenGap?: (gap: Gap) => void;
   onToggleLock: (block: WeekBlock) => void;
+  onReleaseDuration: (blockIds: readonly string[]) => void;
   onCloseDay?: (request: CloseDayRequest) => void;
   onSplit: (block: WeekBlock) => void;
   onDelete: (block: WeekBlock) => void;
@@ -333,6 +339,7 @@ function DayColumn({
   onOpenJob,
   onOpenGap,
   onToggleLock,
+  onReleaseDuration,
   onCloseDay,
   onSplit,
   onDelete,
@@ -342,6 +349,27 @@ function DayColumn({
 
   const bands = nonWorkingBands(day.periods, timeline);
   const preview = drag.preview?.date === day.date ? drag.preview : null;
+
+  /**
+   * What the drop hovering over this column will do to the row underneath it — a cut,
+   * a merge, or a refusal. `null` for a resize (which touches only its own row) and
+   * whenever the ghost is over free time.
+   */
+  const dropEffect = useMemo<DropEffect | null>(() => {
+    // Nothing to promise about a drop that will not be accepted (a past day), and a
+    // resize touches only its own row.
+    if (preview === null || !preview.allowed || preview.kind !== 'move') return null;
+    if (drag.target === null) return null;
+    return dropEffectOf({
+      rows: groups.flatMap((group) => group.blocks),
+      movingBlockIds: drag.target.blockIds,
+      projectId: drag.target.projectId,
+      dayIsWeekend: day.isWeekend,
+      locked: drag.target.locked,
+      startMinutes: preview.startMinutes,
+      durationMinutes: preview.durationMinutes,
+    });
+  }, [preview, drag.target, groups, day.isWeekend]);
 
   /**
    * The day as the "stop the day here" planner reads it, or `null` where the action makes
@@ -450,16 +478,19 @@ function DayColumn({
             lane={lanes.get(segment.group.id) ?? SINGLE_LANE}
             overflow={isOverflow(segment.group, day)}
             frozen={day.isPast}
-            // The complement of the engine's movable pool: a resize only sticks on a row
-            // the reflow will not re-lay out. See CalendarBlock's file comment.
-            resizable={segment.block.locked || day.isPast || day.isWeekend}
             lifted={drag.activeGroupId === segment.group.id}
+            cutAtMinutes={
+              dropEffect?.kind === 'cut' && dropEffect.blockId === segment.block.id
+                ? dropEffect.cutMinutes
+                : undefined
+            }
             busy={busy}
             onPointerDownBody={(event) => drag.beginMove(event, target)}
             onPointerDownResize={(event) =>
               drag.beginResize(event, {
                 ...target,
-                // A resize is one row: the unit's LAST, which is the edge on screen.
+                // A move is the unit; a resize is THIS row. Each row of a unit is its
+                // own rectangle with its own bottom edge, and the engine sizes rows.
                 blockId: segment.block.id,
                 startMinutes: segment.block.startMinutes,
                 durationMinutes: segment.block.durationMinutes,
@@ -467,6 +498,14 @@ function DayColumn({
             }
             onOpen={() => onOpenJob(segment.block.projectId)}
             onToggleLock={() => onToggleLock(segment.block)}
+            // One release for the whole unit: a hand-set stretch cut at the lunch break
+            // is two marked rows, and giving the engine back only half of it would
+            // leave the other half holding the day open for no visible reason.
+            onReleaseDuration={
+              segment.group.manualBlockIds.length === 0
+                ? undefined
+                : () => onReleaseDuration(segment.group.manualBlockIds)
+            }
             onCloseDay={
               closeDay === null || onCloseDay === undefined
                 ? undefined
@@ -480,7 +519,14 @@ function DayColumn({
 
       {preview === null ? null : (
         <div
-          className={[styles.ghost, preview.allowed ? '' : styles.ghostDenied].filter(Boolean).join(' ')}
+          className={[
+            styles.ghost,
+            // A refusal is drawn like a forbidden day: the save writes nothing either
+            // way. (`dropEffect` is null unless `allowed`, so this reads as one test.)
+            preview.allowed && dropEffect?.kind !== 'blocked' ? '' : styles.ghostDenied,
+          ]
+            .filter(Boolean)
+            .join(' ')}
           style={{
             '--ww-block-color': preview.color,
             top: `${timeline.yOf(preview.startMinutes)}px`,
@@ -491,6 +537,11 @@ function DayColumn({
             {format.timeRange(preview.startMinutes, preview.startMinutes + preview.durationMinutes)}
           </span>
           <span className={styles.ghostMeta}>{format.hours(preview.durationMinutes)}</span>
+          {dropEffect === null ? null : (
+            <span className={styles.ghostEffect}>
+              {t(DROP_EFFECT_KEYS[dropEffect.kind], { name: dropEffect.projectName })}
+            </span>
+          )}
         </div>
       )}
 
@@ -515,6 +566,13 @@ function DayColumn({
 // ---------------------------------------------------------------------------
 // Derived state
 // ---------------------------------------------------------------------------
+
+/** What the ghost says about the row it is over. One key per branch of the resolver. */
+const DROP_EFFECT_KEYS: Record<DropEffect['kind'], string> = {
+  cut: 'grid.dropCuts',
+  merge: 'grid.dropMerges',
+  blocked: 'grid.dropBlocked',
+};
 
 interface WeekLayout {
   groups: Map<string, BlockGroup[]>;
@@ -580,6 +638,7 @@ function targetFor(group: BlockGroup, day: WeekDay): DragTarget {
     durationMinutes: group.totalMinutes,
     blockIds: group.blocks.map((block) => block.id),
     blockId: last.id,
+    locked: group.locked,
   };
 }
 

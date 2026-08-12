@@ -12,12 +12,17 @@
  * them — the calendar draws them as one grouped unit, the panel tells the truth about
  * the rows.
  *
- * The list is display + one toggle. The lock request belongs to the panel, which owns
- * the refetch and the error banner.
+ * This is also the only place a HAND-SET length can be released on a row that is not in
+ * the week on screen — the panel lists every row of the job, across every week, and a
+ * hand-set row is one the engine has stopped re-laying out, so it can sit weeks away
+ * holding a day open.
+ *
+ * The list is display + two toggles. The requests belong to the panel, which owns the
+ * refetch and the error banner.
  */
 
 import { useTranslation } from 'react-i18next';
-import { IconLock, IconLockOpen, IconScissors } from '@tabler/icons-react';
+import { IconLock, IconLockOpen, IconRuler, IconRulerOff, IconScissors } from '@tabler/icons-react';
 import { IconButton } from '../ui';
 import { useFormat } from '../../lib/useFormat';
 import { FRIDAY, compareDates, weekdayOf } from '../../lib/dates';
@@ -32,6 +37,12 @@ export interface BlockRowsProps {
   today?: string;
   /** Toggles the padlock. Omit to render the state read-only. */
   onToggleLock?: (block: Block) => void;
+  /**
+   * "Back to automatic" on a row whose length was set by hand. Omit to render the mark
+   * without its undo — the mark itself is always shown, since a row that has stopped
+   * reflowing must never be a silent state.
+   */
+  onReleaseDuration?: (block: Block) => void;
   /** Adds the scissors to each row. The panel is the only way to reach another week's rows. */
   onSplit?: (block: Block) => void;
   /** The row with a request in flight: its buttons lock. */
@@ -43,6 +54,7 @@ export function BlockRows({
   blocks,
   today,
   onToggleLock,
+  onReleaseDuration,
   onSplit,
   busyBlockId = null,
   disabled = false,
@@ -82,6 +94,31 @@ export function BlockRows({
                 <span className={styles.blockHours}>{format.hours(block.durationMinutes)}</span>
 
                 {tag === undefined ? null : <span className={styles.blockTag}>{t(tag)}</span>}
+
+                {/*
+                 * The hand-set length. Shown either way: with the release action when
+                 * the panel wired one, and as a plain mark when it did not, because the
+                 * whole point of the mark is that the row's stillness has a reason.
+                 */}
+                {!block.manualDuration ? null : onReleaseDuration === undefined ? (
+                  <span
+                    className={styles.blockTag}
+                    aria-label={t('block.manualDuration')}
+                    title={t('block.manualDurationHint')}
+                  >
+                    <IconRuler size={15} stroke={1.75} />
+                  </span>
+                ) : (
+                  <IconButton
+                    size="sm"
+                    variant="ghost"
+                    active
+                    icon={<IconRulerOff size={15} stroke={1.75} />}
+                    label={t('block.releaseDuration')}
+                    disabled={disabled || busy}
+                    onClick={() => onReleaseDuration(block)}
+                  />
+                )}
 
                 {onSplit === undefined ? null : (
                   <IconButton

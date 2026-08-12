@@ -28,7 +28,9 @@ import { useFormat } from '../../lib/useFormat';
 import {
   deleteBlock as apiDeleteBlock,
   getProject,
+  isApiError,
   moveBlock as apiMoveBlock,
+  releaseBlockDuration as apiReleaseBlockDuration,
   resizeBlock as apiResizeBlock,
   setBlockLock as apiSetBlockLock,
   splitBlock as apiSplitBlock,
@@ -226,24 +228,99 @@ export function CalendarScreen({
       });
 
       void mutate(async () => {
-        let last: BlockMutation | undefined;
+        const results: BlockMutation[] = [];
         for (const [index, blockId] of target.blockIds.entries()) {
-          last = await apiMoveBlock(blockId, {
-            date: drop.date,
-            startMinutes: drop.startMinutes + index,
-          });
+          results.push(
+            await apiMoveBlock(blockId, {
+              date: drop.date,
+              startMinutes: drop.startMinutes + index,
+            }),
+          );
         }
-        return last;
+        // MERGED, not just the last one. It is the FIRST row of a unit that lands on
+        // the drop point and therefore does the cutting; the rows behind it are ranked
+        // a minute later and usually displace nobody. Reporting only the last result
+        // would silently swallow "and it split somebody else's job" on exactly the
+        // drops that now do it — every ordinary weekday drop onto occupied time.
+        return mergeMutations(results);
       }).then(report);
     },
     [mutate, report],
   );
 
+  /**
+   * The bottom edge. Two things the grid cannot show by itself, so both are said here:
+   *
+   * - THE CONSEQUENCE IS NOT LOCAL. A resize is a transfer inside the job, so the hours
+   *   move to (or come off) the job's LAST block, the job's run ends at the resized row,
+   *   its remainder starts on the next auto-fill day, and the jobs behind it take the
+   *   hours the day just gained. None of that is visible in the row the owner dragged,
+   *   and some of it is not even in the week on screen.
+   * - THE ROW IS NOW HAND-SET, which is a state with an undo (*back to automatic*), so
+   *   each sentence ends by saying the length is now fixed. The mark on the row and its
+   *   tooltip carry that afterwards; this is what says it the moment it becomes true.
+   *
+   * The refusal (`shrink-last-block`, 409) is caught here rather than left to `mutate`'s
+   * banner: it is the one failure with a concrete next step, and a toast lands where the
+   * gesture happened. Everything else is rethrown and reaches the banner as usual.
+   */
   const onResize = useCallback(
     (target: DragTarget, durationMinutes: number): void => {
-      void mutate(() => apiResizeBlock(target.blockId, durationMinutes)).then(report);
+      void mutate(async () => {
+        try {
+          return await apiResizeBlock(target.blockId, durationMinutes);
+        } catch (error) {
+          if (isApiError(error) && error.code === 'shrink-last-block') {
+            toast.error(t('errors.shrinkLastBlock'));
+            return undefined;
+          }
+          throw error;
+        }
+      }).then((result) => {
+        report(result);
+        if (result === undefined) return;
+        /*
+         * The DIRECTION comes from the gesture, the HOURS from what was stored. They
+         * can disagree: a hand-set length longer than a day's plannable minutes is
+         * split across days and the row named in the request keeps only the first
+         * piece. The gesture is what the owner did, so it is what the sentence is about.
+         *
+         * Only two branches, because the drag never sends a resize to the length the row
+         * already had — the engine accepts one (it makes the gesture total from the
+         * API's side) but from a mouse it is a drag that went nowhere.
+         */
+        toast.info(
+          t(durationMinutes < target.durationMinutes ? 'notices.resizeShrunk' : 'notices.resizeGrown', {
+            name: target.name,
+            hours: format.hourNumber(result.block?.durationMinutes ?? durationMinutes),
+          }),
+        );
+      });
     },
-    [mutate, report],
+    [format, mutate, report, t, toast],
+  );
+
+  /**
+   * "Back to automatic". One call per hand-set row of the unit, because a stretch cut at
+   * the lunch break is two marked rows and releasing half of it would leave the other
+   * half still closing the day.
+   *
+   * It gives back the LENGTH, not the queue position — the row keeps whatever place the
+   * calendar now gives it, exactly as after any drag — so the notice says so.
+   */
+  const onReleaseDuration = useCallback(
+    (blockIds: readonly string[]): void => {
+      if (blockIds.length === 0) return;
+      void mutate(async () => {
+        const results: BlockMutation[] = [];
+        for (const blockId of blockIds) results.push(await apiReleaseBlockDuration(blockId));
+        return mergeMutations(results);
+      }).then((result) => {
+        report(result);
+        if (result !== undefined) toast.info(t('notices.released'));
+      });
+    },
+    [mutate, report, t, toast],
   );
 
   const onToggleLock = useCallback(
@@ -439,6 +516,7 @@ export function CalendarScreen({
                       (closeDay) => setGapTarget({ gap: null, closeDay })
                 }
                 onToggleLock={onToggleLock}
+                onReleaseDuration={onReleaseDuration}
                 onSplit={onSplit}
                 onDelete={onDelete}
                 metricsRef={metricsRef}
@@ -449,8 +527,13 @@ export function CalendarScreen({
           </div>
 
           <div className={styles.legend}>
+            {/* The two drags say different things, and the resize now happens on rows
+                where it never used to be offered — so it needs its own line rather than
+                the drop's. */}
             {drag.preview !== null ? (
-              <span className={styles.hint}>{t('grid.dropRankHint')}</span>
+              <span className={styles.hint}>
+                {t(drag.preview.kind === 'resize' ? 'block.resizeHint' : 'grid.dropRankHint')}
+              </span>
             ) : placing !== null ? (
               <span className={styles.hint}>{t('block.splitHint')}</span>
             ) : emptyWeek ? (
@@ -566,6 +649,35 @@ const FALLBACK_TIMELINE = createTimeline({
 
 /** The sticky day-header row plus the frame's hairlines, which are not timeline. */
 const DAY_HEADER_ALLOWANCE = 46;
+
+/**
+ * Several one-row transactions, reported as the one gesture the owner made.
+ *
+ * A unit is moved (and released) a row at a time — each its own transaction, so the
+ * calendar is never half-written — but its consequences belong to the whole gesture.
+ * The entity fields come from the LAST call, which saw the final calendar; the three
+ * consequence lists are unioned, since each is a set of ids and any of the calls may
+ * have contributed to it.
+ */
+function mergeMutations(results: readonly BlockMutation[]): BlockMutation | undefined {
+  const last = results[results.length - 1];
+  if (last === undefined) return undefined;
+
+  const union = (pick: (result: BlockMutation) => readonly string[]): string[] => {
+    const ids: string[] = [];
+    for (const result of results) {
+      for (const id of pick(result)) if (!ids.includes(id)) ids.push(id);
+    }
+    return ids;
+  };
+
+  return {
+    ...last,
+    touchedLockedBlockIds: union((result) => result.touchedLockedBlockIds),
+    mergedBlockIds: union((result) => result.mergedBlockIds),
+    displacedProjectIds: union((result) => result.displacedProjectIds),
+  };
+}
 
 /** The names behind a list of job ids, from the week on screen, without repeats. */
 function jobNames(projectIds: readonly string[], view: WeekView | null): string[] {

@@ -22,7 +22,14 @@ import { AppError } from './errors';
 import { PROJECT_COLORS } from './projectColors';
 import { assertProjectHours, readSummary } from './scheduler';
 import { createProject, deleteProject, patchProject } from './operations/projects';
-import { deleteBlock, moveBlock, resizeBlock, setBlockLock, splitBlock } from './operations/blocks';
+import {
+  deleteBlock,
+  moveBlock,
+  releaseBlockDuration,
+  resizeBlock,
+  setBlockLock,
+  splitBlock,
+} from './operations/blocks';
 import { createGap, deleteGap } from './operations/gaps';
 import { updateSettings } from './operations/settings';
 import { readWeek } from './operations/views';
@@ -233,6 +240,130 @@ describe('block gestures', () => {
 
     expect(result.summary.queuedMinutes).toBe(10 * 60);
     expect(listProjects(db)[0].totalMinutes).toBe(10 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('resizes an unlocked future row and the new length is actually stored', () => {
+    // The reproduced defect: `PATCH /api/blocks/:id` with a resize used to answer 200
+    // with the row unchanged, because the recomposition that follows re-derived the
+    // job's segmentation from its total and undid the transfer.
+    const puerta = job('Puerta', 8);
+    const morning = puerta.blocks[0];
+    expect(morning.durationMinutes).toBe(6 * 60);
+
+    const result = resizeBlock(morning.id, { durationMinutes: 2 * 60, today: MON }, db);
+
+    expect(result.block?.durationMinutes).toBe(2 * 60);
+    expect(result.block?.manualDuration).toBe(true);
+    expect(calendar()).toEqual([
+      `${MON} 08:00-10:00 Puerta`,
+      // The 4 h went to the job's LAST block, and the run ends at the hand-set row, so
+      // the remainder starts on the next auto-fill day instead of flowing straight back.
+      `${TUE} 08:00-14:00 Puerta`,
+    ]);
+    expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('gives the hours it frees to the job behind it, and takes them back on release', () => {
+    const puerta = job('Puerta', 8);
+    job('Barandilla', 4, GREEN);
+    expect(calendar()).toEqual([
+      `${MON} 08:00-14:00 Puerta`,
+      `${MON} 15:30-17:30 Puerta`,
+      `${TUE} 08:00-12:00 Barandilla`,
+    ]);
+
+    resizeBlock(puerta.blocks[0].id, { durationMinutes: 2 * 60, today: MON }, db);
+
+    expect(calendar()).toEqual([
+      `${MON} 08:00-10:00 Puerta`,
+      // Barandilla moves up into the hours Monday just gained: a newer job starts
+      // before the older one's remainder, which is the price of honouring the length.
+      `${MON} 10:00-14:00 Barandilla`,
+      `${TUE} 08:00-14:00 Puerta`,
+    ]);
+
+    const released = releaseBlockDuration(puerta.blocks[0].id, { today: MON }, db);
+
+    // Releasing gives back the LENGTH, not the queue position. Barandilla now ranks
+    // between Puerta's two runs on the calendar, and queue order IS calendar order, so
+    // the engine keeps that order — exactly as it does after any drag. To put Puerta
+    // back in front, drag it there.
+    expect(released.block?.manualDuration).toBe(false);
+    expect(calendar()).toEqual([
+      `${MON} 08:00-10:00 Puerta`,
+      `${MON} 10:00-14:00 Barandilla`,
+      `${TUE} 08:00-14:00 Puerta`,
+    ]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('puts a job back the way it was when the only hand-set row is released', () => {
+    const puerta = job('Puerta', 8);
+    const automatic = calendar();
+
+    resizeBlock(puerta.blocks[0].id, { durationMinutes: 2 * 60, today: MON }, db);
+    expect(calendar()).toEqual([`${MON} 08:00-10:00 Puerta`, `${TUE} 08:00-14:00 Puerta`]);
+
+    releaseBlockDuration(puerta.blocks[0].id, { today: MON }, db);
+
+    expect(calendar()).toEqual(automatic);
+    expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('keeps a hand-set length through an unrelated save, a new job and a delete', () => {
+    const puerta = job('Puerta', 8);
+    resizeBlock(puerta.blocks[0].id, { durationMinutes: 2 * 60, today: MON }, db);
+    const handSetId = puerta.blocks[0].id;
+
+    const barandilla = job('Barandilla', 2, GREEN);
+    createGap({ date: THU, startMinutes: 8 * 60, durationMinutes: 60, today: MON }, db);
+    deleteProject(barandilla.project.id, { today: MON }, db);
+
+    const stored = listBlocks(db).find((row) => row.id === handSetId);
+    expect(stored?.durationMinutes).toBe(2 * 60);
+    expect(stored?.manualDuration).toBe(true);
+    expect(calendar()).toEqual([`${MON} 08:00-10:00 Puerta`, `${TUE} 08:00-14:00 Puerta`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('refuses to shrink the last block with a 409 rather than doing nothing', () => {
+    // The other half of the same fix: where the transfer is genuinely impossible the
+    // caller gets a refusal with an i18n key, never a 200 with the row unchanged.
+    const puerta = job('Puerta', 8);
+    const before = calendar();
+
+    const error = refusal(() =>
+      resizeBlock(puerta.blocks[puerta.blocks.length - 1].id, { durationMinutes: 60, today: MON }, db),
+    );
+
+    expect(error.status).toBe(409);
+    expect(error.code).toBe('shrink-last-block');
+    expect(error.messageKey).toBe('errors.shrinkLastBlock');
+    expect(calendar()).toEqual(before);
+    expect(listBlocks(db).every((row) => !row.manualDuration)).toBe(true);
+  });
+
+  it('cuts a movable row a drop lands in, so the day reads A, B, A', () => {
+    // The second reproduced defect: Porton dropped onto Wednesday 10:00, inside
+    // Barandilla's 08:00-14:00 row, used to land at 15:30 — after the whole block —
+    // and push Barandilla to Thursday.
+    job('Barandilla', 6, GREEN, WED);
+    const porton = job('Puerta', 2, BLUE, WED);
+    expect(calendar()).toEqual([`${WED} 08:00-14:00 Barandilla`, `${WED} 15:30-17:30 Puerta`]);
+
+    const result = moveBlock(porton.blocks[0].id, { date: WED, startMinutes: 10 * 60, today: WED }, db);
+
+    expect(calendar()).toEqual([
+      `${WED} 08:00-10:00 Barandilla`,
+      `${WED} 10:00-12:00 Puerta`,
+      `${WED} 12:00-14:00 Barandilla`,
+      `${WED} 15:30-17:30 Barandilla`,
+    ]);
+    expect(result.displacedProjectIds).toHaveLength(1);
+    expect(listProjects(db).find((project) => project.name === 'Barandilla')?.totalMinutes).toBe(6 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 

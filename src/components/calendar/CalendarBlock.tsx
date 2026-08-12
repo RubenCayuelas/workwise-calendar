@@ -5,23 +5,28 @@
  *
  * | gesture              | effect                                                    |
  * |----------------------|-----------------------------------------------------------|
- * | drag the body        | move the unit — reorders the queue, then the reflow runs   |
- * | drag the bottom edge | resize, but ONLY on a row the engine will not re-lay out   |
+ * | drag the body        | move the UNIT — reorders the queue, then the reflow runs  |
+ * | drag the bottom edge | resize THIS ROW: a transfer of hours inside the job        |
  * | click                | open the job panel                                         |
- * | hover                | the action bar: lock, stop the day here, split, delete     |
+ * | hover                | the action bar: lock, back to automatic, stop the day here,|
+ * |                      | split, delete                                             |
  *
  * The action bar is never behind a modifier key: "on a shop PC an Alt-drag would never
  * be discovered" (CLAUDE.md).
  *
- * WHY THE RESIZE EDGE IS SOMETIMES INERT (decided with the owner, 2026-08-11). A resize
- * is a transfer of hours inside the job, so on an unlocked future weekday row — one in
- * the movable pool — the very next reflow re-derives the job's segmentation from its
- * total and undoes it. That is correct engine behaviour: it is what makes the calendar
- * self-tidying. Offering the gesture there would be offering something that silently
- * snaps back, so the edge is inert and its tooltip names the two things that DO work:
- * put another job after it, or stop the day with a gap. `resizable` is the complement of
- * the movable pool — a locked row, a past row and a weekend row all keep what they are
- * given, and the past is exactly where "yesterday took longer than I noted" is recorded.
+ * THE RESIZE EDGE IS OFFERED ON EVERY ROW (decided with the owner, 2026-08-12). It used
+ * to be inert on an unlocked future weekday row, with a tooltip naming the two things
+ * that did work, because the reflow re-derived the job's segmentation from its total and
+ * undid the transfer — the request answered 200 with the block unchanged. The engine now
+ * stores the intent, so the length sticks anywhere; what the owner has to be able to see
+ * is the state that buys it, which is the two things this file adds to the row:
+ *
+ * - THE HAND-SET MARK, deliberately not a padlock. They mean different things and are
+ *   independent: the padlock fixes the row's POSITION, the ruler fixes its LENGTH. A
+ *   row can carry either, both or neither.
+ * - BACK TO AUTOMATIC, in the action bar. A hand-set length is otherwise invisible
+ *   except that the row stopped reflowing, so without a one-click release the owner
+ *   cannot undo it and the marks accumulate until the engine manages nothing.
  *
  * Every visible string comes from public/locales, and every number goes through
  * `useFormat()` so "6 h" and "2,5 h" are spelled the same here as in the job panel.
@@ -32,6 +37,8 @@ import {
   IconClockStop,
   IconLock,
   IconLockOpen,
+  IconRuler,
+  IconRulerOff,
   IconScissors,
   IconTrash,
 } from '@tabler/icons-react';
@@ -53,20 +60,26 @@ export interface CalendarBlockProps {
   overflow: boolean;
   /** A past day: the hover bar is withheld, but the row stays editable by hand. */
   frozen: boolean;
-  /**
-   * The bottom edge accepts a resize. True exactly when the engine will not re-lay this
-   * row out: it is locked, in the frozen past, or on a weekend. On anything else the edge
-   * is inert and explains itself — see the file comment.
-   */
-  resizable: boolean;
   /** This unit is being dragged: the ghost shows the target, this stays put. */
   lifted: boolean;
+  /**
+   * A drop in progress lands inside this row and will CUT it here, in minutes from
+   * midnight. Drawn as a seam so the owner sees whose block they are about to split
+   * before releasing, not afterwards in a toast.
+   */
+  cutAtMinutes?: number;
   /** A mutation is in flight: the action bar locks so nothing is queued twice. */
   busy: boolean;
   onPointerDownBody: (event: React.PointerEvent) => void;
   onPointerDownResize: (event: React.PointerEvent) => void;
   onOpen: () => void;
   onToggleLock: () => void;
+  /**
+   * "Back to automatic": give the unit's hand-set length back to the engine. Present
+   * exactly when some row of the unit carries the mark. It returns the LENGTH, not the
+   * queue position — the row keeps whatever place the calendar now gives it.
+   */
+  onReleaseDuration?: () => void;
   /**
    * "Stop the day here": a gap from the end of this row to the end of the day. Omitted
    * when there is nothing left to close, or on a day auto-fill never touches.
@@ -82,13 +95,14 @@ export function CalendarBlock({
   lane,
   overflow,
   frozen,
-  resizable,
   lifted,
+  cutAtMinutes,
   busy,
   onPointerDownBody,
   onPointerDownResize,
   onOpen,
   onToggleLock,
+  onReleaseDuration,
   onCloseDay,
   onSplit,
   onDelete,
@@ -114,9 +128,9 @@ export function CalendarBlock({
       ? t('block.overflow', { hours: format.hourNumber(block.durationMinutes) })
       : format.hours(block.durationMinutes);
 
-  // Two short lines rather than one long one, joined the way the day header joins its
-  // own: what cannot be done here, then the two things that can.
-  const inertResizeHint = `${t('block.resizeFixedOnly')}\n${t('block.resizeAlternatives')}`;
+  // One short line, the way the day header words its own state: what this row is, then
+  // the one consequence that explains why it stopped moving with the rest.
+  const manualHint = `${t('block.manualDuration')}\n${t('block.manualDurationHint')}`;
 
   const classes = [
     styles.block,
@@ -125,6 +139,8 @@ export function CalendarBlock({
     overflow ? styles.overflow : '',
     frozen ? styles.frozen : '',
     lifted ? styles.lifted : '',
+    block.manualDuration ? styles.manual : '',
+    cutAtMinutes === undefined ? '' : styles.cutting,
   ]
     .filter(Boolean)
     .join(' ');
@@ -143,7 +159,11 @@ export function CalendarBlock({
         end: format.time(endMinutes),
         hours: format.hourNumber(block.durationMinutes),
       })}
-      title={format.dayTimeHours(block.date, block.startMinutes, block.durationMinutes)}
+      title={
+        block.manualDuration
+          ? `${format.dayTimeHours(block.date, block.startMinutes, block.durationMinutes)}\n${manualHint}`
+          : format.dayTimeHours(block.date, block.startMinutes, block.durationMinutes)
+      }
       style={{
         '--ww-block-color': block.project.color,
         top: `${timeline.yOf(block.startMinutes)}px`,
@@ -161,11 +181,33 @@ export function CalendarBlock({
       <span className={styles.name}>{block.project.name}</span>
       {height >= MIN_LABEL_HEIGHT ? <span className={styles.hours}>{hoursLabel}</span> : null}
 
-      {block.locked ? (
-        <span className={styles.lockMark} aria-hidden="true">
-          <IconLock size={13} stroke={1.9} />
+      {/*
+       * The two marks share the corner the action bar takes over on hover, and they are
+       * independent states, so both can be up at once: the padlock says the engine may
+       * not MOVE this row, the ruler says it may not RESIZE it.
+       */}
+      {block.locked || block.manualDuration ? (
+        <span className={styles.marks} aria-hidden="true">
+          {block.manualDuration ? (
+            <span className={styles.manualMark} title={manualHint}>
+              <IconRuler size={13} stroke={1.9} />
+            </span>
+          ) : null}
+          {block.locked ? <IconLock size={13} stroke={1.9} /> : null}
         </span>
       ) : null}
+
+      {/*
+       * Where the drop in progress will cut this row. Absolutely positioned against the
+       * row's own top, so it lands on the minute the ghost starts at.
+       */}
+      {cutAtMinutes === undefined ? null : (
+        <span
+          className={styles.cutSeam}
+          aria-hidden="true"
+          style={{ top: `${timeline.heightOf(cutAtMinutes - block.startMinutes)}px` }}
+        />
+      )}
 
       {frozen ? null : (
         <div
@@ -181,6 +223,15 @@ export function CalendarBlock({
             disabled={busy}
             onClick={onToggleLock}
           />
+          {onReleaseDuration === undefined ? null : (
+            <IconButton
+              size="sm"
+              icon={<IconRulerOff size={13} stroke={1.9} />}
+              label={t('block.releaseDuration')}
+              disabled={busy}
+              onClick={onReleaseDuration}
+            />
+          )}
           {onCloseDay === undefined ? null : (
             <IconButton
               size="sm"
@@ -208,28 +259,26 @@ export function CalendarBlock({
         </div>
       )}
 
-      {!isLast ? null : resizable ? (
-        <div
-          className={styles.resize}
-          role="separator"
-          aria-label={t('block.resize')}
-          title={t('block.resizeHint')}
-          onPointerDown={onPointerDownResize}
-        />
-      ) : (
-        /*
-         * The same strip of edge, with no handle and no cursor of its own, so a press
-         * here falls through to the body and moves the unit like anywhere else. It only
-         * exists to answer the hover: this is the muscle memory the gesture used to have,
-         * so it has to say what replaced it instead of doing nothing.
-         */
-        <div
-          className={styles.resizeInert}
-          role="note"
-          aria-label={inertResizeHint}
-          title={inertResizeHint}
-        />
-      )}
+      {/*
+       * The resize edge. On EVERY row, and that is two changes rather than one: every
+       * DAY (it used to be inert wherever the reflow would undo it) and every ROW of a
+       * unit (it used to be only the last).
+       *
+       * The second one is what makes CLAUDE.md's own worked example reachable — "the
+       * owner shrinks the Wednesday morning row to 2 h" is the FIRST row of a unit that
+       * carries on after lunch. A unit has one handle for the MOVE, because it is one
+       * thing to drag; but its rows are two rectangles with the lunch band between them,
+       * each with a real bottom edge on screen, and each is a row the engine can size on
+       * its own. `maxDurationFrom` caps the drag at the end of that row's own period, so
+       * no drag can ever produce a row straddling the break.
+       */}
+      <div
+        className={styles.resize}
+        role="separator"
+        aria-label={t('block.resize')}
+        title={t('block.resizeHint')}
+        onPointerDown={onPointerDownResize}
+      />
     </div>
   );
 }
