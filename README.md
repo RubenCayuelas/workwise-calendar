@@ -8,6 +8,9 @@ free, and drag-and-drop to reshuffle. Self-hosted on the shop PC, single user, n
 ## Setup
 
 ```bash
+nvm install 22
+nvm use 22
+
 npm install
 npm run dev            # http://localhost:3000
 ```
