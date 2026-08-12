@@ -34,7 +34,7 @@ export default function HomePage(): React.JSX.Element {
 
   return (
     <CalendarScreen
-      renderJobPanel={({ projectId, close, onChanged, today }) =>
+      renderJobPanel={({ projectId, close, onChanged, today, horizonWeeks }) =>
         // Compared against the open job, not just checked for null: closing the panel
         // (or deleting the job) must never leave a row from a previous job armed here.
         splitting === null || splitting.projectId !== projectId ? (
@@ -57,6 +57,8 @@ export default function HomePage(): React.JSX.Element {
           <SplitBlockPanel
             open
             block={splitting}
+            today={today}
+            horizonWeeks={horizonWeeks}
             onClose={() => setSplitting(null)}
             onChanged={onChanged}
             // Back to the job panel, which reloads and shows the two new rows.
@@ -74,7 +76,17 @@ export default function HomePage(): React.JSX.Element {
           onChanged={onChanged}
         />
       )}
-      renderGapForm={({ gap, closeDay, close, onChanged, today, shape, gapColor, defaultDate }) => (
+      renderGapForm={({
+        gap,
+        closeDay,
+        close,
+        onChanged,
+        today,
+        shape,
+        gapColor,
+        defaultDate,
+        horizonWeeks,
+      }) => (
         <GapPanel
           open
           gap={gap ?? undefined}
@@ -84,6 +96,7 @@ export default function HomePage(): React.JSX.Element {
           shape={shape}
           gapColor={gapColor}
           defaultDate={defaultDate}
+          horizonWeeks={horizonWeeks}
           onClose={close}
           onChanged={onChanged}
           onDeleted={close}

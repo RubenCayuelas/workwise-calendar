@@ -32,6 +32,7 @@ import {
   Button,
   ColorDot,
   ConfirmDialog,
+  DateSelect,
   Field,
   IconButton,
   InlineBanner,
@@ -93,6 +94,8 @@ export interface GapPanelProps {
   /** `settings.gapColor` — the one colour every gap is painted in. */
   gapColor?: string;
   today?: string;
+  /** `settings.planningHorizonWeeks`: how far ahead the day picker reaches. */
+  horizonWeeks?: number;
 }
 
 export function GapPanel({
@@ -108,6 +111,7 @@ export function GapPanel({
   shape,
   gapColor,
   today,
+  horizonWeeks,
 }: GapPanelProps): React.JSX.Element {
   const { t } = useTranslation();
   const format = useFormat();
@@ -328,19 +332,23 @@ export function GapPanel({
 
         {closing === undefined ? (
           <>
-            {/* The native date input draws its parts in the BROWSER's locale, so the day
-                is echoed underneath in the page's own words — the value is ISO either
-                way, but "08/12" must not be read as the 8th of December. */}
+            {/* The day is CHOSEN from the schedule's own days, spelled by `useFormat()`
+                and grouped under the same week label the header shows. A native date
+                input would draw its parts in the BROWSER's locale instead, and "03/08"
+                is genuinely ambiguous. The long date underneath confirms the choice in
+                prose; the picker still keeps a stored day that falls outside its window,
+                so editing an old gap can never move it. */}
             <Field
               label={t('gapForm.date')}
               error={errorFor('date')}
               hint={isValidDate(date) ? format.longDate(date) : undefined}
             >
-              <Input
-                type="date"
+              <DateSelect
                 value={date}
+                today={reference}
+                horizonWeeks={horizonWeeks}
                 disabled={busy}
-                onChange={(event) => setDate(event.target.value)}
+                onChange={setDate}
               />
             </Field>
 

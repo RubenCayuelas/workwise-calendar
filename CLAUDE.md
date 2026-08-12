@@ -317,12 +317,18 @@ where the decisions in this section come from.
   amber is reserved for the app itself and a free picker would let a job blend into the interface.
 - Hairline borders (`0.5px`), `--radius` rounded corners, generous whitespace.
 - **Icons**: Tabler (`@tabler/icons-react`), bundled locally — no CDN.
-- **No native `<input type="time">` anywhere.** It renders in the BROWSER's locale, not the page's, so
-  on a shop PC with Chrome in English it draws "08:00 AM" beside a grid reading "08:00–14:00". Times
-  are chosen from the shared quarter-hour `TimeSelect` (`src/components/ui/`), whose step is held
-  equal to the drag layer's `SNAP_MINUTES` by a test. A native `<input type="date">` is kept — its
-  value is ISO and its calendar widget earns its place — but the day is **echoed under it** through
-  `useFormat().longDate()`, so a browser writing `08/11` can never be read as the 8th of December.
+- **No native `<input type="time">` or `<input type="date">` anywhere.** Both render in the
+  BROWSER's locale, not the page's: on a shop PC with Chrome in English the first draws "08:00 AM"
+  beside a grid reading "08:00–14:00", and the second writes `08/12/2026` for the 12th of August,
+  which makes a day like `03/08` genuinely ambiguous. Every time and every day the app shows goes
+  through `useFormat()`, so the ones the owner *chooses* come from the same helpers:
+  - times from the quarter-hour `TimeSelect` (`src/components/ui/`), whose step is held equal to the
+    drag layer's `SNAP_MINUTES` by a test;
+  - days from `DateSelect`, which offers the days of the schedule — spelled "Mié 12 ago" and grouped
+    under the same week label the header shows ("Semana 33 · 10–16 ago 2026") — with the long date
+    echoed underneath in prose. Its window runs a few weeks back (the past stays hand-editable) to
+    the end of the planning horizon, and the day already stored is **always** an option even when it
+    falls outside, so opening a form can never move what it is showing.
 
 ### Calendar View
 - **Horizontal week layout**: all seven columns always rendered. Mon-Fri at full width; Sat/Sun
@@ -420,6 +426,10 @@ they are easy to revisit rather than buried in the code.
 - **Creating a gap on top of existing work**: recompose, pushing unlocked work forward in the same
   transaction. If the space is held by a locked block, refuse the save with a message naming the
   block rather than creating an overlap. Gaps and blocks are one occupancy set (union of intervals).
+- **How far the day picker reaches**: 4 weeks back and the planning horizon forward, capped at 16
+  weeks. The horizon may legally be set to 104 weeks, which would be 700+ options in one dropdown;
+  a day further out than that is chosen by dragging on the calendar, which is where it is being
+  looked at anyway. Bounds live in `src/components/ui/dateOptions.ts`, with a test.
 - **Whole-day exceptions**: the `day_overrides(date, is_closed, capacity_hours, note)` table ships
   in the initial migration and the engine reads every day through a single `getDayConfig(date)`
   (global settings → weekday rule → override), but there is **no Settings UI for it in v0.2**. This
@@ -429,6 +439,14 @@ they are easy to revisit rather than buried in the code.
 
 Still unanswered; do not invent an answer, ask first.
 
+- **A resize that overlaps another job in the frozen past.** *Block Resize* is offered on past rows
+  precisely so yesterday can be corrected, and a *drop* that overlaps is now resolved (see *A Drop
+  That Overlaps*) — but a resize is not a drop. Enlarging yesterday's row can still run over another
+  job's row on that same past day, and nothing cuts it: the past is a RECORD of what the shop did,
+  and silently splitting somebody's record to make room is not obviously the right answer. The three
+  candidates are refuse the resize naming the row, cut the other job exactly as a drop does, or keep
+  allowing the overlap because two jobs really were on the bench at once. The same applies to the
+  LIFO counterparty growing into a past row.
 - **Backups**: daily local copy, manual export/import, or both? The DB is deliberately gitignored,
   a recomposition rewrites many rows at once, and there is no undo. Deferred out of v0.2, but every
   mutating operation already runs in a single transaction, which makes a future undo much cheaper.
@@ -439,37 +457,33 @@ Still unanswered; do not invent an answer, ask first.
 
 ## Current Project Status
 
-**v0.1 (Current):**
-- ✅ Data model finalized (Project + Block + Gap only)
-- ✅ Business rules resolved with the owner (2026-08-11) — recorded above
-- ⚠️ Database schema written but **the repo does not type-check**:
-  `src/lib/migrations.ts(75,7) TS2554` — the `promisify(db.run)` wrapper types as single-argument
-- ✅ Composition algorithm (per-day placement) validated in `recompose-poc.js`
-- ✅ Project skeleton (Next.js, TypeScript, SQLite, i18n)
+**v0.1 — closed.** Data model, business rules resolved with the owner (2026-08-11), the PoC's
+per-day placement, and the project skeleton. Its whole fix-first list is done: the
+`migrations.ts` type error, `initializeDb()` on a clean checkout, the lazy idempotent accessor,
+the typed settings repository, `updated_at`, the `locked` mapper, the i18n wiring, the brand
+tokens, the README, the dead config and the tracked `tsbuildinfo`.
 
-**v0.2 (Next):**
+**v0.2 — built.**
+- [x] `src/lib/composition.ts`: the queue from calendar position, the movable pool, weekly
+      chaining, the Friday buffer, gaps as occupancy, LIFO editing, resize-as-transfer,
+      auto-merge inside a period, and manual-placement overlap resolution
+- [x] `src/lib/scheduler.ts`: the one seam to SQLite, one transaction per operation, the
+      hours invariant asserted before every commit
+- [x] API routes for Project, Block, Gap, Settings, week and summary
+- [x] Week view, job panel, job form, gap form, split form, Settings screen
+- [x] Drag-drop (mouse only), the hover action bar, *stop the day here*, the resize edge
+      restricted to rows the engine will not re-lay out
+- [x] Every time and every day chosen from `TimeSelect` / `DateSelect`, never a native input
 
-Fix first (all verified, independent of any open decision):
-- [ ] Fix the type error in `src/lib/migrations.ts` so the project builds
-- [ ] `initializeDb()` fails on a clean checkout — `data/` is never created (`SQLITE_CANTOPEN`)
-- [ ] Nothing calls `initializeDb()`/`runMigrations()`; add one lazy idempotent accessor
-- [ ] Typed settings repository (values are stored as TEXT, typed as boolean/number)
-- [ ] `updated_at` never updates (no trigger, `DEFAULT CURRENT_TIMESTAMP` only fires on INSERT)
-- [ ] `locked` should be `INTEGER NOT NULL DEFAULT 0`, coerced in one row-mapper
-- [ ] Wire `src/lib/i18n.ts` in and remove the hardcoded translations in `app/page.tsx`
-- [ ] Import `public/brand/workwise-tokens.css`, drop the hardcoded `#2563eb`, add `icons` metadata
-- [ ] Rewrite `README.md` — it describes Tailwind, better-sqlite3 and a DB init step that do not exist
-- [ ] Remove the dead `experimental.serverActions` block and the unused `axios` dependency
-- [ ] Untrack `tsconfig.tsbuildinfo` and add `*.tsbuildinfo` to `.gitignore`
+Verified on 2026-08-12: `tsc --noEmit` clean, `vitest run` 381 passing across 16 files,
+`next lint` clean, `next build` succeeds. Exercised over real HTTP against a **clean** database
+and in a real browser: the same-job overlap merge (durations summed, total unchanged), the
+different-job cut (`A, B, A`), *stop the day here* dropping the day's plannable minutes and
+pushing the work that no longer fits to the next day with room, the 409 naming the locked block
+that a gap or a drop would have overlapped, and the Friday rule both ways (a new job skips the
+colchón for next Monday; the growth of an existing job lands on it).
 
-Then build:
-- [ ] Add a test runner and port the PoC scenarios as the engine's first regression tests
-- [ ] Port `recompose-poc.js` to `src/lib/composition.ts` (see Composition Algorithm Notes)
-- [ ] Migration additions: `projects.description`, drop `blocks.manually_placed`
-- [ ] API routes for CRUD (Project, Block, Gap)
-- [ ] Settings screen (periods, capacity, margins, horizon, colors)
-- [ ] Calendar week view component
-- [ ] Drag-drop integration (mouse only)
+**Not in v0.2**, and both already listed above: the Settings UI for `day_overrides`, and backups.
 
 ---
 

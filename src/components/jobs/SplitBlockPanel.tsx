@@ -24,9 +24,9 @@ import { IconScissors } from '@tabler/icons-react';
 import {
   Button,
   ColorDot,
+  DateSelect,
   Field,
   InlineBanner,
-  Input,
   NumberStepper,
   SidePanel,
   TimeSelect,
@@ -44,6 +44,7 @@ import {
   isValidDate,
   minutesToHHmm,
   minutesToHours,
+  todayLocal,
 } from '../../lib/dates';
 import { useFormat } from '../../lib/useFormat';
 import { HOUR_STEP as STEP_HOURS, parseClockTime } from './forms';
@@ -77,6 +78,10 @@ export interface SplitBlockPanelProps {
   /** Where the fragment is sent. Defaults to the source row's own day and time. */
   defaultDate?: string;
   defaultStartMinutes?: number;
+  /** The shop's local today, from the server. Anchors the day picker's window. */
+  today?: string;
+  /** `settings.planningHorizonWeeks`: how far ahead the day picker reaches. */
+  horizonWeeks?: number;
 }
 
 export function SplitBlockPanel({
@@ -88,9 +93,12 @@ export function SplitBlockPanel({
   onSplit,
   defaultDate,
   defaultStartMinutes,
+  today,
+  horizonWeeks,
 }: SplitBlockPanelProps): React.JSX.Element {
   const { t } = useTranslation();
   const format = useFormat();
+  const reference = today ?? todayLocal();
 
   const blockHours = minutesToHours(block.durationMinutes);
   const maxHours = Math.max(STEP_HOURS, blockHours - STEP_HOURS);
@@ -232,23 +240,26 @@ export function SplitBlockPanel({
 
       <div className={styles.row}>
         {/*
-          No `min`: CLAUDE.md keeps the PAST frozen for the ENGINE only — "The user can
-          still edit the past by hand at any time" — so a fragment may legitimately be
-          sent to a day already gone, to record what the shop really did.
+          The picker reaches back as well as forward: CLAUDE.md keeps the PAST frozen for
+          the ENGINE only — "The user can still edit the past by hand at any time" — so a
+          fragment may legitimately be sent to a day already gone, to record what the shop
+          really did. The row's own day is always offered, however old it is.
 
-          The day is echoed under the input in the page's own words: a native date input
-          orders its parts in the BROWSER's locale, and the two must not disagree.
+          Days are named by `useFormat()`, like everywhere else. A native date input would
+          order its parts in the BROWSER's locale, which is how "03/08" stops meaning
+          anything; the long date under the control confirms the choice in prose.
         */}
         <Field
           label={t('gapForm.date')}
           error={errorFor('date')}
           hint={isValidDate(date) ? format.longDate(date) : undefined}
         >
-          <Input
-            type="date"
+          <DateSelect
             value={date}
+            today={reference}
+            horizonWeeks={horizonWeeks}
             disabled={saving}
-            onChange={(event) => setDate(event.target.value)}
+            onChange={setDate}
           />
         </Field>
 

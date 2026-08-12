@@ -174,13 +174,23 @@ export interface SelectOption {
   disabled?: boolean;
 }
 
-export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+/** A heading over a run of options — how `DateSelect` names each week. */
+export interface SelectOptionGroup {
+  /** Already translated. */
+  label: string;
   options: readonly SelectOption[];
+}
+
+export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
+  /** Ungrouped options. They come first, before any `groups`. */
+  options?: readonly SelectOption[];
+  /** Options under `<optgroup>` headings. */
+  groups?: readonly SelectOptionGroup[];
   invalid?: boolean;
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
-  { options, className, invalid, id, 'aria-describedby': describedBy, ...rest },
+  { options = [], groups = [], className, invalid, id, 'aria-describedby': describedBy, ...rest },
   ref,
 ) {
   const bound = useFieldBinding({ id, describedBy, invalid });
@@ -198,6 +208,15 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
           <option key={option.value} value={option.value} disabled={option.disabled}>
             {option.label}
           </option>
+        ))}
+        {groups.map((group) => (
+          <optgroup key={group.label} label={group.label}>
+            {group.options.map((option) => (
+              <option key={option.value} value={option.value} disabled={option.disabled}>
+                {option.label}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
       <span className={styles.selectChevron} aria-hidden="true">

@@ -41,6 +41,8 @@
     "timeRange": "{{start}}–{{end}}",
     "dayTime": "{{day}} · {{start}}–{{end}}",
     "dayTimeHours": "{{day}} · {{start}}–{{end}} · {{hours}} h",
+    "dayOption": "{{weekday}} {{day}} {{month}}",
+    "dayOptionToday": "{{date}} · hoy",
     "weeks_one": "{{count}} semana",
     "weeks_other": "{{count}} semanas",
     "blocks_one": "{{count}} tramo",

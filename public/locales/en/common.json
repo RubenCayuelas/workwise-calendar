@@ -41,6 +41,8 @@
     "timeRange": "{{start}}–{{end}}",
     "dayTime": "{{day}} · {{start}}–{{end}}",
     "dayTimeHours": "{{day}} · {{start}}–{{end}} · {{hours}} h",
+    "dayOption": "{{weekday}} {{day}} {{month}}",
+    "dayOptionToday": "{{date}} · today",
     "weeks_one": "{{count}} week",
     "weeks_other": "{{count}} weeks",
     "blocks_one": "{{count}} segment",

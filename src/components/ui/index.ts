@@ -28,6 +28,7 @@ export {
   type InputProps,
   type NumberStepperProps,
   type SelectOption,
+  type SelectOptionGroup,
   type SelectProps,
   type TextareaProps,
 } from './Field';
@@ -38,6 +39,17 @@ export {
   timeOptionMinutes,
   type TimeOptionsRange,
 } from './timeOptions';
+export { DateSelect, type DateSelectProps } from './DateSelect';
+export {
+  PICKER_FUTURE_WEEKS,
+  PICKER_MAX_FUTURE_WEEKS,
+  PICKER_PAST_WEEKS,
+  dayOptionDates,
+  groupDaysByWeek,
+  planningWindow,
+  type DayOptionWeek,
+  type DayWindow,
+} from './dateOptions';
 export { ColorSwatches, type ColorSwatchesProps } from './ColorSwatches';
 export { ColorDot, SidePanel, type SidePanelProps } from './SidePanel';
 export { ConfirmDialog, type ConfirmDialogProps } from './ConfirmDialog';

@@ -52,6 +52,10 @@ export interface Formatter {
   monthShort(date: string): string;
   /** The day-header label: "Mié 12". */
   dayHeader(date: string): string;
+  /** "Mié 12 ago" — a whole day, short enough for a form control's option. */
+  dayOption(date: string): string;
+  /** The same with the shop's today marked: "Mié 12 ago · hoy". */
+  todayOption(date: string): string;
   /** "jueves 27 de agosto" — for prose such as the summary strip. */
   longDate(date: string): string;
   /** "27 ago 2026" — for lists and confirmations. */
@@ -82,6 +86,14 @@ export function useFormat(): Formatter {
         weekday: formatWeekdayShort(date, language),
         day: formatDayOfMonth(date),
       });
+    // The month is part of the option itself, not only of the week heading above it:
+    // a closed select shows the option alone, and "Mié 12" would not say which month.
+    const dayOption = (date: string): string =>
+      t('units.dayOption', {
+        weekday: formatWeekdayShort(date, language),
+        day: formatDayOfMonth(date),
+        month: formatMonthShort(date, language),
+      });
     const weekRange = (startDate: string, endDate: string): string => {
       const label = weekRangeLabel(startDate, endDate, language);
       return t(label.key, label.values);
@@ -101,6 +113,8 @@ export function useFormat(): Formatter {
       dayOfMonth: formatDayOfMonth,
       monthShort: (date) => formatMonthShort(date, language),
       dayHeader,
+      dayOption,
+      todayOption: (date) => t('units.dayOptionToday', { date: dayOption(date) }),
       longDate: (date) => formatLongDate(date, language),
       mediumDate: (date) => formatMediumDate(date, language),
 

@@ -61,6 +61,8 @@ export interface JobPanelContext {
   onChanged: () => void;
   /** The shop's local today, from the server. Never the browser's clock. */
   today: string;
+  /** `settings.planningHorizonWeeks` — how far ahead the panels' day picker reaches. */
+  horizonWeeks: number;
 }
 
 export interface NewJobContext {
@@ -91,6 +93,8 @@ export interface GapFormContext {
   gapColor: string;
   /** A new gap lands on a day the owner can see: today, or this week's Monday. */
   defaultDate: string;
+  /** `settings.planningHorizonWeeks` — how far ahead the day picker reaches. */
+  horizonWeeks: number;
 }
 
 export interface CalendarScreenProps {
@@ -504,6 +508,7 @@ export function CalendarScreen({
                 close: () => setOpenJobId(null),
                 onChanged: week.reload,
                 today: view.today,
+                horizonWeeks: view.settings.planningHorizonWeeks,
               })}
 
           {!newJobOpen || renderNewJob === undefined
@@ -529,6 +534,7 @@ export function CalendarScreen({
                 defaultDate: view.week.dates.includes(view.today)
                   ? view.today
                   : view.week.startDate,
+                horizonWeeks: view.settings.planningHorizonWeeks,
               })}
         </>
       )}
