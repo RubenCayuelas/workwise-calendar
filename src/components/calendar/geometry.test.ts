@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { MIN_MANUAL_ONLY_MINUTES, manualWindowsOf } from '../../lib/manualWindow';
+import { MIN_MANUAL_ONLY_MINUTES, dayEndMinutes, manualWindowsOf } from '../../lib/manualWindow';
 import type { DayShape, Gap, WorkPeriod } from '../../types';
 import type { WeekBlock } from '../../lib/api-client';
 import {
@@ -18,6 +18,7 @@ import {
   SNAP_MINUTES,
   axisTicks,
   createTimeline,
+  clampDropStart,
   dateAtX,
   durationTo,
   emptyLabelMinutes,
@@ -209,14 +210,53 @@ describe('drop targets', () => {
 
   it('breaks a rank tie away from the row it landed on', () => {
     const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
+    // The clamp is the caller's, so the nudge obeys whatever keeps the row inside the day.
+    const onAxis = (minutes: number): number => timeline.clampStart(minutes);
     // No tie: the snapped value stands.
-    expect(rankFor(480, 483, [600], timeline)).toBe(480);
+    expect(rankFor(480, 483, [600], onAxis)).toBe(480);
     // Pointer ABOVE the existing start means "before it".
-    expect(rankFor(480, 477, [480], timeline)).toBe(479);
+    expect(rankFor(480, 477, [480], onAxis)).toBe(479);
     // Pointer BELOW means "after it".
-    expect(rankFor(480, 484, [480], timeline)).toBe(481);
+    expect(rankFor(480, 484, [480], onAxis)).toBe(481);
     // A tie on the very first minute of the axis can only go the other way.
-    expect(rankFor(420, 418, [420], timeline)).toBe(421);
+    expect(rankFor(420, 418, [420], onAxis)).toBe(421);
+  });
+});
+
+/** The day's own end, which is what a resize is capped by. Never the axis's. */
+const REACH = { endOfDayMinutes: dayEndMinutes(SHAPE.manualWindows) };
+
+describe('clampDropStart', () => {
+  const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
+
+  it('leaves a release that fits exactly where it was made', () => {
+    expect(clampDropStart(SHAPE.manualWindows, 8 * 60, 360, timeline)).toBe(8 * 60);
+    expect(clampDropStart(SHAPE.manualWindows, 13 * 60, 360, timeline)).toBe(13 * 60);
+    expect(clampDropStart(SHAPE.manualWindows, 7 * 60, 720, timeline)).toBe(7 * 60);
+  });
+
+  it('pulls a release that would run past the end of the day back to the latest start', () => {
+    // 13:15 + 6 h net reaches 20:45 — the drop that broke invariant 3.
+    expect(clampDropStart(SHAPE.manualWindows, 13 * 60 + 15, 360, timeline)).toBe(13 * 60);
+    expect(clampDropStart(SHAPE.manualWindows, 19 * 60, 600, timeline)).toBe(9 * 60);
+  });
+
+  it('keeps the axis as the other bound', () => {
+    expect(clampDropStart(SHAPE.manualWindows, 6 * 60, 60, timeline)).toBe(7 * 60);
+  });
+
+  it('leaves the lunch band reachable while the row still ends inside the day', () => {
+    // CLAUDE.md's Open Decision about a drop released in the band: untouched.
+    expect(clampDropStart(SHAPE.manualWindows, 14 * 60, 360, timeline)).toBe(14 * 60);
+    expect(clampDropStart(SHAPE.manualWindows, 14 * 60 + 30, 360, timeline)).toBe(14 * 60 + 30);
+    // 8 h from 14:30 would reach 22:30, so it is clamped like any other overrun.
+    expect(clampDropStart(SHAPE.manualWindows, 14 * 60 + 30, 480, timeline)).toBe(11 * 60);
+  });
+
+  it('does not consult the widened axis, which the overrun itself opened', () => {
+    // The axis grows to 22:00 to keep a row visible; the DAY still ends at 20:30.
+    const widened = createTimeline(SHAPE, { pixelsPerHour: 60, cover: [22 * 60] });
+    expect(clampDropStart(SHAPE.manualWindows, 15 * 60, 360, widened)).toBe(13 * 60);
   });
 });
 
@@ -228,23 +268,23 @@ describe('maxDurationFrom', () => {
     // end of the day's last window (20:30 here) counted as NET working minutes: two
     // hours of morning plus five of afternoon-and-margin.
     const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
-    expect(maxDurationFrom(12 * 60, SHAPE.manualWindows, timeline)).toBe(120 + 300);
-    expect(maxDurationFrom(18 * 60, SHAPE.manualWindows, timeline)).toBe(150);
+    expect(maxDurationFrom(12 * 60, SHAPE.manualWindows, REACH)).toBe(120 + 300);
+    expect(maxDurationFrom(18 * 60, SHAPE.manualWindows, REACH)).toBe(150);
     // A row that starts in the top margin reaches just as far: the margin is inside the
     // window, so there is no boundary between 07:00 and the morning below it.
-    expect(maxDurationFrom(7 * 60, SHAPE.manualWindows, timeline)).toBe(420 + 300);
+    expect(maxDurationFrom(7 * 60, SHAPE.manualWindows, REACH)).toBe(420 + 300);
   });
 
   it('keeps a row that starts in a hole inside that hole', () => {
     const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
     // Inside the lunch break: up to the afternoon's start, exactly as before. Nothing
     // may swallow working time it does not own.
-    expect(maxDurationFrom(14 * 60 + 30, SHAPE.manualWindows, timeline)).toBe(60);
+    expect(maxDurationFrom(14 * 60 + 30, SHAPE.manualWindows, REACH)).toBe(60);
   });
 
   it('never returns less than one snap step', () => {
     const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
-    expect(maxDurationFrom(20 * 60 + 30, SHAPE.manualWindows, timeline)).toBe(SNAP_MINUTES);
+    expect(maxDurationFrom(20 * 60 + 30, SHAPE.manualWindows, REACH)).toBe(SNAP_MINUTES);
   });
 });
 
@@ -255,34 +295,34 @@ describe('durationTo', () => {
     // "arrastro hasta las 17:30 una tarea que empezaba a las 10, en vez de la hora del
     // medio sumarla, ignorarla y sería de 10 a 14 y de 15:30 a 17:30." Four hours of
     // morning plus two of afternoon. Emphatically not 7.5 h.
-    expect(durationTo(10 * 60, 17 * 60 + 30, SHAPE.manualWindows, timeline)).toBe(6 * 60);
+    expect(durationTo(10 * 60, 17 * 60 + 30, SHAPE.manualWindows, REACH)).toBe(6 * 60);
   });
 
   it('gives the lunch break away for free: anywhere inside it is the same 4 h', () => {
     for (const pointer of [14 * 60, 14 * 60 + 15, 14 * 60 + 45, 15 * 60 + 30]) {
-      expect(durationTo(10 * 60, pointer, SHAPE.manualWindows, timeline)).toBe(4 * 60);
+      expect(durationTo(10 * 60, pointer, SHAPE.manualWindows, REACH)).toBe(4 * 60);
     }
   });
 
   it('shrinks symmetrically, back across the break', () => {
-    expect(durationTo(10 * 60, 16 * 60, SHAPE.manualWindows, timeline)).toBe(4 * 60 + 30);
-    expect(durationTo(10 * 60, 13 * 60, SHAPE.manualWindows, timeline)).toBe(3 * 60);
-    expect(durationTo(10 * 60, 10 * 60 + 30, SHAPE.manualWindows, timeline)).toBe(30);
+    expect(durationTo(10 * 60, 16 * 60, SHAPE.manualWindows, REACH)).toBe(4 * 60 + 30);
+    expect(durationTo(10 * 60, 13 * 60, SHAPE.manualWindows, REACH)).toBe(3 * 60);
+    expect(durationTo(10 * 60, 10 * 60 + 30, SHAPE.manualWindows, REACH)).toBe(30);
   });
 
   it('reaches into both margins, which is the only way a hand can use them', () => {
     // The bottom margin: 19:30 is the last period's end, 20:30 the axis's.
-    expect(durationTo(18 * 60, 20 * 60 + 30, SHAPE.manualWindows, timeline)).toBe(150);
+    expect(durationTo(18 * 60, 20 * 60 + 30, SHAPE.manualWindows, REACH)).toBe(150);
     // And the top one, which continues straight into the morning with no seam.
-    expect(durationTo(7 * 60, 9 * 60, SHAPE.manualWindows, timeline)).toBe(120);
+    expect(durationTo(7 * 60, 9 * 60, SHAPE.manualWindows, REACH)).toBe(120);
   });
 
   it('snaps on the clock and never collapses the row', () => {
-    expect(durationTo(10 * 60, 12 * 60 + 7, SHAPE.manualWindows, timeline)).toBe(120);
-    expect(durationTo(10 * 60, 12 * 60 + 8, SHAPE.manualWindows, timeline)).toBe(135);
+    expect(durationTo(10 * 60, 12 * 60 + 7, SHAPE.manualWindows, REACH)).toBe(120);
+    expect(durationTo(10 * 60, 12 * 60 + 8, SHAPE.manualWindows, REACH)).toBe(135);
     // Dragged above its own start, or into the band right after it.
-    expect(durationTo(13 * 60, 11 * 60, SHAPE.manualWindows, timeline)).toBe(SNAP_MINUTES);
-    expect(durationTo(14 * 60 + 30, 15 * 60, SHAPE.manualWindows, timeline)).toBe(30);
+    expect(durationTo(13 * 60, 11 * 60, SHAPE.manualWindows, REACH)).toBe(SNAP_MINUTES);
+    expect(durationTo(14 * 60 + 30, 15 * 60, SHAPE.manualWindows, REACH)).toBe(30);
   });
 
   it('is the same resolution the pin threshold is stated in', () => {
@@ -294,8 +334,8 @@ describe('durationTo', () => {
   });
 
   it('caps at the end of the day, wherever the pointer went', () => {
-    expect(durationTo(10 * 60, 23 * 60, SHAPE.manualWindows, timeline)).toBe(
-      maxDurationFrom(10 * 60, SHAPE.manualWindows, timeline),
+    expect(durationTo(10 * 60, 23 * 60, SHAPE.manualWindows, REACH)).toBe(
+      maxDurationFrom(10 * 60, SHAPE.manualWindows, REACH),
     );
   });
 });

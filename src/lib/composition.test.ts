@@ -1959,6 +1959,53 @@ describe('rule 8 — "longer than a day" is measured against the room that actua
   });
 });
 
+describe('invariant 4 — the engine never leaves a row shorter than a quarter of an hour', () => {
+  // With every quantity on the quarter hour this can never happen, and it did not happen by
+  // accident: an off-grid TOTAL is reachable through the one sub-quarter row a drop can leave
+  // behind (an Open Decision in CLAUDE.md) being deleted, which takes those minutes off
+  // `total_hours`. From then on every layout of that job could leave 1-14 minutes over — a
+  // row too short to show its own hours, drawn as a nameless two-pixel stripe, on a day no
+  // gesture had touched.
+
+  it('leaves a full quarter for the tail instead of a sliver', () => {
+    // 20 h 05 at 10 h a day: Monday 10 h, and then 5 minutes would be left over.
+    const composeInput = input({
+      today: MON,
+      blocks: [block({ project: 'alfa', date: MON, from: '08:00', hours: 1205 / 60 })],
+    });
+
+    const result = compose(composeInput);
+
+    expect(rows(result)).toEqual([
+      `${MON} 08:00-14:00 alfa`,
+      `${MON} 15:30-19:30 alfa`,
+      `${TUE} 08:00-14:00 alfa`,
+      `${TUE} 15:30-19:20 alfa`,
+      `${WED} 08:00-08:15 alfa`,
+    ]);
+    expectMinutesConserved(composeInput, result);
+    expectSettled(composeInput, result);
+  });
+
+  it('draws what is left when there is not enough of it to make two rows', () => {
+    // The honest boundary, stated so nobody reads more into the guard than it does: with a
+    // total under half an hour and a day holding ten minutes, no split avoids a short row.
+    // Skipping the day instead would be worse than a short row — an item the cursor keeps
+    // stepping over ends in `horizon-exceeded`, which rolls the whole save back.
+    const composeInput = input({
+      today: MON,
+      blocks: [block({ project: 'alfa', date: MON, from: '08:00', hours: 20 / 60 })],
+      shape: withCapacity(10 / 60),
+    });
+
+    const result = compose(composeInput);
+
+    expect(rows(result)).toEqual([`${MON} 08:00-08:10 alfa`, `${TUE} 08:00-08:10 alfa`]);
+    expectMinutesConserved(composeInput, result);
+    expectSettled(composeInput, result);
+  });
+});
+
 describe('a locked block can never make placement fail', () => {
   it('flows a job past a day locked and gapped end to end, with no error', () => {
     // CLAUDE.md is explicit: "Because overflow always chains forward, a locked
@@ -4405,10 +4452,10 @@ describe('manual placement holds over the same generated calendars', () => {
       const result = resolveManualPlacement(composeInput, dropOf(dropped.id));
 
       if (!result.ok) {
-        // The three refusals, all of which write nothing: a lock in the way, a merge
-        // that would run past midnight, and hours with nowhere left inside the horizon.
+        // The four refusals, all of which write nothing: a lock in the way, a GAP in the
+        // way, a merge the day cannot hold, and hours with nowhere left inside the horizon.
         expect(
-          ['overlaps-locked-block', 'merge-exceeds-day', 'displaced-hours-unplaceable'],
+          ['overlaps-locked-block', 'overlaps-gap', 'merge-exceeds-day', 'displaced-hours-unplaceable'],
           `${where}: ${result.error.code}`,
         ).toContain(result.error.code);
         continue;

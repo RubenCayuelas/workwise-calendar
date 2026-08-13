@@ -93,6 +93,16 @@ export interface CalendarBlockProps {
   /** A mutation is in flight: the action bar locks so nothing is queued twice. */
   busy: boolean;
   onPointerDownBody: (event: React.PointerEvent) => void;
+  /**
+   * A press on the hover ACTION BAR, which floats over the block's own surface.
+   *
+   * It begins the same move as a press on the body, and it has to: the bar is 102 px wide
+   * anchored at the block's right edge and it appears under the cursor on the first mouse
+   * move, so on a weekend column (129 px) and on any weekday block from about 210 px down it
+   * covers the block's NAME — the natural place to grab it. Swallowing the press there (which
+   * is what this handler used to do) made the drag do nothing at all, silently.
+   */
+  onPointerDownActions: (event: React.PointerEvent) => void;
   onPointerDownResize: (event: React.PointerEvent) => void;
   onOpen: () => void;
   onToggleLock: () => void;
@@ -122,6 +132,7 @@ export function CalendarBlock({
   cutAtMinutes,
   busy,
   onPointerDownBody,
+  onPointerDownActions,
   onPointerDownResize,
   onOpen,
   onToggleLock,
@@ -288,8 +299,10 @@ export function CalendarBlock({
       {frozen ? null : (
         <div
           className={styles.actions}
-          // The bar sits on top of the drag surface, so its presses must not start one.
-          onPointerDown={(event) => event.stopPropagation()}
+          // The bar sits ON the drag surface, so a press here starts the same drag a press on
+          // the body would — the alternative was a dead grab point over the block's name on
+          // every narrow column. A press that does not travel is still the BUTTON's click.
+          onPointerDown={onPointerDownActions}
         >
           <IconButton
             size="sm"

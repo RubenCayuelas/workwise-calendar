@@ -930,10 +930,12 @@ describe('no transaction may store a row that runs past the end of its day', () 
   // impossible, not merely unreachable through the paths that were fixed — so the guard
   // sits on the write itself, where every row goes through regardless of what produced it.
 
-  it('refuses a resize that would push a past row past midnight, and writes nothing', () => {
+  it('refuses a resize that would push a past row past the day, and writes nothing', () => {
     // Reachable by hand: *Block Resize* is deliberately offered on past rows so
     // yesterday can be corrected, and over HTTP the duration is not capped by the
-    // drag layer's own limit.
+    // drag layer's own limit. The END OF THE DAY now catches this one first — 25:00 is
+    // past midnight and 20:30 comes long before it — so the refusal is the same 409
+    // with the better sentence, and the midnight guard below is the backstop.
     const puerta = job('Puerta', 2, BLUE, WED);
     moveBlock(puerta.blocks[0].id, { date: TUE, startMinutes: 12 * 60, today: WED }, db);
     const before = calendar();
@@ -943,9 +945,9 @@ describe('no transaction may store a row that runs past the end of its day', () 
     );
 
     expect(error.status).toBe(409);
-    expect(error.code).toBe('row-exceeds-day');
-    expect(error.messageKey).toBe('errors.rowExceedsDay');
-    expect(error.details).toMatchObject({ date: TUE, startTime: '12:00' });
+    expect(error.code).toBe('row-past-day-end');
+    expect(error.messageKey).toBe('errors.rowPastDayEnd');
+    expect(error.details).toMatchObject({ date: TUE, startTime: '12:00', dayEndTime: '20:30' });
     expect(calendar()).toEqual(before);
     expect(listProjects(db)[0].totalMinutes).toBe(2 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
@@ -997,6 +999,289 @@ describe('no transaction may store a row that runs past the end of its day', () 
       ),
     ).not.toThrow();
     expect(calendar()).toEqual([`${WED} 22:00-24:00 Puerta [locked]`]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The end of the day, on every gesture that can reach past it
+// ---------------------------------------------------------------------------
+//
+// Invariant 3 of the battery, and CLAUDE.md's own words twice over: a stored block never
+// straddles "a non-working interval (lunch break, END OF DAY)", and the bottom-edge drag
+// "stops at the end of the day's last manual window". The reproductions below are the
+// owner's, replayed: every one of them answered 200 and stored a row hanging below the
+// grid's own last rule.
+
+describe('the end of the day is a line no write may cross', () => {
+  it('refuses a resize whose stretch would run past the last manual window', () => {
+    // Over HTTP the drag layer's cap is not in the way, and the server had none at all:
+    // 12 h from 08:00 stored `08:00-14:00` + `15:30-21:30`.
+    job('Uno', 6, BLUE, THU);
+    const before = calendar();
+
+    const error = refusal(() =>
+      resizeBlock(listBlocks(db)[0].id, { durationMinutes: 12 * 60, today: THU }, db),
+    );
+
+    expect(error.status).toBe(409);
+    expect(error.code).toBe('row-past-day-end');
+    expect(error.messageKey).toBe('errors.rowPastDayEnd');
+    expect(error.details).toMatchObject({ date: THU, startTime: '15:30', dayEndTime: '20:30' });
+    expect(calendar()).toEqual(before);
+    expect(listProjects(db)[0].totalMinutes).toBe(6 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('accepts the resize that reaches exactly the end of the day', () => {
+    job('Uno', 6, BLUE, THU);
+
+    resizeBlock(listBlocks(db)[0].id, { durationMinutes: 11 * 60, today: THU }, db);
+
+    expect(calendar()).toEqual([`${THU} 08:00-14:00 Uno`, `${THU} 15:30-20:30 Uno`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('refuses a split whose fragment would run past the end of the day', () => {
+    // The scissors' second click goes through `rankFor`, which was not clamped at all:
+    // 60 min at 19:45 stored `19:45-20:45`, and 210 min at 19:30 stored `19:30-23:00`.
+    job('Uno', 10, BLUE, THU);
+    const afternoon = listBlocks(db)[1];
+    const before = calendar();
+
+    for (const attempt of [
+      { durationMinutes: 60, startMinutes: 19 * 60 + 45 },
+      { durationMinutes: 210, startMinutes: 19 * 60 + 30 },
+    ]) {
+      const error = refusal(() => splitBlock(afternoon.id, { ...attempt, date: THU, today: THU }, db));
+      expect(error.code, `${attempt.durationMinutes} at ${attempt.startMinutes}`).toBe('row-past-day-end');
+      expect(calendar()).toEqual(before);
+    }
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('refuses a drop whose row would run past the end of the day, on a day that pins', () => {
+    // 6 h released at 13:15 on the buffer: `13:15-14:00` + `15:30-20:45`.
+    job('Uno', 6, BLUE, THU);
+    const before = calendar();
+
+    const error = refusal(() =>
+      moveBlock(listBlocks(db)[0].id, { date: FRI, startMinutes: 13 * 60 + 15, today: THU }, db),
+    );
+
+    expect(error.code).toBe('row-past-day-end');
+    expect(calendar()).toEqual(before);
+  });
+
+  it('takes the same drop one quarter earlier, where it fits', () => {
+    job('Uno', 6, BLUE, THU);
+
+    moveBlock(listBlocks(db)[0].id, { date: FRI, startMinutes: 13 * 60, today: THU }, db);
+
+    expect(calendar()).toEqual([`${FRI} 13:00-14:00 Uno`, `${FRI} 15:30-20:30 Uno`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('refuses a same-job merge the day cannot hold, instead of storing one row through lunch', () => {
+    // Repeating one drop used to compound: `Sat 13:00-23:00, 10 h`, straight through the
+    // lunch band and 2.5 h past the end of the day, with hours conserved so nothing warned.
+    const grande = job('Grande', 10, BLUE, THU);
+    // The unit's two halves, dropped on Saturday one after the other: the first lands as
+    // `12:00-14:00` + `15:30-19:30`, and the second then merges into BOTH of them.
+    moveBlock(grande.blocks[0].id, { date: SAT, startMinutes: 12 * 60, today: THU }, db);
+    const before = calendar();
+
+    const error = refusal(() =>
+      moveBlock(grande.blocks[1].id, { date: SAT, startMinutes: 13 * 60, today: THU }, db),
+    );
+
+    expect(error.code).toBe('merge-exceeds-day');
+    expect(error.messageKey).toBe('errors.mergeExceedsDay');
+    expect(calendar()).toEqual(before);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('still lets a row that a settings change stranded outside the windows be saved', () => {
+    // CLAUDE.md: setting the bottom margin to 0 under a hand-placed row keeps the hours
+    // already in it. So the guard refuses a gesture that makes the overrun WORSE, and
+    // never one that leaves it alone or moves the row somewhere legal.
+    const uno = job('Uno', 1, BLUE, THU);
+    moveBlock(uno.blocks[0].id, { date: THU, startMinutes: 19 * 60 + 30, today: THU }, db);
+    updateSettings({ visualMarginBottom: 0 }, { today: THU }, db);
+    expect(calendar()).toEqual([`${THU} 19:30-20:30 Uno`]);
+
+    // The same length again: accepted, marks and all.
+    resizeBlock(listBlocks(db)[0].id, { durationMinutes: 60, today: THU }, db);
+    expect(calendar()).toEqual([`${THU} 19:30-20:30 Uno`]);
+
+    // Longer: refused, because that is new time outside every window.
+    const error = refusal(() =>
+      resizeBlock(listBlocks(db)[0].id, { durationMinutes: 90, today: THU }, db),
+    );
+    expect(error.code).toBe('row-past-day-end');
+    expect(calendar()).toEqual([`${THU} 19:30-20:30 Uno`]);
+
+    // And it can still be dragged back inside the day, where a Mon-Thu drop is a RANK: the
+    // row rejoins the pool and the reflow settles it at the top of the day.
+    moveBlock(listBlocks(db)[0].id, { date: THU, startMinutes: 10 * 60, today: THU }, db);
+    expect(calendar()).toEqual([`${THU} 08:00-09:00 Uno`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+});
+
+describe('a drop names the whole unit, so a unit moves in ONE transaction', () => {
+  it('moves both halves of a lunch-split unit, and lands where the ghost drew it', () => {
+    // One PATCH per row with a full reflow between them left part of the unit behind: the
+    // reflow re-laid the job's remaining hours onto DIFFERENT ids, so the second request
+    // moved whatever row now carried the id the drag had captured. The message then said
+    // no hour was lost, which was true, while an hour of the unit had not moved.
+    job('Uno', 5, BLUE, THU);
+    const dos = job('Dos', 3, GREEN, THU);
+    expect(calendar()).toEqual([
+      `${THU} 08:00-13:00 Uno`,
+      `${THU} 13:00-14:00 Dos`,
+      `${THU} 15:30-17:30 Dos`,
+    ]);
+
+    const unit = listBlocks(db).filter((row) => row.projectId === dos.project.id);
+    const result = moveBlock(
+      unit[0].id,
+      { date: SAT, startMinutes: 8 * 60, today: THU, unitBlockIds: unit.map((row) => row.id) },
+      db,
+    );
+
+    expect(calendar()).toEqual([`${THU} 08:00-13:00 Uno`, `${SAT} 08:00-11:00 Dos`]);
+    expect(result.blocks.map((row) => row.durationMinutes)).toEqual([3 * 60]);
+    expect(
+      listProjects(db).map((project) => `${project.name} ${project.totalMinutes}`).sort(),
+    ).toEqual(['Dos 180', 'Uno 300']);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('cuts the unit at the lunch break when it lands across it', () => {
+    const uno = job('Uno', 6, BLUE, THU);
+    resizeBlock(uno.blocks[0].id, { durationMinutes: 8 * 60, today: THU }, db);
+    const unit = listBlocks(db);
+    expect(calendar()).toEqual([`${THU} 08:00-14:00 Uno`, `${THU} 15:30-17:30 Uno`]);
+
+    moveBlock(
+      unit[0].id,
+      { date: SAT, startMinutes: 10 * 60, today: THU, unitBlockIds: unit.map((row) => row.id) },
+      db,
+    );
+
+    expect(calendar()).toEqual([`${SAT} 10:00-14:00 Uno`, `${SAT} 15:30-19:30 Uno`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('ignores an id that is not part of the unit, and one that no longer exists', () => {
+    job('Uno', 4, BLUE, THU);
+    const dos = job('Dos', 2, GREEN, THU);
+    const rows = listBlocks(db);
+
+    moveBlock(
+      dos.blocks[0].id,
+      { date: SAT, startMinutes: 9 * 60, today: THU, unitBlockIds: [rows[0].id, 'gone'] },
+      db,
+    );
+
+    // Uno stayed where it was: it is another job, whatever the request claimed.
+    expect(calendar()).toEqual([`${THU} 08:00-12:00 Uno`, `${SAT} 09:00-11:00 Dos`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+});
+
+describe('the scissors keep the calendar on the quarter hour', () => {
+  it('refuses a fragment, or a remainder, shorter than one snap step', () => {
+    job('Tiny', 0.5, BLUE, THU);
+    const row = listBlocks(db)[0];
+
+    const tooSmall = refusal(() =>
+      splitBlock(row.id, { durationMinutes: 5, date: THU, startMinutes: 9 * 60, today: THU }, db),
+    );
+    expect(tooSmall.status).toBe(409);
+    expect(tooSmall.code).toBe('split-below-minimum');
+    expect(tooSmall.messageKey).toBe('errors.splitBelowMinimum');
+
+    const remainderTooSmall = refusal(() =>
+      splitBlock(row.id, { durationMinutes: 25, date: THU, startMinutes: 9 * 60, today: THU }, db),
+    );
+    expect(remainderTooSmall.code).toBe('split-below-minimum');
+
+    expect(calendar()).toEqual([`${THU} 08:00-08:30 Tiny`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('takes a quarter of an hour, which is the smallest thing the calendar can draw', () => {
+    job('Tiny', 0.5, BLUE, THU);
+    const row = listBlocks(db)[0];
+
+    splitBlock(row.id, { durationMinutes: 15, date: SAT, startMinutes: 9 * 60, today: THU }, db);
+
+    expect(calendar()).toEqual([`${THU} 08:00-08:15 Tiny`, `${SAT} 09:00-09:15 Tiny`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+});
+
+describe('a drop onto a gap, where the reflow will not separate them', () => {
+  it('is refused naming the gap, exactly as a gap over a hand-placed row is', () => {
+    // Gaps and blocks are one occupancy set, and the MIRROR gesture is already refused.
+    // On Mon-Thu the reflow keeps auto work off a gap, so this only bit where the drop
+    // PINS — the buffer, the weekend, a margin, the lunch band.
+    job('Uno', 2, BLUE, THU);
+    const dos = job('Dos', 1, GREEN, THU);
+    createGap({ date: FRI, startMinutes: 10 * 60, durationMinutes: 60, reason: 'Avería', today: THU }, db);
+    const before = calendar();
+
+    const error = refusal(() =>
+      moveBlock(dos.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: THU }, db),
+    );
+
+    expect(error.status).toBe(409);
+    expect(error.code).toBe('overlaps-gap');
+    expect(error.messageKey).toBe('errors.dropOverGap');
+    expect(error.details).toMatchObject({ date: FRI, startTime: '10:00', endTime: '11:00', reason: 'Avería' });
+    expect(calendar()).toEqual(before);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('takes the same drop in the free time beside it', () => {
+    job('Uno', 2, BLUE, THU);
+    const dos = job('Dos', 1, GREEN, THU);
+    createGap({ date: FRI, startMinutes: 10 * 60, durationMinutes: 60, reason: 'Avería', today: THU }, db);
+
+    moveBlock(dos.blocks[0].id, { date: FRI, startMinutes: 11 * 60, today: THU }, db);
+
+    expect(calendar()).toEqual([`${THU} 08:00-10:00 Uno`, `${FRI} 11:00-12:00 Dos`]);
+  });
+
+  it('leaves a Monday-Thursday drop alone: the reflow keeps auto work off the gap', () => {
+    job('Uno', 2, BLUE, THU);
+    const dos = job('Dos', 1, GREEN, THU);
+    createGap({ date: NEXT_MON, startMinutes: 10 * 60, durationMinutes: 60, reason: 'Avería', today: THU }, db);
+
+    moveBlock(dos.blocks[0].id, { date: NEXT_MON, startMinutes: 10 * 60, today: THU }, db);
+
+    expect(listGaps(db)).toHaveLength(1);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+});
+
+describe('a resize that rewrites a LOCKED row says so', () => {
+  it('names the locked continuation the stretch had to lengthen', () => {
+    // `stretchFrom` includes a continuation regardless of `locked`, and the response used
+    // to carry `touchedLockedBlockIds: []` — so the UI showed no warning at all, against
+    // two stated promises ("a locked block is never grown silently", "never silent").
+    const unit = job('U', 10, BLUE, THU);
+    const afternoon = listBlocks(db)[1];
+    setBlockLock(afternoon.id, true, { today: THU }, db);
+
+    const result = resizeBlock(listBlocks(db)[0].id, { durationMinutes: 11 * 60, today: THU }, db);
+
+    expect(result.touchedLockedBlockIds).toEqual([afternoon.id]);
+    expect(calendar()).toEqual([`${THU} 08:00-14:00 U`, `${THU} 15:30-20:30 U [locked]`]);
+    expect(listProjects(db)[0].totalMinutes).toBe(11 * 60);
+    expect(unit.project.id).toBe(listProjects(db)[0].id);
+    expect(() => assertProjectHours(db)).not.toThrow();
   });
 });
 

@@ -164,6 +164,13 @@ export interface MoveBlockInput {
    * Compute the rank strictly BETWEEN neighbours.
    */
   startMinutes: number;
+  /**
+   * The rows drawn as ONE UNIT with this one — a job cut at the lunch break is two rows
+   * with a single drag handle, so a body drag is about all of them. Sending the list moves
+   * the unit in ONE request and ONE transaction; sending each row separately re-flowed the
+   * calendar between them and left part of the unit behind.
+   */
+  unitBlockIds?: readonly string[];
 }
 
 export interface SplitBlockInput {

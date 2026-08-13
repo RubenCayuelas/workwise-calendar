@@ -1,7 +1,7 @@
 /**
  * `/api/blocks/:id` — the gestures on one row of the calendar.
  *
- * PATCH  { action: "move",    date, startTime | startMinutes }
+ * PATCH  { action: "move",    date, startTime | startMinutes, unitBlockIds? }
  * PATCH  { action: "resize",  durationHours | durationMinutes }
  * PATCH  { action: "release" }
  * PATCH  { action: "lock",    locked: boolean }
@@ -55,6 +55,7 @@
 
 import type { NextRequest } from 'next/server';
 import {
+  readIdList,
   readJsonBody,
   requireDate,
   requireDurationMinutes,
@@ -84,7 +85,14 @@ export async function PATCH(request: NextRequest, context: Context): Promise<Res
 
     switch (requireOneOf(body, 'action', ACTIONS)) {
       case 'move':
-        return moveBlock(id, { date: requireDate(body), startMinutes: requireStartMinutes(body) });
+        return moveBlock(id, {
+          date: requireDate(body),
+          startMinutes: requireStartMinutes(body),
+          // The rows the caller drew as one unit with this one. A unit has a single drag
+          // handle, so the whole thing moves in this ONE transaction; without the list it
+          // is just this row, which is what an HTTP caller aiming at one row means.
+          unitBlockIds: readIdList(body, 'unitBlockIds'),
+        });
       case 'resize':
         return resizeBlock(id, { durationMinutes: requireDurationMinutes(body) });
       case 'release':

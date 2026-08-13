@@ -44,7 +44,7 @@ import type { DayShape, Gap } from '../../types';
 import type { CloseDayRequest } from '../../lib/closeDay';
 import { PROJECT_COLORS } from '../../lib/projectColors';
 import { manualWindowsOf } from '../../lib/manualWindow';
-import { rankFor, createTimeline, type GridMetrics, type Timeline } from './geometry';
+import { clampDropStart, rankFor, createTimeline, type GridMetrics, type Timeline } from './geometry';
 import { describeDrop, type DropOutcomeKind } from './dropOutcome';
 import { SummaryStrip } from './SummaryStrip';
 import { WeekHeader } from './WeekHeader';
@@ -220,10 +220,13 @@ export function CalendarScreen({
    * merges consecutive rows of one job into a single queue item, so re-ranking half a
    * unit would leave the other half behind at its old rank and split the job in two.
    *
-   * One call per row, in queue order, one minute apart so their internal order survives.
-   * Each is its own transaction, so the calendar is never half-written; the cost is that
-   * a refusal partway through a two-row unit leaves the first row moved, which the error
-   * banner names and a second drag fixes.
+   * ONE REQUEST FOR THE UNIT, so it is one transaction. It used to be one PATCH per row
+   * with a full reflow in between, and that is not a smaller version of the same thing: the
+   * reflow re-laid the job's remaining hours onto DIFFERENT ids between the two calls, so
+   * the second call moved whatever row now carried the id the drag had captured. Dragging a
+   * 3 h unit onto Saturday moved 2 h and left an hour on Thursday, and the toast said no
+   * hour had been lost — true, and not what the gesture had promised. The same race raised
+   * «Ese bloque ya no existe» on drops that had in fact succeeded.
    *
    * A DROP ALWAYS ANSWERS FOR ITSELF. That is this app's oldest sharp edge: a drop
    * writes a queue RANK, so the row lands where the reflow puts it — which may be the
@@ -243,23 +246,15 @@ export function CalendarScreen({
         after: viewRef.current,
       });
 
-      void mutate(async () => {
-        const results: BlockMutation[] = [];
-        for (const [index, blockId] of target.blockIds.entries()) {
-          results.push(
-            await apiMoveBlock(blockId, {
-              date: drop.date,
-              startMinutes: drop.startMinutes + index,
-            }),
-          );
-        }
-        // MERGED, not just the last one. It is the FIRST row of a unit that lands on
-        // the drop point and therefore does the cutting; the rows behind it are ranked
-        // a minute later and usually displace nobody. Reporting only the last result
-        // would silently swallow "and it split somebody else's job" on exactly the
-        // drops that now do it — every ordinary weekday drop onto occupied time.
-        return mergeMutations(results);
-      }).then((result) => {
+      void mutate(() =>
+        apiMoveBlock(target.blockIds[0], {
+          date: drop.date,
+          startMinutes: drop.startMinutes,
+          // The whole unit, named: the server folds the rows into the one it is given and
+          // stores the result in segments, so what lands is what the ghost drew.
+          unitBlockIds: target.blockIds,
+        }),
+      ).then((result) => {
         report(result);
         if (result === undefined) return;
 
@@ -475,12 +470,15 @@ export function CalendarScreen({
         apiSplitBlock(fragment.blockId, {
           durationMinutes: fragment.durationMinutes,
           date: slot.date,
+          // Clamped over the DAY, like a drop: the scissors' second click is the one
+          // placement that went through `rankFor` with no cap at all, so a fragment could be
+          // stored at 19:45-20:45, or 19:30-23:00 — past the end of the day (invariant 3).
           startMinutes: rankFor(
             slot.startMinutes,
             slot.startMinutes,
             takenStartsOn(slot.date, [fragment.blockId]),
-            timeline,
-            fragment.durationMinutes,
+            (minutes) =>
+              clampDropStart(day.manualWindows, minutes, fragment.durationMinutes, timeline),
           ),
         }),
       ).then((result) => {

@@ -74,6 +74,61 @@ export function assertRowInsideDay(row: RowExtent): void {
 }
 
 /**
+ * THE SMALLEST ROW THE CALENDAR CAN DRAW OR THE OWNER CAN AIM AT: a quarter of an hour.
+ *
+ * Held equal to the drag layer's `SNAP_MINUTES` and the `TimeSelect` step by a test, for
+ * the same reason those two are held equal to each other — every number the owner can
+ * choose lands on the quarter hour, so a row that does not is one no gesture asked for. A
+ * row shorter than this cannot show its own hours (`MIN_LABEL_HEIGHT`): on screen it is a
+ * nameless two-pixel stripe.
+ *
+ * It is deliberately NOT a write-path guard. The one sub-quarter row a gesture can still
+ * produce — the head a drop released a hair below another row's start leaves behind — is an
+ * Open Decision in CLAUDE.md, and refusing it here would answer that decision by accident.
+ * It is a FRONT-DOOR floor on the gestures that name a duration outright (the scissors).
+ */
+export const MIN_ROW_MINUTES = 15;
+
+/**
+ * THE OTHER LINE, and the one the owner actually sees: the end of the day.
+ *
+ * `assertRowInsideDay` above draws its line at midnight, because that is where a row stops
+ * being renderable. This one is the calendar's own rule — CLAUDE.md's "a stored block never
+ * straddles a non-working interval (lunch break, END OF DAY)" — so it is stated over the
+ * day's last MANUAL window: the periods plus the visual margins, which is every minute a
+ * hand gesture may use.
+ *
+ * `storedEndMinutes` is what keeps it honest about the one shape that legitimately sits
+ * outside the windows: a row the owner put in a margin that was LATER set to 0. CLAUDE.md
+ * keeps those hours ("what the owner loses is the margin as a TARGET, not the hours already
+ * in it"), so the rule is not "every stored row ends inside the day" — which would refuse
+ * every unrelated save on that calendar — but **no write may make an overrun worse**.
+ */
+export function assertRowWithinDayEnd(
+  row: RowExtent,
+  dayEndMinutes: number,
+  storedEndMinutes?: number,
+): void {
+  const end = row.startMinutes + row.durationMinutes;
+  if (end <= dayEndMinutes) return;
+  if (storedEndMinutes !== undefined && end <= storedEndMinutes) return;
+
+  throw conflict('row-past-day-end', ERROR_MESSAGE_KEYS.rowPastDayEnd, {
+    field: 'durationMinutes',
+    details: {
+      ...(row.id === undefined ? {} : { blockId: row.id }),
+      date: row.date,
+      startTime: clockOrNumber(row.startMinutes),
+      endTime: clockOrNumber(end),
+      dayEndTime: clockOrNumber(dayEndMinutes),
+      startMinutes: row.startMinutes,
+      durationMinutes: row.durationMinutes,
+      dayEndMinutes,
+    },
+  });
+}
+
+/**
  * `HH:mm` for a real time of day, the raw number for anything else. A message about a
  * value being out of range must never itself throw on that value.
  */

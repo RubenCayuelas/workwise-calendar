@@ -41,7 +41,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { clockEndOf, dayEndMinutes } from '../../lib/manualWindow';
 import {
+  clampDropStart,
   durationTo,
   rankFor,
   slotAt,
@@ -128,6 +130,25 @@ export interface BlockDragOptions {
   onClick: (target: DragTarget) => void;
 }
 
+/** What is different about a press that lands on the hover action bar. */
+export interface BeginOptions {
+  /**
+   * The press landed on the ACTION BAR floating over the block, not on the block itself.
+   *
+   * It still begins a move — the bar is 102 px anchored 4 px from the block's right edge and
+   * appears UNDER the cursor on the first mouse move, so on every weekend column (129 px
+   * wide) and on every weekday block from about 210 px down it covers the block's own name:
+   * the owner's most natural grab point. Swallowing the press there made the drag do
+   * NOTHING — no ghost, no request, no toast, no console error, which is precisely what «la
+   * app me ignora» looks like.
+   *
+   * Two things then have to be different, or the buttons stop working: the press is not
+   * cancelled (so the button still gets its click when the pointer does not travel), and a
+   * press that does not travel is NOT read as a click on the block.
+   */
+  overlay?: boolean;
+}
+
 export interface DragController {
   preview: DragPreview | null;
   /**
@@ -139,7 +160,7 @@ export interface DragController {
   /** The unit currently being dragged, for the "lifted" styling. */
   activeGroupId: string | null;
   kind: DragKind | null;
-  beginMove: (event: React.PointerEvent, target: DragTarget) => void;
+  beginMove: (event: React.PointerEvent, target: DragTarget, options?: BeginOptions) => void;
   beginResize: (event: React.PointerEvent, target: DragTarget) => void;
 }
 
@@ -151,6 +172,8 @@ export interface DragController {
 export interface DragSession {
   kind: DragKind;
   target: DragTarget;
+  /** The press landed on the hover action bar — see `BeginOptions.overlay`. */
+  overlay?: boolean;
   /**
    * The axis AS IT WAS AT PRESS. Every minute this gesture reports is read off this one,
    * never off `options.timeline`, which may re-fit while the pointer is still down.
@@ -197,14 +220,16 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
   useEffect(() => finish, [finish]);
 
   const begin = useCallback(
-    (event: React.PointerEvent, target: DragTarget, dragKind: DragKind): void => {
+    (event: React.PointerEvent, target: DragTarget, dragKind: DragKind, options: BeginOptions = {}): void => {
       if (!enabled || event.button !== 0 || session.current !== null) return;
 
       const metrics = live.current.measure();
       if (metrics === null) return;
 
-      // Stops the browser turning the drag into a text selection.
-      event.preventDefault();
+      // Stops the browser turning the drag into a text selection. NOT on the action bar: a
+      // cancelled press there would take the button's click with it, and the block's own
+      // `user-select: none` is what keeps the selection away anyway.
+      if (options.overlay !== true) event.preventDefault();
       event.stopPropagation();
 
       // The axis this gesture owns, from here to the release. Everything below reads it
@@ -214,6 +239,7 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
       session.current = {
         kind: dragKind,
         target,
+        overlay: options.overlay === true,
         timeline,
         originX: event.clientX,
         originY: event.clientY,
@@ -257,11 +283,16 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         setTarget(null);
         if (current === null) return;
 
-        // A press that never travelled is a click: open the job.
+        // A press that never travelled is a click: open the job. On the action bar it is the
+        // BUTTON's click, which is already on its way — reading it as a click on the block
+        // too would open the job panel every time the owner locked or split a row.
         if (!current.moved) {
-          if (current.kind === 'move') live.current.onClick(current.target);
+          if (current.kind === 'move' && current.overlay !== true) live.current.onClick(current.target);
           return;
         }
+        // A drag that STARTED on the action bar and travelled must not also press the button
+        // it started on: the pointer may still be over it at the release.
+        if (current.overlay === true) swallowNextClick();
 
         const settled = current.preview;
         if (settled === null) return;
@@ -276,14 +307,13 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         if (current.kind === 'move') {
           if (settled.date === current.target.date && settled.startMinutes === current.target.startMinutes) return;
           const taken = live.current.takenStartsOn(settled.date, current.target.blockIds);
+          const windows = live.current.dayAt(settled.date)?.manualWindows ?? [];
           live.current.onMove(current.target, {
             date: settled.date,
-            startMinutes: rankFor(
-              settled.startMinutes,
-              current.exactMinutes,
-              taken,
-              current.timeline,
-              settled.durationMinutes,
+            startMinutes: rankFor(settled.startMinutes, current.exactMinutes, taken, (minutes) =>
+              // The tie-break is one minute, and on a day that PINS that minute is stored:
+              // it may not carry the row past the end of the day either.
+              clampDropStart(windows, minutes, settled.durationMinutes, current.timeline),
             ),
           });
           return;
@@ -316,7 +346,8 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
   );
 
   const beginMove = useCallback(
-    (event: React.PointerEvent, target: DragTarget) => begin(event, target, 'move'),
+    (event: React.PointerEvent, target: DragTarget, options?: BeginOptions) =>
+      begin(event, target, 'move', options),
     [begin],
   );
 
@@ -333,6 +364,23 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
     beginMove,
     beginResize,
   };
+}
+
+/**
+ * Eats the ONE click a completed drag would otherwise deliver to the button it started on.
+ *
+ * Capture phase, so it lands before any handler, and removed either by the click it ate or on
+ * the next macrotask — a listener that outlived the gesture would swallow the owner's next
+ * real click.
+ */
+function swallowNextClick(): void {
+  const swallow = (event: MouseEvent): void => {
+    event.stopPropagation();
+    event.preventDefault();
+    window.removeEventListener('click', swallow, true);
+  };
+  window.addEventListener('click', swallow, true);
+  window.setTimeout(() => window.removeEventListener('click', swallow, true), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -361,9 +409,17 @@ export function previewMove(
 
   const exact = timeline.minutesAt(event.clientY - metrics.top) - current.grabOffsetMinutes;
   current.exactMinutes = exact;
-  const startMinutes = timeline.clampStart(snapTo(exact), current.target.durationMinutes);
 
   const day = dayAt(date);
+  // Clamped over the DAY the unit is over, not over the axis: `durationMinutes` is net
+  // working minutes, so only the day's windows can say where a 6 h unit still fits.
+  const startMinutes = clampDropStart(
+    day?.manualWindows ?? [],
+    snapTo(exact),
+    current.target.durationMinutes,
+    timeline,
+  );
+
   return {
     kind: 'move',
     groupId: current.target.groupId,
@@ -399,12 +455,12 @@ export function previewResize(
   const manualWindows = day?.manualWindows ?? [];
 
   const pointerMinutes = timeline.minutesAt(event.clientY - metrics.top);
-  const durationMinutes = durationTo(
-    current.target.startMinutes,
-    pointerMinutes,
-    manualWindows,
-    timeline,
-  );
+  const durationMinutes = durationTo(current.target.startMinutes, pointerMinutes, manualWindows, {
+    // The DAY's end, never the axis's — `cover` widens the axis to show a row that already
+    // overran, and reading the cap off it let the next drag push the row further out.
+    endOfDayMinutes: dayEndMinutes(manualWindows),
+    currentMinutes: current.target.durationMinutes,
+  });
 
   return {
     kind: 'resize',

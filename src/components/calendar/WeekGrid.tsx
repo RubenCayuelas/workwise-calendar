@@ -25,6 +25,7 @@ import type { WeekBlock, WeekDay, WeekView } from '../../lib/api-client';
 import { CalendarBlock } from './CalendarBlock';
 import {
   axisTicks,
+  clampDropStart,
   emptyLabelMinutes,
   nonWorkingBands,
   slotAt,
@@ -154,9 +155,17 @@ export function WeekGrid({
       const metrics = measure();
       if (metrics === null) return null;
       const hit = slotAt({ x: event.clientX, y: event.clientY }, metrics, timeline);
-      return hit === undefined ? null : { date: hit.date, startMinutes: hit.snappedMinutes };
+      if (hit === undefined) return null;
+      // Clamped over the DAY, like a drop: the fragment is a row, and a row ends inside its
+      // day. Both the ghost and the click that commits it read this one answer, so the
+      // scissors cannot promise 19:45 and then store a row running to 20:45.
+      const windows = view.days.find((day) => day.date === hit.date)?.manualWindows ?? [];
+      return {
+        date: hit.date,
+        startMinutes: clampDropStart(windows, hit.snappedMinutes, placing?.durationMinutes ?? 0, timeline),
+      };
     },
-    [measure, timeline],
+    [measure, placing, timeline, view.days],
   );
 
   return (
@@ -367,6 +376,8 @@ function DayColumn({
     if (drag.target === null) return null;
     return dropEffectOf({
       rows: groups.flatMap((group) => group.blocks),
+      // Gaps are occupancy too, and on a day that pins a drop onto one is refused.
+      gaps,
       movingBlockIds: drag.target.blockIds,
       projectId: drag.target.projectId,
       dayIsWeekend: day.isWeekend,
@@ -380,7 +391,7 @@ function DayColumn({
       startMinutes: preview.startMinutes,
       durationMinutes: preview.durationMinutes,
     });
-  }, [preview, drag.target, groups, day.isWeekend, day.role, day.manualWindows]);
+  }, [preview, drag.target, groups, gaps, day.isWeekend, day.role, day.manualWindows]);
 
   /**
    * The rectangles the ghost is drawn as: one per row the gesture will be STORED as.
@@ -539,6 +550,9 @@ function DayColumn({
             }
             busy={busy}
             onPointerDownBody={(event) => drag.beginMove(event, target)}
+            // The hover bar is over the block, so it drags the block too — see
+            // `BeginOptions.overlay` for the two things that keeps working.
+            onPointerDownActions={(event) => drag.beginMove(event, target, { overlay: true })}
             onPointerDownResize={(event) =>
               drag.beginResize(event, {
                 ...target,
@@ -670,6 +684,7 @@ const DROP_EFFECT_KEYS: Record<DropEffect['kind'], string> = {
   cut: 'grid.dropCuts',
   merge: 'grid.dropMerges',
   blocked: 'grid.dropBlocked',
+  gap: 'grid.dropOnGap',
 };
 
 interface WeekLayout {

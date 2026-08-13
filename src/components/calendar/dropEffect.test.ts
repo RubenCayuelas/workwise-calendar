@@ -193,6 +193,56 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
   });
 });
 
+describe('dropEffectOf — a gap under the drop', () => {
+  it('announces the refusal on a day that pins, before the mouse is released', () => {
+    // The server refuses it (409 `overlaps-gap`), so the ghost has to say so: a preview
+    // that promises a placement the save will not perform is worse than no preview.
+    const effect = dropEffectOf(
+      input({
+        dayIsBuffer: true,
+        startMinutes: 10 * 60,
+        durationMinutes: 60,
+        gaps: [{ startMinutes: 10 * 60, durationMinutes: 60 }],
+      }),
+    );
+    expect(effect).toMatchObject({ kind: 'gap' });
+  });
+
+  it('says nothing on Monday-Thursday, where the reflow keeps auto work off the gap', () => {
+    expect(
+      dropEffectOf(
+        input({ startMinutes: 10 * 60, durationMinutes: 60, gaps: [{ startMinutes: 10 * 60, durationMinutes: 60 }] }),
+      ),
+    ).toBeNull();
+  });
+
+  it('names a locked row first, which is the more actionable of the two refusals', () => {
+    const effect = dropEffectOf(
+      input({
+        dayIsWeekend: true,
+        startMinutes: 10 * 60,
+        durationMinutes: 60,
+        rows: [row({ id: 'locked', locked: true, startMinutes: 10 * 60, durationMinutes: 60 })],
+        gaps: [{ startMinutes: 10 * 60, durationMinutes: 60 }],
+      }),
+    );
+    expect(effect).toMatchObject({ kind: 'blocked', blockId: 'locked' });
+  });
+
+  it('is not confused by a gap the drop does not reach', () => {
+    expect(
+      dropEffectOf(
+        input({
+          dayIsBuffer: true,
+          startMinutes: 10 * 60,
+          durationMinutes: 60,
+          gaps: [{ startMinutes: 12 * 60, durationMinutes: 60 }],
+        }),
+      ),
+    ).toBeNull();
+  });
+});
+
 describe('dropFootprint — what the ghost draws', () => {
   it('is one rectangle for a drop that stays inside a period', () => {
     expect(dropFootprint({ manualWindows: PERIODS, startMinutes: 10 * 60, durationMinutes: 2 * 60 })).toEqual([

@@ -170,7 +170,114 @@ describe('previewResize', () => {
   });
 });
 
+/**
+ * INVARIANT 3, in the drag layer: the ghost may never promise a row that runs past the
+ * end of the day, because the server stores what the ghost drew.
+ *
+ * The bottom margin set to 0 under a row that is already in it is the one shape CLAUDE.md
+ * says legitimately survives ("what the owner loses is the margin as a TARGET, not the
+ * hours already in it"), and the axis is widened by `cover` so the row stays visible. That
+ * widening used to BE the cap: `reachableRuns` closed the last hole at `timeline.endMinutes`,
+ * so the drag could grow the row into the very space the row's own overrun had created.
+ */
+describe('previewResize past the end of the day', () => {
+  const NO_BOTTOM_MARGIN: DayShape = {
+    ...SHAPE,
+    marginBottomMinutes: 0,
+    manualWindows: manualWindowsOf([MORNING, AFTERNOON], 60, 0),
+  };
+  const STRANDED: WeekDay = day('2026-08-13', {
+    manualWindows: [...NO_BOTTOM_MARGIN.manualWindows],
+  });
+  // The axis the grid really paints in that state: widened to the containing hour so the
+  // 19:30-20:30 row is not clipped.
+  const WIDENED = createTimeline(NO_BOTTOM_MARGIN, { fitHeight: 742, cover: [20 * 60 + 30] });
+
+  it('caps a growing row at the end of the day, not at the end of the axis', () => {
+    const session = press('resize', 19 * 60 + 30, PRESS_AXIS, {
+      startMinutes: 15 * 60 + 30,
+      durationMinutes: 240,
+    });
+    // Released below the last rule the grid draws: 20:30 is the answer, twice over.
+    expect(previewResize({ clientY: yOf(22 * 60) }, session, METRICS, { dayAt }).durationMinutes).toBe(300);
+    expect(previewResize({ clientY: yOf(20 * 60 + 30) }, session, METRICS, { dayAt }).durationMinutes).toBe(300);
+  });
+
+  it('will not grow a row that already sits outside the windows, and keeps its length', () => {
+    const strandedAt = (date: string): WeekDay | undefined => (date === '2026-08-13' ? STRANDED : undefined);
+    const session = press('resize', 20 * 60 + 30, WIDENED, {
+      startMinutes: 19 * 60 + 30,
+      durationMinutes: 60,
+    });
+    const releaseY = (minutes: number): number => TOP + WIDENED.yOf(minutes);
+
+    // Dragged to the bottom of the widened axis: the row stays the hour it is.
+    expect(
+      previewResize({ clientY: releaseY(21 * 60) }, session, METRICS, { dayAt: strandedAt }).durationMinutes,
+    ).toBe(60);
+    // And it can still be shortened, which is the way back inside the day.
+    expect(
+      previewResize({ clientY: releaseY(20 * 60) }, session, METRICS, { dayAt: strandedAt }).durationMinutes,
+    ).toBe(30);
+  });
+});
+
 describe('previewMove', () => {
+  /**
+   * The clamp that keeps a dropped unit inside the day. It used to be
+   * `axisEnd − durationMinutes`, which mixes NET working minutes with CLOCK minutes: a 6 h
+   * unit was allowed to start at 13:15, where it needs 7 h 30 of clock, and the server
+   * stored `13:15-14:00` + `15:30-20:45` — a quarter of an hour past the end of the day.
+   */
+  it.each([
+    { release: 13 * 60 + 15, start: 13 * 60 },
+    { release: 13 * 60 + 30, start: 13 * 60 },
+    { release: 13 * 60 + 45, start: 13 * 60 },
+    { release: 12 * 60 + 45, start: 12 * 60 + 45 },
+    { release: 13 * 60, start: 13 * 60 },
+  ])('a 6 h unit released at $release starts at $start', ({ release, start }) => {
+    const session = press('move', 13 * 60, PRESS_AXIS, {
+      date: '2026-08-15',
+      startMinutes: 8 * 60,
+      durationMinutes: 360,
+    });
+    session.grabOffsetMinutes = 0;
+    const preview = previewMove({ clientX: 460, clientY: yOf(release) }, session, METRICS, { dayAt });
+    expect(preview.startMinutes).toBe(start);
+  });
+
+  it('leaves a 10 h unit no later than 09:00, whatever the release point', () => {
+    const session = press('move', 8 * 60, PRESS_AXIS, {
+      date: '2026-08-15',
+      startMinutes: 8 * 60,
+      durationMinutes: 600,
+    });
+    session.grabOffsetMinutes = 0;
+    for (const release of [10 * 60, 12 * 60, 13 * 60, 19 * 60]) {
+      expect(
+        previewMove({ clientX: 460, clientY: yOf(release) }, session, METRICS, { dayAt }).startMinutes,
+        `released at ${release}`,
+      ).toBe(9 * 60);
+    }
+  });
+
+  it('still lets a drop start inside the lunch band, where the row is stored uncut', () => {
+    // An Open Decision in CLAUDE.md, deliberately untouched: 6 h released at 14:00 is one
+    // 14:00-20:00 row, which ends inside the day.
+    const session = press('move', 14 * 60, PRESS_AXIS, {
+      date: '2026-08-15',
+      startMinutes: 8 * 60,
+      durationMinutes: 360,
+    });
+    session.grabOffsetMinutes = 0;
+    for (const release of [14 * 60, 14 * 60 + 15, 14 * 60 + 30]) {
+      expect(
+        previewMove({ clientX: 460, clientY: yOf(release) }, session, METRICS, { dayAt }).startMinutes,
+        `released at ${release}`,
+      ).toBe(release);
+    }
+  });
+
   it('keeps the start when the pointer has not travelled at all', () => {
     // The honest answer to "grabbed here, released on the same pixel" is "it did not
     // move". With the axis re-derived per event it was not: the grab offset cancels an

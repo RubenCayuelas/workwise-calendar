@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   adjacentInWindows,
+  clockEndOf,
+  dayEndMinutes,
+  latestStartFor,
   manualWindowsOf,
   netMinutesBetween,
   netMinutesOf,
@@ -152,5 +155,71 @@ describe('usesManualOnlyTime', () => {
         { startMinutes: t('15:30'), durationMinutes: 300 },
       ]),
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The end of the day, and the two conversions stated over it
+// ---------------------------------------------------------------------------
+//
+// Invariant 3 of the battery: no stored row runs past the end of its day. Three call
+// sites used to draw that line at midnight — a drop, a bottom-edge resize and the
+// scissors — so all three are now stated over these three functions.
+
+describe('dayEndMinutes', () => {
+  it('is the end of the last manual window, margin included', () => {
+    expect(dayEndMinutes(WINDOWS)).toBe(t('20:30'));
+    expect(dayEndMinutes(PERIODS)).toBe(t('19:30'));
+    expect(dayEndMinutes(manualWindowsOf(PERIODS, 60, 0))).toBe(t('19:30'));
+  });
+
+  it('falls back to midnight on a day with no windows at all', () => {
+    expect(dayEndMinutes([])).toBe(1440);
+  });
+});
+
+describe('clockEndOf', () => {
+  it('is the end of the last row a net-minute stretch is stored as', () => {
+    // The owner's own worked example: 6 h from 10:00 is 10:00-14:00 plus 15:30-17:30.
+    expect(clockEndOf(WINDOWS, t('10:00'), 360)).toBe(t('17:30'));
+    // Inside one window it is plain arithmetic.
+    expect(clockEndOf(WINDOWS, t('08:00'), 240)).toBe(t('12:00'));
+    // Exactly the day's last minute.
+    expect(clockEndOf(WINDOWS, t('09:00'), 600)).toBe(t('20:30'));
+  });
+
+  it('reports the minutes that run past the end of the day rather than hiding them', () => {
+    // The drop that stored 13:15-14:00 + 15:30-20:45 (invariant 3, rank 1).
+    expect(clockEndOf(WINDOWS, t('13:15'), 360)).toBe(t('20:45'));
+    expect(clockEndOf(WINDOWS, t('15:30'), 720)).toBe(t('20:30') + 420);
+  });
+
+  it('leaves a row that STARTS in a hole uncut, exactly as the splitter does', () => {
+    // A drop released in the lunch band is one solid row: start + net.
+    expect(clockEndOf(WINDOWS, t('14:00'), 360)).toBe(t('20:00'));
+    expect(clockEndOf(WINDOWS, t('14:30'), 60)).toBe(t('15:30'));
+    // Past the last window (a margin the owner has since set to 0).
+    expect(clockEndOf(manualWindowsOf(PERIODS, 60, 0), t('19:30'), 60)).toBe(t('20:30'));
+  });
+});
+
+describe('latestStartFor', () => {
+  it('leaves room for the WHOLE stretch, counting the lunch break it will cross', () => {
+    expect(latestStartFor(WINDOWS, 360)).toBe(t('13:00'));
+    expect(latestStartFor(WINDOWS, 600)).toBe(t('09:00'));
+    expect(latestStartFor(WINDOWS, 60)).toBe(t('19:30'));
+    expect(latestStartFor(WINDOWS, 300)).toBe(t('15:30'));
+  });
+
+  it('agrees with clockEndOf at the boundary, on both sides of it', () => {
+    for (const net of [15, 60, 135, 300, 360, 555, 600, 720]) {
+      const start = latestStartFor(WINDOWS, net);
+      expect(clockEndOf(WINDOWS, start, net), `net ${net}`).toBeLessThanOrEqual(t('20:30'));
+      expect(clockEndOf(WINDOWS, start + 15, net), `net ${net} + a quarter`).toBeGreaterThan(t('20:30'));
+    }
+  });
+
+  it('gives back the first window when the stretch is longer than the whole day', () => {
+    expect(latestStartFor(WINDOWS, 20 * 60)).toBe(t('07:00'));
   });
 });

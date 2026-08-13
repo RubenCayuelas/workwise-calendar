@@ -60,6 +60,13 @@ export interface DropRow {
 export interface DropEffectInput {
   /** Every row already on the TARGET day, the dragged unit's own rows included. */
   rows: readonly DropRow[];
+  /**
+   * The GAPS on the target day. Gaps and blocks are one occupancy set, and a drop that
+   * pins — the buffer, the weekend, a margin, the lunch band — is refused when it lands on
+   * one (409 `overlaps-gap`), exactly as a gap over a hand-placed row is refused. On
+   * Monday-Thursday the reflow keeps auto work off a gap by itself, so nothing is said.
+   */
+  gaps?: readonly { startMinutes: number; durationMinutes: number }[];
   /** The dragged unit's rows: they cannot collide with themselves. */
   movingBlockIds: readonly string[];
   /** The dragged unit's job, which decides merge versus cut. */
@@ -91,11 +98,13 @@ export type DropEffectKind =
   /** The same job's row absorbs the drop: one row, hours SUMMED. */
   | 'merge'
   /** A locked row is in the way. The save is refused (409) and nothing is written. */
-  | 'blocked';
+  | 'blocked'
+  /** A GAP is in the way, on a day that pins. Refused (409), nothing is written. */
+  | 'gap';
 
 export interface DropEffect {
   kind: DropEffectKind;
-  /** The row this happens to. */
+  /** The row this happens to. Empty for a gap, which is not a row of any job. */
   blockId: string;
   /** Its job's name, so the hint can name it the way the toast afterwards will. */
   projectName: string;
@@ -131,33 +140,40 @@ export function dropEffectOf(input: DropEffectInput): DropEffect | null {
     )
     .sort((a, b) => a.startMinutes - b.startMinutes || (a.id < b.id ? -1 : 1));
 
-  if (overlapping.length === 0) return null;
-
   if (reflowed) {
     // A row starting at or after the drop already ranks behind it and is left alone;
-    // a locked row was filtered out above, so no drop on this side is ever refused.
+    // a locked row was filtered out above, so no drop on this side is ever refused. A GAP
+    // is not mentioned either: the reflow keeps auto work off it without being asked.
     const victim = overlapping.find(
       (row) => row.projectId !== input.projectId && row.startMinutes < input.startMinutes,
     );
     return victim === undefined ? null : effect('cut', victim, input.startMinutes);
   }
 
-  // The fixed side, in the order `resolveManualPlacement` applies it: the same-job
-  // merge first (and it refuses when either side is locked), then the cut.
+  // The fixed side. The two REFUSALS come first, because they are the only outcomes where
+  // nothing at all is saved: a lock in the way (which a merge would move), and a gap under
+  // the drop — gaps and blocks are one occupancy set, and on a day that pins nothing will
+  // ever separate them. Then the same-job merge, then the cut.
   const sameJob = overlapping.find((row) => row.projectId === input.projectId);
-  if (sameJob !== undefined) {
-    // Refused when EITHER side is locked: merging moves the surviving row's start, so
-    // it would move the lock. The row named is the same job's either way, which is the
-    // dragged unit's own name — the sentence reads the same from both sides.
-    const blocked = sameJob.locked || input.locked;
-    return effect(blocked ? 'blocked' : 'merge', sameJob, input.startMinutes);
+  if (sameJob !== undefined && (sameJob.locked || input.locked)) {
+    // Refused when EITHER side is locked: merging moves the surviving row's start, so it
+    // would move the lock. The row named is the same job's either way, which is the dragged
+    // unit's own name — the sentence reads the same from both sides.
+    return effect('blocked', sameJob, input.startMinutes);
   }
 
   const locked = overlapping.find((row) => row.locked);
   if (locked !== undefined) return effect('blocked', locked, input.startMinutes);
 
+  const covered = (input.gaps ?? []).find((candidate) =>
+    overlapsSegments(footprint, candidate.startMinutes, candidate.durationMinutes),
+  );
+  if (covered !== undefined) return { kind: 'gap', blockId: '', projectName: '', cutMinutes: input.startMinutes };
+
+  if (sameJob !== undefined) return effect('merge', sameJob, input.startMinutes);
+
   const victim = overlapping[0];
-  return effect('cut', victim, Math.max(victim.startMinutes, input.startMinutes));
+  return victim === undefined ? null : effect('cut', victim, Math.max(victim.startMinutes, input.startMinutes));
 }
 
 function effect(kind: DropEffectKind, row: DropRow, cutMinutes: number): DropEffect {

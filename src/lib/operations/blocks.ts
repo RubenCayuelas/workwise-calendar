@@ -21,13 +21,14 @@
  */
 
 import { getDb, type Db } from '../db';
-import { assertFitsInDay } from '../validation';
+import { MIN_ROW_MINUTES, assertFitsInDay } from '../validation';
 import { todayLocal } from '../dates';
 import { segmentDroppedRow } from '../dropSegments';
 import { usesManualOnlyTime } from '../manualWindow';
 import {
   releaseBlock as releaseBlockMarks,
   resizeBlock as resizeBlockHours,
+  unitOf,
   type EditSuccess,
   type ScheduleSummary,
 } from '../composition';
@@ -78,6 +79,21 @@ export interface BlockMutation {
 export interface MoveBlockInput {
   date: string;
   startMinutes: number;
+  /**
+   * The rows the CALLER drew as one unit with this one — the grid's grouping, which is what
+   * the owner grabbed: a unit has a single drag handle, so a body drag moves all of it.
+   *
+   * They are folded into the named row and moved as ONE row in ONE transaction. It used to be
+   * one request per row with a full reflow between them, and that left part of the unit
+   * behind: after the first move the reflow re-laid the job's remaining hours onto different
+   * ids, so the second request moved whatever row now carried the id the drag had captured —
+   * and the message reported that no hour had been lost, which was true and beside the point.
+   *
+   * Ids that are not really part of the unit (another job, another day, a row a previous
+   * gesture already absorbed) are IGNORED rather than refused: the list is a description of
+   * what the owner saw, and the server checks it against what is stored (`unitOf`).
+   */
+  unitBlockIds?: readonly string[];
   today?: string;
 }
 
@@ -119,19 +135,42 @@ export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb
 
   return runTransaction(db, () => {
     const block = requireBlock(blockId, db);
-    // The row keeps its duration, so the drop point has to leave room for it: a
-    // block is a solid rectangle inside one day and cannot run past midnight.
-    assertFitsInDay(input.startMinutes, block.durationMinutes);
-    updateBlock(
-      {
-        ...block,
-        date: input.date,
-        startMinutes: input.startMinutes,
-        handPlaced: pinsTheRow(input.date, input.startMinutes, block.durationMinutes, db),
-      },
-      db,
+    const stored = listBlocks(db);
+    // The unit the owner grabbed, as the GRID groups it, intersected with what the request
+    // claims: the whole thing moves, once, in this transaction. Anything else is one row.
+    const named = new Set(input.unitBlockIds ?? []);
+    const unit = unitOf(stored, block, getDayConfig(block.date, db).manualWindows).filter(
+      (row) => row.id === blockId || named.has(row.id),
     );
-    const report = recompose(db, { today, manualPlacementBlockId: blockId });
+    const durationMinutes = unit.reduce((total, row) => total + row.durationMinutes, 0);
+    const absorbed = unit.filter((row) => row.id !== blockId).map((row) => row.id);
+
+    // The row keeps the unit's duration, so the drop point has to leave room for it: a
+    // block is a solid rectangle inside one day and cannot run past midnight.
+    assertFitsInDay(input.startMinutes, durationMinutes);
+    const blocks = stored
+      .filter((row) => !absorbed.includes(row.id))
+      .map((row) =>
+        row.id === blockId
+          ? {
+              ...row,
+              date: input.date,
+              startMinutes: input.startMinutes,
+              durationMinutes,
+              handPlaced: pinsTheRow(input.date, input.startMinutes, durationMinutes, db),
+            }
+          : row,
+      );
+
+    // Handed to `recompose` rather than written first: a write before the reflow would make
+    // the row its own baseline, and the end-of-the-day guard reads that baseline to tell an
+    // overrun a gesture just created from one a settings change left behind.
+    const report = recompose(db, {
+      today,
+      blocks,
+      deletedBlockIds: absorbed,
+      manualPlacementBlockId: blockId,
+    });
     return settled(blockId, block.projectId, report, [], db);
   });
 }
@@ -210,6 +249,10 @@ export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = g
         // Both views of the row's day: the stretch is measured and cut over the manual
         // windows, and the margins are what tell it to pin the row.
         day: getDayConfig(block.date, db),
+        // And any other day, for the counterparty: a transfer's receiver may sit on a
+        // Saturday or in the frozen past, where its hours have to be laid out rather than
+        // written raw onto the clock.
+        dayOf: (date) => getDayConfig(date, db),
         newBlockId: newId,
         now: nowTimestamp(),
       }),
@@ -330,6 +373,23 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
       throw conflict('split-exceeds-block', ERROR_MESSAGE_KEYS.splitExceedsBlock, {
         field: 'durationMinutes',
         details: { blockId, durationMinutes: block.durationMinutes },
+      });
+    }
+    // BOTH HALVES HAVE TO BE ROWS THE CALENDAR CAN DRAW. The scissors are the one gesture
+    // that names a duration outright, and nothing here checked a floor: `durationMinutes: 5`
+    // stored a 5-minute fragment and a 10-minute remainder, neither able to show its own
+    // hours. The calendar's grid is the quarter hour everywhere the owner can aim.
+    if (
+      input.durationMinutes < MIN_ROW_MINUTES ||
+      block.durationMinutes - input.durationMinutes < MIN_ROW_MINUTES
+    ) {
+      throw conflict('split-below-minimum', ERROR_MESSAGE_KEYS.splitBelowMinimum, {
+        field: 'durationMinutes',
+        details: {
+          blockId,
+          durationMinutes: block.durationMinutes,
+          minimumMinutes: MIN_ROW_MINUTES,
+        },
       });
     }
 

@@ -38,6 +38,8 @@ import {
   type ScheduleSummary,
 } from './composition';
 import { conflict, internal, ERROR_MESSAGE_KEYS, type AppError } from './errors';
+import { dayEndMinutes } from './manualWindow';
+import { assertRowWithinDayEnd } from './validation';
 import { newId } from './ids';
 import { nowTimestamp } from './timestamps';
 import { dayShapeFromSettings, readSettings } from './settings';
@@ -263,6 +265,18 @@ export function recompose(db: Db, options: RecomposeOptions = {}): RecomposeRepo
       }
     }
 
+    // THE END OF THE DAY, once, over everything this transaction is about to store.
+    // Every gesture that could reach past it did — a drop, a bottom-edge resize, the
+    // scissors and a same-job merge — because each one drew its own line and three of
+    // them drew it at midnight. One place, one rule, whatever produced the row.
+    for (const write of writes) {
+      assertRowWithinDayEnd(
+        write.placement,
+        dayEndMinutes(snapshot.getDayConfig(write.placement.date).manualWindows),
+        endOf(stored.get(write.placement.id)),
+      );
+    }
+
     // Rows the reflow did not keep: what auto-merge absorbed, what an edit zeroed,
     // and anything the caller handed over as already deleted. Removed first so the
     // table never holds both halves of a merge at once.
@@ -407,6 +421,8 @@ function placementRefusal(db: Db, error: ManualPlacementError): AppError {
       ...(error.blockId === undefined ? {} : { blockId: error.blockId }),
       ...(error.projectId === undefined ? {} : { projectId: error.projectId }),
       ...(error.date === undefined ? {} : { date: error.date }),
+      // A gap has no job, and its reason is what the owner recognises it by.
+      ...(error.reason === undefined ? {} : { reason: error.reason }),
       projectName: project?.name ?? '',
       ...(error.startMinutes === undefined
         ? {}
@@ -416,6 +432,11 @@ function placementRefusal(db: Db, error: ManualPlacementError): AppError {
           }),
     },
   });
+}
+
+/** A stored row's end, for the guard's "no write may make an overrun worse" clause. */
+function endOf(block: Block | undefined): number | undefined {
+  return block === undefined ? undefined : block.startMinutes + block.durationMinutes;
 }
 
 /** True when the row the engine returned differs in any way from the one on disk. */

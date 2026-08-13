@@ -148,6 +148,87 @@ export function reachableRuns(
 }
 
 /**
+ * THE END OF THE DAY FOR EVERY HAND GESTURE: the end of the last manual window.
+ *
+ * CLAUDE.md states the line twice — the data model's "a stored block never straddles a
+ * non-working interval (lunch break, END OF DAY)", and *Block Resize*'s "it stops at the
+ * end of the day's last manual window". Before this existed each call site drew its own
+ * line and three of them drew it at MIDNIGHT, so a drop, a bottom-edge drag and the
+ * scissors could all store a row hanging below the grid's own last rule (20:45, 21:30,
+ * 23:00 on the documented shift).
+ *
+ * A day with no windows at all (a shape with no periods) falls back to midnight: there is
+ * no last window to stop at, and refusing every row on such a day would be worse than
+ * the guard it replaces.
+ */
+export function dayEndMinutes(manualWindows: readonly WorkPeriod[]): number {
+  let end = 0;
+  for (const window of manualWindows) end = Math.max(end, window.endMinutes);
+  return end === 0 ? MINUTES_PER_DAY : end;
+}
+
+/**
+ * The CLOCK minute a row of `netMinutes` starting at `startMinutes` ends at — the end of
+ * the LAST row it is stored as.
+ *
+ * `duration` is net working time, so this is the one conversion that turns a gesture's
+ * number back into the geometry it will occupy: 6 h at 13:15 reaches 20:45, because the
+ * 45 minutes before lunch and the 5 h after it leave a quarter of an hour to put
+ * somewhere. It agrees with `segmentDroppedRow` by construction, including its two
+ * latitudes: a row that starts inside a hole is not cut, and there `start + net` is
+ * exactly what this returns.
+ */
+export function clockEndOf(
+  manualWindows: readonly WorkPeriod[],
+  startMinutes: number,
+  netMinutes: number,
+): number {
+  const runs = reachableRuns(manualWindows, startMinutes, MINUTES_PER_DAY);
+  let remaining = netMinutes;
+  let end = startMinutes;
+
+  for (const run of runs) {
+    const from = Math.max(run.startMinutes, startMinutes);
+    const room = Math.max(0, run.endMinutes - from);
+    if (remaining <= room) return from + remaining;
+    remaining -= room;
+    end = run.endMinutes;
+  }
+  // More minutes than the day has left: they run past the end of it, which is what the
+  // callers refuse or clamp. Reported rather than hidden.
+  return end + remaining;
+}
+
+/**
+ * The LATEST start a row of `netMinutes` may have and still end inside the day.
+ *
+ * The drag layer's clamp is stated over this rather than over `axisEnd − duration`, which
+ * is the arithmetic it used to use and which mixes two units: `duration` is NET working
+ * minutes while the axis is CLOCK minutes, so a 6 h unit was allowed to start at 13:15,
+ * where it needs 7 h 30 of clock. On the documented shift the true answer is 13:00.
+ *
+ * Falls back to the first window's start when the row is longer than the whole day's
+ * manual time — there is no legal start then, and the caller (a merge, over HTTP) refuses
+ * it rather than storing it.
+ */
+export function latestStartFor(
+  manualWindows: readonly WorkPeriod[],
+  netMinutes: number,
+): number {
+  const ordered = [...manualWindows].sort((a, b) => a.startMinutes - b.startMinutes);
+  if (ordered.length === 0) return 0;
+
+  let needed = netMinutes;
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const window = ordered[index];
+    const room = Math.max(0, window.endMinutes - window.startMinutes);
+    if (needed <= room) return window.endMinutes - needed;
+    needed -= room;
+  }
+  return ordered[0].startMinutes;
+}
+
+/**
  * True when nothing workable separates a row ending at `endMinutes` from one starting at
  * `startMinutes` — so the two are one stretch: touching rows, or the two halves around
  * the lunch break, and never two rows with real free time between them.

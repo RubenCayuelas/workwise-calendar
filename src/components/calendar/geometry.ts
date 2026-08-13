@@ -14,7 +14,14 @@
  * - A date is a local `YYYY-MM-DD` string, never derived here from a clock.
  */
 
-import { netMinutesBetween, netMinutesOf, reachableRuns } from '../../lib/manualWindow';
+import {
+  clockEndOf,
+  dayEndMinutes,
+  latestStartFor,
+  netMinutesBetween,
+  netMinutesOf,
+  reachableRuns,
+} from '../../lib/manualWindow';
 import type { DayShape, WorkPeriod } from '../../types';
 
 /**
@@ -309,6 +316,33 @@ export function snapTo(minutes: number, snap: number = SNAP_MINUTES): number {
 }
 
 /**
+ * KEEPS A DROPPED UNIT INSIDE THE DAY IT IS DROPPED ON.
+ *
+ * `Timeline.clampStart` keeps a start on the AXIS, which is a different question and not
+ * enough on its own: `durationMinutes` is NET working minutes while the axis is CLOCK
+ * minutes, so `axisEnd − duration` let a 6 h unit start at 13:15 — where it needs 7 h 30 of
+ * clock — and the server stored `13:15-14:00` plus `15:30-20:45`, a quarter of an hour past
+ * the end of the day (invariant 3). The axis is worse than useless here, because `cover`
+ * widens it to show the very row that overran.
+ *
+ * So the limit is the day's own last manual window (`dayEndMinutes`), and an illegal
+ * release is clamped DOWN to the latest start that fits (`latestStartFor`) rather than to
+ * an interval end: the set of legal starts is not an interval. A release inside the lunch
+ * band is legal whenever the row, stored uncut, still ends inside the day — that latitude
+ * is `segmentDroppedRow`'s and an Open Decision in CLAUDE.md, so it is preserved exactly.
+ */
+export function clampDropStart(
+  manualWindows: readonly WorkPeriod[],
+  startMinutes: number,
+  durationMinutes: number,
+  timeline: Timeline,
+): number {
+  const onAxis = timeline.clampStart(startMinutes);
+  if (clockEndOf(manualWindows, onAxis, durationMinutes) <= dayEndMinutes(manualWindows)) return onAxis;
+  return timeline.clampStart(Math.min(onAxis, latestStartFor(manualWindows, durationMinutes)));
+}
+
+/**
  * The queue rank a drop should write.
  *
  * A block's (date, start) IS its place in the queue, and the order is total: ties are
@@ -319,21 +353,25 @@ export function snapTo(minutes: number, snap: number = SNAP_MINUTES): number {
  *
  * One minute is enough — the rank is an ordering, not a time, and the reflow rewrites
  * the position anyway.
+ *
+ * `clampStart` is the caller's clamp, not the axis's: on a day that PINS, the rank IS the
+ * stored time, so a nudge must not be able to push the last legal start one minute past
+ * the end of the day. Passing the function keeps that one decision in one place
+ * (`clampDropStart`) instead of restating it here.
  */
 export function rankFor(
   snappedMinutes: number,
   exactMinutes: number,
   takenStarts: readonly number[],
-  timeline: Timeline,
-  durationMinutes = 0,
+  clampStart: (minutes: number) => number,
 ): number {
   if (!takenStarts.includes(snappedMinutes)) return snappedMinutes;
   const direction = exactMinutes < snappedMinutes ? -1 : 1;
-  const nudged = timeline.clampStart(snappedMinutes + direction, durationMinutes);
+  const nudged = clampStart(snappedMinutes + direction);
   // Clamping may have pushed it back onto the tie (a drop on the very first minute of
   // the axis); the other direction is then the only one left.
   if (nudged !== snappedMinutes) return nudged;
-  return timeline.clampStart(snappedMinutes - direction, durationMinutes);
+  return clampStart(snappedMinutes - direction);
 }
 
 // ---------------------------------------------------------------------------
@@ -355,14 +393,33 @@ export function rankFor(
  *
  * A row that starts in a HOLE (the lunch band, or past the last window) still stops where
  * that hole does — see `reachableRuns`. Nothing may swallow working time it does not own.
+ *
+ * THE REACH IS THE DAY'S OWN END, never the axis's. The axis is widened by `cover` to keep
+ * a row left over from a longer working day visible, and passing that widened end let the
+ * drag grow the row into the space its own overrun had opened — `19:30-20:30` with the
+ * bottom margin set to 0 could be dragged to 21:00 (invariant 3). `ResizeReach.currentMinutes`
+ * is what keeps that row honest in the other direction: the hours already in it are reachable
+ * (CLAUDE.md keeps them), so it can be left alone or shortened, and never grown.
  */
 export function maxDurationFrom(
   startMinutes: number,
   manualWindows: readonly WorkPeriod[],
-  timeline: Timeline,
+  reach: ResizeReach,
 ): number {
-  const runs = reachableRuns(manualWindows, startMinutes, timeline.endMinutes);
-  return Math.max(SNAP_MINUTES, netMinutesOf(runs));
+  return Math.max(SNAP_MINUTES, netMinutesOf(reachRuns(manualWindows, startMinutes, reach)));
+}
+
+/**
+ * How far down a bottom-edge drag may reach, as the two numbers that decide it.
+ *
+ * Both are the DAY's, not the axis's, and the second exists for one documented shape: a row
+ * that already sits outside the manual windows because the margin under it was set to 0.
+ */
+export interface ResizeReach {
+  /** The end of the day's last manual window — `dayEndMinutes(manualWindows)`. */
+  endOfDayMinutes: number;
+  /** The stretch's current net minutes, so a row already outside the windows keeps them. */
+  currentMinutes?: number;
 }
 
 /**
@@ -384,17 +441,40 @@ export function durationTo(
   startMinutes: number,
   pointerMinutes: number,
   manualWindows: readonly WorkPeriod[],
-  timeline: Timeline,
+  reach: ResizeReach,
   snap: number = SNAP_MINUTES,
 ): number {
-  const runs = reachableRuns(manualWindows, startMinutes, timeline.endMinutes);
+  const runs = reachRuns(manualWindows, startMinutes, reach);
   const net = netMinutesBetween(runs, startMinutes, snapTo(pointerMinutes, snap));
-  return clamp(net, snap, maxDurationFrom(startMinutes, manualWindows, timeline));
+  return clamp(net, snap, maxDurationFrom(startMinutes, manualWindows, reach));
 }
 
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+/**
+ * The clock a bottom-edge drag may cover: the reachable runs up to the END OF THE DAY, plus
+ * the tail of a row that already runs past it.
+ *
+ * That tail is the one place the two questions come apart. A row holding `19:30-20:30` after
+ * the bottom margin was set to 0 is legitimate (CLAUDE.md: the owner loses the margin as a
+ * target, not the hours already in it) — so those minutes stay reachable, which is what lets
+ * the owner release the edge where it already is, or drag it back up. Nothing beyond them is.
+ */
+function reachRuns(
+  manualWindows: readonly WorkPeriod[],
+  startMinutes: number,
+  reach: ResizeReach,
+): WorkPeriod[] {
+  const runs = reachableRuns(manualWindows, startMinutes, reach.endOfDayMinutes);
+  const ownEnd = clockEndOf(manualWindows, startMinutes, reach.currentMinutes ?? 0);
+  const last = runs[runs.length - 1];
+  if (last !== undefined && ownEnd > last.endMinutes) {
+    runs.push({ startMinutes: last.endMinutes, endMinutes: ownEnd });
+  }
+  return runs;
+}
 
 function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value;

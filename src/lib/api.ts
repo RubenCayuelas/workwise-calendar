@@ -210,6 +210,27 @@ export function requireFlag(body: JsonBody, key: string): boolean {
   return value;
 }
 
+/**
+ * A list of block ids, or `undefined` when the key is absent — the rows a drop names as ONE
+ * unit with the row it is about.
+ *
+ * Ids that turn out not to be part of the unit are the OPERATION's business, not this
+ * reader's: it only refuses a payload that is not a list of strings.
+ */
+export function readIdList(body: JsonBody, key: string, max = 64): string[] | undefined {
+  if (!hasField(body, key)) return undefined;
+  const value = body[key];
+  if (!Array.isArray(value) || value.length > max) {
+    throw badRequest('invalid-field', ERROR_MESSAGE_KEYS.invalidPayload, { field: key });
+  }
+  return value.map((entry) => {
+    if (typeof entry !== 'string' || entry.trim() === '' || entry.length > 64) {
+      throw badRequest('invalid-field', ERROR_MESSAGE_KEYS.invalidPayload, { field: key });
+    }
+    return entry;
+  });
+}
+
 /** A discriminator such as `action: "move" | "resize" | "lock"`. */
 export function requireOneOf<T extends string>(body: JsonBody, key: string, allowed: readonly T[]): T {
   const value = body[key];

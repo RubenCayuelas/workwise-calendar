@@ -57,7 +57,9 @@ Enable quick visual reorganization via drag & drop.
   - **One Project can have multiple Blocks** across different days (e.g., Job A = Mon 2h + Tue 2h + Wed 1h)
   - **A stored block never straddles a non-working interval** (lunch break, end of day). Work that
     crosses the lunch break is two blocks of the same job — see *Blocks and the Lunch Break*. This
-    holds for a HAND DROP too: the drop is cut at the break when it is saved.
+    holds for a HAND DROP too: the drop is cut at the break when it is saved. The **end of day**
+    half of that sentence is enforced in one place — see *The End of the Day Is a Line No Write May
+    Cross*; four gestures used to reach past it.
   - **A drop onto Monday-Thursday does not pin the block.** It is an ordinary block: the surrounding
     unlocked work reflows around it normally, and placement by hand changes the *order*, not the
     block's mobility. Only the buffer and the weekend pin, via `hand_placed` above, because there a
@@ -155,6 +157,54 @@ rule to one view and forget the other.
 ---
 
 ## Composition Engine Business Rules
+
+### The End of the Day Is a Line No Write May Cross (2026-08-13)
+> **A stored row ends inside its day. The line is the end of the day's LAST MANUAL WINDOW —
+> `dayEndMinutes` — which is every minute a hand gesture may use, margins included.**
+
+CLAUDE.md already said this twice (the data model above; *Block Resize*'s "it stops at the end of
+the day's last manual window") and nothing enforced it. Four gestures reached past it, all answering
+200, all storing a row hanging below the grid's own last rule:
+
+| gesture | what it stored |
+|---|---|
+| a drop released at 13:15 with 6 h | `13:15-14:00` + `15:30-20:45` |
+| a bottom-edge resize (over HTTP, and by mouse on a row already outside the windows) | `15:30-21:30`; `19:30-21:00` |
+| the scissors' second click | `19:45-20:45`, and `19:30-23:00` |
+| a same-job merge | one `13:00-23:00` row, straight through the lunch band |
+
+One line was drawn at MIDNIGHT (`assertRowInsideDay`, which is about a row being *renderable*) and
+three were not drawn at all. The axis was worse than no limit: `cover` widens it to keep a row left
+over from a longer working day visible, so the drag read its cap off the very space the previous
+overrun had opened, and each drop could land lower than the last (verified: three drags compounded
+into a 10 h row `13:00-23:00`).
+
+Where it now lives, in the order that actually guarantees it:
+
+- **`dayEndMinutes`, `clockEndOf`, `latestStartFor`** (`src/lib/manualWindow.ts`, pure). The second
+  is the conversion everything else was missing: `duration` is NET working minutes, so only it can
+  say that 6 h at 13:15 reaches 20:45.
+- **The drag layer clamps** (`clampDropStart` in `geometry.ts`): a release that would not fit is
+  pulled DOWN to the latest start that does. It replaces `axisEnd − durationMinutes`, which mixed
+  net minutes with clock minutes. The set of legal starts is not an interval — a release inside the
+  lunch band is legal whenever the row, stored uncut, still ends inside the day — so it clamps to the
+  latest legal start rather than to an interval end. The scissors' placement and the rank nudge go
+  through the same function.
+- **The resize is capped at the day's end and at the row's own end** (`ResizeReach`), never at the
+  axis. A row that already sits outside the windows (the margin under it was set to 0) keeps its
+  hours, can be shortened, and can never be grown — which is the sub-case CLAUDE.md already decided.
+- **The write path refuses** (`assertRowWithinDayEnd`, called by `recompose` over every row it is
+  about to write): 409 `row-past-day-end`, nothing saved. It is the backstop, so a future path that
+  gets the arithmetic wrong cannot store the shape — and it is **tolerant in exactly one direction**:
+  no write may make an overrun WORSE, so a row a settings change stranded outside the windows stays
+  savable, movable and shrinkable. Without that clause the guard would refuse every unrelated save on
+  a calendar that has one.
+- **A same-job merge that will not fit the day is refused** (`merge-exceeds-day`), instead of storing
+  the sum uncut.
+
+By construction the clamp only ever fires where the drop PINS: a row whose end passes the last
+window holds manual-only minutes, and that is the same test `handPlaced` is set by. So Monday-Thursday
+RANKING is untouched — a 2 h drop released at 17:00 on today still ranks at 17:00 and still reflows.
 
 ### Queue Order
 - The queue order **is the current visual order of the blocks on the calendar**:
@@ -428,6 +478,25 @@ under a second row). **An automatic row the stretch does not reach is left to th
 what keeps *A Hand-Set Duration*'s own worked example working: shrinking the Wednesday morning row of
 an automatic 10 h unit still leaves the job's remaining hours to be moved by the reflow.
 
+**The COUNTERPARTY is laid out too, or the resize is refused** (2026-08-13). Shrinking a row hands the
+freed hours to the job's last row *in the movable pool*, and the reflow settles it. When the job has
+none — every other row locked, hand-placed, on a weekend or in the frozen past — the hours land on a
+row nothing will ever re-lay out, so writing a raw `duration` onto it writes geometry that stays:
+verified in six configurations, a 1 h Saturday row handed 4 h became `12:00-17:00` (minutes on both
+sides of the lunch break) and a 15:30 one became `15:30-21:30` (an hour past the end of the day). The
+new length now goes through `segmentDroppedRow` — the same splitter the target's own segments use — so
+it comes back as two rows around the break; and when the receiver's day cannot hold it at all the
+whole resize is refused (409 `receiver-cannot-hold-hours`), because an immovable row has nowhere else
+to put them and nothing later will tidy them.
+
+**A LOCKED row the stretch rewrites is named** (2026-08-13). What the bottom edge sizes is the stretch
+that begins at the row, and a continuation is part of it whatever its marks — so growing the morning
+half of a unit lengthens a locked afternoon half. That is allowed; doing it silently is not, against
+both "a locked block is never grown silently" and `BlockMutation.touchedLockedBlockIds` ("Never
+silent"), and the response used to carry an empty list. It now names the row and the UI warns.
+Whether a locked continuation should be excluded from the stretch altogether is the owner's call, not
+a mechanical fix, and is left in *Open Decisions*.
+
 **A resize that takes margin time pins the row** (`hand_placed`), and only where the engine would
 otherwise have undone it. The engine's index space has no margin minutes, so an unpinned row would be
 pulled back inside the periods or thrown onto the next day, and the drag would visibly do nothing.
@@ -544,6 +613,30 @@ calendar, and *Never split a job to make it fit* means a job that no longer fits
 ### Job Editing: Name/Description/Color Changes
 - No impact on calendar layout or block positions. Just metadata updates.
 
+### The Calendar Sits On The Quarter Hour (2026-08-13)
+> **A quarter of an hour is the smallest row the calendar can draw and the smallest amount the owner
+> can aim at. `MIN_ROW_MINUTES` (src/lib/validation.ts) is held equal to the drag layer's
+> `SNAP_MINUTES` and to the `TimeSelect` step by a test.**
+
+A row shorter than that cannot show its own hours (`MIN_LABEL_HEIGHT`): on screen it is a nameless
+two-pixel stripe. Two paths could produce one:
+
+- **the scissors**, the one gesture that names a duration outright, checked only that the fragment was
+  smaller than the row: `durationMinutes: 5` stored a 5-minute fragment and a 10-minute remainder.
+  Both halves are now floored (409 `split-below-minimum`), which also keeps the calendar's own
+  quantities on the quarter hour — the UI's two constants were the only thing holding it.
+- **the engine**, when a quantity in the calendar is already off the grid. A 19 h 59 min job on days
+  holding 600 and 590 plannable minutes placed `360 + 230` and then a NINE-MINUTE row on a day no
+  gesture had touched. `wantedFrom` now leaves a full quarter for the tail instead of a sliver. The
+  honest boundary, tested: with fewer than two quarters left there is no split that avoids a short
+  row, and drawing it is far better than refusing to place it (an item the cursor keeps stepping over
+  ends in `horizon-exceeded`, which rolls the whole save back).
+
+**It is deliberately NOT a write-path guard**, and that is the interesting part: the one sub-quarter
+row a gesture can still produce is the head a drop released a hair below another row's start leaves
+behind, which is an Open Decision below. A floor on the write path would answer that decision by
+accident, and would leave the owner unable to delete the sliver it refuses to store.
+
 ### Blocks and the Lunch Break
 - `duration` always means **net working hours**, so every row is a solid rectangle on the clock and
   can be interpreted without reading Settings.
@@ -578,6 +671,24 @@ calendar, and *Never split a job to make it fit* means a job that no longer fits
 - User can move a **portion** of a job (fragment it) or the entire block.
 - On DROP: the queue is reordered (see *Queue Order*) and auto-recomposition runs.
 - **Auto-merge**: as described above.
+
+### A Drop Moves Its Whole Unit, In ONE Transaction (2026-08-13)
+> **A unit is one thing to drag, so it is one request. The rows of the unit are folded into the row
+> the request names, moved as one row, and stored in segments at the destination.**
+
+It used to be one `PATCH` per row of the unit, a minute apart, each its own transaction with a full
+reflow between them — and that is not a smaller version of the same thing. The reflow re-laid the
+job's remaining hours onto DIFFERENT ids in between, so the second request moved whatever row now
+carried the id the drag had captured: a 3 h unit dragged onto Saturday moved 2 h and left an hour on
+Thursday, while the message said no hour had been lost (true, and beside the point). The same race
+raised «Ese bloque ya no existe» on drops that had in fact succeeded.
+
+The client names the unit it drew (`unitBlockIds`, the grid's own grouping) and the server checks the
+list against what is stored (`unitOf`, over `adjacentInWindows` — the same predicate the grid groups
+with and the resize sizes a stretch with). An id that is not really part of the unit — another job,
+another day, a row a previous gesture absorbed — is **ignored, not refused**: the list describes what
+the owner saw, and the server is the authority on what it means. An HTTP caller that names one row
+still moves one row, which is what aiming at a row means.
 
 ### A Drop Is Stored In Segments (decided 2026-08-12; the window named 2026-08-13)
 > **A dropped block is cut at the break between two MANUAL WINDOWS, exactly like everything the
@@ -616,6 +727,14 @@ overlapping are somebody's decision and tidying them on an unrelated save is wha
   day it chains forward like overflow — and a **weekend tail stays on the weekend** (Sat → Sun),
   because the engine never moves weekend work. A tail pushed out of the frozen past skips the
   weekend and the Friday buffer (a displaced row is not growth).
+- **A GAP is never overlapped either** (2026-08-13). Gaps and blocks are ONE occupancy set, and the
+  mirror gesture — a gap over a hand-placed row — is already refused naming the row, so the precedent
+  fixed the answer: a drop that lands on a gap is refused (409 `overlaps-gap` / `errors.dropOverGap`)
+  naming the day and the hours, and the ghost says so before the mouse is released. Only on the fixed
+  side: on Monday-Thursday the reflow keeps auto work off a gap by itself, so nothing is said. That is
+  why this only ever bit where the drop PINS — the buffer, the weekend, a margin, the lunch band,
+  which is exactly where the owner parks work by hand. It was stored silently on top of the gap:
+  no cut, no toast, two things holding the same minutes.
 - **A locked block is never overlapped.** A drop onto one is refused (409) with the block named,
   exactly as a gap over a lock is. A merge is refused even when the lock is the drop's own, since it
   would move the lock's start; a *cut* is allowed while the drop is the locked one, because then the
@@ -797,7 +916,15 @@ and says so too, instead of the ghost simply vanishing.
 - **Click**: open the job panel
 - **Hover**: a small action bar appears with lock, *back to automatic*, *stop the day here*, split
   (scissors) and delete — never behind a modifier key, since on a shop PC an Alt-drag would never be
-  discovered. Two of them are absent where they would do nothing: *stop the day here* on a row that
+  discovered. **The bar drags the block too** (2026-08-13). It is a fixed 102 px anchored at the
+  block's right edge and it appears UNDER the cursor on the first mouse move, so it covers the block's
+  own NAME on every weekend column (129 px wide at the widest viewport) and on every weekday block
+  from about 210 px down — the owner's most natural grab point. Swallowing the press there, which is
+  what it used to do, made the drag do NOTHING: no ghost, no request, no toast, no console error,
+  which is precisely what «la app me ignora» looks like. So a press on the bar begins the same move,
+  and two things keep the buttons working: the press is not cancelled (a press that does not travel is
+  still the BUTTON's click, and is NOT read as a click on the block), and a drag that travelled eats
+  the one click it would otherwise have delivered to the button it started on. Two of them are absent where they would do nothing: *stop the day here* on a row that
   already ends the day, on the weekend, on a closed day and in the past; *back to automatic* on a
   unit no part of whose length was set by hand. It releases the WHOLE unit — a hand-set stretch cut
   at the lunch break is two marked rows, and giving back only half of it would leave the other half
@@ -910,9 +1037,11 @@ they are easy to revisit rather than buried in the code.
   silently" covers **every row outside the pool**: locked, hand-placed, on a weekend, and in the
   frozen past. Taking hours AWAY is not symmetrical and still reaches every row: shrinking one frees
   space rather than claiming it.
-  > ⚠️ **The code does not yet honour this for the frozen past.** `lastAutomatic` in
-  > `src/lib/composition.ts` tests `locked` and `handPlaced` only, so a PAST row is still grown. See
-  > *A past row still absorbs LIFO growth* in Open Decisions — it is a live defect, not a decision.
+  `lastAutomatic` in `src/lib/composition.ts` asks `isMovable`, so all four cases are covered — the
+  frozen past included, which is the one that shipped broken and took the week view down with it.
+  The mirror of this default is in *Block Resize*: when a SHRINK has to hand its freed hours to a row
+  outside the pool, they are laid out in segments on that row's day, or the resize is refused. Only
+  the pool gets a raw number written onto it.
 - **Creating a gap on top of existing work**: recompose, pushing unlocked work forward in the same
   transaction. If the space is held by a locked block, refuse the save with a message naming the
   block rather than creating an overlap. Gaps and blocks are one occupancy set (union of intervals).
@@ -928,6 +1057,104 @@ they are easy to revisit rather than buried in the code.
 ## Open Decisions
 
 Still unanswered; do not invent an answer, ask first.
+
+**The eight below came out of the 2026-08-13 defect hunt** (the one that fixed *The End of the Day*,
+the unit drop, the gap refusal and the quarter-hour floor). Every one of them was reproduced, none of
+them breaks an invariant of the battery — hours are conserved, nothing straddles the break, nothing
+overlaps that did not already, recomposing twice changes nothing — and every one of them is a question
+about what a GESTURE MEANS. That is why they were deliberately left alone: guessing would waste the
+answer. Each carries its reproduction and its candidates.
+
+1. **Taking a row out of the movable pool empties the rest of the day and parks the work a week
+   later.** The owner's «redimensiona mal empujando de forma errónea otros bloques» in its purest
+   form, and it arrives three ways at once: growing a row into the bottom margin, padlocking a row,
+   and growing a row up against a gap. Reproduction: `Barandilla 14 h` then `Porton 6 h`, today Thu;
+   drag the bottom edge of Barandilla's `Thu 15:30-19:30` row down to 20:30 → Thursday MORNING (6 h of
+   today) is emptied and stays empty, Friday stays clear, and Porton slides Monday → Tuesday. The
+   gesture added one hour and moved nine. Cause: an item is treated as its job's FIRST placement
+   whenever the reason it heads the queue is that its earlier rows LEFT the pool, so `continuation` is
+   false, *Never split a job to make it fit* applies, and the remainder moves whole. Candidates:
+   (a) treat "the job's earlier rows are outside the pool" as a continuation too, so the remainder
+   fills the hours left on the day it was cut on; (b) leave the placement and SAY it ("esto deja hoy
+   6 h libres y mueve X al lunes"); (c) prefer the current day for the remainder even when it must
+   split. Fixing it changes what *A Continuation Fills Forward* means, which is the rule it was
+   written to settle.
+2. **A 6-pixel drag on the bottom edge of a lunch-split unit's first row reshuffles the week while
+   the ghost promises nothing.** The ghost reads `08:00–14:00 · 6 h` — no change — and the request
+   `resize 360` is still sent, because `useBlockDrag`'s no-op guard compares the released NET minutes
+   from the row's start (360) with `target.durationMinutes`, which for a resize is the STRETCH (600).
+   The two can never be equal on a multi-row unit, so no micro-drag is ever suppressed. The resize is
+   then a zero-delta one whose only effect is to set `manual_duration`, and *A Hand-Set Duration* does
+   the rest: Barandilla's run ends on Thursday, its 4 h go to Monday, Porton fills the freed
+   afternoon. The mechanical half (a guard comparing two different quantities) could be fixed
+   tomorrow; the semantic half cannot, because the edge the owner can grab sits at 14:00 while the
+   value the client is editing ends at 19:30, so a correct guard still has to be told what "release
+   where you grabbed" means for a unit. Candidates: compare like with like (the ROW's own duration);
+   never let a resize be a pure mark; or keep committing it and warn in the ghost.
+3. **A resize whose result does not fit the day leaves the dragged row untouched, invents a row on
+   another day, and the toast says it worked.** Gap Thu 18:30-19:30, then `Barandilla 13 h`; drag the
+   `15:30-18:30` row's edge to 19:30 → ghost `15:30–19:30 · 4 h`, request `resize 240`, and the
+   Thursday row is still 3 h while a NEW 1 h row appears on Monday. The toast says «pasa a 4 h aquí».
+   Candidates: refuse it naming what is in the way; cap the drag at what the day can hold; or keep
+   splitting it across days and report where the hour went.
+4. **A resize may grow a row over another job, or over a gap, wherever the reflow cannot separate
+   them.** Both rows are hand-placed, so both are outside the pool and the reflow flows around both:
+   `Barandilla` grown to 20:30 sits on top of a hand-placed `Porton 19:30-20:30` on TODAY, and a
+   Friday row grown from 12:00 to 13:00 sits on a gap at 12:00-14:00. `resizeBlock` never looks at
+   other projects' rows and never at gaps; only the drop path resolves overlaps. The existing decision
+   below covers only "a resize that overlaps another job in the frozen past", and both of these are
+   today or on the buffer. Candidates: refuse naming the row or the gap (the answer a drop and a gap
+   already give — and for the gap half the mirror gesture is already a 409); cut at the obstacle the
+   way a drop does; or keep allowing it and draw the overlap on purpose.
+5. **A drop released in the lunch band stores one solid row straight through the break.** 6 h released
+   at Thu 14:00 is stored as ONE `14:00-20:00` row, of which only 15:30-19:30 is inside a period, and
+   `/api/week` then reports the day 360/360 booked while 08:00-14:00 is empty. `segmentDroppedRow`
+   skips the cut whenever the row STARTS outside every window, which is latitude *A Drop Is Stored In
+   Segments* grants on purpose — written for a row that stays inside the hole, not one six hours long.
+   The end of the day is now enforced for it (a 6 h drop at 14:00 fits; 8 h does not and is clamped),
+   so what is left is the meaning. Candidates: cut it at 15:30 like every other drop; refuse a release
+   inside the band for anything that would not fit inside the band; or clamp the ghost to 15:30 while
+   the pointer is in the band.
+6. **A drop whose grab offset pushes the unit above the axis lands hours away from the pointer and
+   pins it on a Monday-Thursday day.** `grabOffsetMinutes` is measured on the CLOCK, so grabbing
+   inside the afternoon row of a lunch-split unit includes the 90-minute hole and the unit's head
+   tracks 4.5 h above the pointer; the clamp then floors it at the top of the axis, and
+   `usesManualOnlyTime` reads the resulting hour of top margin as the owner ASKING for margin time and
+   sets `hand_placed` — on a day CLAUDE.md says a drop never pins. Candidates: do not count
+   clamp-forced minutes as a request; clamp to the first minute inside the PERIODS on an auto-fill
+   day; or measure the grab offset in NET minutes so the head tracks the pointer through the hole.
+7. **On a day that pins, the one-minute rank nudge becomes the stored time.** `Alfa 4 h` by hand on
+   Saturday 10:00, `Beta 2 h` dropped 3 px above the 10:00 rule → `Sáb 09:59-11:59 Beta`,
+   `11:59-14:00 Alfa` (121 min) and `15:30-17:29 Alfa` (119 min). On Mon-Thu the rank is only an
+   ordering and the reflow rewrites it, which is why this stayed hidden; on the weekend, the buffer, a
+   margin or the lunch band the rank IS the stored time. Its three candidates are the same three as
+   the sliver below, so answer both at once.
+8. **The scissors never answer for themselves.** A fragment that reflows back inside the row it came
+   from is a 200 that changes nothing, and the UI says nothing — the shape that made the owner report
+   Friday drops as "the app ignored me". *A Drop Always Answers For Itself* closed exactly this for
+   drops. Candidates: give the scissors a `describeDrop`-style outcome with the same five branches;
+   refuse a split whose fragment would settle back inside the source row; or leave it.
+
+**Two more, from the same pass, that are decisions rather than defects:**
+
+- **A hand-set row that has LEFT the pool stops closing its job's day.** `closedDays` is seeded from
+  the QUEUE, and a locked, hand-placed, weekend or past row is not a queue item — so padlocking a
+  hand-set row re-opens the day the ruler had closed and pulls the same job back onto it, byte for
+  byte what *back to automatic* would have produced. Reproduced: `Barandilla 14 h` + `Porton 6 h`,
+  shrink Barandilla's Thu 08:00 row to 2 h, then padlock it → 2 h of Barandilla come back to Thursday
+  17:30-19:30 and the Tuesday row disappears. Hours conserved, no overlap, idempotent, and the marks
+  are documented as independent — so this is not an invariant break, and the mechanical "fix" (seed
+  `closedDays` from the stored flag) makes the padlock leave the day EMPTY instead, which is decision
+  1 above arriving from a third direction. It has to be answered together with decision 1, and the
+  same way, for all three marks at once.
+- **A sub-quarter row deleted leaves `total_hours` off the quarter hour for ever.** `DELETE
+  /api/blocks/:id` does `total -= row.duration` with no floor, so deleting the 1-minute head the
+  sliver decision below leaves behind makes a 20 h job 19.98333 h. Nothing downstream now produces a
+  short row from it (*The Calendar Sits On The Quarter Hour*), and no invariant is broken — but the
+  number is not one the owner ever typed. It cannot be fixed here without answering the sliver: the
+  minutes are real, `SUM(blocks.duration) == total_hours` must hold, and refusing the delete would
+  leave the owner unable to remove the very row the app should not have created. Answer the sliver
+  and this goes away with it.
 
 - **Does `buffer` belong on a hand-placed Friday row?** `BlockRows.tagOf` labels every Friday row
   `buffer`, including one the owner dropped there. The tag names the DAY's role, not the row's
