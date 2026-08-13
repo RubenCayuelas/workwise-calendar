@@ -15,6 +15,29 @@
  *
  * A press that does not travel is a click, so the same handler opens the job panel.
  * That is why there is no `onClick` on a block: one gesture, one decision point.
+ *
+ * ONE AXIS PER GESTURE, FIXED AT PRESS. The mapping a gesture is resolved against is
+ * captured when the pointer goes down and kept for the whole gesture; only the grid's
+ * ORIGIN is re-measured on every pointer event, which is what keeps a scroll mid-drag
+ * honest. The two halves are different in kind: an origin that moves means THE GRID
+ * MOVED under a still hand, and the minute under the pointer really did change; a SCALE
+ * that changes means the same pixel now means a different minute, so the gesture ends
+ * somewhere the owner never chose.
+ *
+ * That is not hypothetical — it was the defect behind «a veces no se coloca exactamente
+ * donde quiero» (measured 2026-08-13). Publishing the drag's own preview swapped the two
+ * legend lines under the grid for a one-line hint, the legend lost 9.2 px, `.gridArea`
+ * absorbed them, and the axis re-fitted by 1.2% about 50 ms into the drag: a resize
+ * released on 17:30 was read as 17:22 and committed 5,75 h instead of 6 h. The gesture's
+ * own preview was moving the ruler it was being measured with. The trigger is gone (the
+ * legend now reserves its box) and the axis is held for the whole gesture on screen too
+ * (see `CalendarScreen`), but neither of those is what makes this correct: nothing the
+ * layout does can reach a gesture that has already fixed its axis.
+ *
+ * A move looked unaffected only by accident. Subtracting `grabOffsetMinutes` cancels an
+ * ORIGIN error, and there was none; against a changed SCALE it re-anchors the error to
+ * the press DEPTH, which a Friday or weekend drop — where the exact minute is kept rather
+ * than re-flowed — stored as a quarter of an hour out.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -76,8 +99,15 @@ export interface DragPreview {
 }
 
 export interface BlockDragOptions {
-  /** Live measurement of the grid, so a scroll mid-drag cannot offset the pointer. */
+  /**
+   * Live measurement of the grid: its ORIGIN and its columns, so a scroll mid-drag
+   * cannot offset the pointer. The scale is NOT taken from here — see `timeline`.
+   */
   measure: () => GridMetrics | null;
+  /**
+   * The axis. Read ONCE PER GESTURE, at press, and held in the session from there on:
+   * a gesture is resolved against the mapping that was true when the pointer went down.
+   */
   timeline: Timeline;
   dayAt: (date: string) => WeekDay | undefined;
   /** The starts already taken on a date, so a drop rank never ties. */
@@ -113,9 +143,19 @@ export interface DragController {
   beginResize: (event: React.PointerEvent, target: DragTarget) => void;
 }
 
-interface Session {
+/**
+ * One gesture in flight. Exported because the two previews below are pure functions of
+ * it and are tested directly — the arithmetic of a drag has no business being reachable
+ * only through a pointer event and a DOM.
+ */
+export interface DragSession {
   kind: DragKind;
   target: DragTarget;
+  /**
+   * The axis AS IT WAS AT PRESS. Every minute this gesture reports is read off this one,
+   * never off `options.timeline`, which may re-fit while the pointer is still down.
+   */
+  timeline: Timeline;
   originX: number;
   originY: number;
   /** Pointer minute minus the unit's start, so the unit does not jump to the cursor. */
@@ -137,7 +177,7 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
   // Published only once the press has become a drag, so it always arrives and leaves
   // with `preview` and the grid never sees one without the other.
   const [target, setTarget] = useState<DragTarget | null>(null);
-  const session = useRef<Session | null>(null);
+  const session = useRef<DragSession | null>(null);
   const teardown = useRef<(() => void) | null>(null);
 
   // Latest options, read from the window listeners. Without this the listeners would
@@ -167,10 +207,14 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
       event.preventDefault();
       event.stopPropagation();
 
-      const pointerMinutes = live.current.timeline.minutesAt(event.clientY - metrics.top);
+      // The axis this gesture owns, from here to the release. Everything below reads it
+      // off the session; `live.current.timeline` is never consulted again.
+      const timeline = live.current.timeline;
+      const pointerMinutes = timeline.minutesAt(event.clientY - metrics.top);
       session.current = {
         kind: dragKind,
         target,
+        timeline,
         originX: event.clientX,
         originY: event.clientY,
         grabOffsetMinutes: dragKind === 'move' ? pointerMinutes - target.startMinutes : 0,
@@ -238,7 +282,7 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
               settled.startMinutes,
               current.exactMinutes,
               taken,
-              live.current.timeline,
+              current.timeline,
               settled.durationMinutes,
             ),
           });
@@ -294,14 +338,22 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
 // ---------------------------------------------------------------------------
 // The two previews
 // ---------------------------------------------------------------------------
+//
+// Both are pure: a pointer position, the session (which carries the axis), the grid's
+// CURRENT origin and columns, and the week. Exported so the arithmetic of a gesture can
+// be tested for what the owner actually does — press here, release there, get that — with
+// no browser and no React in the way. `options.timeline` is deliberately NOT read by
+// either: the axis comes from `current`, fixed at press.
 
-function previewMove(
-  event: PointerEvent,
-  current: Session,
+/** Where the unit would land. The pointer's minute, less the offset it was grabbed at. */
+export function previewMove(
+  event: { clientX: number; clientY: number },
+  current: DragSession,
   metrics: GridMetrics,
-  options: BlockDragOptions,
+  options: Pick<BlockDragOptions, 'dayAt'>,
 ): DragPreview {
-  const { timeline, dayAt } = options;
+  const { timeline } = current;
+  const { dayAt } = options;
   const hit = slotAt({ x: event.clientX, y: event.clientY }, metrics, timeline);
   // Leaving the grid sideways keeps the last column rather than snapping home: the
   // owner is usually on their way to the next one.
@@ -335,13 +387,14 @@ function previewMove(
  * are inside the windows so report C's "extend into those bands" falls out of the same
  * change.
  */
-function previewResize(
-  event: PointerEvent,
-  current: Session,
+export function previewResize(
+  event: { clientY: number },
+  current: DragSession,
   metrics: GridMetrics,
-  options: BlockDragOptions,
+  options: Pick<BlockDragOptions, 'dayAt'>,
 ): DragPreview {
-  const { timeline, dayAt } = options;
+  const { timeline } = current;
+  const { dayAt } = options;
   const day = dayAt(current.target.date);
   const manualWindows = day?.manualWindows ?? [];
 

@@ -94,6 +94,28 @@ describe('createTimeline', () => {
     expect(timeline.spanMinutes).toBe(60);
     expect(Number.isFinite(timeline.height)).toBe(true);
   });
+
+  /**
+   * THE INVARIANT THE WHOLE DRAG LAYER RESTS ON: the pixel a minute is DRAWN at is the
+   * pixel that READS BACK as that minute. Every gesture is "the block's edge is drawn
+   * here, I put the pointer there" — if the two directions disagree by more than half a
+   * `SNAP_MINUTES` anywhere on the axis, a release lands on a quarter of an hour the
+   * owner did not choose.
+   *
+   * Asserted over every minute of the axis, not a sample: the margins and the lunch band
+   * are ordinary pixels to this mapping (the band is a paint decision, `durationTo`'s
+   * dead zone is an arithmetic one) and a scale that drifted only inside them would be
+   * invisible right up to the moment a resize crossed one. The fitted heights are the
+   * ones the shop's own window produces, and their scales are deliberately not round.
+   */
+  it('reads back every minute of the axis at the pixel it was drawn at', () => {
+    for (const fitHeight of [742, 751, 675, 700, 813, 999]) {
+      const timeline = createTimeline(SHAPE, { fitHeight });
+      for (let minutes = timeline.startMinutes; minutes <= timeline.endMinutes; minutes += 1) {
+        expect(timeline.minutesAt(timeline.yOf(minutes))).toBe(minutes);
+      }
+    }
+  });
 });
 
 describe('nonWorkingBands', () => {

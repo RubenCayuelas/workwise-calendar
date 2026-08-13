@@ -803,6 +803,33 @@ and says so too, instead of the ghost simply vanishing.
   at the lunch break is two marked rows, and giving back only half of it would leave the other half
   still closing the day.
 
+#### One Axis Per Gesture (decided 2026-08-13)
+> **A gesture is resolved against the axis as it was WHEN THE POINTER WENT DOWN. Only the grid's
+> ORIGIN is re-measured while the pointer is down.**
+
+The two are different in kind. An origin that moves means the grid moved under a still hand — a
+scroll, a banner opening above it — and the minute under the pointer really did change, so the drag
+must follow it. A SCALE that changes means the same pixel now means a different minute, and the
+gesture ends somewhere the owner never chose.
+
+This is the answer to «a veces no se coloca exactamente donde quiero». The axis is fitted to the
+height the grid is measured at, and the drag hint under the grid is ONE line where the resting legend
+is TWO — so publishing the drag's own preview shrank the legend, `.gridArea` took the 9 px, and the
+axis re-fitted by 1.2% about 50 ms into the drag. A resize released on 17:30 was read as 17:22 and
+stored 5,75 h. "A veces" because it depended on how fast the drag was and on how many lines the hint
+wrapped to at that window width. A move looked safe only by accident: subtracting the grab offset
+cancels an ORIGIN error, and this was a SCALE error, which it merely re-anchors to the press depth —
+visible wherever the exact minute is KEPT rather than re-flowed (Friday and the weekend, both
+`hand_placed`).
+
+Three things hold it, in order of what actually guarantees it: `useBlockDrag` fixes the axis in the
+session at press; the screen HOLDS the painted axis for as long as a block is in the air, so no late
+re-fit (a window resize, a banner, a refetch that widens `cover`) repaints the week mid-gesture; and
+the legend reserves its two lines, which removes the trigger at the source. The invariant underneath
+is `minutesAt(yOf(m)) === m` for every minute of the axis, margins and lunch band included — asserted
+in `geometry.test.ts`, with the gesture itself pinned release-point by release-point in
+`useBlockDrag.test.ts`.
+
 ### Job Panel (side panel)
 - Colour dot + job name + close
 - Fields: `Nombre`, `Descripción`, `Horas totales` (stepper), `Color` (swatches)

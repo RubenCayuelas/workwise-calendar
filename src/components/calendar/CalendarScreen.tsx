@@ -44,7 +44,7 @@ import type { DayShape, Gap } from '../../types';
 import type { CloseDayRequest } from '../../lib/closeDay';
 import { PROJECT_COLORS } from '../../lib/projectColors';
 import { manualWindowsOf } from '../../lib/manualWindow';
-import { rankFor, createTimeline, type GridMetrics } from './geometry';
+import { rankFor, createTimeline, type GridMetrics, type Timeline } from './geometry';
 import { describeDrop, type DropOutcomeKind } from './dropOutcome';
 import { SummaryStrip } from './SummaryStrip';
 import { WeekHeader } from './WeekHeader';
@@ -148,7 +148,7 @@ export function CalendarScreen({
   // The axis: from Settings, widened to cover anything already on the calendar (a block
   // hand-dropped into a margin, or left over from a longer working day, must be visible
   // rather than clipped), and scaled so the whole day fits the space there is.
-  const timeline = useMemo(() => {
+  const fittedTimeline = useMemo(() => {
     if (view === null) return null;
     const cover: number[] = [];
     for (const block of view.blocks) {
@@ -395,16 +395,37 @@ export function CalendarScreen({
   const drag = useBlockDrag({
     measure: () => metricsRef.current?.() ?? null,
     // A placeholder keeps the hook's contract simple; gestures are disabled until the
-    // real timeline has arrived anyway.
-    timeline: timeline ?? FALLBACK_TIMELINE,
+    // real timeline has arrived anyway. Read once per gesture, at press.
+    timeline: fittedTimeline ?? FALLBACK_TIMELINE,
     dayAt,
     takenStartsOn,
-    enabled: timeline !== null && !busy && !loading && placing === null,
+    enabled: fittedTimeline !== null && !busy && !loading && placing === null,
     onMove,
     onResize,
     onRejected,
     onClick: (target) => setOpenJobId(target.projectId),
   });
+
+  /**
+   * The axis the grid PAINTS — held still for as long as a block is in the air.
+   *
+   * `useBlockDrag` already fixes the axis it MEASURES against at press, so a re-fit
+   * mid-gesture can no longer change what a release means. This is the other half of the
+   * same promise, and it is about what the owner sees: a re-fit repaints every block,
+   * every rule and every ghost at a new scale while their hand is still down. That was
+   * visible on essentially every drag — the drag hint under the grid is one line where
+   * the resting legend is two, `.gridArea` absorbed the difference, and the whole week
+   * jumped by about 1% roughly 50 ms in and jumped back on release. The legend now
+   * reserves its box so the loop is gone at the source; holding the painted axis is what
+   * makes ANY late re-fit (a window resize, a banner, a refetch that widens `cover`)
+   * simply wait until the hand is off the mouse.
+   *
+   * Written during render rather than in an effect because the paint must not lag the
+   * gesture by a frame; the write is idempotent and only ever caches the current value.
+   */
+  const heldTimeline = useRef<Timeline | null>(fittedTimeline);
+  if (drag.kind === null) heldTimeline.current = fittedTimeline;
+  const timeline = drag.kind === null ? fittedTimeline : heldTimeline.current;
 
   /**
    * The hover bar's delete: these hours leave the job. The job's own block count and

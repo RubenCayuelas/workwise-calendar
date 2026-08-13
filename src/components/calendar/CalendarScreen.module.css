@@ -27,14 +27,32 @@
 }
 
 /* The two lines the wireframe prints under the grid, plus the drag hint that replaces
-   them while a block is in the air. */
+   them while a block is in the air.
+
+   THE BOX IS RESERVED FOR TWO LINES AND MUST NOT FOLLOW ITS CONTENT. This element and
+   `.gridArea` are siblings in the same column flexbox, and `.gridArea` is `flex: 1 1
+   auto` — so every pixel the legend gives up, the grid takes, and the timeline re-fits
+   to the grid's measured height. Swapping the two resting lines for the ONE-LINE drag
+   hint did exactly that IN THE MIDDLE OF THE GESTURE THAT PUBLISHED THE HINT: measured
+   2026-08-13, 38.00px -> 28.80px about 50 ms in, the axis re-scaled by 1.2%, and a resize
+   released on 17:30 was read as 17:22 and committed 5,75 h instead of 6 h. The gesture
+   was moving the ruler it was being measured with — «a veces no se coloca exactamente
+   donde quiero», and "a veces" because it depended on how fast the drag was and on how
+   many lines the hint wrapped to at that window width.
+
+   The drag layer no longer trusts a live scale (`useBlockDrag` fixes the axis at press),
+   so this is not what makes a gesture correct — it is what stops the week visibly jumping
+   as a drag starts, and it also holds the axis still when the week merely goes from empty
+   to occupied, which swaps this text too. Two lines of `--ww-line` leading plus the gap
+   is the tallest resting content, and the hint wrapped to two lines still fits it. */
 .legend {
   display: flex;
-  min-height: 2.4em;
+  min-height: calc(2 * var(--ww-line) * 1em + 2px);
   flex-direction: column;
   gap: 2px;
   color: var(--ww-text-muted);
   font-size: var(--ww-text-sm);
+  line-height: var(--ww-line);
 }
 
 .hint {
