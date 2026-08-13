@@ -35,8 +35,16 @@ import { DEFAULT_LANGUAGE } from './i18n';
 export type { WeekBlock, WeekDay, WeekView } from './operations/views';
 export type { ScheduleSummary } from './composition';
 export type { Block, DayShape, Gap, Project, Settings, WorkPeriod } from '../types';
+export type {
+  CreationOutcome,
+  CreationPreview,
+  CreationPreviewCollision,
+  CreationPreviewRow,
+} from './operations/projects';
+export type { CreationMode, StartDateDay } from './creation';
 
 import type { WeekView } from './operations/views';
+import type { CreationOutcome, CreationPreview } from './operations/projects';
 
 // ---------------------------------------------------------------------------
 // Response shapes
@@ -48,6 +56,11 @@ export interface ProjectMutation {
   blocks: Block[];
   summary: ScheduleSummary;
   touchedLockedBlockIds: string[];
+  /**
+   * Only on a creation that named a `startDate`: the same facts the preview showed
+   * before saving, so the notice afterwards repeats them instead of guessing.
+   */
+  placement?: CreationOutcome;
 }
 
 /** What a block gesture returns. `block` is null when auto-merge absorbed the row. */
@@ -109,6 +122,26 @@ export interface CreateProjectInput {
   description?: string;
   color: string;
   totalMinutes: number;
+  /**
+   * An optional FLOOR: "not before this day". Omit it for the ordinary creation, which
+   * appends the job to the end of the queue. It is not stored anywhere — it decides
+   * where the rows are born, and a job born beyond the last occupied day comes back
+   * with every row LOCKED, because the reflow would otherwise drag it to today.
+   * `previewProjectCreation` answers all of that before you send this.
+   */
+  startDate?: string;
+  /**
+   * Only with `startDate`, and only worth sending when the preview says `canForce`:
+   * place the job on that day and push what follows, instead of letting it land at the
+   * end of the queue.
+   */
+  force?: boolean;
+}
+
+export interface PreviewProjectInput {
+  startDate: string;
+  totalMinutes: number;
+  force?: boolean;
 }
 
 export interface UpdateProjectInput {
@@ -391,12 +424,30 @@ export function getProject(projectId: string, options?: RequestOptions): Promise
 /**
  * Appends a job to the END of the queue. It fills Mon-Thu and, if it does not fit,
  * skips Friday for next week's Monday — the colchón never takes new work.
+ *
+ * With `startDate` the job is born on that day instead (or later, if the queue already
+ * runs past it — send `force` to override that). See `CreateProjectInput`.
  */
 export function createProject(
   input: CreateProjectInput,
   options?: RequestOptions,
 ): Promise<ProjectMutation> {
   return send<ProjectMutation>('POST', '/projects', definedOnly(input), options);
+}
+
+/**
+ * Where a job WOULD land if it were created with that start date. Writes nothing.
+ *
+ * Call it whenever the owner changes the date, the hours or the force flag: it is the
+ * same planner the POST uses, so what it reports is what the save will do — where the
+ * hours start, what is already sitting across the whole span they would occupy, whether
+ * every row would be locked, and which days are free instead.
+ */
+export function previewProjectCreation(
+  input: PreviewProjectInput,
+  options?: RequestOptions,
+): Promise<CreationPreview> {
+  return send<CreationPreview>('POST', '/projects/preview', definedOnly(input), options);
 }
 
 /**

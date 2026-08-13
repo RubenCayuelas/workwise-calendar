@@ -76,6 +76,11 @@ export interface NewJobContext {
   summary: ScheduleSummary;
   /** The swatch the calendar shows least of, so two new jobs are not the same colour. */
   suggestedColor: string;
+  /**
+   * `settings.planningHorizonWeeks` — how far ahead the optional start-date picker
+   * reaches. The form's date is a floor, not a deadline; see `NewJobPanel`.
+   */
+  horizonWeeks: number;
 }
 
 export interface GapFormContext {
@@ -662,6 +667,7 @@ export function CalendarScreen({
                 today: view.today,
                 summary: view.summary,
                 suggestedColor: leastUsedColor(view.blocks),
+                horizonWeeks: view.settings.planningHorizonWeeks,
               })}
 
           {gapTarget === null || renderGapForm === undefined

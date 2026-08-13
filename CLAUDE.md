@@ -52,7 +52,7 @@ Enable quick visual reorganization via drag & drop.
   - `hand_placed`: Boolean. A **human put this row on this day**, on a day the engine would otherwise
     have taken it back — the Friday buffer or the weekend. The engine then treats it as a fixed
     obstacle and never moves it. It is what tells "the engine parked overflow on Friday" (recovered
-    the moment Mon-Thu frees up, which is the whole point of the colchón) apart from "the owner said
+    the moment Mon-Thu frees up, which is the whole point of the buffer) apart from "the owner said
     do this on Friday". See *A Hand-Placed Row*.
   - **One Project can have multiple Blocks** across different days (e.g., Job A = Mon 2h + Tue 2h + Wed 1h)
   - **A stored block never straddles a non-working interval** (lunch break, end of day). Work that
@@ -156,7 +156,7 @@ Everything else is a fixed obstacle that flexible work flows around.
    - Locked blocks are immovable obstacles; flexible work flows **around and past** them — they are
      not a wall.
    - Gaps are occupied time and consume plannable hours.
-2. **Friday — the buffer (colchón)**. Friday exists to absorb work that grew beyond its estimate so
+2. **Friday — the buffer**. Friday exists to absorb work that grew beyond its estimate so
    it does not all spill into next week.
    - New job placement **never targets Friday**. A new job fills Mon-Thu; if it does not fit, its
      tail goes to **next week's Monday**, skipping Friday entirely.
@@ -166,7 +166,7 @@ Everything else is a fixed obstacle that flexible work flows around.
      back, so the buffer self-cleans and stays available for the next surprise.
    - **But only what the engine itself put there.** A block a human DROPPED on Friday carries
      `hand_placed` and is a fixed obstacle — see *A Hand-Placed Row*. That is how the owner puts work
-     on the colchón deliberately; a lock is not required (though it still works, and means something
+     on the buffer deliberately; a lock is not required (though it still works, and means something
      stricter: it survives a drag back into Mon-Thu).
    - If Friday's plannable hours run out too, the remainder goes to next week's Monday.
 3. **Weekends**: entirely outside the engine.
@@ -207,7 +207,7 @@ exactly as long as that choice does:
   Releasing hands the day to the ENGINE; it does not promise Monday. A released Friday row keeps its
   queue position, and the forward-only cursor may have passed the earlier hole already — *Never
   backfill* then leaves it on Friday, moved up to the first free minute there, which is the engine
-  deciding rather than the owner. It comes off the colchón as soon as the reflow reaches a Mon-Thu day
+  deciding rather than the owner. It comes off the buffer as soon as the reflow reaches a Mon-Thu day
   with room at its rank (verified in the browser: releasing the hand-set length ahead of it in the
   queue reopened Wednesday and pulled the Friday row back to Thursday in the same pass);
 - **lost** by a drop back onto Monday-Thursday. The same gesture that set it takes it away.
@@ -265,12 +265,69 @@ one item, so it still moves whole or not at all.
 Everything else is unchanged, and deliberately:
 - the continuation is placed **in its queue position**, so strict order holds and nothing is brought
   forward into the space it left;
-- it is **not growth**, so it skips the Friday colchón like any displaced work;
+- it is **not growth**, so it skips the Friday buffer like any displaced work;
 - it still never straddles a non-working interval, and still stops at the day's plannable hours.
 
 This also fixes the owner's second complaint (*«redimensiona mal empujando de forma errónea otros
 bloques»*): after a resize the remainder used to leap past a day it could partly fill, instead of
 continuing into it.
+
+### Creating a Job With a Start Date (decided with the owner, 2026-08-12)
+The create form takes an **optional start date**, chosen from the same `DateSelect` the gap and split
+forms use. Left empty it means exactly what it always did: the job is appended to the end of the
+queue, Mon-Thu, never Friday.
+
+> **The date means "not before this day". It is a FLOOR, not a deadline** — CLAUDE.md excludes
+> deadlines deliberately and this must not grow into one — **and it is NOT STORED.** It decides where
+> the rows are born and nothing else: no `not_before` column, no new check inside `compose`. Where a
+> date genuinely has to survive, the automatic lock below is what survives.
+
+**The three modes**, all of them answers to one question — *would the engine put this job on or after
+that day by itself?* `src/lib/creation.ts` owns them, and one function (`planCreation`) serves both
+the save and the form's preview, so the form cannot promise a placement the save will not perform.
+
+| the chosen day | mode | what is written |
+|---|---|---|
+| the queue reaches it: appending the job lands on or after that day | `queue` | today's behaviour, unchanged: one provisional row after the last block. The job joins the end of the queue, and when that is LATER than the day chosen the form says so before saving. |
+| the same, but the owner disagreed (`force`) | `forced` | one provisional row ranked at 00:00 of that day. The job takes that place in the queue and the work behind it moves — the same outcome as creating the job and dragging it there, including that a **locked** row is not moved: it stands, and the new job flows around it and continues after. |
+| the engine would place it EARLIER (the day is beyond the work planned), or would not place it there at all (a Friday, a weekend, the past) | `born` | the job's real rows, on that day and the days after it, laid out by `compose` itself. |
+
+**The automatic lock, and why it is mechanical rather than a preference.** Queue order IS calendar
+position and the engine fills forward from today, so a rank on a later day is not a reservation: a job
+with nothing in front of it is placed at the cursor, which is today. **A job born where the engine
+would otherwise fill earlier has every one of its rows locked** — the padlock is the only thing that
+holds it, and a half-locked job would come apart on the next reflow. Inside the span already planned
+no lock is added, because the work in front of the job is what holds it there. It is the ordinary
+padlock: visible, and removable.
+
+The owner stated the rule as "later than the last currently occupied day", and on the dense calendar
+they were describing that is the same test. The code measures the reason directly instead — it asks
+the engine where an appended job would land and compares — because on a sparse calendar a single
+locked row far out makes "the last occupied day" say nothing about where the engine would fill.
+Worked examples, both unchanged by the refinement: work planned through 30 Sep, job placed 15 Sep →
+no lock, it flows; job placed 20 Oct → locked, or the engine pulls it back to today. **The boundary
+where the chosen day IS the last occupied day gives no lock**, and has its own test.
+
+**Friday and the weekend are honoured after an explicit confirmation** ("the Friday is the buffer" /
+"the weekend is not planned"), and the rows that land on the chosen day carry `hand_placed`, so the
+engine never reclaims them. The job's continuation follows the normal rules from there — including
+skipping the buffer, since it is still a new job. A **past** date is allowed: the rows are created
+there, locked, as a record of work that was done but never logged.
+
+**`newProjectIds` still applies in every mode**, so the continuation of a dated job skips the Friday
+buffer exactly like any new job's tail. The chosen day itself is the one exception, and it is opened
+up explicitly rather than by weakening the rule: the synthetic pass that decides where a born job's
+rows go reports the chosen day's role as `auto` when it is a Friday, because choosing the buffer by
+hand is the owner's intent and they have just confirmed it. The weekend is never opened up — it is
+outside the movable pool BY DATE — so the hours sitting on a chosen Saturday or Sunday are laid out by
+`manualDaySegments`, free working time forward, a run that holds the job whole preferred, never
+straddling the lunch break; the remainder goes back to `compose` from the following Monday.
+
+**The form previews the placement BEFORE saving** (`POST /api/projects/preview`, which writes
+nothing): where the hours really start, the rows they would occupy, **what is already sitting across
+the whole span they would occupy** — not only the first day — naming the job and the day, whether
+every row would come back locked, and which days are free instead. Then the owner picks another day,
+forces it, or accepts it.
 
 ### The Past is Frozen
 - The engine **never writes to a date earlier than today**. Past days render dimmed and are not a
@@ -334,7 +391,7 @@ hold again on the following pass:
   out differently.
 
 Everything else still applies unchanged: the Friday buffer (a displaced remainder is not growth, so it
-skips the colchón), the weekend, the frozen past, plannable hours, and the lunch-break segmentation —
+skips the buffer), the weekend, the frozen past, plannable hours, and the lunch-break segmentation —
 a hand-set stretch longer than the morning is stored as two rows that both carry the mark, and the
 engine reads them back as one stretch.
 
@@ -549,7 +606,7 @@ where the decisions in this section come from.
   narrow and de-emphasised, so dragging to the weekend works with no extra state and no setting.
 - **Time axis**: vertical, from the top visual margin to the bottom visual margin. Grey bands mark
   the visual margins and the lunch break, labelled "solo arrastre manual".
-- **Day headers** carry their state: `Lun 10 · congelado`, `Mar 11 [hoy]`, `Vie 14 · colchón`.
+- **Day headers** carry their state: `Lun 10 · congelado`, `Mar 11 [hoy]`, `Vie 14 · buffer`.
 - **Summary strip** above the grid, amber-tinted:
   `Taller ocupado hasta el jueves 27 de agosto · 96 h en cola · viernes libre`.
   This is the stated objective of the app, so it ships in v0.2. Served from one endpoint so
@@ -576,7 +633,7 @@ where the decisions in this section come from.
   which is the strictest of the three.
 
   The hand's solid outline does a second job: on Friday it is the difference between `desborde 2 h`
-  (dashed — the week overran and the engine parked hours on the colchón) and a row the owner put
+  (dashed — the week overran and the engine parked hours on the buffer) and a row the owner put
   there on purpose. `isOverflow` therefore excludes any unit with a hand-placed row in it, so the
   two treatments never appear on the same block.
 - **One undo for both hand marks.** *Back to automatic* appears whenever a unit carries EITHER a
@@ -663,7 +720,9 @@ and says so too, instead of the ghost simply vanishing.
 ### Job Management
 - **Create**: Name + Description + Color + Hours (e.g., "Door frame" + Red + 8h)
   - Appended to the end of the queue (Mon-Thu, never Friday)
-  - Or user specifies a start day
+  - Or an optional **start date**, which means "not before this day" — see *Creating a Job With a
+    Start Date*. The form previews the placement before saving: where the hours land, what is in the
+    way across the whole span, which days are free, and whether the rows come back locked.
 - **Edit**: Change name, description, color, total hours (affects last block per LIFO rules)
 - **Delete**: Requires confirmation. Blocks deleted; calendar recomposes.
 - **Lock/Unlock**: Toggle `locked` flag per block
@@ -746,9 +805,9 @@ they are easy to revisit rather than buried in the code.
 
 Still unanswered; do not invent an answer, ask first.
 
-- **Does `colchón` belong on a hand-placed Friday row?** `BlockRows.tagOf` labels every Friday row
-  `colchón`, including one the owner dropped there. The tag names the DAY's role, not the row's
-  provenance, and the hand glyph beside it says who chose the day — but the owner may read `colchón`
+- **Does `buffer` belong on a hand-placed Friday row?** `BlockRows.tagOf` labels every Friday row
+  `buffer`, including one the owner dropped there. The tag names the DAY's role, not the row's
+  provenance, and the hand glyph beside it says who chose the day — but the owner may read `buffer`
   as "the engine overran onto Friday". Raised by the interface pass; left as-is pending a second
   opinion, since changing it means the tag stops meaning one thing.
 - **A resize that overlaps another job in the frozen past.** *Block Resize* is offered on past rows
@@ -793,7 +852,7 @@ and in a real browser: the same-job overlap merge (durations summed, total uncha
 different-job cut (`A, B, A`), *stop the day here* dropping the day's plannable minutes and
 pushing the work that no longer fits to the next day with room, the 409 naming the locked block
 that a gap or a drop would have overlapped, and the Friday rule both ways (a new job skips the
-colchón for next Monday; the growth of an existing job lands on it).
+buffer for next Monday; the growth of an existing job lands on it).
 
 **Not in v0.2**, and both already listed above: the Settings UI for `day_overrides`, and backups.
 
@@ -845,7 +904,7 @@ databases (`WORKWISE_DB_PATH` on a scratch path, `next start`), with today = Wed
 - **The mark's lifecycle**, as documented above: a hand-set row keeps its length through a drag (only
   its position moves) and through a job-total edit that lands on another row; it is released by the
   cut, and by LIFO reaching the row itself.
-- **Nothing regressed**: a new job skips the Friday colchón for next Monday while the growth of placed
+- **Nothing regressed**: a new job skips the Friday buffer for next Monday while the growth of placed
   work lands on Friday and is pulled back off it when room reappears; weekend work survives the
   "delete one job, create another" churn with no lock; the engine never writes to a past day the owner
   moved work onto; a gap over a locked block is a 409 naming the block, and a gap on movable time is
@@ -874,7 +933,7 @@ re-verified the same way (today = Wed 2026-08-12, `WORKWISE_DB_PATH` on a scratc
   segmentation. See *A Drop Is Stored In Segments*. 6 h onto a past Monday at 10:00 is now
   `10:00-14:00` + `15:30-17:30`, and 3 h onto a Saturday at 13:00 is `13:00-14:00` + `15:30-17:30`.
 
-Still true, re-checked over HTTP on clean databases: a NEW 24 h job skips the colchón (Wed, Thu, next
+Still true, re-checked over HTTP on clean databases: a NEW 24 h job skips the buffer (Wed, Thu, next
 Mon) while growing it to 28 h lands on Friday and shrinking it back pulls it off again; weekend work
 survives the "delete one job, create another" churn with no lock; a hand-set 2 h row is still 2 h
 after an unrelated save and the calendar comes back identical; shrinking a job's last block is still a
@@ -946,6 +1005,35 @@ bottom edges, *Volver a automático* from the hover bar — and the stored rows 
   hours onto that untouchable row, straddling the lunch break and, past midnight, taking the whole
   page down. The growth target now agrees with the movable pool, and a write-path guard makes an
   out-of-day row impossible to store. See *Job Editing: Adding/Removing Hours*.
+
+**v0.5 — the optional start date on the create form (2026-08-12).** See *Creating a Job With a Start
+Date* for the rule. `src/lib/creation.ts` is pure, holds all of it, and is the ONE planner behind both
+`POST /api/projects` (with `startDate` / `force`) and `POST /api/projects/preview`, which writes
+nothing — so the preview cannot promise a placement the save will not perform. It asks `compose`
+itself where the rows go, on a snapshot with `today` moved to the chosen day and every existing row
+force-locked into an obstacle, so segmentation, plannable minutes, no-backfill, the horizon and the
+buffer are the engine's answers rather than a second implementation of them.
+
+Verified: `tsc --noEmit` clean, `vitest run` 537 passing across 21 files, `next lint` clean,
+`next build` succeeds. The new suites are `src/lib/creation.test.ts` (the decision table, the
+auto-lock boundary at "the chosen day IS the last occupied day", the fixed point over five kinds of
+start date) and `src/components/jobs/startDate.test.ts` (which sentences the form says, and their
+order). `src/lib/scheduler.test.ts` adds the end-to-end cases, including one that creates a job with
+every kind of date and asserts the **preview equals what was then written**.
+
+Driven in a real browser (Chromium over CDP, `WORKWISE_DB_PATH` on a scratch database, `next start`),
+today = Wed 2026-08-12: a date the queue runs past reports the deferral, the collision (*«Ya hay 10 h
+de otro trabajo en esos días: Mié 12 ago · 10 h Barandilla»*) and the free days; ticking *Colocarlo ese
+día y desplazar lo que haya* re-previews it onto the chosen day and the save then displaced the other
+job forward with the buffer left clear and every total intact; a date beyond everything previews and
+creates two rows tagged *Bloqueado*, and an unrelated creation afterwards does not drag them back; a
+Saturday asks *¿Crear el trabajo en fin de semana?* and stores `hand_placed` rows; a past Wednesday
+stores locked rows that the grid draws desaturated with the padlock glyph.
+
+**Found here and fixed in the same pass**: the create panel reset itself whenever `defaultColor`
+changed, and `defaultColor` is the least-used swatch — so creating a job changed it and the panel
+wiped the "where the hours went" notice a moment after showing it. The reset now runs on the panel's
+OPENING edge only.
 
 ---
 

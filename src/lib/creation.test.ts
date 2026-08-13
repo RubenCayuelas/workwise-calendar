@@ -1,0 +1,546 @@
+/**
+ * The start-date planner's specification.
+ *
+ * `startDate` on the create form means ONE thing — "not before this day" — and every
+ * test below names the rule it comes from. Two of them carry the weight:
+ *
+ * - THE AUTO-LOCK BOUNDARY. A job born beyond the last occupied day has every row
+ *   locked, because queue order IS calendar position and the reflow would otherwise
+ *   drag it back to today. The edge worth pinning is the day the owner will actually
+ *   hit: the chosen date EQUALS the last occupied day, and then there is no lock.
+ * - THE ROWS ARE THE ENGINE'S. `planCreation` asks `compose` where the hours go, so a
+ *   born job is segmented at the lunch break, capped by plannable minutes and skips
+ *   the Friday colchón for its continuation — with no second placement engine to drift.
+ *
+ * Pure, like the engine it wraps: `today` is an input, times are integer minutes, and
+ * assertions read as `YYYY-MM-DD HH:mm-HH:mm project` lines so a failure reads like the
+ * calendar.
+ */
+
+import { beforeEach, describe, expect, it } from 'vitest';
+import { hhmmToMinutes as t, minutesToHHmm } from './dates';
+import { DEFAULT_SETTINGS, dayShapeFromSettings } from './settings';
+import { compose, createDayConfigResolver, type ComposeInput, type ComposeResult } from './composition';
+import { decideStartDate, planCreation, type CreationPlan, type CreationResult } from './creation';
+import type { Block, DayOverride, DayShape, Gap } from '../types';
+
+const LAST_WED = '2026-08-05';
+const MON = '2026-08-10';
+const TUE = '2026-08-11';
+/** The week under test is the wireframe's, and today is the Wednesday inside it. */
+const WED = '2026-08-12';
+const THU = '2026-08-13';
+const FRI = '2026-08-14';
+const SAT = '2026-08-15';
+const SUN = '2026-08-16';
+const NEXT_MON = '2026-08-17';
+const NEXT_TUE = '2026-08-18';
+const NEXT_WED = '2026-08-19';
+const NEXT_THU = '2026-08-20';
+const FAR_MON = '2026-09-07';
+
+const SHAPE: DayShape = {
+  periods: [
+    { startMinutes: t('08:00'), endMinutes: t('14:00') },
+    { startMinutes: t('15:30'), endMinutes: t('19:30') },
+  ],
+  shiftMinutes: 600,
+  capacityMinutes: 600,
+  marginTopMinutes: 60,
+  marginBottomMinutes: 60,
+  timelineStartMinutes: t('07:00'),
+  timelineEndMinutes: t('20:30'),
+};
+
+let sequence = 0;
+
+beforeEach(() => {
+  sequence = 0;
+});
+
+function stamp(index: number): string {
+  return new Date(Date.UTC(2026, 7, 1, 8, 0, 0) + index * 60_000)
+    .toISOString()
+    .slice(0, 19)
+    .replace('T', ' ');
+}
+
+interface BlockSpec {
+  project: string;
+  date: string;
+  from: string;
+  hours: number;
+  locked?: boolean;
+  handPlaced?: boolean;
+}
+
+function block(spec: BlockSpec): Block {
+  const index = ++sequence;
+  return {
+    id: `b${index}`,
+    projectId: spec.project,
+    date: spec.date,
+    startMinutes: t(spec.from),
+    durationMinutes: Math.round(spec.hours * 60),
+    locked: spec.locked ?? false,
+    manualDuration: false,
+    handPlaced: spec.handPlaced ?? false,
+    createdAt: stamp(index),
+    updatedAt: stamp(index),
+  };
+}
+
+function gap(spec: { date: string; from: string; hours: number }): Gap {
+  const index = ++sequence;
+  return {
+    id: `g${index}`,
+    date: spec.date,
+    startMinutes: t(spec.from),
+    durationMinutes: Math.round(spec.hours * 60),
+    createdAt: stamp(index),
+    updatedAt: stamp(index),
+  };
+}
+
+function input(spec: {
+  today?: string;
+  blocks?: Block[];
+  gaps?: Gap[];
+  shape?: DayShape;
+  overrides?: DayOverride[];
+}): ComposeInput {
+  return {
+    today: spec.today ?? WED,
+    blocks: spec.blocks ?? [],
+    gaps: spec.gaps ?? [],
+    getDayConfig: createDayConfigResolver(spec.shape ?? SHAPE, spec.overrides ?? []),
+    planningHorizonWeeks: DEFAULT_SETTINGS.planningHorizonWeeks,
+  };
+}
+
+/** The new job, always `new`, so a row's project name reads as itself in a failure. */
+function plan(
+  composeInput: ComposeInput,
+  request: { startDate: string; hours: number; force?: boolean },
+): CreationResult {
+  let minted = 0;
+  return planCreation(composeInput, {
+    projectId: 'new',
+    minutes: Math.round(request.hours * 60),
+    blockId: 'n1',
+    newBlockId: () => `n${++minted + 1}`,
+    now: stamp(99),
+    startDate: request.startDate,
+    force: request.force,
+  });
+}
+
+function expectOk(result: CreationResult): CreationPlan {
+  if (!result.ok) throw new Error(`expected a plan, got "${result.error.code}"`);
+  return result;
+}
+
+/** The NEW job's rows only: where the hours were born. */
+function rows(result: CreationResult): string[] {
+  return expectOk(result).placed.map(
+    (row) =>
+      `${row.date} ${minutesToHHmm(row.startMinutes)}-${minutesToHHmm(
+        row.startMinutes + row.durationMinutes,
+      )}${row.locked ? ' [locked]' : ''}${row.handPlaced ? ' [hand]' : ''}`,
+  );
+}
+
+/** Every row of a composed calendar, so two passes can be compared line for line. */
+function lines(result: ComposeResult): string[] {
+  if (!result.ok) throw new Error(`expected a placement, got "${result.error.code}"`);
+  return result.blocks.map(
+    (row) =>
+      `${row.date} ${minutesToHHmm(row.startMinutes)}-${minutesToHHmm(
+        row.startMinutes + row.durationMinutes,
+      )} ${row.projectId}${row.locked ? ' [locked]' : ''}${row.handPlaced ? ' [hand]' : ''}`,
+  );
+}
+
+/** Feeds a placement back in, so the engine can be asked to recompose its own output. */
+function reload(result: ComposeResult): Block[] {
+  if (!result.ok) throw new Error(`expected a placement, got "${result.error.code}"`);
+  return result.blocks.map((row, index) => ({
+    id: row.id ?? `inserted-${index}`,
+    projectId: row.projectId,
+    date: row.date,
+    startMinutes: row.startMinutes,
+    durationMinutes: row.durationMinutes,
+    locked: row.locked,
+    manualDuration: row.manualDuration,
+    handPlaced: row.handPlaced,
+    createdAt: stamp(index),
+    updatedAt: stamp(index),
+  }));
+}
+
+/** What the caller would write, as the whole calendar: hours must be conserved. */
+function minutesOf(result: CreationResult, projectId: string): number {
+  return expectOk(result)
+    .blocks.filter((row) => row.projectId === projectId)
+    .reduce((total, row) => total + row.durationMinutes, 0);
+}
+
+// ---------------------------------------------------------------------------
+
+describe('deciding what a start date means', () => {
+  /** Work planned to Thursday; an appended job would start on Thursday afternoon. */
+  const question = {
+    startDate: NEXT_MON,
+    today: WED,
+    lastOccupiedDate: THU,
+    role: 'auto' as const,
+    isClosed: false,
+    queueStartDate: THU,
+  };
+
+  it('is a floor, not a booking: while the queue reaches it the job joins the queue', () => {
+    const decision = decideStartDate({
+      ...question,
+      startDate: WED,
+      lastOccupiedDate: NEXT_TUE,
+      queueStartDate: NEXT_TUE,
+    });
+
+    expect(decision.mode).toBe('queue');
+    expect(decision.floorBinding).toBe(false);
+    expect(decision.autoLock).toBe(false);
+    expect(decision.beyondQueue).toBe(false);
+  });
+
+  it('locks every row when the date is beyond the work planned', () => {
+    const decision = decideStartDate({ ...question, startDate: NEXT_WED, queueStartDate: THU });
+
+    expect(decision.mode).toBe('born');
+    expect(decision.beyondQueue).toBe(true);
+    expect(decision.floorBinding).toBe(true);
+    expect(decision.autoLock).toBe(true);
+  });
+
+  it('does NOT lock on the boundary: the chosen day IS the last occupied day', () => {
+    // A dense calendar to Thursday: an appended job starts on Thursday, which is not
+    // earlier than the day asked for, so the work in front of it is what holds it.
+    const decision = decideStartDate({ ...question, startDate: THU, queueStartDate: THU });
+
+    expect(decision.beyondQueue).toBe(false);
+    expect(decision.floorBinding).toBe(false);
+    expect(decision.autoLock).toBe(false);
+    expect(decision.mode).toBe('queue');
+  });
+
+  it('locks the day after the boundary, and only that changes', () => {
+    const day = (startDate: string): boolean =>
+      decideStartDate({ ...question, startDate, queueStartDate: THU }).autoLock;
+
+    expect(day(THU)).toBe(false);
+    expect(day(FRI)).toBe(true);
+  });
+
+  it('measures the floor against where the ENGINE would fill, not the last row', () => {
+    // A lone locked row far out makes "the last occupied day" say nothing: the engine
+    // would still fill Wednesday first, so a job asked for that day needs the padlock.
+    const decision = decideStartDate({
+      ...question,
+      startDate: NEXT_TUE,
+      lastOccupiedDate: NEXT_TUE,
+      queueStartDate: WED,
+    });
+
+    expect(decision.beyondQueue).toBe(false);
+    expect(decision.floorBinding).toBe(true);
+    expect(decision.autoLock).toBe(true);
+  });
+
+  it('treats a clear calendar as "the engine would start today"', () => {
+    expect(
+      decideStartDate({ ...question, startDate: WED, lastOccupiedDate: null, queueStartDate: WED })
+        .autoLock,
+    ).toBe(false);
+    expect(
+      decideStartDate({ ...question, startDate: THU, lastOccupiedDate: null, queueStartDate: WED })
+        .autoLock,
+    ).toBe(true);
+  });
+
+  it('marks the buffer and the weekend hand-placed, and asks for a confirmation', () => {
+    const friday = decideStartDate({ ...question, startDate: FRI, role: 'buffer' });
+    const saturday = decideStartDate({ ...question, startDate: SAT, role: 'manual' });
+
+    expect([friday.day, saturday.day]).toEqual(['buffer', 'weekend']);
+    expect([friday.handPlaced, saturday.handPlaced]).toEqual([true, true]);
+    expect([friday.needsDayConfirmation, saturday.needsDayConfirmation]).toEqual([true, true]);
+    expect([friday.mode, saturday.mode]).toEqual(['born', 'born']);
+  });
+
+  it('allows the past and locks it: a job done but never logged', () => {
+    const decision = decideStartDate({ ...question, startDate: LAST_WED, queueStartDate: THU });
+
+    expect(decision.day).toBe('past');
+    expect(decision.mode).toBe('born');
+    // The floor does not bind — the queue lands later — but the past is locked anyway.
+    expect(decision.floorBinding).toBe(false);
+    expect(decision.autoLock).toBe(true);
+    // Nothing to confirm: the past is not a day the engine would take back.
+    expect(decision.needsDayConfirmation).toBe(false);
+  });
+
+  it('forces only where the engine would otherwise defer the job', () => {
+    expect(
+      decideStartDate({
+        ...question,
+        startDate: WED,
+        lastOccupiedDate: NEXT_TUE,
+        queueStartDate: NEXT_TUE,
+        force: true,
+      }).mode,
+    ).toBe('forced');
+    // Beyond the queue there is nothing to force: the job is born there anyway.
+    expect(decideStartDate({ ...question, startDate: NEXT_WED, force: true }).mode).toBe('born');
+  });
+
+  it('names the weekend before a closed day, since that is the fact that binds', () => {
+    expect(decideStartDate({ ...question, startDate: SAT, isClosed: true }).day).toBe('weekend');
+    expect(decideStartDate({ ...question, startDate: NEXT_MON, isClosed: true }).day).toBe('closed');
+  });
+});
+
+describe('a date the queue already runs past', () => {
+  const calendar = input({
+    blocks: [
+      block({ project: 'bar', date: WED, from: '08:00', hours: 6 }),
+      block({ project: 'bar', date: WED, from: '15:30', hours: 4 }),
+      block({ project: 'bar', date: THU, from: '08:00', hours: 6 }),
+    ],
+  });
+
+  it('lands at the end of the queue and says it was deferred', () => {
+    const result = plan(calendar, { startDate: WED, hours: 4 });
+
+    expect(expectOk(result).decision.mode).toBe('queue');
+    expect(expectOk(result).deferred).toBe(true);
+    expect(expectOk(result).canForce).toBe(true);
+    expect(rows(result)).toEqual([`${THU} 15:30-19:30`]);
+  });
+
+  it('reports what sits across the WHOLE span it would have occupied, not just day one', () => {
+    // 20 h from Wednesday spans Wed, Thu and next Monday at 10 h a day.
+    const result = plan(calendar, { startDate: WED, hours: 20 });
+    const collisions = expectOk(result).collisions;
+
+    // Forced, the job would take Wednesday and Thursday, pushing Barandilla forward.
+    expect(expectOk(result).span).toEqual({ startDate: WED, endDate: THU });
+    expect(collisions.map((item) => `${item.date} ${item.projectId} ${item.minutes}`)).toEqual([
+      `${WED} bar 600`,
+      `${THU} bar 360`,
+    ]);
+  });
+
+  it('offers the days with nothing on them', () => {
+    const result = plan(calendar, { startDate: WED, hours: 4 });
+
+    // Wednesday and Thursday carry work; Friday is the buffer and the weekend is out.
+    expect(expectOk(result).freeDates.slice(0, 3)).toEqual([NEXT_MON, NEXT_TUE, NEXT_WED]);
+  });
+
+  it('places the job on the chosen day when forced, and pushes what follows', () => {
+    const result = plan(calendar, { startDate: WED, hours: 4, force: true });
+
+    expect(expectOk(result).decision.mode).toBe('forced');
+    expect(expectOk(result).deferred).toBe(false);
+    expect(rows(result)).toEqual([`${WED} 08:00-12:00`]);
+    // Nothing is locked or pinned: it is a queue rank, exactly like a drag.
+    expect(expectOk(result).placed.every((row) => !row.locked && !row.handPlaced)).toBe(true);
+    // And the work that was there is still all there, one day further on.
+    expect(minutesOf(result, 'bar')).toBe(16 * 60);
+  });
+});
+
+describe('a date beyond everything planned', () => {
+  const calendar = input({
+    blocks: [block({ project: 'bar', date: WED, from: '08:00', hours: 6 })],
+  });
+
+  it('is born there, with every row locked', () => {
+    const result = plan(calendar, { startDate: NEXT_TUE, hours: 4 });
+
+    expect(expectOk(result).decision.autoLock).toBe(true);
+    expect(rows(result)).toEqual([`${NEXT_TUE} 08:00-12:00 [locked]`]);
+    expect(expectOk(result).deferred).toBe(false);
+  });
+
+  it('is the engine that lays it out: the lunch break cuts it, capacity caps the day', () => {
+    const result = plan(calendar, { startDate: NEXT_TUE, hours: 14 });
+
+    expect(rows(result)).toEqual([
+      `${NEXT_TUE} 08:00-14:00 [locked]`,
+      `${NEXT_TUE} 15:30-19:30 [locked]`,
+      `${NEXT_WED} 08:00-12:00 [locked]`,
+    ]);
+    expect(minutesOf(result, 'new')).toBe(14 * 60);
+  });
+
+  it('skips the Friday colchón on the way forward, like any new job', () => {
+    const result = plan(calendar, { startDate: NEXT_WED, hours: 24 });
+
+    expect(rows(result)).toEqual([
+      `${NEXT_WED} 08:00-14:00 [locked]`,
+      `${NEXT_WED} 15:30-19:30 [locked]`,
+      `${NEXT_THU} 08:00-14:00 [locked]`,
+      `${NEXT_THU} 15:30-19:30 [locked]`,
+      // Friday the 21st is skipped: the buffer never takes new work.
+      `2026-08-24 08:00-12:00 [locked]`,
+    ]);
+  });
+
+  it('flows around a gap on the chosen day', () => {
+    const withGap = input({
+      blocks: calendar.blocks as Block[],
+      gaps: [gap({ date: FAR_MON, from: '10:00', hours: 2 })],
+    });
+    const result = plan(withGap, { startDate: FAR_MON, hours: 4 });
+
+    // Never backfill: two hours are free before the gap, but the job goes whole.
+    expect(rows(result)).toEqual([`${FAR_MON} 12:00-14:00 [locked]`, `${FAR_MON} 15:30-17:30 [locked]`]);
+  });
+
+  it('reports nothing in the way, because there is nothing there', () => {
+    const result = plan(calendar, { startDate: FAR_MON, hours: 4 });
+
+    expect(expectOk(result).collisions).toEqual([]);
+  });
+});
+
+describe('the buffer, the weekend and the past', () => {
+  const calendar = input({
+    blocks: [
+      block({ project: 'bar', date: WED, from: '08:00', hours: 6 }),
+      block({ project: 'bar', date: WED, from: '15:30', hours: 4 }),
+      block({ project: 'bar', date: THU, from: '08:00', hours: 6 }),
+      block({ project: 'bar', date: NEXT_MON, from: '08:00', hours: 6 }),
+      block({ project: 'bar', date: NEXT_TUE, from: '08:00', hours: 6 }),
+    ],
+  });
+
+  it('honours a Friday, marks it hand-placed, and does not lock it inside the span', () => {
+    const result = plan(calendar, { startDate: FRI, hours: 4 });
+
+    expect(expectOk(result).decision.day).toBe('buffer');
+    expect(rows(result)[0]).toBe(`${FRI} 08:00-12:00 [hand]`);
+    expect(expectOk(result).decision.autoLock).toBe(false);
+  });
+
+  it('honours a Saturday, where the engine would place nothing at all', () => {
+    const result = plan(calendar, { startDate: SAT, hours: 4 });
+
+    expect(rows(result)[0]).toBe(`${SAT} 08:00-12:00 [hand]`);
+    expect(expectOk(result).decision.needsDayConfirmation).toBe(true);
+  });
+
+  it('records the past where it happened, locked, without touching what is there', () => {
+    const withPast = input({
+      blocks: [...(calendar.blocks as Block[]), block({ project: 'bar', date: LAST_WED, from: '08:00', hours: 2 })],
+    });
+    const result = plan(withPast, { startDate: LAST_WED, hours: 3 });
+
+    // It flows around the row that is already on that past day rather than over it.
+    expect(rows(result)).toEqual([`${LAST_WED} 10:00-13:00 [locked]`]);
+    expect(minutesOf(result, 'bar')).toBe(30 * 60);
+  });
+
+  it('marks the chosen day only: the tail is the engine\'s day, not the owner\'s', () => {
+    const result = plan(calendar, { startDate: SAT, hours: 14 });
+    const placed = expectOk(result).placed;
+
+    // Saturday holds what fits (cut at the lunch break, hand-placed); the rest is the
+    // engine's business and lands on a weekday with no mark at all.
+    expect(placed.filter((row) => row.date === SAT).map((row) => row.handPlaced)).toEqual([
+      true,
+      true,
+    ]);
+    expect(placed.filter((row) => row.date !== SAT).every((row) => !row.handPlaced)).toBe(true);
+    expect(placed.some((row) => row.date !== SAT)).toBe(true);
+    expect(minutesOf(result, 'new')).toBe(14 * 60);
+  });
+});
+
+describe('what the plan hands the caller', () => {
+  it('returns the whole calendar to compose, with the job in it', () => {
+    const calendar = input({ blocks: [block({ project: 'bar', date: WED, from: '08:00', hours: 6 })] });
+    const result = plan(calendar, { startDate: NEXT_TUE, hours: 4 });
+
+    expect(expectOk(result).blocks).toHaveLength(2);
+    expect(minutesOf(result, 'bar')).toBe(6 * 60);
+    expect(minutesOf(result, 'new')).toBe(4 * 60);
+  });
+
+  it('refuses, rather than half-placing, when the hours run past the horizon', () => {
+    const result = plan(input({}), { startDate: MON, hours: 4000 });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.messageKey).toBe('errors.horizonExceeded');
+  });
+
+  it('names a locked row in the way, which forcing does not move', () => {
+    const calendar = input({
+      blocks: [
+        block({ project: 'bar', date: WED, from: '08:00', hours: 2 }),
+        block({ project: 'bar', date: NEXT_TUE, from: '10:00', hours: 2, locked: true }),
+      ],
+    });
+    const result = plan(calendar, { startDate: NEXT_TUE, hours: 4 });
+    const collisions = expectOk(result).collisions;
+
+    expect(collisions).toHaveLength(1);
+    expect(collisions[0]).toMatchObject({ projectId: 'bar', date: NEXT_TUE, locked: true, fixed: true });
+    // Never backfill: the two free hours in front of the lock are left alone.
+    expect(rows(result)).toEqual([`${NEXT_TUE} 12:00-14:00 [locked]`, `${NEXT_TUE} 15:30-17:30 [locked]`]);
+  });
+
+  it('lands the whole calendar on a fixed point: the second pass moves nothing', () => {
+    // The property four rounds of engine work rest on. A plan that is not a fixed point
+    // would reshape the calendar on the next unrelated save.
+    const calendar = input({
+      blocks: [
+        block({ project: 'bar', date: WED, from: '08:00', hours: 6 }),
+        block({ project: 'bar', date: THU, from: '08:00', hours: 4 }),
+      ],
+      gaps: [gap({ date: NEXT_WED, from: '10:00', hours: 1 })],
+    });
+
+    for (const startDate of [WED, NEXT_TUE, FRI, SAT, LAST_WED]) {
+      const result = plan(calendar, { startDate, hours: 14 });
+      const first = compose({
+        ...calendar,
+        blocks: expectOk(result).blocks,
+        newProjectIds: ['new'],
+      });
+      const second = compose({ ...calendar, blocks: reload(first) });
+
+      expect(lines(second), `${startDate}: the second pass moved something`).toEqual(lines(first));
+    }
+  });
+
+  it('never overlaps work already on a chosen weekend day', () => {
+    const calendar = input({
+      blocks: [block({ project: 'bar', date: SAT, from: '09:00', hours: 2, handPlaced: true })],
+    });
+    const result = plan(calendar, { startDate: SAT, hours: 3 });
+
+    // One free run holds it whole (11:00-14:00); the existing row keeps its slot.
+    expect(rows(result)).toEqual([`${SAT} 11:00-14:00 [locked] [hand]`]);
+  });
+
+  it('starts on the first open day when the chosen one is closed', () => {
+    const calendar = input({
+      overrides: [{ date: NEXT_TUE, isClosed: true, capacityHours: null, note: 'Festivo' }],
+    });
+    const result = plan(calendar, { startDate: NEXT_TUE, hours: 4 });
+
+    expect(expectOk(result).decision.day).toBe('closed');
+    expect(rows(result)).toEqual([`${NEXT_WED} 08:00-12:00 [locked]`]);
+  });
+});

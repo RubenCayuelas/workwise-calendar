@@ -162,6 +162,18 @@
   color: var(--ww-text-muted);
 }
 
+/* The start-date preview's explanations, INSIDE a banner: several independent
+   sentences, each about a different consequence of the date. They are `<span>`s
+   because a banner's body is inline content, so without this they run together into
+   one paragraph — rendering the panel is what showed it ("…un sitio reservado.Días
+   libres:…"). One sentence per line, and the list of hours below keeps its own. */
+.previewNotes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-1);
+  margin-top: var(--ww-space-2);
+}
+
 .loading {
   font-size: var(--ww-text-sm);
   color: var(--ww-text-muted);

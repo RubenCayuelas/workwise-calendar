@@ -21,7 +21,12 @@ import { minutesToHHmm } from './dates';
 import { AppError } from './errors';
 import { PROJECT_COLORS } from './projectColors';
 import { assertProjectHours, readSummary } from './scheduler';
-import { createProject, deleteProject, patchProject } from './operations/projects';
+import {
+  createProject,
+  deleteProject,
+  patchProject,
+  previewProjectCreation,
+} from './operations/projects';
 import {
   deleteBlock,
   moveBlock,
@@ -48,6 +53,7 @@ const FRI = '2026-08-14';
 const SAT = '2026-08-15';
 const SUN = '2026-08-16';
 const NEXT_MON = '2026-08-17';
+const NEXT_TUE = '2026-08-18';
 
 const BLUE = PROJECT_COLORS[0];
 const GREEN = PROJECT_COLORS[1];
@@ -151,6 +157,203 @@ describe('creating a job', () => {
     expect(error.status).toBe(409);
     // The project row was inserted before the engine ran: the rollback is what
     // stops a job existing with no hours on the calendar.
+    expect(listProjects(db)).toEqual([]);
+    expect(listBlocks(db)).toEqual([]);
+  });
+});
+
+describe('creating a job with a start date', () => {
+  /** The same call as `job()`, with the optional floor the create form now offers. */
+  function dated(
+    name: string,
+    hours: number,
+    startDate: string,
+    options: { force?: boolean; today?: string } = {},
+  ) {
+    return createProject(
+      {
+        name,
+        color: GREEN,
+        totalMinutes: hours * 60,
+        startDate,
+        ...(options.force === undefined ? {} : { force: options.force }),
+        today: options.today ?? MON,
+      },
+      db,
+    );
+  }
+
+  it('is a floor: while the queue reaches the day, the job still joins the queue', () => {
+    job('Puerta', 20);
+    const created = dated('Barandilla', 4, MON);
+
+    // Monday and Tuesday are full, so "not before Monday" is satisfied by Wednesday.
+    expect(calendar()).toEqual([
+      `${MON} 08:00-14:00 Puerta`,
+      `${MON} 15:30-19:30 Puerta`,
+      `${TUE} 08:00-14:00 Puerta`,
+      `${TUE} 15:30-19:30 Puerta`,
+      `${WED} 08:00-12:00 Barandilla`,
+    ]);
+    expect(created.placement).toMatchObject({ mode: 'queue', deferred: true, autoLock: false });
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('forces the day when the owner says so, pushing what follows', () => {
+    job('Puerta', 20);
+    const created = dated('Barandilla', 4, TUE, { force: true });
+
+    expect(calendar()).toEqual([
+      `${MON} 08:00-14:00 Puerta`,
+      `${MON} 15:30-19:30 Puerta`,
+      `${TUE} 08:00-12:00 Barandilla`,
+      `${TUE} 12:00-14:00 Puerta`,
+      `${TUE} 15:30-19:30 Puerta`,
+      `${WED} 08:00-12:00 Puerta`,
+    ]);
+    expect(created.placement).toMatchObject({ mode: 'forced', deferred: false });
+    // Nothing was pinned: forcing writes a queue rank, exactly like a drag.
+    expect(listBlocks(db).every((block) => !block.locked && !block.handPlaced)).toBe(true);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('locks every row of a job born beyond the work planned, and the lock holds', () => {
+    job('Puerta', 4);
+    const created = dated('Barandilla', 4, NEXT_MON);
+
+    expect(calendar()).toEqual([
+      `${MON} 08:00-12:00 Puerta`,
+      `${NEXT_MON} 08:00-12:00 Barandilla [locked]`,
+    ]);
+    expect(created.placement).toMatchObject({ autoLock: true, mode: 'born', deferred: false });
+
+    // The whole point of the padlock: an unrelated creation must not drag it to today.
+    job('Reja', 6);
+    expect(calendar()).toEqual([
+      `${MON} 08:00-12:00 Puerta`,
+      `${MON} 12:00-14:00 Reja`,
+      `${MON} 15:30-19:30 Reja`,
+      `${NEXT_MON} 08:00-12:00 Barandilla [locked]`,
+    ]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('honours a Friday by hand, marking it hand-placed rather than locked', () => {
+    // 44 h fills Monday to Thursday and spills onto NEXT Monday (a new job skips the
+    // colchón), so the queue already runs past this Friday: nothing needs a padlock,
+    // and the hand mark is what keeps the buffer from self-cleaning the row away.
+    job('Puerta', 44);
+    const created = dated('Barandilla', 4, FRI);
+    const row = listBlocks(db).find((block) => block.date === FRI);
+
+    expect(row).toMatchObject({ startMinutes: 8 * 60, durationMinutes: 240, handPlaced: true });
+    expect(row?.locked).toBe(false);
+    expect(created.placement).toMatchObject({ day: 'buffer', handPlaced: true, autoLock: false });
+
+    // And it survives the create-then-reflow churn that used to undo a Friday drop.
+    job('Reja', 2);
+    expect(listBlocks(db).find((block) => block.date === FRI)?.id).toBe(row?.id);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('honours a Saturday, where the engine places nothing at all', () => {
+    job('Puerta', 20);
+    dated('Barandilla', 4, SAT);
+    const row = listBlocks(db).find((block) => block.date === SAT);
+
+    // Beyond the work planned, so it carries BOTH marks: the hand says the owner chose
+    // the day, the padlock is what stops the reflow claiming the hours back.
+    expect(row).toMatchObject({
+      startMinutes: 8 * 60,
+      durationMinutes: 240,
+      handPlaced: true,
+      locked: true,
+    });
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('records the past where it happened, locked, and the engine leaves it alone', () => {
+    dated('Barandilla', 3, LAST_FRI);
+
+    expect(calendar()).toEqual([`${LAST_FRI} 08:00-11:00 Barandilla [locked]`]);
+
+    job('Puerta', 4);
+    expect(calendar()).toEqual([
+      `${LAST_FRI} 08:00-11:00 Barandilla [locked]`,
+      `${MON} 08:00-12:00 Puerta`,
+    ]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('splits a long job at the lunch break and skips the colchon on the way forward', () => {
+    dated('Escalera', 24, NEXT_TUE);
+
+    expect(calendar()).toEqual([
+      `${NEXT_TUE} 08:00-14:00 Escalera [locked]`,
+      `${NEXT_TUE} 15:30-19:30 Escalera [locked]`,
+      '2026-08-19 08:00-14:00 Escalera [locked]',
+      '2026-08-19 15:30-19:30 Escalera [locked]',
+      // Thursday the 20th, not Friday the 21st: a new job never targets the buffer.
+      '2026-08-20 08:00-12:00 Escalera [locked]',
+    ]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('previews exactly what the save then writes', () => {
+    job('Puerta', 20);
+
+    for (const [startDate, force] of [
+      [MON, false],
+      [TUE, true],
+      [NEXT_MON, false],
+      [FRI, false],
+      [SAT, false],
+      [LAST_FRI, false],
+    ] as const) {
+      const preview = previewProjectCreation(
+        { startDate, totalMinutes: 4 * 60, force, today: MON },
+        db,
+      );
+      const created = createProject(
+        { name: `Job ${startDate}`, color: BLUE, totalMinutes: 4 * 60, startDate, force, today: MON },
+        db,
+      );
+
+      expect(
+        created.blocks.map((block) => ({
+          date: block.date,
+          startMinutes: block.startMinutes,
+          durationMinutes: block.durationMinutes,
+          locked: block.locked,
+          handPlaced: block.handPlaced,
+        })),
+        `preview drifted for ${startDate}`,
+      ).toEqual(preview.rows);
+
+      // Reset for the next case, so each one is measured against the same calendar.
+      deleteProject(created.project.id, { today: MON }, db);
+    }
+  });
+
+  it('names the jobs and the days in the way, across the whole span', () => {
+    job('Puerta', 20);
+    const preview = previewProjectCreation({ startDate: MON, totalMinutes: 20 * 60, today: MON }, db);
+
+    expect(preview.span).toEqual({ startDate: MON, endDate: TUE });
+    expect(
+      preview.collisions.map((item) => `${item.date} ${item.projectName} ${item.minutes}`),
+    ).toEqual([`${MON} Puerta 600`, `${TUE} Puerta 600`]);
+    expect(preview.deferred).toBe(true);
+    expect(preview.canForce).toBe(true);
+    expect(preview.freeDates[0]).toBe(WED);
+  });
+
+  it('refuses without writing when the hours run past the horizon', () => {
+    updateSettings({ planningHorizonWeeks: 1 }, { today: MON }, db);
+
+    const error = refusal(() => dated('Imposible', 200, TUE));
+
+    expect(error.code).toBe('horizon-exceeded');
     expect(listProjects(db)).toEqual([]);
     expect(listBlocks(db)).toEqual([]);
   });
