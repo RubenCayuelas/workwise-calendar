@@ -20,6 +20,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { hhmmToMinutes as t, minutesToHHmm } from './dates';
 import { DEFAULT_SETTINGS, dayShapeFromSettings } from './settings';
+import { manualWindowsOf } from './manualWindow';
 import { compose, createDayConfigResolver, type ComposeInput, type ComposeResult } from './composition';
 import { decideStartDate, planCreation, type CreationPlan, type CreationResult } from './creation';
 import type { Block, DayOverride, DayShape, Gap } from '../types';
@@ -39,11 +40,15 @@ const NEXT_WED = '2026-08-19';
 const NEXT_THU = '2026-08-20';
 const FAR_MON = '2026-09-07';
 
+const PERIODS = [
+  { startMinutes: t('08:00'), endMinutes: t('14:00') },
+  { startMinutes: t('15:30'), endMinutes: t('19:30') },
+];
+
 const SHAPE: DayShape = {
-  periods: [
-    { startMinutes: t('08:00'), endMinutes: t('14:00') },
-    { startMinutes: t('15:30'), endMinutes: t('19:30') },
-  ],
+  periods: PERIODS,
+  // Derived, exactly as `dayShapeFromSettings` derives it: 07:00-14:00 and 15:30-20:30.
+  manualWindows: manualWindowsOf(PERIODS, 60, 60),
   shiftMinutes: 600,
   capacityMinutes: 600,
   marginTopMinutes: 60,

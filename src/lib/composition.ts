@@ -41,6 +41,11 @@ import {
   weekdayOf,
 } from './dates';
 import { overlapsSegments, segmentDroppedRow, type DropSegment } from './dropSegments';
+import {
+  adjacentInWindows,
+  usesManualOnlyTime,
+  type DayWindows,
+} from './manualWindow';
 
 /** The i18n key `compose` reports when the hours run past the planning horizon. */
 export const HORIZON_EXCEEDED_KEY = 'errors.horizonExceeded';
@@ -67,10 +72,21 @@ const MAX_RANK_MINUTES = 1439;
  */
 export type DayRole = 'auto' | 'buffer' | 'manual';
 
-/** One day as the engine reads it: `getDayConfig(date)` is its only source. */
-export interface DayConfig {
+/**
+ * One day as the engine reads it: `getDayConfig(date)` is its only source.
+ *
+ * It carries BOTH views of the day (`DayWindows`), and which one a rule reads is the
+ * rule: everything auto-fill does is stated over `periods`, everything a HAND action
+ * does over `manualWindows`. See src/lib/manualWindow.ts.
+ */
+export interface DayConfig extends DayWindows {
   /** Working periods, chronological and non-overlapping (morning, afternoon). */
   periods: readonly WorkPeriod[];
+  /**
+   * The periods plus the visual margins, fused where they touch. A drop, a resize and the
+   * scissors may use this whole stretch; auto-fill may not, and never sees it.
+   */
+  manualWindows: readonly WorkPeriod[];
   /** The auto-fill stop line for this day, in minutes. Never a limit on manual placement. */
   capacityMinutes: number;
   role: DayRole;
@@ -103,6 +119,7 @@ export function createDayConfigResolver(
     const capacityHours = override?.capacityHours;
     return {
       periods: shape.periods,
+      manualWindows: shape.manualWindows,
       capacityMinutes:
         capacityHours === null || capacityHours === undefined
           ? defaultCapacity
@@ -1189,7 +1206,13 @@ export function changeProjectMinutes(blocks: readonly Block[], change: HoursChan
 /** Dragging a block's bottom edge. */
 export interface BlockResize {
   blockId: string;
-  /** The new net working minutes for that row. */
+  /**
+   * The new NET WORKING MINUTES of the stretch that begins at that row's start.
+   *
+   * Net, so the lunch break contributes nothing: a row starting at 10:00 dragged to 17:30
+   * is 6 h — `10:00-14:00` plus `15:30-17:30` — and never 7.5 h. The stretch, because the
+   * row may already continue after the break; see `stretchFrom`.
+   */
   durationMinutes: number;
   /**
    * Local `YYYY-MM-DD`. Needed for the same reason `HoursChange` needs it: the row the
@@ -1198,6 +1221,16 @@ export interface BlockResize {
    * frozen past absorb growth — see `lastAutomatic`.
    */
   today: string;
+  /**
+   * The day the row sits on, in BOTH views. A resize is a hand action, so it is measured
+   * and cut over `manualWindows` — the margins included — while `periods` is what says
+   * whether the result has left auto-fill's reach and must therefore be pinned.
+   */
+  day: DayWindows;
+  /** An id per extra row the stretch needs once it is cut at the lunch break. */
+  newBlockId: () => string;
+  /** `created_at` / `updated_at` for a row the segmentation has to create. */
+  now: string;
 }
 
 /**
@@ -1223,6 +1256,27 @@ export interface BlockResize {
  * to the jobs behind it. Marking a no-delta resize too keeps the gesture total: the
  * same request twice leaves the same state, and dropping the edge where it already
  * was is still the owner saying "this row is this long".
+ *
+ * IT SIZES A STRETCH, NOT A RECTANGLE (2026-08-13). `durationMinutes` is NET working
+ * minutes counted from the row's start over the day's MANUAL WINDOWS, so the gesture
+ * crosses the lunch break: the owner's own example — a row starting at 10:00 dragged to
+ * 17:30 — is 6 h, stored as `10:00-14:00` plus `15:30-17:30`, never 7.5 h. Two
+ * consequences, and both are what make the gesture reversible:
+ *
+ * - the result is stored in SEGMENTS by `segmentDroppedRow`, the same splitter a drop
+ *   uses, so no stored row can straddle the break whatever the drag did;
+ * - the row's own continuation is part of what is being sized (`stretchFrom`). Sizing the
+ *   target alone would hand the freed hours to the continuation sitting right below it
+ *   and the next pass would read the pair back as the SAME stretch — a resize that
+ *   answered 200 and changed nothing, which is precisely the defect `manualDuration` was
+ *   introduced to kill.
+ *
+ * A RESIZE THAT REACHES INTO MANUAL-ONLY TIME PINS THE ROW (`handPlaced`). The margins
+ * are hand time: they do not exist in the engine's index space, so a row the reflow still
+ * owns would be pulled back inside the periods — or thrown onto the next day when the
+ * hours no longer fit there — and the owner's drag would visibly do nothing. Pinning is
+ * only applied where the engine would otherwise have undone it (`isMovable`), it is the
+ * same mark a drop onto the buffer earns, and *back to automatic* releases it.
  */
 export function resizeBlock(blocks: readonly Block[], resize: BlockResize): EditResult {
   const draft = blocks.map(cloneBlock);
@@ -1234,10 +1288,22 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
     return failedEdit('invalid-duration', { blockId: resize.blockId, projectId: target.projectId });
   }
 
-  const delta = next - target.durationMinutes;
+  // The rows the stretch will be stored as, decided from the row's own start and the net
+  // minutes asked for — before anything is absorbed, because the absorption depends on
+  // where these reach and not the other way round.
+  const segments = segmentDroppedRow(resize.day.manualWindows, {
+    startMinutes: target.startMinutes,
+    durationMinutes: next,
+  });
+  const lastSegment = segments[segments.length - 1];
+  const reachMinutes = lastSegment.startMinutes + lastSegment.durationMinutes;
+
   const own = sortedByQueueRank(draft.filter((block) => block.projectId === target.projectId));
-  const counterparties = own.filter((block) => block.id !== target.id);
-  const isLast = counterparties.length === 0 || own[own.length - 1].id === target.id;
+  const stretch = stretchFrom(own, target, resize.day.manualWindows, reachMinutes);
+  const stretchMinutes = stretch.reduce((total, row) => total + row.durationMinutes, 0);
+  const delta = next - stretchMinutes;
+  const counterparties = own.filter((row) => !stretch.includes(row));
+  const isLast = counterparties.length === 0 || stretch.includes(own[own.length - 1]);
 
   // Refusals first, so a rejected resize marks nothing: the blocks would end up
   // summing to less than the job's total, and the job form is where hours are
@@ -1246,19 +1312,22 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
     return failedEdit('shrink-last-block', { blockId: target.id, projectId: target.projectId });
   }
 
-  if (delta === 0) {
-    pinDuration(target, next);
-    return settledEdit(draft, [], 0, []);
-  }
+  const deletedBlockIds: string[] = [];
+  let totalMinutesDelta = 0;
+  let touchedLockedBlockIds: string[] = [];
 
-  if (isLast) {
+  if (delta > 0 && isLast) {
     // Enlarging the last (or only) block: nothing farther to draw from, so the
     // estimate grows.
-    pinDuration(target, next);
-    return settledEdit(draft, [], delta, []);
-  }
-
-  if (delta < 0) {
+    totalMinutesDelta = delta;
+  } else if (delta > 0) {
+    const taken = takeMinutes(counterparties, delta);
+    if (!taken.ok) {
+      return failedEdit('transfer-exceeds-job', { blockId: target.id, projectId: target.projectId });
+    }
+    deletedBlockIds.push(...taken.deletedBlockIds);
+    touchedLockedBlockIds = taken.touchedLockedBlockIds;
+  } else if (delta < 0) {
     // Shrinking a block that is not the last hands its hours to the last one — the last
     // one the ENGINE lays out, for the reason in `lastAutomatic`. The fallback is the
     // difference from the job form's LIFO: a transfer has no row to create, so when the
@@ -1267,22 +1336,97 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
     // that overlaps another job in the frozen past"), so it is left exactly as it was;
     // the write guard is what keeps it from producing an unrenderable row.
     const receiver = lastAutomatic(counterparties, resize.today) ?? counterparties[counterparties.length - 1];
-    pinDuration(target, next);
     setDuration(receiver, receiver.durationMinutes + -delta);
-    return settledEdit(draft, [], 0, receiver.locked ? [receiver.id] : []);
+    touchedLockedBlockIds = receiver.locked ? [receiver.id] : [];
   }
 
-  const taken = takeMinutes(counterparties, delta);
-  if (!taken.ok) {
-    return failedEdit('transfer-exceeds-job', { blockId: target.id, projectId: target.projectId });
+  // The stretch is written over its rows in order: one row for a length that stays inside
+  // its window, two once it crosses the break.
+  const pin = usesManualOnlyTime(resize.day.periods, segments) && isMovable(target, resize.today);
+
+  segments.forEach((segment, index) => {
+    const row = stretch[index];
+    if (row === undefined) {
+      // The stretch grew a segment: a new row of the same job, on the same day, carrying
+      // the same marks — a half-marked stretch would come apart on the next pass.
+      draft.push({
+        ...target,
+        id: resize.newBlockId(),
+        startMinutes: segment.startMinutes,
+        durationMinutes: segment.durationMinutes,
+        manualDuration: true,
+        handPlaced: target.handPlaced || pin,
+        createdAt: resize.now,
+        updatedAt: resize.now,
+      });
+      return;
+    }
+    row.startMinutes = segment.startMinutes;
+    pinDuration(row, segment.durationMinutes);
+    if (pin) row.handPlaced = true;
+  });
+
+  // Shrunk back across the break: the rows the stretch no longer needs are gone. Their
+  // hours were handed to the counterparty above, so nothing is lost.
+  for (const row of stretch.slice(segments.length)) {
+    row.durationMinutes = 0;
+    deletedBlockIds.push(row.id);
   }
-  pinDuration(target, next);
+
   return settledEdit(
-    draft.filter((block) => block.durationMinutes > 0),
-    taken.deletedBlockIds,
-    0,
-    taken.touchedLockedBlockIds,
+    draft.filter((row) => row.durationMinutes > 0),
+    deletedBlockIds,
+    totalMinutesDelta,
+    touchedLockedBlockIds,
   );
+}
+
+/**
+ * The rows a bottom-edge drag rewrites: the row it was dragged on, plus the rows of its OWN
+ * job that continue it on the same day AND CANNOT SURVIVE THE RESIZE ON THEIR OWN. There
+ * are exactly two of those, and the distinction is the whole subtlety of the gesture:
+ *
+ * - A ROW THE QUEUE WOULD READ BACK AS PART OF THIS STRETCH — one that is already hand-set.
+ *   After the resize the target is hand-set too, and `buildQueue` joins consecutive
+ *   hand-set rows of one job on one day into a single item; so sizing the target alone
+ *   would hand the freed hours to the row directly below it, the next pass would read the
+ *   pair back as the same stretch, and the resize would answer 200 having changed nothing.
+ *   That is the class of defect `manualDuration` exists to kill, so this must not
+ *   reintroduce it. Shrinking a 6 h stretch cut at lunch back into the morning is this case.
+ * - A ROW THE NEW SEGMENTS LAND ON (`reachMinutes`). Growing the morning half of a unit
+ *   past the break puts a segment exactly where the afternoon half sits; absorbing it
+ *   reuses that row instead of stacking a second one on top of it.
+ *
+ * AN AUTOMATIC ROW THE STRETCH DOES NOT REACH IS DELIBERATELY LEFT ALONE, and it is what
+ * makes CLAUDE.md's own worked example work: shrinking the Wednesday MORNING row of an
+ * automatic 10 h unit to 2 h must leave the job's remaining hours to the ENGINE, which
+ * moves them to the next auto-fill day and lets the jobs behind take the freed space.
+ * Absorbing them instead would read the gesture as "this job now has 2 h", and a job with
+ * nothing behind it would answer `shrink-last-block` to a perfectly ordinary drag.
+ *
+ * `adjacentInWindows` is the same predicate the grid groups a unit with, so a unit on
+ * screen and a stretch here can never disagree about where one ends. Only rows AFTER the
+ * target are taken: the gesture is anchored at the edge the owner grabbed, so dragging the
+ * afternoon half's edge sizes the afternoon half and leaves the morning alone.
+ */
+function stretchFrom(
+  own: readonly Block[],
+  target: Block,
+  manualWindows: readonly WorkPeriod[],
+  reachMinutes: number,
+): Block[] {
+  const stretch = [target];
+  let endMinutes = target.startMinutes + target.durationMinutes;
+
+  for (const row of own.slice(own.indexOf(target) + 1)) {
+    if (row.date !== target.date) break;
+    if (!adjacentInWindows(manualWindows, endMinutes, row.startMinutes)) break;
+    if (!row.manualDuration && row.startMinutes >= reachMinutes) break;
+    stretch.push(row);
+    endMinutes = row.startMinutes + row.durationMinutes;
+  }
+
+  return stretch;
 }
 
 /**
@@ -1531,7 +1675,11 @@ export function resolveManualPlacement(
   }
 
   const reflowed = isMovable(placed, input.today);
-  const periods = input.getDayConfig(placed.date).periods;
+  // A drop is a HAND action, so it is cut over the day's MANUAL WINDOWS: the margins are
+  // time the owner may use, and a drop that starts in one runs on into the period below it
+  // without any boundary between them. The lunch break is still the only cut, because that
+  // is the only hole a manual window leaves — see src/lib/manualWindow.ts.
+  const periods = input.getDayConfig(placed.date).manualWindows;
   /** Ids the merge freed. Reused by the segmentation below before any id is minted. */
   const absorbedIds: string[] = [];
   const displacedProjectIds: string[] = [];

@@ -374,33 +374,36 @@ function DayColumn({
       dayIsBuffer: day.role === 'buffer',
       locked: drag.target.locked,
       // The drop is cut at this day's own break, so its footprint is measured against
-      // this day's periods rather than the rectangle the pointer drew.
-      periods: day.periods,
+      // this day's MANUAL WINDOWS rather than the rectangle the pointer drew — the
+      // margins are hand time, and the server cuts the drop over the same view.
+      manualWindows: day.manualWindows,
       startMinutes: preview.startMinutes,
       durationMinutes: preview.durationMinutes,
     });
-  }, [preview, drag.target, groups, day.isWeekend, day.role, day.periods]);
+  }, [preview, drag.target, groups, day.isWeekend, day.role, day.manualWindows]);
 
   /**
-   * The rectangles the ghost is drawn as: one per row the drop will be STORED as.
+   * The rectangles the ghost is drawn as: one per row the gesture will be STORED as.
    *
    * A move crossing the lunch break comes back from the server as two rows (CLAUDE.md,
    * *A Drop Is Stored In Segments*), so drawing one rectangle straight through the grey
-   * band promises a shape that will never exist. A resize cannot cross a break — the
-   * drag is capped at the end of its own period — so it is left as the single rectangle
-   * it is.
+   * band promises a shape that will never exist. SINCE 2026-08-13 A RESIZE CROSSES THE
+   * BREAK TOO — dragging a 10:00 row to 17:30 stores `10:00-14:00` plus `15:30-17:30` —
+   * so both gestures are drawn through the same segmentation, and a resize past the break
+   * shows the two rectangles with the lunch band left clear rather than one tall block
+   * swallowing it.
    */
-  const ghostRows = useMemo(() => {
-    if (preview === null) return [];
-    if (preview.kind !== 'move') {
-      return [{ startMinutes: preview.startMinutes, durationMinutes: preview.durationMinutes }];
-    }
-    return dropFootprint({
-      periods: day.periods,
-      startMinutes: preview.startMinutes,
-      durationMinutes: preview.durationMinutes,
-    });
-  }, [preview, day.periods]);
+  const ghostRows = useMemo(
+    () =>
+      preview === null
+        ? []
+        : dropFootprint({
+            manualWindows: day.manualWindows,
+            startMinutes: preview.startMinutes,
+            durationMinutes: preview.durationMinutes,
+          }),
+    [preview, day.manualWindows],
+  );
 
   /** Where the whole drop ends on the clock — its last segment's end, lunch included. */
   const ghostEndMinutes =
@@ -516,7 +519,8 @@ function DayColumn({
         );
       })}
 
-      {segmentsOf(groups).map((segment) => {
+      {/* The same view the grouping was read over, so a unit and its seam agree. */}
+      {segmentsOf(groups, day.manualWindows).map((segment) => {
         const target = targetFor(segment.group, day);
         const closeDay = closeDayAfter(closeDayInput, segment.block);
         return (
@@ -538,11 +542,17 @@ function DayColumn({
             onPointerDownResize={(event) =>
               drag.beginResize(event, {
                 ...target,
-                // A move is the unit; a resize is THIS row. Each row of a unit is its
-                // own rectangle with its own bottom edge, and the engine sizes rows.
+                // A move is the whole unit; a resize is the STRETCH THAT BEGINS AT THIS
+                // ROW — this row plus the rows of the unit that continue it after the
+                // break, which is the same stretch `resizeBlock` sizes on the server.
+                // Each row of a unit is its own rectangle with its own bottom edge, so
+                // the morning half's edge sizes "from 10:00 to wherever I let go" and
+                // the afternoon half's edge sizes only itself.
                 blockId: segment.block.id,
                 startMinutes: segment.block.startMinutes,
-                durationMinutes: segment.block.durationMinutes,
+                durationMinutes: segment.group.blocks
+                  .slice(segment.index)
+                  .reduce((total, row) => total + row.durationMinutes, 0),
               })
             }
             onOpen={() => onOpenJob(segment.block.projectId)}
@@ -619,7 +629,7 @@ function DayColumn({
       {placing === null || placingSlot === null || placingSlot.date !== day.date
         ? null
         : dropFootprint({
-            periods: day.periods,
+            manualWindows: day.manualWindows,
             startMinutes: placingSlot.startMinutes,
             durationMinutes: placing.durationMinutes,
           }).map((row, index) => (
@@ -687,7 +697,11 @@ function buildLayout(view: WeekView): WeekLayout {
   const lanes = new Map<string, Map<string, { lane: number; lanes: number }>>();
 
   for (const day of view.days) {
-    const dayGroups = groupBlocks(blocksByDate.get(day.date) ?? [], day.periods);
+    // Grouped over the MANUAL WINDOWS: two rows are one unit when nothing WORKABLE
+    // separates them, and half an hour of margin between two rows is workable by hand.
+    // Read against the periods alone, a row in the top margin and one starting at 08:00
+    // would be drawn as a single unit with a phantom seam between them.
+    const dayGroups = groupBlocks(blocksByDate.get(day.date) ?? [], day.manualWindows);
     groups.set(day.date, dayGroups);
     lanes.set(day.date, packDay(dayGroups, gapsByDate.get(day.date) ?? []));
   }

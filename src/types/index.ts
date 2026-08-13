@@ -144,6 +144,18 @@ export interface WorkPeriod {
 export interface DayShape {
   /** One period, or two when the afternoon is enabled. Always in chronological order. */
   periods: WorkPeriod[];
+  /**
+   * The same day as a HAND action sees it: the periods plus the visual margins, fused
+   * where they touch (`07:00-14:00` and `15:30-20:30` on the documented shift), so the
+   * lunch break stays the only hole in the day.
+   *
+   * Derived from `periods` and the margins by `manualWindowsOf` in src/lib/manualWindow.ts,
+   * and carried next to `periods` rather than recomputed at each call site: a drop, a
+   * resize and the scissors read THIS, auto-fill and the capacity stop-line read
+   * `periods`, and both views have to come from one derivation or a future rule will be
+   * added to one and forgotten in the other.
+   */
+  manualWindows: WorkPeriod[];
   /** Total working minutes the periods cover — the hard ceiling for capacity. */
   shiftMinutes: number;
   /** Auto-fill stop line. Never above `shiftMinutes`, never a limit on manual placement. */

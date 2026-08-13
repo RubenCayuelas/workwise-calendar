@@ -14,6 +14,7 @@
  * - A date is a local `YYYY-MM-DD` string, never derived here from a clock.
  */
 
+import { netMinutesBetween, netMinutesOf, reachableRuns } from '../../lib/manualWindow';
 import type { DayShape, WorkPeriod } from '../../types';
 
 /**
@@ -340,28 +341,55 @@ export function rankFor(
 // ---------------------------------------------------------------------------
 
 /**
- * The longest a block starting at `startMinutes` may be.
+ * The longest a row starting at `startMinutes` may be, in NET working minutes.
  *
- * "A stored block never straddles a non-working interval", so a row stops at the end
- * of the period it lives in. A row that starts in a margin (dropped there by hand)
- * stops at the next period's start instead, which is the same rule read the other way.
+ * Measured over the day's MANUAL WINDOWS — the periods plus the visual margins — because
+ * a resize is a hand action and both are hand time. So the limit is the end of the day's
+ * LAST window, not the end of the window the row happens to start in: the lunch break is
+ * skipped rather than hit.
+ *
+ * It used to stop at the period's end, which is the defect the owner reported: "al
+ * aumentar de tamaño un bloque este no pasa de las horas de comer y las de margen". A row
+ * starting at 10:00 could not be made longer than 4 h, and the hour of margin the Settings
+ * screen offers could not be reached by any gesture at all.
+ *
+ * A row that starts in a HOLE (the lunch band, or past the last window) still stops where
+ * that hole does — see `reachableRuns`. Nothing may swallow working time it does not own.
  */
 export function maxDurationFrom(
   startMinutes: number,
-  periods: readonly WorkPeriod[],
+  manualWindows: readonly WorkPeriod[],
   timeline: Timeline,
 ): number {
-  let limit = timeline.endMinutes;
+  const runs = reachableRuns(manualWindows, startMinutes, timeline.endMinutes);
+  return Math.max(SNAP_MINUTES, netMinutesOf(runs));
+}
 
-  for (const period of periods) {
-    if (startMinutes >= period.startMinutes && startMinutes < period.endMinutes) {
-      limit = period.endMinutes;
-      break;
-    }
-    if (period.startMinutes > startMinutes && period.startMinutes < limit) limit = period.startMinutes;
-  }
-
-  return Math.max(SNAP_MINUTES, limit - startMinutes);
+/**
+ * The net working minutes a bottom-edge drag released at `pointerMinutes` means for a row
+ * starting at `startMinutes` — the number the resize is saved with.
+ *
+ * THE OWNER'S OWN WORKED EXAMPLE: a row starting at 10:00 dragged to 17:30 is 6 h, being
+ * `10:00-14:00` plus `15:30-17:30`. "en vez de la hora del medio sumarla, ignorarla." The
+ * lunch break therefore contributes ZERO, so releasing anywhere inside it gives exactly
+ * the same answer as releasing at 14:00 — the pointer crossing the grey band is a dead
+ * zone rather than a jump.
+ *
+ * Snapped on the CLOCK before it is converted, so the drag follows the mouse in quarters
+ * of an hour the way it always has, floored at one snap so a row can never vanish, and
+ * capped by `maxDurationFrom` — the same cap, so the two can never disagree about where
+ * the day ends.
+ */
+export function durationTo(
+  startMinutes: number,
+  pointerMinutes: number,
+  manualWindows: readonly WorkPeriod[],
+  timeline: Timeline,
+  snap: number = SNAP_MINUTES,
+): number {
+  const runs = reachableRuns(manualWindows, startMinutes, timeline.endMinutes);
+  const net = netMinutesBetween(runs, startMinutes, snapTo(pointerMinutes, snap));
+  return clamp(net, snap, maxDurationFrom(startMinutes, manualWindows, timeline));
 }
 
 // ---------------------------------------------------------------------------

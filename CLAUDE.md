@@ -96,7 +96,13 @@ The workshop operates with a **split shift (jornada partida)** structure by defa
 - **Visual Margins** (for flexibility in exceptional cases):
   - `visualMarginTop`: Default 1 hour before Period 1 Start (e.g., 07:00 if Period 1 starts 08:00)
   - `visualMarginBottom`: Default 1 hour after Period 2 End (e.g., 20:30 if Period 2 ends 19:30)
-  - Margins accept **manual drag-drop only**. Auto-fill never enters them.
+  - Margins accept **every hand gesture and no automatic one**: a drop, the scissors, and the
+    bottom-edge resize may all use them; auto-fill never enters them and the capacity stop-line
+    never counts them. See *The Manual Window*, which is how that difference is expressed once
+    instead of being re-decided at each call site.
+  - Because the engine's index space holds no margin minutes, **a hand gesture that takes margin
+    time pins its row** (`hand_placed`) — otherwise the very same save would pull it back inside the
+    periods, which is what made the margins configurable and unusable. *Back to automatic* undoes it.
   - Range: 0-2 hours per margin
 - **planningHorizonWeeks**: Default 8. Auto-placement never creates blocks beyond this many weeks
   from today. If the hours do not fit within the horizon the whole operation rolls back in one
@@ -122,6 +128,29 @@ helper in `src/lib/dates.ts`. Never derive a calendar day from a UTC timestamp (
 19:30 ├─ Period 2 End
 20:30 └─ Visual Margin (manual drag-drop only)
 ```
+
+### The Manual Window (decided 2026-08-13)
+> **A day has TWO views, and every rule names the one it is stated over. Auto-fill reads the
+> PERIODS. A hand gesture reads the MANUAL WINDOW: the periods plus the visual margins, fused
+> wherever they touch.**
+
+On the documented shift the manual window is `07:00-14:00` and `15:30-20:30`, so **the lunch break
+stays the only hole in the day** and nothing about segmentation changes — a hand gesture is still cut
+there and only there.
+
+It exists because three defects the owner reported were one defect: a resize stopped at the end of its
+own period, a drop into a margin was pulled straight back out, and margin time was unreachable by
+hand. Each was a place where the only view available was the engine's. So both views are derived in
+ONE place (`manualWindowsOf` in `src/lib/manualWindow.ts`, called by `dayShapeFromSettings`), travel
+together on `DayConfig` and on the week view's `days[]`, and each rule says which one it means:
+
+| reads the periods | reads the manual window |
+|---|---|
+| auto-fill placement, plannable hours, the capacity stop-line, `desborde` | the bottom-edge resize, a drop, the scissors, the grid's grouping of a unit and the seam it draws inside one |
+
+The alternative — an `if (isMargin)` in the drag layer, another in the engine, a third in the
+scheduler — is what this replaces, and the reason is that a future reader must not be able to add a
+rule to one view and forget the other.
 
 ---
 
@@ -194,6 +223,14 @@ work on a Friday by hand.
   is a record there rather than a constraint, and the *same* record the UI reads);
 - **Monday-Thursday** — a drop does NOT pin. It re-ranks the queue and the row settles contiguously,
   exactly as before. That is a decision the owner made deliberately and likes, and it is unchanged.
+
+**And one SLOT pins, on every day** (2026-08-13): manual-only time — a visual margin, or the lunch
+band — because the engine cannot represent those minutes at all, so its only possible answer to such a
+gesture is to undo it. Same mark, same reason, same undo. Two details keep it honest: it needs at
+least a quarter of an hour of manual-only time (a drop's rank is nudged by a single minute to break a
+tie, and one minute of margin is a tie-break rather than a request — `MIN_MANUAL_ONLY_MINUTES`, held
+equal to the drag layer's `SNAP_MINUTES` by a test); and a **resize** sets it too, since a length that
+reaches into a margin cannot exist without the slot.
 
 **Setting, keeping and losing the mark.** It stands for one specific day the owner chose, so it lives
 exactly as long as that choice does:
@@ -364,6 +401,39 @@ nothing. A refused resize is never a silent no-op.
 This is the normal way to record "yesterday took longer than I noted": enlarge yesterday's block and
 the hours come off the job's furthest block, keeping the estimate intact.
 
+**The drag is measured in NET WORKING MINUTES over the day's manual window** (decided with the owner,
+2026-08-13), which is three things at once and all three are the owner's report:
+
+> «al aumentar de tamaño o empequeñecer un bloque este no pasa de las horas de comer y las de margen,
+> debería dejarme hacerlo más grande, y que ignore la hora de comer, ejemplo arrastro hasta las 17:30
+> una tarea que empezaba a las 10, en vez de la hora del medio sumarla, ignorarla y sería de 10 a 14 y
+> de 15:30 a 17:30.»
+
+- **It crosses the lunch break, which costs nothing.** A row starting at 10:00 dragged to 17:30 is
+  **6 h** — `10:00-14:00` plus `15:30-17:30` — never 7.5 h. Releasing anywhere inside 14:00-15:30
+  gives the same 4 h as releasing at 14:00: the grey band is a dead zone, not a jump.
+- **It may reach into the visual margins**, and stops at the end of the day's last manual window.
+  It used to stop at the end of the row's own period, so a 4 h morning row could not be made longer by
+  any gesture at all and the configurable margins were unreachable.
+- **The result is stored in segments**, by the same splitter a drop uses, so no drag can produce a row
+  that straddles the break. Both rows carry `manual_duration`, which is what makes the engine read
+  them back as one stretch.
+
+**What the edge sizes is the STRETCH that begins at that row's start**, not the rectangle: the row plus
+the rows of its own job that continue it on that day and *cannot survive the resize on their own* —
+one that is already hand-set (the queue would regroup it with the target, so sizing the target alone
+would hand the freed hours to the row right below it and the next pass would read the pair back
+unchanged: a 200 that changed nothing), or one the new segments land on (reused rather than stacked
+under a second row). **An automatic row the stretch does not reach is left to the engine**, which is
+what keeps *A Hand-Set Duration*'s own worked example working: shrinking the Wednesday morning row of
+an automatic 10 h unit still leaves the job's remaining hours to be moved by the reflow.
+
+**A resize that takes margin time pins the row** (`hand_placed`), and only where the engine would
+otherwise have undone it. The engine's index space has no margin minutes, so an unpinned row would be
+pulled back inside the periods or thrown onto the next day, and the drag would visibly do nothing.
+This is the one gesture other than a drop that sets the mark, it is set together with
+`manual_duration`, and one *back to automatic* releases both.
+
 ### A Hand-Set Duration (decided with the owner, 2026-08-12)
 A row whose length was set by the bottom-edge drag carries `manual_duration = 1`, and:
 
@@ -481,6 +551,26 @@ calendar, and *Never split a job to make it fit* means a job that no longer fits
   15:30-17:30 for a 3h stretch). The engine splits at the period boundary when placing.
 - On screen, consecutive segments of the same job are drawn as **one grouped unit** (outer rounded
   corners, label on the first, single drag handle) so the owner still sees and moves "one 3h job".
+  Two rows are one unit when nothing **workable** separates them, read over the *manual window*, so
+  half an hour of margin between two rows keeps them apart while the whole lunch break does not.
+- **The unit is marked at BOTH ends** (decided with the owner, 2026-08-13). The row above the break
+  reads `4 h · sigue…` and the row below `…sigue · 4 h` — the ellipsis on the side the work carries
+  on — and each has the dashed edge on that same side plus its own tooltip line ("Sigue después de la
+  comida" / "Viene de antes de la comida"). Only the continuation used to say anything, so looking at
+  the morning row alone there was nothing to tell the owner the job went on after lunch.
+- **What the mark names is the BREAK BETWEEN TWO WINDOWS, not the join between two rows** (corrected
+  2026-08-13 after dragging it). Being one unit is not enough, because a unit joins any two rows with
+  nothing *workable* between them and that covers two more shapes than "cut at lunch":
+  - **rows that TOUCH**, with no hole at all — reachable whenever auto-merge may not fold them, which
+    is exactly the margins: the scissors moving an hour to 07:00 leaves `07:00-08:00` hand-placed
+    against `08:00-11:00`, and auto-merge never folds a hand-placed row;
+  - **a hole left by a margin the owner has since set to 0**, real but not the comida.
+
+  Read off the row's position in the unit (`!isFirst` / `!isLast`), the marks drew a dashed seam down
+  the middle of one unbroken rectangle and the tooltip announced a lunch break three hours away. So
+  the seam is asked of the day's manual windows — the hole must START where one window ends and FINISH
+  where the next begins — and the *rounded corners* stay with the position, which is a different
+  question. `seamAbove` / `seamBelow` on `BlockSegment`, with tests for all three shapes.
 - **Auto-merge** joins two blocks of the same job only when they touch **inside the same period on
   the same day**. The two halves around lunch deliberately stay two rows.
 
@@ -489,10 +579,10 @@ calendar, and *Never split a job to make it fit* means a job that no longer fits
 - On DROP: the queue is reordered (see *Queue Order*) and auto-recomposition runs.
 - **Auto-merge**: as described above.
 
-### A Drop Is Stored In Segments (decided 2026-08-12)
-> **A dropped block is cut at the break between two working periods, exactly like everything the
-> engine places.** 6 h dropped at 10:00 is stored as `10:00-14:00` plus `15:30-17:30`, two rows of one
-> job, on every kind of day.
+### A Drop Is Stored In Segments (decided 2026-08-12; the window named 2026-08-13)
+> **A dropped block is cut at the break between two MANUAL WINDOWS, exactly like everything the
+> engine places is cut at the break between two periods.** 6 h dropped at 10:00 is stored as
+> `10:00-14:00` plus `15:30-17:30`, two rows of one job, on every kind of day.
 
 A hand drop was the one placement that did not go through the engine's own segmentation, and therefore
 the one way to get a stored row holding minutes on both sides of the lunch break — reproduced: a
@@ -501,10 +591,11 @@ through 14:00-15:30. `duration` is **net working time**, so that row was a lie a
 grid, the overlap arithmetic and auto-merge all read a row as one solid rectangle.
 
 It applies to the merge below too: a same-job merge whose summed hours cross the break comes back as
-two rows rather than one long one. Three things it deliberately leaves alone, because each is latitude
-a hand drop already has and none of them is a straddle: a row that **starts** outside every period (a
-visual margin, or the lunch band itself), the minutes that run past the **last** period, and anything
-whose tail would land past midnight.
+two rows rather than one long one. Two things it deliberately leaves alone, because each is latitude a
+hand drop already has and neither is a straddle: a row that **starts** outside every window (the lunch
+band itself), and anything whose tail would land past midnight. A row that starts in a **margin** is
+no longer one of them: the margin is inside the manual window, so such a row runs on into the period
+below it with no boundary between them and is cut at the lunch break like any other.
 
 ### A Drop That Overlaps (decided with the owner, 2026-08-11; extended 2026-08-12)
 A drop onto the **weekend, the frozen past or a hand-placed row** lands where the engine may not reflow, so both the
@@ -615,7 +706,9 @@ where the decisions in this section come from.
 - **Header**: logo, `‹ Semana 33 · 10–16 ago 2026 ›`, and the actions `Hoy`, `+ Nuevo trabajo`,
   language, overflow menu.
 - **Visual blocks**: tinted fill with a saturated border in the project colour, name + hours.
-  Continuation segments read `2 h · sigue`. Engine-placed Friday blocks read `desborde 2 h` and get a
+  A unit cut at the lunch break is marked at BOTH ends: `4 h · sigue…` above the break and
+  `…sigue · 4 h` below it, each with the dashed edge on the side the work continues (see *Blocks and
+  the Lunch Break*). Engine-placed Friday blocks read `desborde 2 h` and get a
   distinct border so an overrun week is visible at a glance.
 - **The three marks** (settled 2026-08-12). A row can stop reflowing for three independent reasons,
   and each has to be visible and undoable, so each gets its own glyph and its own edge treatment.
@@ -652,13 +745,15 @@ where the decisions in this section come from.
   seam across it), merge into it (hours summed), or be refused because it is locked. Announcing it
   afterwards in a toast would be telling the owner about somebody else's block only once it had
   already been split.
-  The ghost is drawn **in segments**, one rectangle per row the drop will be stored as, because a
+  The ghost is drawn **in segments**, one rectangle per row the gesture will be stored as, because a
   drop crossing lunch is stored as two rows (*A Drop Is Stored In Segments*) and one rectangle
-  straight through the grey band promises a shape that will never exist. The first rectangle carries
-  the span, the net hours and the effect line; the continuation is bare, exactly as a stored unit
-  labels only its first row. That segmentation is `segmentDroppedRow` in `src/lib/dropSegments.ts` —
-  **imported by both the engine and the preview rather than restated in each**, since a preview that
-  promises a cut the server will not perform is worse than no preview at all.
+  straight through the grey band promises a shape that will never exist. **A RESIZE past the break is
+  drawn the same way** — two rectangles with the lunch band left clear — since it is stored in segments
+  too. The first rectangle carries the span, the net hours and the effect line; the continuation is
+  bare, exactly as a stored unit labels only its first row. That segmentation is `segmentDroppedRow` in
+  `src/lib/dropSegments.ts` — **imported by both the engine and the preview rather than restated in
+  each**, since a preview that promises a cut the server will not perform is worse than no preview at
+  all.
 
 ### A Drop Always Answers For Itself (decided 2026-08-12)
 > **Every drop reports what became of it. The only drop that may say nothing is one whose row is
@@ -691,8 +786,10 @@ and says so too, instead of the ghost simply vanishing.
   is one thing to drag, but its segments are separate rectangles with the lunch band between them and
   each has a real bottom edge; without an edge on the first one, *A Hand-Set Duration*'s own worked
   example ("shrink the Wednesday morning row to 2 h") would be unreachable from the calendar. The
-  drag is capped at the end of that row's own period, so it can never produce a row straddling the
-  break. On a row the engine reflows, the new length sticks and marks the row hand-set, which
+  drag is capped at the end of the DAY's last manual window rather than at the end of that row's own
+  period, and it is counted in net working minutes, so it crosses the lunch break and may reach into
+  the margins while never producing a row that straddles the break — the result is stored in segments.
+  On a row the engine reflows, the new length sticks and marks the row hand-set, which
   is a visible, releasable state — see *A Hand-Set Duration*. The consequence is never local, so the
   save reports it: the hours went to the job's last block, the remainder starts on the next day, and
   the jobs behind it took the space the day gained. The refusal (409 `shrink-last-block`) is said the
@@ -818,6 +915,20 @@ Still unanswered; do not invent an answer, ask first.
   candidates are refuse the resize naming the row, cut the other job exactly as a drop does, or keep
   allowing the overlap because two jobs really were on the bench at once. The same applies to the
   LIFO counterparty growing into a past row.
+- **A drop exactly onto another row's start leaves a ONE-MINUTE row.** Found by dragging on
+  2026-08-13; **pre-existing since v0.3** and untouched by the manual window (`rankFor` and the
+  movable-row cut are both unchanged). A drop's rank must not tie with an existing start, so `rankFor`
+  nudges it by a single minute, and the direction comes from the unsnapped pointer: released a hair
+  BELOW the rule the rank becomes 08:01, which makes the row underneath "start before the drop" and
+  *A Drop That Overlaps* cuts it there. Reproduced: `A 08:00-10:00`, `B 10:00-12:00`, B dropped on
+  08:00 → `A 08:00-08:01 (0,02 h)`, `B 08:01-10:01`, `A 10:01-12:00`. Hours are conserved and nothing
+  straddles the break, so no invariant is broken — but the calendar keeps a 1 px sliver too short to
+  show its own hours and the day stops sitting on quarter hours. Released a hair ABOVE the rule the
+  nudge goes the other way and the drop is clean (`B, A`, verified), which is why it has stayed hidden.
+  The three candidates: ignore a head shorter than one `SNAP_MINUTES` when cutting (the queue rank is
+  an ordering, not a position, so the head is not a real 1 min of work); nudge the rank into a
+  fractional order instead of a minute; or refuse to cut and let the rank alone decide. Each changes
+  drop semantics, so it is the owner's call rather than a mechanical fix.
 - **Backups**: daily local copy, manual export/import, or both? The DB is deliberately gitignored,
   a recomposition rewrites many rows at once, and there is no undo. Deferred out of v0.2, but every
   mutating operation already runs in a single transaction, which makes a future undo much cheaper.
@@ -1034,6 +1145,99 @@ stores locked rows that the grid draws desaturated with the padlock glyph.
 changed, and `defaultColor` is the least-used swatch — so creating a job changed it and the panel
 wiped the "where the hours went" notice a moment after showing it. The reset now runs on the panel's
 OPENING edge only.
+
+**v0.6 — the three defects found on v0.5, and the one idea behind all three (2026-08-13).** The
+owner reported a split block marked on one side only, a resize that stopped dead at the lunch break
+and at the margins, and margins that were configurable but unusable. All three came from the same
+gap — the code knew only the ENGINE's view of a day — so the fix is *The Manual Window*, derived
+once and read by every hand gesture, with auto-fill and the capacity stop-line still reading the
+periods alone.
+
+- **`src/lib/manualWindow.ts`** (new, pure): `manualWindowsOf` (the periods fused with the margins),
+  `netMinutesBetween` / `reachableRuns` (the net-minute arithmetic a resize is measured in),
+  `adjacentInWindows` (one predicate for "these two rows are one stretch", used by the grid's
+  grouping AND by the server's resize), and `usesManualOnlyTime` + `MIN_MANUAL_ONLY_MINUTES` (the pin
+  rule and why a one-minute rank nudge is not a request for the margin). `manualWindows` rides on
+  `DayShape`, `DayConfig` and the week view's `days[]`, so the two views cannot drift apart.
+- **The resize** is net working minutes over that window (`durationTo`, `maxDurationFrom`), sizes the
+  STRETCH from the row's start, and stores the result through `segmentDroppedRow` — the drop's own
+  splitter, not a second one. See *Block Resize*.
+- **The pin** (`hand_placed`) now also covers the SLOT, not only the day: a drop, the scissors or a
+  resize that takes manual-only time keeps it, on any day, released by *back to automatic*.
+- **Both ends of a split unit are marked**, in the label (`4 h · sigue…` / `…sigue · 4 h`), in the
+  dashed edge, and in a tooltip line each.
+- **The ghost** draws a resize in segments too, so a drag past the break shows two rectangles with the
+  lunch band clear rather than one block swallowing it.
+
+Verified: `tsc --noEmit` clean, `vitest run` 577 passing across 22 files (`manualWindow.test.ts` is
+new; the 2000-seed harness still asserts hours conservation, no overlap and the fixed point, and a new
+test pins auto-fill out of the margins), `next lint` clean, `next build` succeeds. Driven in a real
+browser (Chromium, `WORKWISE_DB_PATH` on a scratch database, `next start`, today = Thu 2026-08-13),
+zero console errors, every gesture made with the mouse:
+
+- **Report A.** A 14 h job's Thursday unit draws `4 h · sigue…` above the break and `…sigue · 4 h`
+  below it, dashed on the facing edges, with "Sigue después de la comida" / "Viene de antes de la
+  comida" in the tooltips.
+- **Report B.** The bottom edge of the `10:00-14:00` row dragged to 17:30 previews `10:00–17:30· 6 h`
+  as TWO ghost rectangles with the band clear, and stores `600+240` + `930+120`, both marked — the
+  owner's worked example exactly. Released inside the band it is still 4 h. Dragged back to 12:00 it
+  stores `600+120` and the afternoon row is gone.
+- **Report C.** A block dropped at 07:00 stays at `07:00-09:00` with the hand mark, answers *«Porton»
+  se queda donde lo has soltado…*, and the next job flows around it (09:00-11:00); *Volver a
+  automático* returns it to 08:00. A row dragged to 20:30 stores `600+240` + `930+300` with the ruler
+  AND hand marks and survives an unrelated creation untouched.
+- **The Settings guard rail still warns.** Setting the bottom margin to 0 while a hand-placed row holds
+  19:30-20:30 names that row before saving (`1 tramo · Barandilla · Jue 13 · 15:30–20:30 · 5 h`).
+  Confirming keeps the row exactly where it is — the engine may not move it — and the axis widens to
+  21:00 so it stays visible; what the owner loses is the margin as a TARGET (the resize now stops at
+  19:30), not the hours already in it, which can be dragged back inside the periods or released.
+
+**v0.6 — re-verified by dragging, and one defect found inside the new mark (2026-08-13).** An
+independent pass drove every one of the three reports with the mouse against clean scratch databases
+(`WORKWISE_DB_PATH`, `next start`, real Chromium, today = Thu 2026-08-13), reading the STORED rows back
+over `/api/week` after each gesture. `tsc --noEmit` exit 0, `vitest run` **581 passing across 22
+files**, `next lint` clean, `next build` exit 0. Zero console errors in every session.
+
+- **Report B, the owner's own example, exactly.** `Porton 2 h` then `Reja 4 h` puts Reja at
+  `Jue 13 10:00-14:00`. Its bottom edge dragged to 17:30 previews `10:00–17:30 · 6 h` as **two** ghost
+  rectangles with the lunch band left clear, and stores `10:00-14:00` **+** `15:30-17:30`, both
+  `manual_duration`, with the job's total rising 4 h → 6 h (Reja is its own last row). Released at
+  14:00, 14:20, 15:00 and 15:29 the ghost reads `10:00–14:00 · 4 h` every time: the band is a dead
+  zone, never 7,5 h.
+- **The rest of report B.** Shrunk back across the break (the `10:00` edge to 12:00) the afternoon row
+  is DELETED and its hours go to the job's furthest row, which then splits across two days — total
+  unchanged, every job still summing to its estimate. Dragged past the bottom of the day it caps
+  cleanly at the last window's end: `10:00-14:00` + `15:30-20:30` = 9 h, pinned, and dragging to 22:00
+  gives the same answer as 20:30. A row that starts INSIDE the lunch band still stops where that hole
+  does (1 h at 14:00 grows to 1,5 h and no further), so nothing swallows working time it does not own.
+- **Report C, both margins, both gestures.** A drop at 07:00 stays at `07:00-09:00` with the hand mark
+  and the next job flows around it from 09:00; a 1 h job dropped at 19:30 stays at `19:30-20:30` and
+  survives an unrelated creation; the scissors putting an hour at 07:00 pins the fragment; a resize of
+  the 07:00 row grows it through 08:00 as ONE row (`07:00-12:00`, 5 h — the margin and the morning are
+  one window). *Volver a automático* returns it inside the periods. **Auto-fill still never enters
+  them**: 40 h laid out by the engine occupies only `08:00-14:00` / `15:30-19:30` on four days, and an
+  empty Thursday still reports `plannableMinutes: 600`, not 720.
+- **Report A, and the defect.** The both-ended mark is right where there IS a break, on the engine's
+  own split and on a hand-set one. But it was drawn from the row's POSITION in the unit, so it also
+  appeared where there is no break at all: the scissors moving an hour into the top margin gives
+  `07:00-08:00` + `08:00-11:00`, one contiguous rectangle, and the grid drew `1 h · sigue…` /
+  `…sigue · 3 h` across it with the tooltip "Sigue después de la comida" — a seam and a claim about
+  lunch on two rows that touch. A second route reaches the same shape with no scissors (drop 1 h at
+  07:00, then raise the job's hours), and a third with a margin later set to 0. **Fixed**: the seam is
+  now asked of the day's manual windows, not of the position — see *Blocks and the Lunch Break*. Both
+  ends still mark a real break; neither marks a join.
+- **The sweep, all green.** The Friday buffer both ways (growth lands on it reading `desborde 2 h`,
+  shrinking removes exactly that row, a new job skips it for next Monday); the weekend segmented,
+  pinned and untouched by churn; the frozen past refusing a drop out loud while still taking a resize;
+  a continuation filling forward (`Bar 08:00-10:00 / Marq 10:00-12:00 / Bar 12:00-14:00 /
+  Bar 15:30-19:30 / Tue 08:00-12:00`, no empty afternoon, no jumped week); strict order; the fixed
+  point (create-then-delete leaves the calendar byte-identical); the auto-lock on a job created five
+  weeks out, which an unrelated creation does not drag back; adding hours to a job whose last row is in
+  the past getting its own new row, with no row running past its day; and the 409 `shrink-last-block`
+  spoken where the gesture happened. Hours were conserved after every gesture in every session.
+- **Still red, and pre-existing**: a drop released a hair below another row's start leaves that row a
+  one-minute sliver. Not caused by the manual window; recorded in *Open Decisions* with the
+  reproduction and three candidate answers, because every one of them changes what a drop means.
 
 ---
 

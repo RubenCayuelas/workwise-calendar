@@ -110,7 +110,8 @@
     "dropBlocked": "Ahí no cabe: «{{name}}» está bloqueado. No se guardará nada."
   },
   "block": {
-    "continues": "{{hours}} h · sigue",
+    "continuesBelow": "{{hours}} h · sigue…",
+    "continuesAbove": "…sigue · {{hours}} h",
     "overflow": "desborde {{hours}} h",
     "locked": "Bloqueado",
     "unlocked": "Desbloqueado",
@@ -138,6 +139,8 @@
     "markManualDuration": "Duración fija · la longitud la has puesto tú",
     "markHandPlaced": "Colocado a mano · tú has elegido este día",
     "markLocked": "Bloqueado · el motor no lo mueve de aquí",
+    "markContinuesBelow": "Sigue después de la comida",
+    "markContinuesAbove": "Viene de antes de la comida",
     "releaseDuration": "Volver a automático"
   },
   "jobPanel": {

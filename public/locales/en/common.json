@@ -110,7 +110,8 @@
     "dropBlocked": "It does not fit: \"{{name}}\" is locked. Nothing will be saved."
   },
   "block": {
-    "continues": "{{hours}} h · continues",
+    "continuesBelow": "{{hours}} h · continues…",
+    "continuesAbove": "…continues · {{hours}} h",
     "overflow": "overflow {{hours}} h",
     "locked": "Locked",
     "unlocked": "Unlocked",
@@ -138,6 +139,8 @@
     "markManualDuration": "Fixed duration · you set how long this runs",
     "markHandPlaced": "Hand-placed · you chose this day",
     "markLocked": "Locked · the engine never moves it from here",
+    "markContinuesBelow": "Carries on after lunch",
+    "markContinuesAbove": "Carried over from before lunch",
     "releaseDuration": "Back to automatic"
   },
   "jobPanel": {

@@ -115,7 +115,10 @@ describe('locale files', () => {
     expect(resolve(es as Json, 'grid.bandsLegend')).toBe(
       'Bandas grises: márgenes visuales y comida — solo arrastre manual',
     );
-    expect(resolve(es as Json, 'block.continues')).toBe('{{hours}} h · sigue');
+    // A unit cut at the lunch break is marked at BOTH ends, the ellipsis on the side the
+    // work carries on. See CLAUDE.md, *Blocks and the Lunch Break*.
+    expect(resolve(es as Json, 'block.continuesBelow')).toBe('{{hours}} h · sigue…');
+    expect(resolve(es as Json, 'block.continuesAbove')).toBe('…sigue · {{hours}} h');
     expect(resolve(es as Json, 'block.overflow')).toBe('desborde {{hours}} h');
     expect(resolve(es as Json, 'day.frozen')).toBe('congelado');
     expect(resolve(es as Json, 'day.buffer')).toBe('colchón');

@@ -132,7 +132,7 @@ export function CalendarBlock({
 }: CalendarBlockProps): React.JSX.Element {
   const { t } = useTranslation();
   const format = useFormat();
-  const { block, group, isFirst, isLast } = segment;
+  const { block, group, isFirst, isLast, seamAbove, seamBelow } = segment;
 
   const height = timeline.heightOf(block.durationMinutes);
   const endMinutes = block.startMinutes + block.durationMinutes;
@@ -144,12 +144,33 @@ export function CalendarBlock({
    * inside a one-hour box. What makes the unit one thing is visual and behavioural: the
    * outer rounded corners, the dashed seam, one resize handle, and a drag that moves the
    * whole run.
+   *
+   * A UNIT CUT AT THE LUNCH BREAK IS MARKED AT BOTH ENDS (2026-08-13), which is the
+   * owner's report: "en el de abajo coloca puntos suspensivos pero en el de arriba no,
+   * quiero puntos suspensivos a ambos lados". Only the continuation said anything, so the
+   * morning row read as a finished 4 h job and nothing on it hinted the work carried on
+   * after lunch. Now the ellipsis sits on the side the work continues — trailing on the
+   * row above, leading on the row below — and each end has its own tooltip line naming
+   * which is which.
+   *
+   * IT IS THE HOLE THAT IS MARKED, NOT THE JOIN (fixed 2026-08-13, found by dragging). A
+   * unit joins rows with nothing WORKABLE between them, which includes rows that simply
+   * TOUCH — the scissors moving an hour into the top margin leaves `07:00-08:00`
+   * hand-placed against `08:00-11:00`, and auto-merge may not fold a hand-placed row. Read
+   * off `!isFirst` / `!isLast` the marks then drew a seam straight down the middle of one
+   * unbroken rectangle and the tooltip announced a lunch break three hours away. So they
+   * are read off `seamAbove` / `seamBelow` — a real gap on the clock — while the rounded
+   * corners stay with `isFirst` / `isLast`, which is a different question.
    */
-  const hoursLabel = !isFirst
-    ? t('block.continues', { hours: format.hourNumber(block.durationMinutes) })
+  const continuesBelow = seamBelow;
+  const continuesAbove = seamAbove;
+  const hoursLabel = continuesAbove
+    ? t('block.continuesAbove', { hours: format.hourNumber(block.durationMinutes) })
     : overflow
       ? t('block.overflow', { hours: format.hourNumber(block.durationMinutes) })
-      : format.hours(block.durationMinutes);
+      : continuesBelow
+        ? t('block.continuesBelow', { hours: format.hourNumber(block.durationMinutes) })
+        : format.hours(block.durationMinutes);
 
   /*
    * ONE LINE PER MARK, each naming the mark and the single thing it fixes. Three marks
@@ -164,10 +185,26 @@ export function CalendarBlock({
     block.locked ? t('block.markLocked') : null,
   ].filter((line): line is string => line !== null);
 
+  /*
+   * The seam, said in words. The ellipsis in the hours label is quiet by design — three
+   * state marks, a name and an hour count already share this rectangle — so the tooltip
+   * is where "sigue después de la comida" is spelled out. It is listed even on the one row
+   * whose label has no room for the ellipsis (an engine-placed Friday row reading
+   * `desborde 2 h`), so the fact is never unavailable.
+   */
+  const seamHints = [
+    continuesAbove ? t('block.markContinuesAbove') : null,
+    continuesBelow ? t('block.markContinuesBelow') : null,
+  ].filter((line): line is string => line !== null);
+
   const classes = [
     styles.block,
-    isFirst ? styles.first : styles.continued,
+    // Two independent questions on one edge: `first`/`last` round the unit's outer
+    // corners, `continued`/`continuesBelow` dash the edge a real break falls on.
+    isFirst ? styles.first : '',
     isLast ? styles.last : '',
+    seamAbove ? styles.continued : '',
+    seamBelow ? styles.continuesBelow : '',
     overflow ? styles.overflow : '',
     frozen ? styles.frozen : '',
     lifted ? styles.lifted : '',
@@ -194,6 +231,7 @@ export function CalendarBlock({
       })}
       title={[
         format.dayTimeHours(block.date, block.startMinutes, block.durationMinutes),
+        ...seamHints,
         ...markHints,
       ].join('\n')}
       style={{
@@ -310,9 +348,14 @@ export function CalendarBlock({
        * owner shrinks the Wednesday morning row to 2 h" is the FIRST row of a unit that
        * carries on after lunch. A unit has one handle for the MOVE, because it is one
        * thing to drag; but its rows are two rectangles with the lunch band between them,
-       * each with a real bottom edge on screen, and each is a row the engine can size on
-       * its own. `maxDurationFrom` caps the drag at the end of that row's own period, so
-       * no drag can ever produce a row straddling the break.
+       * each with a real bottom edge on screen.
+       *
+       * WHAT THE EDGE SIZES is the STRETCH that begins at this row's start, in net working
+       * minutes over the day's manual windows: the drag crosses the lunch break (the band
+       * costs nothing) and may reach into the visual margins, and the server stores the
+       * result cut at the break. So no drag can produce a row that straddles it, and the
+       * cap is the end of the day rather than the end of this row's period — which is the
+       * defect the owner reported. See `durationTo` and `maxDurationFrom` in geometry.ts.
        */}
       <div
         className={styles.resize}

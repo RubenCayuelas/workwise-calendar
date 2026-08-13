@@ -1,0 +1,209 @@
+/**
+ * The two views of one day, derived in one place.
+ *
+ * The engine has always known a day as its **periods** — `08:00-14:00` and
+ * `15:30-19:30` — because those are the hours auto-fill may book. A HAND action needs
+ * a wider view: CLAUDE.md's visual margins "accept manual drag-drop only", so an hour
+ * of margin at either end is time the owner may use and the engine may not.
+ *
+ * That wider view is a **manual window**: the periods PLUS the margins, fused wherever
+ * they touch. On the documented shift it is `07:00-14:00` and `15:30-20:30`, so the
+ * lunch break stays the only hole in the day and nothing about segmentation changes.
+ *
+ *     periods        08:00 ──────── 14:00   15:30 ──────── 19:30
+ *     manual window  07:00 ──────────────── 15:30 ──────────────── 20:30
+ *                    ^ margin                                ^ margin
+ *
+ * WHY IT IS ONE MODULE AND NOT A FLAG PASSED AROUND. Three defects the owner reported
+ * were the same defect: a resize stopped at its period's end, a drop into a margin was
+ * pulled back out, and margin time was unreachable by hand — each one a place where the
+ * only view available was the engine's. Scattering `if (isMargin)` through the drag
+ * layer, the engine and the scheduler would fix them one at a time and leave the next
+ * reader free to add a rule to one view and forget the other. So both views are derived
+ * HERE, from `DayShape` (see `dayShapeFromSettings`), travel together on `DayConfig` and
+ * `WeekDay`, and every rule is stated over one of them explicitly:
+ *
+ * - AUTO-FILL and the capacity stop-line read `periods`, and only `periods`. The margins
+ *   are invisible to `compose`, which is what keeps auto-fill out of them.
+ * - A HAND ACTION — a drop, a resize, the scissors — reads `manualWindows`.
+ *
+ * Pure integer-minute arithmetic: no clock, no database, no React, so the browser can
+ * have it as cheaply as the server can.
+ */
+
+import { MINUTES_PER_DAY } from './dates';
+import type { WorkPeriod } from '../types';
+
+/**
+ * One day as both halves of the app need it. `DayConfig` and `WeekDay` satisfy it, so a
+ * function that takes hand gestures can ask for exactly this much of a day.
+ */
+export interface DayWindows {
+  /** Auto-fill's view: the working periods, morning first. */
+  readonly periods: readonly WorkPeriod[];
+  /** A hand action's view: the periods plus the visual margins, fused where they touch. */
+  readonly manualWindows: readonly WorkPeriod[];
+}
+
+/**
+ * The periods widened by the visual margins — the top margin before the first period,
+ * the bottom margin after the last — and fused wherever the result touches or overlaps.
+ *
+ * Fusing matters for two real configurations: a shift with no lunch at all
+ * (`period2Start === period1End`) becomes ONE window, so nothing is ever cut in the
+ * middle of it; and a margin wide enough to reach the neighbouring period cannot produce
+ * two overlapping windows. A day with no periods (a closed day, or a broken
+ * configuration) has no manual window either — there is nothing for a margin to hang off.
+ */
+export function manualWindowsOf(
+  periods: readonly WorkPeriod[],
+  marginTopMinutes: number,
+  marginBottomMinutes: number,
+): WorkPeriod[] {
+  if (periods.length === 0) return [];
+
+  const widened = [...periods]
+    .sort((a, b) => a.startMinutes - b.startMinutes)
+    .map((period) => ({ ...period }));
+  const top = Math.max(0, marginTopMinutes);
+  const bottom = Math.max(0, marginBottomMinutes);
+  widened[0].startMinutes = Math.max(0, widened[0].startMinutes - top);
+  const last = widened[widened.length - 1];
+  last.endMinutes = Math.min(MINUTES_PER_DAY, last.endMinutes + bottom);
+
+  const fused: WorkPeriod[] = [];
+  for (const window of widened) {
+    const open = fused[fused.length - 1];
+    if (open !== undefined && window.startMinutes <= open.endMinutes) {
+      open.endMinutes = Math.max(open.endMinutes, window.endMinutes);
+      continue;
+    }
+    fused.push(window);
+  }
+  return fused;
+}
+
+/**
+ * Minutes of `intervals` inside `[from, to)`. Zero across the lunch break and across a
+ * margin when `intervals` are the periods; zero only across the lunch break when they
+ * are the manual windows. That difference is the whole point of the two views.
+ */
+export function netMinutesBetween(
+  intervals: readonly WorkPeriod[],
+  from: number,
+  to: number,
+): number {
+  if (to <= from) return 0;
+  let total = 0;
+  for (const interval of intervals) {
+    total += Math.max(0, Math.min(interval.endMinutes, to) - Math.max(interval.startMinutes, from));
+  }
+  return total;
+}
+
+/** Total minutes of `intervals`. */
+export function netMinutesOf(intervals: readonly WorkPeriod[]): number {
+  let total = 0;
+  for (const interval of intervals) total += Math.max(0, interval.endMinutes - interval.startMinutes);
+  return total;
+}
+
+/**
+ * The clock a row starting at `startMinutes` may grow over, as intervals — the answer to
+ * "how long can the owner drag this bottom edge, and which minutes count".
+ *
+ * From inside a window it is that window from `startMinutes` on, PLUS every later
+ * window: a row starting at 10:00 can be dragged to 17:30 and the lunch break in between
+ * contributes nothing, which is exactly the owner's worked example. From inside a HOLE —
+ * the lunch band, or past the last window — it is that hole alone, up to the next
+ * window's start, because a row is a solid rectangle and may not swallow working time it
+ * does not own. `endOfDayMinutes` closes the last hole (the axis's own end).
+ */
+export function reachableRuns(
+  manualWindows: readonly WorkPeriod[],
+  startMinutes: number,
+  endOfDayMinutes: number,
+): WorkPeriod[] {
+  const ordered = [...manualWindows].sort((a, b) => a.startMinutes - b.startMinutes);
+  const runs: WorkPeriod[] = [];
+
+  for (const window of ordered) {
+    if (window.endMinutes <= startMinutes) continue;
+    if (window.startMinutes <= startMinutes) {
+      runs.push({ startMinutes, endMinutes: window.endMinutes });
+      continue;
+    }
+    // The first window that begins AFTER the row does. With no run open yet the row
+    // starts in a hole and stops where that hole does.
+    if (runs.length === 0) {
+      return [{ startMinutes, endMinutes: Math.max(startMinutes, window.startMinutes) }];
+    }
+    runs.push({ ...window });
+  }
+
+  if (runs.length === 0) {
+    return [{ startMinutes, endMinutes: Math.max(startMinutes, endOfDayMinutes) }];
+  }
+  return runs;
+}
+
+/**
+ * True when nothing workable separates a row ending at `endMinutes` from one starting at
+ * `startMinutes` — so the two are one stretch: touching rows, or the two halves around
+ * the lunch break, and never two rows with real free time between them.
+ *
+ * One predicate for both sides of the app: the grid groups a unit with it and the resize
+ * finds the stretch it is sizing with it, so a unit on screen and a stretch on the server
+ * can never disagree about where one ends.
+ */
+export function adjacentInWindows(
+  manualWindows: readonly WorkPeriod[],
+  endMinutes: number,
+  startMinutes: number,
+): boolean {
+  return startMinutes >= endMinutes && netMinutesBetween(manualWindows, endMinutes, startMinutes) === 0;
+}
+
+/**
+ * The smallest amount of manual-only time a hand action can be ASKING for.
+ *
+ * A drop writes a queue RANK, and a rank that ties with an existing row is nudged by a
+ * single minute (`rankFor`) — so "put this at the very top of Monday" arrives as 07:59 when
+ * 08:00 is taken. One minute of margin is not a request for the margin; it is a tie-break.
+ * The gesture's own resolution is a quarter of an hour (`SNAP_MINUTES` in the drag layer,
+ * held equal to this by a test), so that is where a request begins.
+ */
+export const MIN_MANUAL_ONLY_MINUTES = 15;
+
+/** Minutes in `segments` that the day's PERIODS do not cover: margin and lunch time. */
+export function manualOnlyMinutes(
+  periods: readonly WorkPeriod[],
+  segments: readonly { startMinutes: number; durationMinutes: number }[],
+): number {
+  let total = 0;
+  for (const segment of segments) {
+    total +=
+      segment.durationMinutes -
+      netMinutesBetween(periods, segment.startMinutes, segment.startMinutes + segment.durationMinutes);
+  }
+  return total;
+}
+
+/**
+ * True when `segments` ask for a real amount of time the day's PERIODS do not cover — a
+ * visual margin, or the lunch band itself. The grid draws exactly that time grey and
+ * labels it "solo arrastre manual".
+ *
+ * It is what decides that a hand action has to PIN its row (`handPlaced`): the engine's
+ * index space has no margin minutes in it, so a row the reflow still owns would be pulled
+ * straight back into the periods — either moved, or thrown onto the next day when the
+ * hours no longer fit there. That is exactly why the margins were configurable and
+ * unusable. The mark is the existing answer to "a human put this row where the engine
+ * would otherwise have taken it back", and it already has an undo.
+ */
+export function usesManualOnlyTime(
+  periods: readonly WorkPeriod[],
+  segments: readonly { startMinutes: number; durationMinutes: number }[],
+): boolean {
+  return manualOnlyMinutes(periods, segments) >= MIN_MANUAL_ONLY_MINUTES;
+}

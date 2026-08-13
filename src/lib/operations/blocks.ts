@@ -23,6 +23,8 @@
 import { getDb, type Db } from '../db';
 import { assertFitsInDay } from '../validation';
 import { todayLocal } from '../dates';
+import { segmentDroppedRow } from '../dropSegments';
+import { usesManualOnlyTime } from '../manualWindow';
 import {
   releaseBlock as releaseBlockMarks,
   resizeBlock as resizeBlockHours,
@@ -100,10 +102,12 @@ export interface MoveBlockInput {
  * Dropping the row back onto Mon-Thu CLEARS the mark: the same gesture that sets it
  * takes it away, and *back to automatic* is the one-click alternative.
  *
- * A drop into a visual margin is accepted as-is; note that an UNLOCKED row dropped
- * into a Mon-Thu margin is pulled back into the working periods by this very
- * recomposition, so a margin drop only sticks if the row is also locked or hand-placed.
- * That is margins ("manual drag-drop only") meeting the movable pool, not a bug.
+ * A DROP INTO A VISUAL MARGIN (or into the lunch band) PINS TOO, on any day — see
+ * `pinsTheRow`. It used to be accepted and then quietly pulled back into the working
+ * periods by this very recomposition, so a margin drop only stuck if the row happened to
+ * be locked, and CLAUDE.md's promise that the margins "accept manual drag-drop" was not
+ * true of any gesture the owner could make. The margins are hand time; the engine cannot
+ * represent them; so the row stays where it was dropped and the reflow flows around it.
  *
  * `manualPlacementBlockId` is what stops the drop leaving a silent overlap where the
  * reflow cannot reach — the weekend, the frozen past, and now a hand-placed Friday row.
@@ -123,7 +127,7 @@ export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb
         ...block,
         date: input.date,
         startMinutes: input.startMinutes,
-        handPlaced: pinsToTheDay(input.date, db),
+        handPlaced: pinsTheRow(input.date, input.startMinutes, block.durationMinutes, db),
       },
       db,
     );
@@ -133,15 +137,34 @@ export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb
 }
 
 /**
- * Whether a drop onto `date` pins the row to it.
+ * Whether a drop pins the row where it landed.
  *
- * The policy the engine's `handPlaced` flag is the mechanism for, in one place: a day
- * the engine auto-fills (Mon-Thu) takes a drop as a queue rank, while the Friday buffer
- * and the weekend — the days whose whole point is that the engine does not decide what
- * sits there — keep exactly what the owner dropped.
+ * The policy the engine's `handPlaced` flag is the mechanism for, in one place. Two
+ * reasons, and both are "the reflow's only possible answer here would be to undo the
+ * drop":
+ *
+ * - THE DAY. The Friday buffer and the weekend are the days whose whole point is that the
+ *   engine does not decide what sits there, so they keep exactly what the owner dropped.
+ *   A day the engine auto-fills (Mon-Thu) takes a drop as a queue rank instead.
+ * - THE SLOT. A drop into MANUAL-ONLY TIME — a visual margin, or the lunch band — on any
+ *   day. CLAUDE.md promises the margins accept manual drag-drop, and the engine's index
+ *   space has no margin minutes in it at all: an unpinned margin row is pulled straight
+ *   back inside the periods, which is why the margins were configurable and unusable. The
+ *   drop is cut over the manual windows first, so the test is asked of the rows that will
+ *   really be stored.
  */
-function pinsToTheDay(date: string, db: Db): boolean {
-  return getDayConfig(date, db).role !== 'auto';
+function pinsTheRow(
+  date: string,
+  startMinutes: number,
+  durationMinutes: number,
+  db: Db,
+): boolean {
+  const config = getDayConfig(date, db);
+  if (config.role !== 'auto') return true;
+  return usesManualOnlyTime(
+    config.periods,
+    segmentDroppedRow(config.manualWindows, { startMinutes, durationMinutes }),
+  );
 }
 
 export interface ResizeBlockInput {
@@ -168,6 +191,11 @@ export interface ResizeBlockInput {
  * (`manualDuration`), keeps the length through the reflow, and ends the job's run
  * there. The refusals stay refusals: shrinking a job's last (or only) row is a 409
  * carrying `errors.shrinkLastBlock`, never a silent no-op.
+ *
+ * `durationMinutes` is NET working minutes over the day's MANUAL WINDOWS, counted from the
+ * row's own start — so the drag crosses the lunch break and may reach into the visual
+ * margins, and the engine stores the result in segments. A row starting at 10:00 sized to
+ * 6 h comes back as `10:00-14:00` plus `15:30-17:30`.
  */
 export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = getDb()): BlockMutation {
   const today = input.today ?? todayLocal();
@@ -175,7 +203,16 @@ export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = g
   return runTransaction(db, () => {
     const block = requireBlock(blockId, db);
     const edit = requireEdit(
-      resizeBlockHours(listBlocks(db), { blockId, durationMinutes: input.durationMinutes, today }),
+      resizeBlockHours(listBlocks(db), {
+        blockId,
+        durationMinutes: input.durationMinutes,
+        today,
+        // Both views of the row's day: the stretch is measured and cut over the manual
+        // windows, and the margins are what tell it to pin the row.
+        day: getDayConfig(block.date, db),
+        newBlockId: newId,
+        now: nowTimestamp(),
+      }),
     );
 
     if (edit.totalMinutesDelta !== 0) {
@@ -320,8 +357,9 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
       // drawn on the calendar; `locked` is what pins a fragment to a slot.
       manualDuration: false,
       // The fragment IS the drop, so it follows the same rule a move does: pinned on
-      // the buffer and the weekend, an ordinary queue rank on Monday to Thursday.
-      handPlaced: pinsToTheDay(input.date, db),
+      // the buffer, on the weekend and in manual-only time, an ordinary queue rank
+      // anywhere Monday to Thursday the engine can reach.
+      handPlaced: pinsTheRow(input.date, input.startMinutes, input.durationMinutes, db),
       createdAt: now,
       updatedAt: now,
     });

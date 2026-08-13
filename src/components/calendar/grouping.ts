@@ -17,6 +17,7 @@
  *    other, so overlapping items share the column's width.
  */
 
+import { adjacentInWindows } from '../../lib/manualWindow';
 import type { Gap, WorkPeriod } from '../../types';
 import type { WeekBlock } from '../../lib/api-client';
 
@@ -72,18 +73,48 @@ export interface BlockSegment {
   index: number;
   isFirst: boolean;
   isLast: boolean;
+  /**
+   * THE BREAK BETWEEN TWO WINDOWS — the lunch break — separates this row from the previous
+   * / next row of its unit. That, and only that, is what the "· sigue…" marks, the dashed
+   * seam and the "después de la comida" tooltip are allowed to say.
+   *
+   * NOT the same question as `isFirst` / `isLast`, which is where the ROUNDED CORNERS come
+   * from, and telling the two apart is a defect fix (2026-08-13, found by dragging). A
+   * unit joins two rows when nothing WORKABLE separates them, which is true in two more
+   * cases than "cut at lunch":
+   *
+   * - THE ROWS TOUCH, with no hole at all. Reachable whenever auto-merge may not fold
+   *   them: the scissors moving an hour into the top margin leaves `07:00-08:00`
+   *   hand-placed against `08:00-11:00`, one contiguous rectangle, and read off
+   *   `!isFirst`/`!isLast` every mark was drawn straight down the middle of it while the
+   *   tooltip announced a lunch break three hours away.
+   * - THE HOLE IS A MARGIN THE OWNER HAS SINCE SET TO 0, so those minutes stopped being
+   *   workable and two units became one. The hole is real but it is not the comida.
+   *
+   * Both are excluded by asking the day's windows rather than the row's position: the hole
+   * has to START where a window ends and END where the next one starts.
+   */
+  seamAbove: boolean;
+  seamBelow: boolean;
 }
 
 /**
  * A day's groups, in clock order.
  *
- * Two rows join when the working time between them is zero — which is true both for
- * rows that touch and for the two halves around lunch, and false when a gap or
- * another job sits between them. Same rule, no special case for the lunch break.
+ * Two rows join when nothing WORKABLE separates them — which is true both for rows that
+ * touch and for the two halves around lunch, and false when a gap, another job, or free
+ * time sits between them. Same rule, no special case for the lunch break.
+ *
+ * Read over the day's MANUAL WINDOWS (`adjacentInWindows`, src/lib/manualWindow.ts), which
+ * is also the predicate the server's resize uses to find the stretch it is sizing — so a
+ * unit on screen and a stretch on the server can never disagree about where one ends. The
+ * periods alone would call a row in the top margin and one starting at 08:00 contiguous,
+ * because the margin between them is not working time to the ENGINE, and draw the pair as
+ * one unit with a phantom seam.
  */
 export function groupBlocks(
   blocks: readonly WeekBlock[],
-  periods: readonly WorkPeriod[],
+  manualWindows: readonly WorkPeriod[],
 ): BlockGroup[] {
   const ordered = [...blocks].sort(byClockThenId);
   const groups: BlockGroup[] = [];
@@ -93,8 +124,7 @@ export function groupBlocks(
     const joins =
       open !== undefined &&
       open.projectId === block.projectId &&
-      block.startMinutes >= open.endMinutes &&
-      workingMinutesBetween(periods, open.endMinutes, block.startMinutes) === 0;
+      adjacentInWindows(manualWindows, open.endMinutes, block.startMinutes);
 
     if (joins) {
       open.blocks.push(block);
@@ -128,36 +158,73 @@ function isReleasable(block: WeekBlock): boolean {
   return block.manualDuration || block.handPlaced;
 }
 
-/** Every row of every group, flattened, so the grid can map straight to elements. */
-export function segmentsOf(groups: readonly BlockGroup[]): BlockSegment[] {
+/**
+ * Every row of every group, flattened, so the grid can map straight to elements.
+ *
+ * Each row is also told whether the LUNCH BREAK sits above and below it inside its unit —
+ * see `seamAbove` / `seamBelow`, which is what the "· sigue…" marks are drawn from. That
+ * is asked of the same `manualWindows` the grouping used, because a unit can also hold rows
+ * that touch and rows separated by time that has stopped being workable, and a mark on
+ * either would be saying something untrue.
+ */
+export function segmentsOf(
+  groups: readonly BlockGroup[],
+  manualWindows: readonly WorkPeriod[] = [],
+): BlockSegment[] {
   const segments: BlockSegment[] = [];
   for (const group of groups) {
     group.blocks.forEach((block, index) => {
+      const previous = group.blocks[index - 1];
+      const next = group.blocks[index + 1];
       segments.push({
         block,
         group,
         index,
         isFirst: index === 0,
         isLast: index === group.blocks.length - 1,
+        seamAbove:
+          previous !== undefined &&
+          isWindowBreak(manualWindows, previous.startMinutes + previous.durationMinutes, block.startMinutes),
+        seamBelow:
+          next !== undefined &&
+          isWindowBreak(manualWindows, block.startMinutes + block.durationMinutes, next.startMinutes),
       });
     });
   }
   return segments;
 }
 
-/** Working minutes inside `[from, to)`. Zero across the lunch break and the margins. */
-export function workingMinutesBetween(
-  periods: readonly WorkPeriod[],
+/**
+ * True when `[from, to)` is the break BETWEEN two manual windows — on the documented shift,
+ * 14:00-15:30 and nothing else.
+ *
+ * It has to start exactly where one window ends and finish exactly where the next begins.
+ * Two rows that touch give `to === from` and fail the first test; a hole left by a margin
+ * the owner has since set to 0 starts nowhere in particular and fails it too. Grouping has
+ * already guaranteed no window overlaps the stretch, so nothing else has to be checked.
+ */
+function isWindowBreak(
+  manualWindows: readonly WorkPeriod[],
   from: number,
   to: number,
-): number {
-  if (to <= from) return 0;
-  let total = 0;
-  for (const period of periods) {
-    total += Math.max(0, Math.min(period.endMinutes, to) - Math.max(period.startMinutes, from));
-  }
-  return total;
+): boolean {
+  if (to <= from) return false;
+  return (
+    manualWindows.some((window) => window.endMinutes === from) &&
+    manualWindows.some((window) => window.startMinutes === to)
+  );
 }
+
+/**
+ * Working minutes inside `[from, to)`. Zero across the lunch break and the margins when
+ * given the periods; zero only across the lunch break when given the manual windows.
+ *
+ * Re-exported from src/lib/manualWindow.ts rather than implemented here: the same
+ * arithmetic decides a unit on screen, a stretch on the server and the net minutes a
+ * resize is saved with, and three copies of it would drift the first time the shift is
+ * reconfigured.
+ */
+export { netMinutesBetween as workingMinutesBetween } from '../../lib/manualWindow';
 
 // ---------------------------------------------------------------------------
 // Lanes

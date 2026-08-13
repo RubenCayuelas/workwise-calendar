@@ -441,10 +441,44 @@ describe('a drop onto the Friday colchon', () => {
     job('Puerta', 4);
     const barandilla = job('Barandilla', 2, GREEN);
 
-    const result = moveBlock(barandilla.blocks[0].id, { date: MON, startMinutes: 7 * 60, today: MON }, db);
+    // 07:59, which is what the drag layer sends for "drop this at the top of Monday":
+    // 08:00 is taken by Puerta, so `rankFor` nudges the rank by a single minute. One
+    // minute above the morning is a TIE-BREAK, not a request for the margin, which is
+    // why the pin needs at least a quarter of an hour of it — see MIN_MANUAL_ONLY_MINUTES.
+    const result = moveBlock(barandilla.blocks[0].id, { date: MON, startMinutes: 8 * 60 - 1, today: MON }, db);
 
     expect(result.block?.handPlaced).toBe(false);
     expect(calendar()).toEqual([`${MON} 08:00-10:00 Barandilla`, `${MON} 10:00-14:00 Puerta`]);
+  });
+
+  it('pins a drop into a visual margin, because the engine would pull it straight back', () => {
+    // The owner's report C: "yo debo poder extender y colocar tareas en esas franjas si
+    // yo quiero, de forma manual." An unmarked margin row is reflowed into the periods on
+    // the very same save, so the margins were configurable and unusable. The mark is the
+    // one the buffer and the weekend already use, and *back to automatic* releases it.
+    job('Puerta', 4);
+    const barandilla = job('Barandilla', 2, GREEN);
+
+    const result = moveBlock(barandilla.blocks[0].id, { date: MON, startMinutes: 7 * 60, today: MON }, db);
+
+    expect(result.block?.handPlaced).toBe(true);
+    expect(calendar()).toEqual([
+      // Half in the margin, half in the morning, exactly where it was dropped — and the
+      // hour it holds inside the period is an obstacle Puerta flows around.
+      `${MON} 07:00-09:00 Barandilla`,
+      `${MON} 09:00-13:00 Puerta`,
+    ]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('gives a margin row back to the engine on release', () => {
+    const barandilla = job('Barandilla', 2, GREEN);
+    moveBlock(barandilla.blocks[0].id, { date: MON, startMinutes: 7 * 60, today: MON }, db);
+    expect(calendar()).toEqual([`${MON} 07:00-09:00 Barandilla`]);
+
+    releaseBlock(barandilla.blocks[0].id, { today: MON }, db);
+
+    expect(calendar()).toEqual([`${MON} 08:00-10:00 Barandilla`]);
   });
 
   it('marks a weekend drop too, where the engine already kept its hands off', () => {
@@ -487,11 +521,11 @@ describe('block gestures', () => {
     const barandilla = job('Barandilla', 2, GREEN);
     expect(calendar()).toEqual([`${MON} 08:00-12:00 Puerta`, `${MON} 12:00-14:00 Barandilla`]);
 
-    // Dropped into the top visual margin, above Monday's work. 07:00 is the RANK,
-    // not the final time: the reflow settles the row at the top of the periods, and
-    // everything behind it shifts. Dropping in a margin only sticks if the row is
-    // also locked, since an unlocked row is always pulled back into working time.
-    moveBlock(barandilla.blocks[0].id, { date: MON, startMinutes: 7 * 60, today: MON }, db);
+    // Dropped at the top of Monday's work: 07:59 is the RANK the drag layer sends when
+    // 08:00 is already taken, not a final time. The reflow settles the row at the top of
+    // the periods and everything behind it shifts. (A drop a quarter of an hour or more
+    // INTO the margin is a different gesture: it pins — see the margin tests above.)
+    moveBlock(barandilla.blocks[0].id, { date: MON, startMinutes: 8 * 60 - 1, today: MON }, db);
 
     expect(calendar()).toEqual([
       `${MON} 08:00-10:00 Barandilla`,
@@ -554,6 +588,81 @@ describe('block gestures', () => {
     ]);
     expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it("stores a resize across the lunch break as two rows — the owner's worked example", () => {
+    // "arrastro hasta las 17:30 una tarea que empezaba a las 10 ... sería de 10 a 14 y de
+    // 15:30 a 17:30." The drag layer sends 6 h of NET working minutes; the break adds
+    // nothing, and the row is stored cut at it like everything else on the calendar.
+    job('Porton', 2);
+    const barandilla = job('Barandilla', 14, GREEN);
+    expect(calendar()).toEqual([
+      `${MON} 08:00-10:00 Porton`,
+      `${MON} 10:00-14:00 Barandilla`,
+      `${MON} 15:30-19:30 Barandilla`,
+      `${TUE} 08:00-14:00 Barandilla`,
+    ]);
+
+    const result = resizeBlock(barandilla.blocks[0].id, { durationMinutes: 6 * 60, today: MON }, db);
+
+    // The row the request named holds the first segment; the second is a row of its own.
+    expect(result.block?.durationMinutes).toBe(4 * 60);
+    expect(result.block?.manualDuration).toBe(true);
+    expect(calendar()).toEqual([
+      `${MON} 08:00-10:00 Porton`,
+      `${MON} 10:00-14:00 Barandilla`,
+      `${MON} 15:30-17:30 Barandilla`,
+      // A transfer, not growth: the 2 h the stretch gave up went to the job's last rows,
+      // and the stretch closes Monday for its job, so they stay on Tuesday.
+      `${TUE} 08:00-14:00 Barandilla`,
+      `${TUE} 15:30-17:30 Barandilla`,
+    ]);
+    expect(listProjects(db).find((project) => project.name === 'Barandilla')?.totalMinutes).toBe(14 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+
+    // And back again, symmetrically: the same edge dragged up to 12:00 takes the stretch
+    // back into the morning and the afternoon row is gone.
+    resizeBlock(barandilla.blocks[0].id, { durationMinutes: 4 * 60, today: MON }, db);
+    expect(calendar()).toEqual([
+      `${MON} 08:00-10:00 Porton`,
+      `${MON} 10:00-14:00 Barandilla`,
+      `${TUE} 08:00-14:00 Barandilla`,
+      `${TUE} 15:30-19:30 Barandilla`,
+    ]);
+    expect(listProjects(db).find((project) => project.name === 'Barandilla')?.totalMinutes).toBe(14 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('lets a resize reach into the bottom margin, and the row stays there', () => {
+    // Report C for the resize. Without the pin the reflow pulls the row back inside the
+    // periods on this very save, which is what made the margins unusable by hand.
+    job('Porton', 6);
+    const puerta = job('Puerta', 2, GREEN);
+    expect(calendar()).toEqual([`${MON} 08:00-14:00 Porton`, `${MON} 15:30-17:30 Puerta`]);
+
+    // 15:30 to 20:30 — an hour past the last period, into the grey band the Settings
+    // screen offers and no gesture could reach.
+    const result = resizeBlock(puerta.blocks[0].id, { durationMinutes: 5 * 60, today: MON }, db);
+
+    expect(result.block?.handPlaced).toBe(true);
+    expect(result.block?.manualDuration).toBe(true);
+    expect(calendar()).toEqual([`${MON} 08:00-14:00 Porton`, `${MON} 15:30-20:30 Puerta`]);
+    // Nothing farther in the job to draw from, so this is the one case that grows the
+    // estimate — 2 h to 5 h — and the hours invariant still holds.
+    expect(listProjects(db).find((project) => project.name === 'Puerta')?.totalMinutes).toBe(5 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+
+    // It survives an unrelated save, which is the whole point of the mark.
+    job('Reja', 2);
+    expect(calendar()).toEqual([
+      `${MON} 08:00-14:00 Porton`,
+      `${MON} 15:30-20:30 Puerta`,
+      `${TUE} 08:00-10:00 Reja`,
+    ]);
+
+    // Auto-fill still cannot reach the margin: Monday's stop line is the 10 h of periods,
+    // not the 12 h the manual window covers.
+    expect(readWeek(MON, { today: MON }, db).days[0].capacityMinutes).toBe(10 * 60);
   });
 
   it('gives the hours it frees to the job behind it, and takes them back on release', () => {

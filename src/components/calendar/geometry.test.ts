@@ -9,14 +9,17 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { MIN_MANUAL_ONLY_MINUTES, manualWindowsOf } from '../../lib/manualWindow';
 import type { DayShape, Gap, WorkPeriod } from '../../types';
 import type { WeekBlock } from '../../lib/api-client';
 import {
   MAX_PIXELS_PER_HOUR,
   MIN_PIXELS_PER_HOUR,
+  SNAP_MINUTES,
   axisTicks,
   createTimeline,
   dateAtX,
+  durationTo,
   emptyLabelMinutes,
   maxDurationFrom,
   nonWorkingBands,
@@ -32,6 +35,8 @@ const AFTERNOON: WorkPeriod = { startMinutes: 15 * 60 + 30, endMinutes: 19 * 60 
 /** The documented default: split shift 08:00-14:00 / 15:30-19:30, one hour of margin. */
 const SHAPE: DayShape = {
   periods: [MORNING, AFTERNOON],
+  // The hand view: the margins fused onto the periods, so 07:00-14:00 and 15:30-20:30.
+  manualWindows: manualWindowsOf([MORNING, AFTERNOON], 60, 60),
   shiftMinutes: 600,
   capacityMinutes: 600,
   marginTopMinutes: 60,
@@ -194,19 +199,82 @@ describe('drop targets', () => {
 });
 
 describe('maxDurationFrom', () => {
-  it('stops a row at the end of its own period, never across the lunch break', () => {
+  it('carries a row past the lunch break to the end of the last manual window', () => {
+    // The owner's report B: the drag "no pasa de las horas de comer y las de margen".
+    // It used to stop at 14:00 for a row starting at 12:00 — 120 minutes — so a 4 h
+    // morning row could not be made longer by any gesture at all. The limit is now the
+    // end of the day's last window (20:30 here) counted as NET working minutes: two
+    // hours of morning plus five of afternoon-and-margin.
     const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
-    expect(maxDurationFrom(12 * 60, SHAPE.periods, timeline)).toBe(120);
-    expect(maxDurationFrom(18 * 60, SHAPE.periods, timeline)).toBe(90);
+    expect(maxDurationFrom(12 * 60, SHAPE.manualWindows, timeline)).toBe(120 + 300);
+    expect(maxDurationFrom(18 * 60, SHAPE.manualWindows, timeline)).toBe(150);
+    // A row that starts in the top margin reaches just as far: the margin is inside the
+    // window, so there is no boundary between 07:00 and the morning below it.
+    expect(maxDurationFrom(7 * 60, SHAPE.manualWindows, timeline)).toBe(420 + 300);
   });
 
-  it('stops a row started in a margin at the next period', () => {
+  it('keeps a row that starts in a hole inside that hole', () => {
     const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
-    expect(maxDurationFrom(7 * 60, SHAPE.periods, timeline)).toBe(60);
-    // Inside the lunch break: up to the afternoon's start.
-    expect(maxDurationFrom(14 * 60 + 30, SHAPE.periods, timeline)).toBe(60);
-    // After the last period: the rest of the axis.
-    expect(maxDurationFrom(20 * 60, SHAPE.periods, timeline)).toBe(30);
+    // Inside the lunch break: up to the afternoon's start, exactly as before. Nothing
+    // may swallow working time it does not own.
+    expect(maxDurationFrom(14 * 60 + 30, SHAPE.manualWindows, timeline)).toBe(60);
+  });
+
+  it('never returns less than one snap step', () => {
+    const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
+    expect(maxDurationFrom(20 * 60 + 30, SHAPE.manualWindows, timeline)).toBe(SNAP_MINUTES);
+  });
+});
+
+describe('durationTo', () => {
+  const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
+
+  it("is the owner's worked example: 10:00 dragged to 17:30 is 6 h", () => {
+    // "arrastro hasta las 17:30 una tarea que empezaba a las 10, en vez de la hora del
+    // medio sumarla, ignorarla y sería de 10 a 14 y de 15:30 a 17:30." Four hours of
+    // morning plus two of afternoon. Emphatically not 7.5 h.
+    expect(durationTo(10 * 60, 17 * 60 + 30, SHAPE.manualWindows, timeline)).toBe(6 * 60);
+  });
+
+  it('gives the lunch break away for free: anywhere inside it is the same 4 h', () => {
+    for (const pointer of [14 * 60, 14 * 60 + 15, 14 * 60 + 45, 15 * 60 + 30]) {
+      expect(durationTo(10 * 60, pointer, SHAPE.manualWindows, timeline)).toBe(4 * 60);
+    }
+  });
+
+  it('shrinks symmetrically, back across the break', () => {
+    expect(durationTo(10 * 60, 16 * 60, SHAPE.manualWindows, timeline)).toBe(4 * 60 + 30);
+    expect(durationTo(10 * 60, 13 * 60, SHAPE.manualWindows, timeline)).toBe(3 * 60);
+    expect(durationTo(10 * 60, 10 * 60 + 30, SHAPE.manualWindows, timeline)).toBe(30);
+  });
+
+  it('reaches into both margins, which is the only way a hand can use them', () => {
+    // The bottom margin: 19:30 is the last period's end, 20:30 the axis's.
+    expect(durationTo(18 * 60, 20 * 60 + 30, SHAPE.manualWindows, timeline)).toBe(150);
+    // And the top one, which continues straight into the morning with no seam.
+    expect(durationTo(7 * 60, 9 * 60, SHAPE.manualWindows, timeline)).toBe(120);
+  });
+
+  it('snaps on the clock and never collapses the row', () => {
+    expect(durationTo(10 * 60, 12 * 60 + 7, SHAPE.manualWindows, timeline)).toBe(120);
+    expect(durationTo(10 * 60, 12 * 60 + 8, SHAPE.manualWindows, timeline)).toBe(135);
+    // Dragged above its own start, or into the band right after it.
+    expect(durationTo(13 * 60, 11 * 60, SHAPE.manualWindows, timeline)).toBe(SNAP_MINUTES);
+    expect(durationTo(14 * 60 + 30, 15 * 60, SHAPE.manualWindows, timeline)).toBe(30);
+  });
+
+  it('is the same resolution the pin threshold is stated in', () => {
+    // A hand action pins its row when it asks for manual-only time (a margin, the lunch
+    // band), and the line is "at least one snap step" — because a drop's rank is nudged by
+    // a single minute to break a tie and one minute of margin is not a request for the
+    // margin. The two constants have to move together, so they are held equal here.
+    expect(MIN_MANUAL_ONLY_MINUTES).toBe(SNAP_MINUTES);
+  });
+
+  it('caps at the end of the day, wherever the pointer went', () => {
+    expect(durationTo(10 * 60, 23 * 60, SHAPE.manualWindows, timeline)).toBe(
+      maxDurationFrom(10 * 60, SHAPE.manualWindows, timeline),
+    );
   });
 });
 
@@ -252,7 +320,7 @@ describe('groupBlocks', () => {
         block({ startMinutes: 780, durationMinutes: 60 }),
         block({ startMinutes: 930, durationMinutes: 120 }),
       ],
-      SHAPE.periods,
+      SHAPE.manualWindows,
     );
 
     expect(groups).toHaveLength(1);
@@ -271,9 +339,36 @@ describe('groupBlocks', () => {
         block({ projectId: 'job-a', startMinutes: 480, durationMinutes: 120 }),
         block({ projectId: 'job-b', startMinutes: 600, durationMinutes: 120 }),
       ],
-      SHAPE.periods,
+      SHAPE.manualWindows,
     );
     expect(groups).toHaveLength(2);
+  });
+
+  it('does not join across a MARGIN either, which the periods alone would', () => {
+    // 07:00-07:30 in the top margin and 08:00-09:00 in the morning, same job. Half an
+    // hour of margin sits between them and a hand can work it, so they are two units —
+    // and the grid must not draw them as one with a phantom seam. Read against the
+    // periods this pair looks contiguous, which is the trap the manual window closes.
+    const rows = [
+      block({ startMinutes: 420, durationMinutes: 30 }),
+      block({ startMinutes: 480, durationMinutes: 60 }),
+    ];
+    expect(groupBlocks(rows, SHAPE.manualWindows)).toHaveLength(2);
+    expect(groupBlocks(rows, SHAPE.periods)).toHaveLength(1);
+  });
+
+  it('joins a margin row to the period below it when they touch', () => {
+    // 07:00-08:00 and 08:00-10:00: one unbroken rectangle from the margin into the
+    // morning, which is what a drop into the margin looks like once it is stored.
+    const groups = groupBlocks(
+      [
+        block({ startMinutes: 420, durationMinutes: 60 }),
+        block({ startMinutes: 480, durationMinutes: 120 }),
+      ],
+      SHAPE.manualWindows,
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].totalMinutes).toBe(180);
   });
 
   it('does not join across a break that holds working time', () => {
@@ -284,7 +379,7 @@ describe('groupBlocks', () => {
         block({ startMinutes: 480, durationMinutes: 120 }),
         block({ startMinutes: 660, durationMinutes: 60 }),
       ],
-      SHAPE.periods,
+      SHAPE.manualWindows,
     );
     expect(groups).toHaveLength(2);
   });
@@ -295,7 +390,7 @@ describe('groupBlocks', () => {
         block({ startMinutes: 780, durationMinutes: 60, locked: true }),
         block({ startMinutes: 930, durationMinutes: 120, locked: false }),
       ],
-      SHAPE.periods,
+      SHAPE.manualWindows,
     );
     expect(groups[0].locked).toBe(false);
   });
@@ -331,7 +426,7 @@ describe('lanes', () => {
       createdAt: '2026-08-11 08:00:00',
       updatedAt: '2026-08-11 08:00:00',
     };
-    const groups = groupBlocks([block({ startMinutes: 480, durationMinutes: 120 })], SHAPE.periods);
+    const groups = groupBlocks([block({ startMinutes: 480, durationMinutes: 120 })], SHAPE.manualWindows);
     const placements = packDay(groups, [gap]);
     expect(placements.get(groups[0].id)?.lanes).toBe(2);
     expect(placements.get('gap-1')?.lanes).toBe(2);

@@ -61,9 +61,21 @@
   border-bottom-right-radius: var(--ww-radius);
 }
 
-/* Continues the unit above: the seam is dashed so the two halves read as one job. */
+/*
+ * THE SEAM, ON BOTH SIDES OF THE BREAK. A unit cut at the lunch break is two rows, and
+ * both of them say so: the lower row's top edge is dashed and the upper row's bottom edge
+ * is dashed, so the morning half no longer reads as a job that finishes at 14:00.
+ *
+ * The owner's report: "en el de abajo coloca puntos suspensivos pero en el de arriba no,
+ * quiero puntos suspensivos a ambos lados". The dashed edge is the quiet half of that
+ * answer and the ellipsis in the hours label is the loud one.
+ */
 .continued {
   border-top-style: dashed;
+}
+
+.continuesBelow {
+  border-bottom-style: dashed;
 }
 
 /*
@@ -135,8 +147,19 @@
   border-style: solid;
 }
 
+/*
+ * The seam wins on the edge it falls on, over BOTH hand marks. Same reason in both
+ * directions: the dashed edge is what makes the two halves of a lunch-split unit read as
+ * one job, and a hand-set stretch across lunch IS two marked rows. The ruler keeps its
+ * extra weight — a 2px dashed rule still reads as "the length is yours".
+ */
 .handPlaced.continued {
   border-top-style: dashed;
+}
+
+.manual.continuesBelow,
+.handPlaced.continuesBelow {
+  border-bottom-style: dashed;
 }
 
 /* The marks, in the corner the action bar takes over on hover. */

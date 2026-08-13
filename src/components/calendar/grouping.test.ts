@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { groupBlocks } from './grouping';
+import { groupBlocks, segmentsOf } from './grouping';
 import type { WeekBlock } from '../../lib/api-client';
 
 const PERIODS = [
@@ -122,5 +122,90 @@ describe('groupBlocks — what *back to automatic* releases', () => {
     );
     expect(groups).toHaveLength(1);
     expect(groups[0].releasableBlockIds).toEqual(['morning', 'afternoon']);
+  });
+});
+
+/**
+ * Which internal edge of a unit may say "the work carries on over there".
+ *
+ * The answer has to be "the one with a real hole on the clock", not "any edge that is not
+ * the unit's own end". A unit joins rows with nothing WORKABLE between them, and two rows
+ * that simply TOUCH satisfy that too — reachable whenever auto-merge may not fold them,
+ * e.g. the scissors putting an hour in the top margin against the row below it. Read off
+ * the position in the unit, the marks drew a seam down the middle of one unbroken
+ * rectangle and the tooltip announced a lunch break that was not there.
+ */
+describe('segmentsOf — the seam is the hole, not the join', () => {
+  const MANUAL_WINDOWS = [
+    { startMinutes: 7 * 60, endMinutes: 14 * 60 },
+    { startMinutes: 15 * 60 + 30, endMinutes: 20 * 60 + 30 },
+  ];
+
+  it('marks both ends of a unit really cut at the lunch break', () => {
+    const segments = segmentsOf(
+      groupBlocks(
+        [
+          block({ id: 'morning', startMinutes: 10 * 60, durationMinutes: 4 * 60 }),
+          block({ id: 'afternoon', startMinutes: 15 * 60 + 30, durationMinutes: 2 * 60 }),
+        ],
+        MANUAL_WINDOWS,
+      ),
+      MANUAL_WINDOWS,
+    );
+    expect(segments).toHaveLength(2);
+    expect([segments[0].seamAbove, segments[0].seamBelow]).toEqual([false, true]);
+    expect([segments[1].seamAbove, segments[1].seamBelow]).toEqual([true, false]);
+  });
+
+  it('marks neither end when the two rows of the unit TOUCH', () => {
+    const segments = segmentsOf(
+      groupBlocks(
+        [
+          block({ id: 'margin', startMinutes: 7 * 60, durationMinutes: 60, handPlaced: true }),
+          block({ id: 'period', startMinutes: 8 * 60, durationMinutes: 3 * 60 }),
+        ],
+        MANUAL_WINDOWS,
+      ),
+      MANUAL_WINDOWS,
+    );
+    expect(segments).toHaveLength(2);
+    // One unit — the grouping is right; it is only the seam that must not be drawn.
+    expect(segments[0].group.id).toBe(segments[1].group.id);
+    expect(segments.map((segment) => [segment.seamAbove, segment.seamBelow])).toEqual([
+      [false, false],
+      [false, false],
+    ]);
+    // The rounded corners are a different question and still follow the position.
+    expect([segments[0].isFirst, segments[1].isLast]).toEqual([true, true]);
+  });
+
+  it('says nothing about a hole left by a margin the owner has since set to 0', () => {
+    // 07:00-07:30 was dropped while the top margin existed; the margin is now 0, so the
+    // half hour before 08:00 has stopped being workable and the two rows became one unit.
+    // The hole is real, but it is not the comida and no mark may call it that.
+    const narrowed = [
+      { startMinutes: 8 * 60, endMinutes: 14 * 60 },
+      { startMinutes: 15 * 60 + 30, endMinutes: 20 * 60 + 30 },
+    ];
+    const segments = segmentsOf(
+      groupBlocks(
+        [
+          block({ id: 'margin', startMinutes: 7 * 60, durationMinutes: 30, handPlaced: true }),
+          block({ id: 'period', startMinutes: 8 * 60, durationMinutes: 2 * 60 }),
+        ],
+        narrowed,
+      ),
+      narrowed,
+    );
+    expect(segments[0].group.id).toBe(segments[1].group.id);
+    expect(segments.map((segment) => [segment.seamAbove, segment.seamBelow])).toEqual([
+      [false, false],
+      [false, false],
+    ]);
+  });
+
+  it('says nothing about a row that is a unit on its own', () => {
+    const segments = segmentsOf(groupBlocks([block({ id: 'solo' })], MANUAL_WINDOWS), MANUAL_WINDOWS);
+    expect([segments[0].seamAbove, segments[0].seamBelow]).toEqual([false, false]);
   });
 });

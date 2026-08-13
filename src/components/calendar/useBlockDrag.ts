@@ -19,8 +19,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  SNAP_MINUTES,
-  maxDurationFrom,
+  durationTo,
   rankFor,
   slotAt,
   snapTo,
@@ -326,6 +325,16 @@ function previewMove(
   };
 }
 
+/**
+ * The bottom edge, in NET WORKING MINUTES over the day's manual windows.
+ *
+ * Not `pointer − start`: that arithmetic counts the lunch break as work, and the cap that
+ * went with it stopped the drag at the end of the row's own period. Both are the owner's
+ * report B — "debería dejarme hacerlo más grande, y que ignore la hora de comer". The
+ * conversion lives in `durationTo`, with the worked example as its test, and the margins
+ * are inside the windows so report C's "extend into those bands" falls out of the same
+ * change.
+ */
 function previewResize(
   event: PointerEvent,
   current: Session,
@@ -334,13 +343,14 @@ function previewResize(
 ): DragPreview {
   const { timeline, dayAt } = options;
   const day = dayAt(current.target.date);
-  const periods = day?.periods ?? [];
+  const manualWindows = day?.manualWindows ?? [];
 
   const pointerMinutes = timeline.minutesAt(event.clientY - metrics.top);
-  const longest = maxDurationFrom(current.target.startMinutes, periods, timeline);
-  const durationMinutes = Math.min(
-    Math.max(snapTo(pointerMinutes - current.target.startMinutes), SNAP_MINUTES),
-    longest,
+  const durationMinutes = durationTo(
+    current.target.startMinutes,
+    pointerMinutes,
+    manualWindows,
+    timeline,
   );
 
   return {

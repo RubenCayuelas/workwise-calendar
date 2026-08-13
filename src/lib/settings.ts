@@ -21,6 +21,7 @@
  */
 
 import { getDb, type Db } from './db';
+import { manualWindowsOf } from './manualWindow';
 import {
   MINUTES_PER_DAY,
   MINUTES_PER_HOUR,
@@ -267,6 +268,9 @@ export function dayShapeFromSettings(settings: Settings): DayShape {
 
   return {
     periods,
+    // The hand view, derived here so `periods` and `manualWindows` can never disagree
+    // about the same settings — see src/lib/manualWindow.ts.
+    manualWindows: manualWindowsOf(periods, marginTopMinutes, marginBottomMinutes),
     shiftMinutes: shiftMinutesOf(settings),
     capacityMinutes: hoursToMinutes(capCapacity(settings.defaultDayCapacity, settings)),
     marginTopMinutes,

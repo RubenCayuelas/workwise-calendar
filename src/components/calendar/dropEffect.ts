@@ -75,10 +75,11 @@ export interface DropEffectInput {
   /** The dragged unit is locked, so the reflow will not lay it out either. */
   locked: boolean;
   /**
-   * The target day's working periods, which are where the drop is cut. Without them a
+   * The target day's MANUAL WINDOWS — the periods with the visual margins fused on, which
+   * is the view every hand action is cut over (src/lib/manualWindow.ts). Without them a
    * drop across the lunch break would be measured over the band it does not occupy.
    */
-  periods: readonly WorkPeriod[];
+  manualWindows: readonly WorkPeriod[];
   /** The ghost, in minutes from midnight. */
   startMinutes: number;
   durationMinutes: number;
@@ -172,11 +173,11 @@ function effect(kind: DropEffectKind, row: DropRow, cutMinutes: number): DropEff
  * through the lunch band.
  */
 export function dropFootprint(input: {
-  periods: readonly WorkPeriod[];
+  manualWindows: readonly WorkPeriod[];
   startMinutes: number;
   durationMinutes: number;
 }): DropSegment[] {
-  return segmentDroppedRow(input.periods, {
+  return segmentDroppedRow(input.manualWindows, {
     startMinutes: input.startMinutes,
     durationMinutes: input.durationMinutes,
   });

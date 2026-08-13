@@ -49,6 +49,12 @@ export interface WeekDay {
   isPast: boolean;
   /** Working periods on the clock, morning first. Draw the lunch break between them. */
   periods: WorkPeriod[];
+  /**
+   * The same day as a HAND action sees it: the periods plus the visual margins, fused
+   * where they touch. What a drop, a resize and the scissors may use — the grey margin
+   * bands included, which auto-fill never enters. See src/lib/manualWindow.ts.
+   */
+  manualWindows: WorkPeriod[];
   /** This day's auto-fill stop line. Never a limit on manual placement. */
   capacityMinutes: number;
   /**
@@ -136,6 +142,7 @@ export function readWeek(
       isToday: date === today,
       isPast: compareDates(date, today) < 0,
       periods: [...config.periods],
+      manualWindows: [...config.manualWindows],
       capacityMinutes: config.capacityMinutes,
       plannableMinutes: plannableMinutesOf(snapshot, date),
       bookedMinutes: bookedByDate.get(date) ?? 0,

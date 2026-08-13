@@ -38,7 +38,7 @@ function input(overrides: Partial<DropEffectInput> = {}): DropEffectInput {
     dayIsWeekend: false,
     dayIsBuffer: false,
     locked: false,
-    periods: PERIODS,
+    manualWindows: PERIODS,
     startMinutes: 10 * 60,
     durationMinutes: 2 * 60,
     ...overrides,
@@ -195,13 +195,13 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
 
 describe('dropFootprint — what the ghost draws', () => {
   it('is one rectangle for a drop that stays inside a period', () => {
-    expect(dropFootprint({ periods: PERIODS, startMinutes: 10 * 60, durationMinutes: 2 * 60 })).toEqual([
+    expect(dropFootprint({ manualWindows: PERIODS, startMinutes: 10 * 60, durationMinutes: 2 * 60 })).toEqual([
       { startMinutes: 10 * 60, durationMinutes: 2 * 60 },
     ]);
   });
 
   it('is the two rows the server will store when the drop crosses lunch', () => {
-    expect(dropFootprint({ periods: PERIODS, startMinutes: 10 * 60, durationMinutes: 6 * 60 })).toEqual([
+    expect(dropFootprint({ manualWindows: PERIODS, startMinutes: 10 * 60, durationMinutes: 6 * 60 })).toEqual([
       { startMinutes: 10 * 60, durationMinutes: 4 * 60 },
       { startMinutes: 15 * 60 + 30, durationMinutes: 2 * 60 },
     ]);

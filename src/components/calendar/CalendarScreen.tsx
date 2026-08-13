@@ -43,6 +43,7 @@ import {
 import type { DayShape, Gap } from '../../types';
 import type { CloseDayRequest } from '../../lib/closeDay';
 import { PROJECT_COLORS } from '../../lib/projectColors';
+import { manualWindowsOf } from '../../lib/manualWindow';
 import { rankFor, createTimeline, type GridMetrics } from './geometry';
 import { describeDrop, type DropOutcomeKind } from './dropOutcome';
 import { SummaryStrip } from './SummaryStrip';
@@ -339,10 +340,12 @@ export function CalendarScreen({
         report(result);
         if (result === undefined) return;
         /*
-         * The DIRECTION comes from the gesture, the HOURS from what was stored. They
-         * can disagree: a hand-set length longer than a day's plannable minutes is
-         * split across days and the row named in the request keeps only the first
-         * piece. The gesture is what the owner did, so it is what the sentence is about.
+         * BOTH THE DIRECTION AND THE HOURS COME FROM THE GESTURE, and they have to: what
+         * the owner drew is a STRETCH in net working minutes, and a stretch that crosses
+         * the lunch break is stored as two rows — so the row named in the request holds
+         * only its first segment, and reading the hours back off it would answer "4 h" to
+         * a 6 h drag. The drag layer caps the number at the day's own manual window
+         * (`durationTo`), so it is always time that really exists on that day.
          *
          * Only two branches, because the drag never sends a resize to the length the row
          * already had — the engine accepts one (it makes the gesture total from the
@@ -351,7 +354,7 @@ export function CalendarScreen({
         toast.info(
           t(durationMinutes < target.durationMinutes ? 'notices.resizeShrunk' : 'notices.resizeGrown', {
             name: target.name,
-            hours: format.hourNumber(result.block?.durationMinutes ?? durationMinutes),
+            hours: format.hourNumber(durationMinutes),
           }),
         );
       });
@@ -700,11 +703,14 @@ export function CalendarScreen({
  * has a timeline. Gestures are disabled until the real one arrives, so these numbers
  * never reach the screen — they are the documented defaults (07:00 to 20:30).
  */
+const FALLBACK_PERIODS = [
+  { startMinutes: 8 * 60, endMinutes: 14 * 60 },
+  { startMinutes: 15 * 60 + 30, endMinutes: 19 * 60 + 30 },
+];
+
 const FALLBACK_TIMELINE = createTimeline({
-  periods: [
-    { startMinutes: 8 * 60, endMinutes: 14 * 60 },
-    { startMinutes: 15 * 60 + 30, endMinutes: 19 * 60 + 30 },
-  ],
+  periods: FALLBACK_PERIODS,
+  manualWindows: manualWindowsOf(FALLBACK_PERIODS, 60, 60),
   shiftMinutes: 10 * 60,
   capacityMinutes: 10 * 60,
   marginTopMinutes: 60,

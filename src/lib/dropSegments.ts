@@ -32,35 +32,40 @@ export interface DropSegment {
 
 /**
  * The rows a hand-dropped stretch is stored as: cut wherever it holds minutes on both
- * sides of a NON-WORKING INTERVAL BETWEEN TWO PERIODS. `duration` is net working time,
+ * sides of a NON-WORKING INTERVAL BETWEEN TWO WINDOWS. `duration` is net working time,
  * so 6 h dropped at 10:00 is 10:00-14:00 plus 15:30-17:30 — the same two rows auto-fill
  * would have produced, and the same rule `toClockSegments` applies to everything the
  * engine places.
  *
- * Three things it deliberately leaves alone, all of them latitude a hand drop already
+ * WHICH VIEW OF THE DAY `windows` IS, THE CALLER DECIDES, and every hand action passes the
+ * same one: the MANUAL WINDOWS (`manualWindowsOf`, src/lib/manualWindow.ts), the periods
+ * with the visual margins fused on. On the documented shift both views leave the lunch
+ * break as the only hole, so the cut is identical — the difference is that a row starting
+ * in a margin runs on into the period below it with no boundary between them, which is
+ * what makes the margins usable at all.
+ *
+ * Three things it deliberately leaves alone, all of them latitude a hand action already
  * has and none of them a straddle:
  *
- * - a row that STARTS outside every period — in a visual margin, or in the lunch band
- *   itself. Margins take a hand drop as-is and there is no boundary inside such a row
- *   to cut it at;
- * - the minutes that run past the LAST period. They stay on the final row, exactly as a
- *   drop into the bottom margin does;
+ * - a row that STARTS outside every window — in the lunch band itself, say. There is no
+ *   boundary inside such a row to cut it at;
+ * - the minutes that run past the LAST window. They stay on the final row;
  * - anything whose tail would land past midnight. A row is a rectangle inside ONE day,
  *   so the drop is left precisely as it was made rather than half-cut.
  *
  * Always returns at least one segment, so a caller can read `[0]` without a guard.
  */
 export function segmentDroppedRow(
-  periods: readonly WorkPeriod[],
+  windows: readonly WorkPeriod[],
   row: DropSegment,
 ): DropSegment[] {
   const rows: DropSegment[] = [];
   let startMinutes = row.startMinutes;
   let remaining = row.durationMinutes;
 
-  for (let index = 0; index + 1 < periods.length; index += 1) {
-    const breakStart = periods[index].endMinutes;
-    const breakEnd = periods[index + 1].startMinutes;
+  for (let index = 0; index + 1 < windows.length; index += 1) {
+    const breakStart = windows[index].endMinutes;
+    const breakEnd = windows[index + 1].startMinutes;
     // A shift configured with no lunch (`period2Start === period1End`) has no break to
     // cut at; a row starting at or after this one is not across it.
     if (breakEnd <= breakStart || startMinutes >= breakStart) continue;

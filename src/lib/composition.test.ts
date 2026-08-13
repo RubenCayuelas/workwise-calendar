@@ -23,6 +23,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MINUTES_PER_DAY, compareDates, hhmmToMinutes as t, isWeekend, minutesToHHmm } from './dates';
 import { DEFAULT_SETTINGS, dayShapeFromSettings } from './settings';
+import { manualWindowsOf } from './manualWindow';
 import type { Block, DayOverride, DayShape, Gap } from '../types';
 import {
   buildQueue,
@@ -37,6 +38,7 @@ import {
   resizeBlock,
   resolveManualPlacement,
   summarizeSchedule,
+  type BlockResize,
   type ComposeInput,
   type ComposeResult,
   type ComposeSuccess,
@@ -62,8 +64,19 @@ const SAT = '2026-08-15';
 const SUN = '2026-08-16';
 const NEXT_MON = '2026-08-17';
 
+/**
+ * A day with BOTH views derived the way `dayShapeFromSettings` derives them, so no
+ * fixture can hold periods and manual windows that disagree.
+ */
+function withWindows(spec: Omit<DayShape, 'manualWindows'>): DayShape {
+  return {
+    ...spec,
+    manualWindows: manualWindowsOf(spec.periods, spec.marginTopMinutes, spec.marginBottomMinutes),
+  };
+}
+
 /** The shop's split shift: 08:00-14:00, lunch, 15:30-19:30. Auto-fill stops at 10 h. */
-const SHAPE: DayShape = {
+const SHAPE: DayShape = withWindows({
   periods: [
     { startMinutes: t('08:00'), endMinutes: t('14:00') },
     { startMinutes: t('15:30'), endMinutes: t('19:30') },
@@ -74,7 +87,7 @@ const SHAPE: DayShape = {
   marginBottomMinutes: 60,
   timelineStartMinutes: t('07:00'),
   timelineEndMinutes: t('20:30'),
-};
+});
 
 /** The same day with a shorter auto-fill stop line, so multi-day tests stay one row per day. */
 function withCapacity(hours: number): DayShape {
@@ -166,6 +179,25 @@ function input(spec: InputSpec): ComposeInput {
     planningHorizonWeeks: spec.horizonWeeks ?? DEFAULT_SETTINGS.planningHorizonWeeks,
     newProjectIds: spec.newProjectIds,
     grownProjectIds: spec.grownProjectIds,
+  };
+}
+
+/**
+ * A bottom-edge drag, with the three things every resize needs beyond the number the
+ * owner drew: the day in BOTH views (the stretch is cut over its manual windows), an id
+ * factory for the row a stretch across the lunch break grows, and a clock for it.
+ *
+ * `shape` is only passed where a test uses a day that is not the documented shift.
+ */
+function resizing(
+  spec: { blockId: string; durationMinutes: number; today: string },
+  shape: DayShape = SHAPE,
+): BlockResize {
+  return {
+    ...spec,
+    day: { periods: shape.periods, manualWindows: shape.manualWindows },
+    newBlockId: () => `resize-${++tailSequence}`,
+    now: '2026-08-12 09:00:00',
   };
 }
 
@@ -1354,7 +1386,7 @@ describe('rule 12 — auto-merge when two runs of one job meet after the reflow'
   it('emits one solid row when the shift has no lunch break to split it at', () => {
     // Settings allow `period2Start === period1End`. Then there is no non-working
     // interval to cut a row at, so a job spanning the boundary is one rectangle.
-    const noLunch: DayShape = {
+    const noLunch: DayShape = withWindows({
       periods: [
         { startMinutes: t('08:00'), endMinutes: t('14:00') },
         { startMinutes: t('14:00'), endMinutes: t('18:00') },
@@ -1365,7 +1397,7 @@ describe('rule 12 — auto-merge when two runs of one job meet after the reflow'
       marginBottomMinutes: 60,
       timelineStartMinutes: t('07:00'),
       timelineEndMinutes: t('19:00'),
-    };
+    });
 
     const composeInput = input({
       today: MON,
@@ -2268,7 +2300,7 @@ describe('rules 2 + 10 — today is a Saturday', () => {
 
 describe('rules 4 + 3 — a shift with the afternoon switched off', () => {
   it('plans against the morning alone and carries the rest to the next day', () => {
-    const morningOnly: DayShape = {
+    const morningOnly: DayShape = withWindows({
       periods: [{ startMinutes: t('08:00'), endMinutes: t('14:00') }],
       shiftMinutes: 360,
       capacityMinutes: 360,
@@ -2276,7 +2308,7 @@ describe('rules 4 + 3 — a shift with the afternoon switched off', () => {
       marginBottomMinutes: 60,
       timelineStartMinutes: t('07:00'),
       timelineEndMinutes: t('15:00'),
-    };
+    });
 
     const composeInput = input({
       today: MON,
@@ -2621,28 +2653,28 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   ];
 
   it('takes the hours off the last block when a block that is not the last grows', () => {
-    const edit = expectEdited(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 240, today: MON }));
+    const edit = expectEdited(resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 240, today: MON })));
 
     expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-12:00`, `${FRI} 08:00-09:00`]);
     expect(edit.totalMinutesDelta).toBe(0);
   });
 
   it('gives the hours to the last block when a block that is not the last shrinks', () => {
-    const edit = expectEdited(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 60, today: MON }));
+    const edit = expectEdited(resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 60, today: MON })));
 
     expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-09:00`, `${FRI} 08:00-12:00`]);
     expect(edit.totalMinutesDelta).toBe(0);
   });
 
   it("raises the job's total when the LAST block grows, since there is nothing farther to draw from", () => {
-    const edit = expectEdited(resizeBlock(job(), { blockId: 'viernes', durationMinutes: 300, today: MON }));
+    const edit = expectEdited(resizeBlock(job(), resizing({ blockId: 'viernes', durationMinutes: 300, today: MON })));
 
     expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-10:00`, `${FRI} 08:00-13:00`]);
     expect(edit.totalMinutesDelta).toBe(120);
   });
 
   it('refuses to shrink the last block — the blocks would stop summing to the total', () => {
-    const result = resizeBlock(job(), { blockId: 'viernes', durationMinutes: 60, today: MON });
+    const result = resizeBlock(job(), resizing({ blockId: 'viernes', durationMinutes: 60, today: MON }));
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('shrinking the last block must be refused');
@@ -2651,7 +2683,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   });
 
   it('refuses a growth the rest of the job cannot pay for', () => {
-    const result = resizeBlock(job(), { blockId: 'lunes', durationMinutes: 600, today: MON });
+    const result = resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 600, today: MON }));
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('the transfer must be refused');
@@ -2665,7 +2697,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
       block({ id: 'viernes', project: 'escalera', date: FRI, from: '08:00', hours: 1 }),
     ];
 
-    const edit = expectEdited(resizeBlock(blocks, { blockId: 'lunes', durationMinutes: 240, today: MON }));
+    const edit = expectEdited(resizeBlock(blocks, resizing({ blockId: 'lunes', durationMinutes: 240, today: MON })));
 
     expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-12:00`]);
     expect(edit.deletedBlockIds.sort()).toEqual(['martes', 'viernes']);
@@ -2680,7 +2712,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
       block({ id: 'jueves', project: 'escalera', date: THU, from: '08:00', hours: 4 }),
     ];
 
-    const edit = expectEdited(resizeBlock(blocks, { blockId: 'ayer', durationMinutes: 180, today: TUE }));
+    const edit = expectEdited(resizeBlock(blocks, resizing({ blockId: 'ayer', durationMinutes: 180, today: TUE })));
     expect(edit.totalMinutesDelta).toBe(0);
 
     const composeInput = input({ today: TUE, blocks: edit.blocks });
@@ -2703,7 +2735,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
       block({ id: 'sabado', project: 'escalera', date: SAT, from: '12:00', hours: 2 }),
     ];
 
-    const edit = expectEdited(resizeBlock(blocks, { blockId: 'mar', durationMinutes: 60, today: TUE }));
+    const edit = expectEdited(resizeBlock(blocks, resizing({ blockId: 'mar', durationMinutes: 60, today: TUE })));
 
     expect(jobRows(edit.blocks, 'escalera')).toEqual([
       `${TUE} 08:00-09:00`,
@@ -2714,22 +2746,22 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   });
 
   it('rejects a duration that is not a duration', () => {
-    expect(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 0, today: MON }).ok).toBe(false);
-    expect(resizeBlock(job(), { blockId: 'lunes', durationMinutes: -60, today: MON }).ok).toBe(false);
-    expect(resizeBlock(job(), { blockId: 'no-existe', durationMinutes: 60, today: MON }).ok).toBe(false);
+    expect(resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 0, today: MON })).ok).toBe(false);
+    expect(resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: -60, today: MON })).ok).toBe(false);
+    expect(resizeBlock(job(), resizing({ blockId: 'no-existe', durationMinutes: 60, today: MON })).ok).toBe(false);
   });
 
   it('marks the row it resized, and marks nothing when it refuses', () => {
-    const grown = expectEdited(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 240, today: MON }));
+    const grown = expectEdited(resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 240, today: MON })));
     expect(handSetIds(grown.blocks)).toEqual(['lunes']);
 
     // Even a resize to the length the row already had: the owner dropped the edge,
     // so the row is theirs. It makes the gesture total — same request, same state.
-    const unchanged = expectEdited(resizeBlock(job(), { blockId: 'lunes', durationMinutes: 120, today: MON }));
+    const unchanged = expectEdited(resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 120, today: MON })));
     expect(handSetIds(unchanged.blocks)).toEqual(['lunes']);
 
     // A refusal must not leave a mark behind: the caller writes nothing at all.
-    expect(resizeBlock(job(), { blockId: 'viernes', durationMinutes: 60, today: MON }).ok).toBe(false);
+    expect(resizeBlock(job(), resizing({ blockId: 'viernes', durationMinutes: 60, today: MON })).ok).toBe(false);
   });
 
   it('drops the mark from a row whose length something ELSE rewrote', () => {
@@ -2740,7 +2772,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
 
     // The counterparty of another row's resize: the 1 h lands on the marked row, so
     // the number the owner drew is no longer the number on it.
-    const transfer = expectEdited(resizeBlock(handSet, { blockId: 'lunes', durationMinutes: 60, today: MON }));
+    const transfer = expectEdited(resizeBlock(handSet, resizing({ blockId: 'lunes', durationMinutes: 60, today: MON })));
     expect(jobRows(transfer.blocks, 'escalera')).toEqual([`${MON} 08:00-09:00`, `${FRI} 08:00-12:00`]);
     expect(handSetIds(transfer.blocks)).toEqual(['lunes']);
 
@@ -2800,7 +2832,7 @@ describe('a hand-set duration — the resize survives the reflow', () => {
   });
 
   it('the worked example, row by row: the hours it frees go to the job behind it', () => {
-    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120, today: WED }));
+    const edit = expectEdited(resizeBlock(worked(), resizing({ blockId: 'bar-am', durationMinutes: 120, today: WED })));
 
     // The transfer is unchanged: the 4 h come off Wednesday and land on the job's
     // LAST block, and the estimate does not move.
@@ -2831,7 +2863,7 @@ describe('a hand-set duration — the resize survives the reflow', () => {
   });
 
   it('recomposing twice changes nothing — the fixed point the earlier defect broke', () => {
-    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120, today: WED }));
+    const edit = expectEdited(resizeBlock(worked(), resizing({ blockId: 'bar-am', durationMinutes: 120, today: WED })));
     const composeInput = input({ today: WED, blocks: edit.blocks });
 
     const once = compose(composeInput);
@@ -2847,7 +2879,7 @@ describe('a hand-set duration — the resize survives the reflow', () => {
   });
 
   it('survives an unrelated save: another job created, and a job deleted', () => {
-    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120, today: WED }));
+    const edit = expectEdited(resizeBlock(worked(), resizing({ blockId: 'bar-am', durationMinutes: 120, today: WED })));
 
     // A brand-new job appended at the end of the queue.
     const withNewJob = input({
@@ -2875,7 +2907,7 @@ describe('a hand-set duration — the resize survives the reflow', () => {
   });
 
   it('gives the length back to the engine when the mark is released', () => {
-    const edit = expectEdited(resizeBlock(worked(), { blockId: 'bar-am', durationMinutes: 120, today: WED }));
+    const edit = expectEdited(resizeBlock(worked(), resizing({ blockId: 'bar-am', durationMinutes: 120, today: WED })));
     const released = expectEdited(releaseBlock(edit.blocks, 'bar-am'));
 
     expect(handSetIds(released.blocks)).toEqual([]);
@@ -2954,7 +2986,7 @@ describe('a hand-set duration — the resize survives the reflow', () => {
       block({ id: 'jue', project: 'escalera', date: THU, from: '08:00', hours: 4 }),
     ];
 
-    const edit = expectEdited(resizeBlock(blocks, { blockId: 'mie', durationMinutes: 300, today: WED }));
+    const edit = expectEdited(resizeBlock(blocks, resizing({ blockId: 'mie', durationMinutes: 300, today: WED })));
     expect(jobRows(edit.blocks, 'escalera')).toEqual([`${WED} 08:00-13:00`, `${THU} 08:00-09:00`]);
     expect(edit.totalMinutesDelta).toBe(0);
 
@@ -2965,7 +2997,7 @@ describe('a hand-set duration — the resize survives the reflow', () => {
 
     // Enlarging the LAST row has nothing farther to draw from, so the estimate grows
     // and the row is marked all the same.
-    const last = expectEdited(resizeBlock(blocks, { blockId: 'jue', durationMinutes: 360, today: WED }));
+    const last = expectEdited(resizeBlock(blocks, resizing({ blockId: 'jue', durationMinutes: 360, today: WED })));
     expect(last.totalMinutesDelta).toBe(120);
     expect(handSetIds(last.blocks)).toEqual(['jue']);
   });
@@ -3013,6 +3045,183 @@ describe('a hand-set duration — the resize survives the reflow', () => {
       `${THU} 08:00-10:00 escalera`,
       `${FRI} 08:00-12:00 escalera`,
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A resize crosses the lunch break, and may reach into the margins
+// ---------------------------------------------------------------------------
+//
+// The owner's report B, in their own words: "al aumentar de tamaño o empequeñecer un bloque
+// este no pasa de las horas de comer y las de margen, debería dejarme hacerlo más grande, y
+// que ignore la hora de comer, ejemplo arrastro hasta las 17:30 una tarea que empezaba a las
+// 10, en vez de la hora del medio sumarla, ignorarla y sería de 10 a 14 y de 15:30 a 17:30."
+//
+// So `durationMinutes` is NET working minutes over the day's MANUAL WINDOWS, and the result
+// is stored in segments by the same splitter a drop uses. The drag layer's half of it —
+// turning a pointer position into those net minutes — is `durationTo` in
+// src/components/calendar/geometry.ts, with the same worked example as its test.
+
+describe('a resize crosses the lunch break', () => {
+  /** A morning row starting at 10:00, with a Thursday row behind it to pay the transfer. */
+  const job = (): Block[] => [
+    block({ id: 'antes', project: 'porton', date: WED, from: '08:00', hours: 2 }),
+    block({ id: 'mie', project: 'barandilla', date: WED, from: '10:00', hours: 4 }),
+    block({ id: 'jue', project: 'barandilla', date: THU, from: '08:00', hours: 4 }),
+  ];
+
+  it("the owner's worked example: 10:00 to 17:30 is 6 h, in two rows", () => {
+    const edit = expectEdited(resizeBlock(job(), resizing({ blockId: 'mie', durationMinutes: 6 * 60, today: WED })));
+
+    // Two rows of one job, the lunch break contributing nothing — and NOT 7.5 h.
+    expect(jobRows(edit.blocks, 'barandilla')).toEqual([
+      `${WED} 10:00-14:00`,
+      `${WED} 15:30-17:30`,
+      `${THU} 08:00-10:00`,
+    ]);
+    // Both halves carry the mark, so the next pass reads them back as ONE 6 h stretch.
+    expect(handSetIds(edit.blocks)).toEqual(['mie', 'resize-1']);
+    expect(edit.totalMinutesDelta).toBe(0);
+    expect(edit.deletedBlockIds).toEqual([]);
+
+    const composeInput = input({ today: WED, blocks: edit.blocks });
+    const result = compose(composeInput);
+    expect(rows(result)).toEqual([
+      `${WED} 08:00-10:00 porton`,
+      `${WED} 10:00-14:00 barandilla`,
+      `${WED} 15:30-17:30 barandilla`,
+      // The stretch closes Wednesday for its job, so the 2 h left go to the next day.
+      `${THU} 08:00-10:00 barandilla`,
+    ]);
+    expectMinutesConserved(composeInput, result);
+    expectSettled(composeInput, result);
+  });
+
+  it('is a fixed point: recomposing the two halves twice changes nothing', () => {
+    const edit = expectEdited(resizeBlock(job(), resizing({ blockId: 'mie', durationMinutes: 6 * 60, today: WED })));
+    const composeInput = input({ today: WED, blocks: edit.blocks });
+
+    const once = compose(composeInput);
+    const twice = compose({ ...composeInput, blocks: reload(once) });
+
+    expect(rows(twice)).toEqual(rows(once));
+    expect(expectOk(twice).deletedBlockIds).toEqual([]);
+  });
+
+  it('shrinks back across the break, deleting the row it no longer needs', () => {
+    const stretched = expectEdited(
+      resizeBlock(job(), resizing({ blockId: 'mie', durationMinutes: 6 * 60, today: WED })),
+    );
+
+    // Dragging the SAME edge back up to 12:00. Both halves are hand-set now, so the
+    // shrink has to absorb the afternoon one: sizing the morning row alone would hand
+    // the freed hours to the row right below it and the next pass would read the pair
+    // back as the same 6 h stretch — a resize that changed nothing.
+    const shrunk = expectEdited(
+      resizeBlock(stretched.blocks, resizing({ blockId: 'mie', durationMinutes: 2 * 60, today: WED })),
+    );
+
+    expect(jobRows(shrunk.blocks, 'barandilla')).toEqual([`${WED} 10:00-12:00`, `${THU} 08:00-14:00`]);
+    expect(shrunk.deletedBlockIds).toEqual(['resize-1']);
+    expect(shrunk.totalMinutesDelta).toBe(0);
+    expect(handSetIds(shrunk.blocks)).toEqual(['mie']);
+  });
+
+  it('reuses the row already sitting after the break instead of stacking one on it', () => {
+    // The morning half of an AUTOMATIC unit, dragged past the break onto its own
+    // afternoon half. That row cannot survive the resize on its own, so the stretch
+    // takes it over — nothing is stacked at 15:30 and no id is minted.
+    const unit = [
+      block({ id: 'am', project: 'barandilla', date: WED, from: '08:00', hours: 6 }),
+      block({ id: 'pm', project: 'barandilla', date: WED, from: '15:30', hours: 4 }),
+      block({ id: 'jue', project: 'barandilla', date: THU, from: '08:00', hours: 4 }),
+    ];
+
+    const edit = expectEdited(resizeBlock(unit, resizing({ blockId: 'am', durationMinutes: 8 * 60, today: WED })));
+
+    // The stretch went from 10 h to 8 h, so the 2 h it gave up landed on Thursday.
+    expect(jobRows(edit.blocks, 'barandilla')).toEqual([
+      `${WED} 08:00-14:00`,
+      `${WED} 15:30-17:30`,
+      `${THU} 08:00-14:00`,
+    ]);
+    expect(handSetIds(edit.blocks)).toEqual(['am', 'pm']);
+    expect(edit.deletedBlockIds).toEqual([]);
+    expect(rows(compose(input({ today: WED, blocks: edit.blocks })))).toEqual([
+      `${WED} 08:00-14:00 barandilla`,
+      `${WED} 15:30-17:30 barandilla`,
+      `${THU} 08:00-14:00 barandilla`,
+    ]);
+  });
+
+  it("leaves an automatic row the stretch does not reach to the ENGINE", () => {
+    // The other side of the same rule, and CLAUDE.md's own worked example: shrinking the
+    // morning row of an automatic unit must NOT absorb the afternoon one. Absorbing it
+    // would read the gesture as "this job now has 2 h" and answer `shrink-last-block` to
+    // a perfectly ordinary drag on a job with nothing behind it.
+    const oneDay = [
+      block({ id: 'am', project: 'barandilla', date: WED, from: '08:00', hours: 6 }),
+      block({ id: 'pm', project: 'barandilla', date: WED, from: '15:30', hours: 2 }),
+    ];
+
+    const edit = expectEdited(resizeBlock(oneDay, resizing({ blockId: 'am', durationMinutes: 120, today: WED })));
+
+    expect(jobRows(edit.blocks, 'barandilla')).toEqual([`${WED} 08:00-10:00`, `${WED} 15:30-21:30`]);
+    expect(rows(compose(input({ today: WED, blocks: edit.blocks })))).toEqual([
+      `${WED} 08:00-10:00 barandilla`,
+      `${THU} 08:00-14:00 barandilla`,
+    ]);
+  });
+
+  it('pins a row a resize pushes into a visual margin, and only then', () => {
+    // Report C for the resize: the margins are hand time and the engine's index space has
+    // no minutes of them, so a row the reflow still owns would be pulled back inside the
+    // periods — or thrown onto the next day when the hours no longer fit there.
+    const blocks = [
+      block({ id: 'tarde', project: 'barandilla', date: WED, from: '15:30', hours: 4 }),
+      block({ id: 'jue', project: 'barandilla', date: THU, from: '08:00', hours: 4 }),
+    ];
+
+    const edit = expectEdited(resizeBlock(blocks, resizing({ blockId: 'tarde', durationMinutes: 5 * 60, today: WED })));
+
+    expect(handPlacedIds(edit.blocks)).toEqual(['tarde']);
+    expect(jobRows(edit.blocks, 'barandilla')).toEqual([`${WED} 15:30-20:30`, `${THU} 08:00-11:00`]);
+
+    // And it holds: the row keeps the hour of margin the owner drew it into.
+    const composeInput = input({ today: WED, blocks: edit.blocks });
+    const result = compose(composeInput);
+    // The pinned row keeps the hour of margin the owner drew it into; the job's other 3 h
+    // are still the engine's, and Wednesday morning is free, so that is where they go.
+    expect(rows(result)).toEqual([`${WED} 08:00-11:00 barandilla`, `${WED} 15:30-20:30 barandilla`]);
+    expectSettled(composeInput, result);
+
+    // A resize that stays inside the periods pins nothing — the mark means "the engine
+    // could not have put this here", not "the length is mine", which the ruler says.
+    const inside = expectEdited(resizeBlock(blocks, resizing({ blockId: 'tarde', durationMinutes: 3 * 60, today: WED })));
+    expect(handPlacedIds(inside.blocks)).toEqual([]);
+  });
+
+  it('never lets AUTO-FILL into the margins, however much work there is', () => {
+    // The guard rail on the whole change: `compose` reads `periods` and nothing else, so
+    // no amount of pressure can make it book margin time. 40 h across a 10 h-a-day week.
+    const composeInput = input({
+      today: MON,
+      blocks: [block({ project: 'barandilla', date: MON, from: '08:00', hours: 40 })],
+    });
+    const result = compose(composeInput);
+
+    const [morning, afternoon] = SHAPE.periods;
+    for (const placed of expectOk(result).blocks) {
+      const withinMorning =
+        placed.startMinutes >= morning.startMinutes &&
+        placed.startMinutes + placed.durationMinutes <= morning.endMinutes;
+      const withinAfternoon =
+        placed.startMinutes >= afternoon.startMinutes &&
+        placed.startMinutes + placed.durationMinutes <= afternoon.endMinutes;
+      expect(withinMorning || withinAfternoon, describeBlock(placed)).toBe(true);
+    }
+    // The capacity stop-line still measures the periods alone: 10 h a day, not 12.
+    expect(plannableMinutes(composeInput, TUE)).toBe(600);
   });
 });
 
@@ -3754,7 +3963,7 @@ describe('a dropped row never straddles the lunch break', () => {
   it('has nothing to cut when the shift has no break', () => {
     const composeInput = input({
       today: MON,
-      shape: { ...SHAPE, periods: [{ startMinutes: t('08:00'), endMinutes: t('18:00') }] },
+      shape: withWindows({ ...SHAPE, periods: [{ startMinutes: t('08:00'), endMinutes: t('18:00') }] }),
       blocks: [block({ id: 'soltado', project: 'urgencia', date: SAT, from: '10:00', hours: 6 })],
     });
 
@@ -3856,7 +4065,7 @@ function seededRandom(seed: number): () => number {
 const GENERATED_DAYS = [LAST_FRI, MON, TUE, WED, THU, FRI, SAT, SUN, NEXT_MON, '2026-08-18', '2026-08-19'];
 const GENERATED_PROJECTS = ['escalera', 'porton', 'barandilla', 'nuevo'];
 
-const MORNING_ONLY: DayShape = {
+const MORNING_ONLY: DayShape = withWindows({
   periods: [{ startMinutes: t('08:00'), endMinutes: t('14:00') }],
   shiftMinutes: 360,
   capacityMinutes: 360,
@@ -3864,15 +4073,15 @@ const MORNING_ONLY: DayShape = {
   marginBottomMinutes: 60,
   timelineStartMinutes: t('07:00'),
   timelineEndMinutes: t('15:00'),
-};
+});
 
-const NO_LUNCH: DayShape = {
+const NO_LUNCH: DayShape = withWindows({
   ...SHAPE,
   periods: [
     { startMinutes: t('08:00'), endMinutes: t('14:00') },
     { startMinutes: t('14:00'), endMinutes: t('18:00') },
   ],
-};
+});
 
 function generateInput(seed: number): ComposeInput {
   const random = seededRandom(seed);
