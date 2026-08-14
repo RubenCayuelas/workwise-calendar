@@ -282,6 +282,11 @@ tie, and one minute of margin is a tie-break rather than a request — `MIN_MANU
 equal to the drag layer's `SNAP_MINUTES` by a test); and a **resize** sets it too, since a length that
 reaches into a margin cannot exist without the slot.
 
+On a day the engine reflows, a drop's pin is its **intent, not the last word**: if the slot it asks for
+is held by a gap or a locked row, the drop slides to the nearest slot it can have, and if the day has
+none it hands the row back to the engine instead — see *A Drop Onto a Day the Engine Reflows Is Never
+Refused*. Refusing the gesture was the alternative, and removing that refusal is what that section is.
+
 **Setting, keeping and losing the mark.** It stands for one specific day the owner chose, so it lives
 exactly as long as that choice does:
 - **set** by a drop (a move or the scissors) onto the buffer or the weekend;
@@ -729,14 +734,12 @@ overlapping are somebody's decision and tidying them on an unrelated save is wha
   weekend and the Friday buffer (a displaced row is not growth).
 - **A GAP is never overlapped either** (2026-08-13). Gaps and blocks are ONE occupancy set, and the
   mirror gesture — a gap over a hand-placed row — is already refused naming the row, so the precedent
-  fixed the answer: a drop that lands on a gap is refused (409 `overlaps-gap` / `errors.dropOverGap`)
-  naming the day and the hours, and the ghost says so before the mouse is released. Only on the fixed
-  side: on Monday-Thursday the reflow keeps auto work off a gap by itself, so nothing is said. That is
-  why this only ever bit where the drop PINS — the buffer, the weekend, a margin, the lunch band,
-  which is exactly where the owner parks work by hand. It was stored silently on top of the gap:
-  no cut, no toast, two things holding the same minutes.
-- **A locked block is never overlapped.** A drop onto one is refused (409) with the block named,
-  exactly as a gap over a lock is. A merge is refused even when the lock is the drop's own, since it
+  fixed the answer: a drop may not hold a gap's minutes. Only on the fixed side: on Monday-Thursday
+  the reflow keeps auto work off a gap by itself. It used to be stored silently on top of the gap:
+  no cut, no toast, two things holding the same minutes. **Where that becomes a refusal, and where it
+  becomes a slide, is *A Drop Onto a Day the Engine Reflows Is Never Refused* below.**
+- **A locked block is never overlapped.** A drop that would hold a locked row's minutes never does:
+  the same two answers as a gap. A merge is refused even when the lock is the drop's own, since it
   would move the lock's start; a *cut* is allowed while the drop is the locked one, because then the
   lock keeps its exact slot and only the other job moves.
 - Both cases hold `SUM(blocks.duration) == projects.total_hours` for every touched project.
@@ -759,6 +762,120 @@ less machinery, because on this side nothing is *placed*, only *ranked*:
   joined by auto-merge anyway, so folding them here would be tidying rather than repairing;
 - cutting a row rewrites its length, so a **hand-set duration on the row that is cut is released** —
   the drop is the newer, more explicit gesture.
+
+### A Drop Onto Another Row's Start Goes BEFORE It (decided with the owner, 2026-08-13; built 2026-08-14)
+> **Releasing exactly on a row's start means "put me before this one". The row underneath stays whole
+> and follows. To cut a row, release BELOW its start.**
+
+A drop's `(date, start)` is its place in the queue and the order is total — ties break by `created_at`
+then `id` — so a drop that lands on an existing start would silently lose to the older row and the drag
+would look ignored. `rankFor` therefore nudges it one minute. The direction used to come from the
+unsnapped pointer, and that is what produced the defect this decision removes:
+
+- released a hair **below** the rule, the rank became `08:01`, which made the row underneath "start
+  before the drop", so *A Drop That Overlaps* cut it there: `Beta 08:00-08:01 (0,02 h)`,
+  `Alfa 08:01-10:01`, `Beta 10:01-12:00`. Measured by dragging, twice, at 1646 and 1100;
+- released a hair **above** it, the same gesture came out clean. Two opposite answers for a difference
+  the owner can neither see nor aim at, and a stored row below `MIN_ROW_MINUTES` that nothing asked for.
+
+The nudge is now always **backwards**, on both sides of the minute. One snap step is 15 minutes, so
+releasing below a start does not tie at all and still cuts — the gesture that means "cut" is unchanged,
+and the one that meant "coin flip" now means "before".
+
+**And a PINNED placement is never nudged at all** (same round). Where the row keeps the minute it was
+released on — the weekend, the colchón, a visual margin, the lunch band, a locked unit — that minute is
+not an ordering, it is the clock, and it is what gets stored. Nudged, a Saturday drop released on 10:00
+came back as `09:59`, the row it landed on was re-placed at `11:59`, and their durations read
+**2,02 h** and **1,98 h**: minutes the owner never drew, on the one kind of day whose whole promise is
+that what they drew is what they get. Nothing on that side needs the tie broken — a pinned drop is
+resolved against the day's fixed rows by merge and cut, which are total, and queue order never reaches
+them. `rankFor(…, pinned)` (src/components/calendar/geometry.ts) is the one place both rules live, and
+both callers — the drag and the scissors' second click — pass it.
+
+### A Drop Onto a Day the Engine Reflows Is Never Refused (decided 2026-08-13)
+> **On a day the engine lays out — Monday to Thursday, and the Friday buffer, from today on — a drop
+> is not a placement: it is a re-ranking of the queue, and the reflow is what finds the room. So it
+> may NEVER be refused because its footprint collides with work or with a gap. It keeps its DAY and
+> gives up whatever it has to.**
+
+The owner's report, in full: *«cuando intento mover algo se coloca antes de recalcularse, por lo que si
+lo intento pasar al día siguiente en el que ahora no hay hueco pero si lo muevo se recalcula y queda
+disponible, no lo puedo asignar directamente porque "aún no cabe"».* Every refusal above answers *does
+this fit here as the calendar stands at this instant*, and on a reflowing day that question is not
+merely wrong, it is **circular**: the row is leaving another day, everything behind it moves up into
+the hole, and that is exactly what opens the room on the target day. Measured: Monday and Tuesday both
+full at the 10 h line, a gap in Tuesday's top margin, and the drop that answered 409 now lands on
+Tuesday at 08:00 while Tuesday's first job moves back into Monday's afternoon.
+
+**Two steps, in order, and neither is a refusal.**
+1. **SLIDE** — the drop moves forward, on the day the owner named, to the first start where its
+   footprint touches neither a **gap** nor a **locked row** (the only two things nothing will ever move
+   out of the way; everything else is merged, cut, or reflowed). Forward only, never out of a manual
+   window, and never past the end of the day. It keeps the **pin**: the owner asked for a slot and got
+   the nearest one they could have. This is what makes a Friday drop land on the Friday — there a
+   queue rank is worthless, since the reflow would pull the row straight back into Mon-Thu.
+2. **RE-RANK** — a day with no clear slot takes the drop as an ordinary queue rank instead:
+   `hand_placed` is cleared and `compose` places it. That is what a Monday-Thursday drop always was,
+   and the reflowed side of the resolver has no failure mode at all, so this always answers.
+
+**The refusals that survive, and the only days they apply to.** A drop that lands **literally** — the
+row staying exactly where it was released, with nothing that will ever separate it from what it landed
+on:
+
+| the drop is on…                          | refuses for a collision? | why |
+|------------------------------------------|--------------------------|-----|
+| Monday-Thursday (`auto`), today onwards  | **never**                | the reflow lays the day out; the drop is a rank |
+| Friday (`buffer`), today onwards         | **never**                | in the movable pool too — it slides instead |
+| Saturday, Sunday (`manual`)              | yes                      | the engine lays out nothing there: the exact minute IS the promise |
+| a closed day (`day_overrides`)            | yes                      | same as a weekend |
+| a past day (frozen)                       | yes                      | the engine never writes there (and the drag layer refuses it first) |
+| ANY day, when the row being dragged is **locked** | yes             | the padlock says the row does not move, so honouring it means honouring the slot |
+
+The codes, unchanged, all 409 and all writing nothing: `overlaps-gap`, `overlaps-locked-block`,
+`merge-exceeds-day`, `displaced-hours-unplaceable`. Their sentences no longer open with *«Ahí no
+cabe»* — they name the reason instead (*a block dropped there keeps the exact slot*), because on the
+days they are still reachable that reason is the whole point.
+
+`dayReflows` (src/lib/composition.ts) is the predicate, and it is deliberately NOT `isMovable`: one is
+about the day, the other about a row.
+
+**THE GHOST SAYS THE SAME THING, BECAUSE IT ASKS THE SAME TWO QUESTIONS** (reconciled 2026-08-14). The
+preview exists to state the outcome before the mouse is released, so it has to walk the server's three
+steps, and it used to lie in both directions at once because it read one predicate where the server
+reads two:
+
+| the question | the server | the preview |
+|---|---|---|
+| does the row keep the minute? | `pinsTheRow` — `role !== 'auto'`, **or** a footprint in manual-only time; plus the padlock | `dropPins` |
+| may a collision refuse it? | `dayReflows` — not closed, not `manual`, not past | `dayReflowsOn` |
+
+Read off the day alone, a **Friday** drop onto a gap was previewed as *«Ahí no cabe»* for a save the
+server now accepts, and a **Monday** drop reaching the lunch band or a margin — which pins — was
+previewed as a harmless re-rank while the server stored it at the exact minute or slid it somewhere
+else entirely. Both were measured.
+
+So `resolveDropPreview` (src/components/calendar/dropEffect.ts) now applies the SLIDE and the RE-RANK
+itself, and the ghost is drawn where the row will really be: the rectangle moves down to the slid
+minute and the hint says who moved it (`grid.dropSlid`), instead of the rectangle promising the
+release point. The slide is **not implemented twice** — `firstClearStart` lives in
+src/lib/dropSlide.ts and both sides import it, the same arrangement `segmentDroppedRow` already has
+and for the same reason: a hand-written mirror of an engine branch drifts the first time the shift is
+reconfigured, and a preview that promises what the save will not do is worse than no preview.
+
+**The scenario matrix, measured by dragging** (2026-08-14, at 1646 px and 1100 px; the widths agree —
+the axis fits height, not width). `today = Fri 2026-08-14`, week Mon 17 – Sun 23.
+
+| the drop | ghost | stored |
+|---|---|---|
+| Wed row → **Tue 07:30**, over a gap in Tuesday's top margin, Tuesday already full at 10 h | solid `08:00–14:00 · 6 h` + *«el bloque bajará a las 08:00»* | `Tue 08:00-14:00 6 h [HAND]`; Tuesday's own 10 h job moves whole to Wednesday |
+| the same drop with the dragged row **locked** | solid `07:30–13:30` + *«…esas horas son un hueco reservado. No se guardará nada.»* | **nothing** — 409 `overlaps-gap`, same sentence |
+| Wed row → **Tue 10:00**, Tuesday full, no gap | hollow *«Entra detrás de «Dos»»* + *«Partirá «Dos»»* | `Tue 10:00-14:00` for the drop; the other job cut `08:00-10:00` + `15:30-19:30` + Wed |
+| Mon row → **exactly another row's 08:00 start**, either side of the minute | hollow *«Entra en la cola por aquí»* | the two swap cleanly, `08:00-10:00` / `10:00-12:00`. No sliver |
+| Sat row → **exactly another row's 10:00 start**, either side | solid `10:00–12:00` + *«Apartará «Alfa»»* | they swap, `2.00 h` each, on the minute |
+| Mon 10 h unit grabbed by its **continuation**, → Tue low | solid `09:00–20:30 · 10 h` | `Tue 09:00-14:00` + `15:30-20:30 [HAND]` — the bottom margin, as drawn |
+| any row → **a past day** | no ghost at all | nothing; *«Ese día ya ha pasado y no se arrastra…»* |
+| Mon row → **Friday 10:00** | solid `09:00–20:30 · 10 h` | `Fri 09:00-14:00` + `15:30-20:30 [HAND]`; *Volver a automático* hands it back and the engine re-lays it inside the periods |
+| a 2 h row → **Tuesday's bottom margin**, on top of a hand-placed row | solid `18:30–20:30` + *«Más abajo no cabe»* + *«Apartará «Corto»»* | `Tue 18:30-20:30 [HAND]`; the hand-placed row is evicted, **unpinned, and re-placed on an EARLIER day** — see Open Decisions |
 
 ### Locked Blocks Don't Act as Walls
 - `locked = true` means: "Don't auto-move this block during recomposition"
@@ -1169,20 +1286,52 @@ answer. Each carries its reproduction and its candidates.
   candidates are refuse the resize naming the row, cut the other job exactly as a drop does, or keep
   allowing the overlap because two jobs really were on the bench at once. The same applies to the
   LIFO counterparty growing into a past row.
-- **A drop exactly onto another row's start leaves a ONE-MINUTE row.** Found by dragging on
-  2026-08-13; **pre-existing since v0.3** and untouched by the manual window (`rankFor` and the
-  movable-row cut are both unchanged). A drop's rank must not tie with an existing start, so `rankFor`
-  nudges it by a single minute, and the direction comes from the unsnapped pointer: released a hair
-  BELOW the rule the rank becomes 08:01, which makes the row underneath "start before the drop" and
-  *A Drop That Overlaps* cuts it there. Reproduced: `A 08:00-10:00`, `B 10:00-12:00`, B dropped on
-  08:00 → `A 08:00-08:01 (0,02 h)`, `B 08:01-10:01`, `A 10:01-12:00`. Hours are conserved and nothing
-  straddles the break, so no invariant is broken — but the calendar keeps a 1 px sliver too short to
-  show its own hours and the day stops sitting on quarter hours. Released a hair ABOVE the rule the
-  nudge goes the other way and the drop is clean (`B, A`, verified), which is why it has stayed hidden.
-  The three candidates: ignore a head shorter than one `SNAP_MINUTES` when cutting (the queue rank is
-  an ordering, not a position, so the head is not a real 1 min of work); nudge the rank into a
-  fractional order instead of a minute; or refuse to cut and let the rank alone decide. Each changes
-  drop semantics, so it is the owner's call rather than a mechanical fix.
+- ~~**A drop exactly onto another row's start leaves a ONE-MINUTE row.**~~ **ANSWERED** by the owner
+  on 2026-08-13 and built on 2026-08-14: landing on a start means *before it*, the row underneath
+  stays whole, and the cut is expressed by releasing below the start. See *A Drop Onto Another Row's
+  Start Goes BEFORE It*. Re-measured by dragging from both sides of the minute: the two rows swap
+  cleanly and no sub-quarter row is created. The `total_hours` drift above therefore has no new source.
+
+- **A drop into a margin evicts a HAND-PLACED row backwards and silently unpins it.** Reproduced by
+  dragging, 2026-08-14, at both widths. Setup: `Corto 1 h` hand-placed in Tuesday's bottom margin
+  (`19:30-20:30`); `Alfa 2 h` dropped into the same margin, clamped to `18:30`. Result: `Alfa` pins
+  `Tue 18:30-20:30`, and `Corto` — a row the owner put there by hand — comes back on **Monday
+  08:00-09:00** with `hand_placed` **cleared**. The mechanism is deliberate and documented in code:
+  the drop covers `Corto` from its very start, so all of it must leave the day, and *"what had to leave
+  the day goes back to the engine, since nobody chose the day it landed on"*. It nevertheless
+  contradicts *A Hand-Placed Row* three times — the mark is *"kept through every recomposition"*, the
+  row *"keeps the exact slot it was dropped in"*, and *"a drop that overlaps one is resolved by the
+  fixed half"*. Only the copy was fixed this round (it no longer claims the row was *split*, nor that
+  its hours *stayed right behind*, both of which were false here). Candidates: (a) refuse a pinned drop
+  that would evict a hand-placed row, naming it, exactly as a gap over one is refused; (b) keep the
+  mark and the DAY, pushing the evicted row to the first free slot on its own day and only unpinning if
+  the day genuinely has none; (c) keep today's behaviour and say it out loud, naming the day it landed
+  on. This is the last place a gesture still moves somebody else's deliberate decision without saying
+  where to.
+
+- **The dead zone at the bottom of a reflowing day is an engine limit, not a pointer one.** A 6 h unit
+  cannot be aimed below 13:00 on the documented shift: the request carries the whole unit's duration,
+  a footprint touching a margin is stored exactly as sent, and the end-of-day guard then answers 409
+  `row-past-day-end`. So the drag CLAMPS, and the preview says why (*«Más abajo no cabe: 6 h no pueden
+  empezar después de las 13:00»*) rather than freezing in silence. `resolveManualPlacement` already
+  prefers giving up the pin to refusing a collision, but the day-end guard throws outside its reach.
+  If the engine dropped the pin there too, the clamp could go and the insertion point would follow the
+  pointer everywhere — at the price that a drop aimed low would land wherever the queue puts it, which
+  may be another day. Owner's call: an honest wall, or a rank that goes somewhere else.
+
+- **Shrinking a job's only or last row still answers 409 `shrink-last-block`** — the owner's "resize
+  only works in one direction". This is decision 1 of the 2026-08-13 round (*ask*, with **Cancelar /
+  Quitar las horas del total / Dividir*) and it is **not built**: it needs the engine change plus a
+  dialog. Reproduced again this round by accident, which is the point — the resize edge of a 2 h row
+  sits exactly where the next row starts, so a drag aimed at the row below lands on it.
+
+- **The hover action bar still covers a tall block's NAME on a narrow column.** Fixed for short rows
+  (under 56 px the bar docks outside the row), but on a 1100 px window a weekday column is ~150 px and
+  a weekend one 111–129 px, so the bar covers the top ~28 px of any block. The drag is safe there — a
+  press on the bar begins the same move — but a CLICK still lands on a button instead of opening the
+  job. Moving the bar outside on narrow columns too puts it over the neighbouring day, which is why it
+  was left.
+
 - **Backups**: daily local copy, manual export/import, or both? The DB is deliberately gitignored,
   a recomposition rewrites many rows at once, and there is no undo. Deferred out of v0.2, but every
   mutating operation already runs in a single transaction, which makes a future undo much cheaper.
@@ -1492,6 +1641,44 @@ files**, `next lint` clean, `next build` exit 0. Zero console errors in every se
 - **Still red, and pre-existing**: a drop released a hair below another row's start leaves that row a
   one-minute sliver. Not caused by the manual window; recorded in *Open Decisions* with the
   reproduction and three candidate answers, because every one of them changes what a drop means.
+  **Answered by the owner the next day and closed in v0.7** — see *A Drop Onto Another Row's Start
+  Goes BEFORE It*.
+
+**v0.7 — the friction round: the wrong question removed, and the ghost made to agree (2026-08-14).**
+Three parallel fronts (engine, pointer, a 72-cell measured matrix) landed on one tree and were
+reconciled here. `tsc --noEmit` exit 0, `vitest run` **685 passing across 23 files**, `next lint`
+clean, `next build` exit 0. Verified by DRAGGING on the running app at **1646 px and 1100 px**, on a
+scratch database, reading the stored rows back over `/api/week` after every gesture.
+
+- **The headline defect is gone.** *«…no lo puedo asignar directamente porque "aún no cabe"»*: a drop
+  onto a day the engine reflows is a re-ranking, never a placement, so it is never refused for a
+  collision. Measured: Monday and Tuesday both full at the 10 h line, a gap in Tuesday's top margin,
+  a 6 h row dragged from Wednesday and released at **Tue 07:30**, straight on top of the gap. It
+  lands — `Tue 08:00-14:00, 6 h [HAND]` — and Tuesday's own 10 h job moves whole to Wednesday. The
+  room was made BY the move. Identical at both widths.
+- **The ghost was reconciled with the server branch for branch**, which is what the round was for. The
+  preview asked one question where the server asks two, so it refused Friday drops the server accepts
+  and drew Monday margin/lunch drops as harmless re-ranks the server pins. It now asks both
+  (`dropPins` / `dayReflowsOn`), applies the server's own SLIDE from a shared implementation
+  (src/lib/dropSlide.ts, imported by the engine and by the preview), and draws the rectangle where the
+  row will really be, saying who moved it. Control case, same gesture with the row **locked**: the
+  ghost states the refusal before release and the server refuses with the same sentence, 409, nothing
+  written.
+- **Two silent data defects closed.** The one-minute sliver (`0,02 h`) and the pinned-day rank nudge
+  (a Saturday drop stored at `09:59`, durations `2,02 h` / `1,98 h`). Both were the same nudge; the tie
+  now always resolves *before* the row, and a pinned placement is not nudged at all.
+- **The copy stopped claiming things that were not true**: a row consumed from its very start is
+  *apartado*, not *partido* (the ghost tells the two apart, `dropDisplaces`), and displaced hours are
+  no longer promised to be *justo detrás* when the engine re-places them elsewhere.
+- **The sweep, all green.** Friday buffer both ways (a 10 h unit pinned `09:00-14:00` + `15:30-20:30`,
+  then *Volver a automático* re-laying it inside the periods); the weekend never auto-recovered (3 h
+  parked on a Saturday survived a job growing 10 h → 26 h and spilling into the next week); the frozen
+  past never rewritten and never silent; continuation tails filling forward; hand-set durations
+  surviving a reflow; hours conserved after every gesture; no row straddling a break, past its day's
+  end, before its day's start, or under 15 minutes — asserted over the whole database after each step.
+- **Still red, and recorded with candidates**: a drop into a margin evicts a hand-placed row backwards
+  and unpins it; the dead zone at the bottom of a reflowing day; `shrink-last-block` still refuses
+  instead of asking; the action bar over a tall block's name on a narrow column.
 
 ---
 

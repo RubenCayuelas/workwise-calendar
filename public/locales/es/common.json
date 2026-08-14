@@ -105,10 +105,18 @@
     "dropHere": "Soltar aquí",
     "dropRankHint": "Al soltar, el bloque toma este puesto en la cola y se recoloca justo detrás del anterior. Bloquéalo si quieres fijarlo a una hora.",
     "loadingWeek": "Cargando la semana…",
-    "dropCuts": "Partirá «{{name}}»: el resto continúa justo detrás y, si no cabe en el día, sigue en el siguiente.",
+    "dropCuts": "Partirá «{{name}}»: el resto continúa justo detrás y, si no cabe en el día, el motor lo recoloca.",
+    "dropDisplaces": "Apartará «{{name}}»: ese bloque entero pasa a ir justo detrás y, si no cabe en el día, el motor lo recoloca.",
     "dropMerges": "Se unirá con «{{name}}»: las horas se suman en un solo bloque.",
-    "dropOnGap": "Ahí no cabe: pisa un hueco reservado. No se guardará nada.",
-    "dropBlocked": "Ahí no cabe: «{{name}}» está bloqueado. No se guardará nada."
+    "dropOnGap": "Ahí el bloque se queda exactamente donde lo sueltes, y esas horas son un hueco reservado. No se guardará nada.",
+    "dropBlocked": "Ahí el bloque se queda exactamente donde lo sueltes, y esas horas son de «{{name}}», que está bloqueado. No se guardará nada.",
+    "dropPinHint": "Al soltar, el bloque se queda en la hora exacta donde lo dejes: aquí mandas tú y el motor no lo recoloca.",
+    "dropAfter": "Entra detrás de «{{name}}»",
+    "dropTakesRank": "Entra en la cola por aquí",
+    "dropSlid": "Ahí hay algo que no se mueve: el bloque bajará a las {{time}}.",
+    "dropNoLower": "Más abajo no cabe: {{hours}} h no pueden empezar después de las {{time}}.",
+    "placingHint": "Pulsa el día y la hora donde quieres dejar la parte separada. Pulsa Esc para dejarlo como estaba.",
+    "gapOpensHint": "Los huecos no se arrastran: pulsa para abrir su ficha y cambiar el día o la hora."
   },
   "block": {
     "continuesBelow": "{{hours}} h · sigue…",
@@ -273,7 +281,6 @@
     "languageHint": "Se puede cambiar en cualquier momento y se recuerda en este equipo."
   },
   "colors": {
-    "groupLabel": "Color del trabajo",
     "1": "Azul",
     "2": "Verde",
     "3": "Naranja",
@@ -281,7 +288,8 @@
     "5": "Rojo",
     "6": "Verde oscuro",
     "7": "Rosa",
-    "8": "Gris"
+    "8": "Gris",
+    "groupLabel": "Color del trabajo"
   },
   "notices": {
     "touchedLockedBlocks_one": "Se ha ajustado un bloque bloqueado porque el trabajo no tenía horas libres.",
@@ -295,12 +303,15 @@
     "dropRefusedPast": "Ahí no se puede soltar: el pasado está congelado y el motor no escribe en él. Corrige ese día desde la ficha del trabajo.",
     "mergedOverlap_one": "Se ha unido con el bloque del mismo trabajo que ya estaba ahí. No se ha perdido ninguna hora.",
     "mergedOverlap_other": "Se ha unido con {{count}} bloques del mismo trabajo que ya estaban ahí. No se ha perdido ninguna hora.",
-    "displacedBlocks_one": "Se ha partido «{{names}}» y el resto ha quedado justo detrás. Si no te sirve, vuelve a moverlo.",
-    "displacedBlocks_other": "Se han partido {{count}} trabajos ({{names}}) y sus restos han quedado justo detrás. Si no te sirve, vuelve a moverlos.",
+    "displacedBlocks_one": "Se ha apartado «{{names}}» para hacer sitio y el motor ha recolocado sus horas. Si no te sirve, vuelve a moverlo.",
+    "displacedBlocks_other": "Se han apartado {{count}} trabajos ({{names}}) para hacer sitio y el motor ha recolocado sus horas. Si no te sirve, vuelve a moverlos.",
     "nothingSaved": "No se ha guardado nada.",
     "resizeShrunk": "«{{name}}» se queda en {{hours}} h aquí y esa duración queda fija. Las horas que sobran pasan al último bloque del trabajo, el resto continúa el siguiente día y el hueco lo ocupa lo que venga detrás en la cola.",
     "resizeGrown": "«{{name}}» pasa a {{hours}} h aquí y esa duración queda fija. Esas horas salen del último bloque del trabajo; si era el último, sube el total del trabajo.",
-    "released": "Vuelve a mandar el motor: recupera la duración y el día que le hubieras fijado a mano. El bloque conserva su puesto en la cola."
+    "released": "Vuelve a mandar el motor: recupera la duración y el día que le hubieras fijado a mano. El bloque conserva su puesto en la cola.",
+    "pressWhileBusy": "Espera un momento: se está guardando el cambio anterior. En cuanto termine, el calendario vuelve a aceptar arrastres.",
+    "pressOnPastDay": "Ese día ya ha pasado y no se arrastra: es el registro de lo que hiciste. Cambia las horas desde la ficha del trabajo.",
+    "pressOnGap": "Los huecos no se arrastran: pulsa el hueco para abrir su ficha y cambiar ahí el día o la hora."
   },
   "weekdays": {
     "short": {
@@ -365,8 +376,8 @@
     "gapOverHandPlacedBlock": "Ese hueco pisa «{{projectName}}», que colocaste a mano el {{date}} de {{startTime}} a {{endTime}}. Devuélvelo a automático o muévelo antes de guardar.",
     "gapOverPastBlock": "Ese hueco pisa «{{projectName}}», que está en un día ya pasado ({{date}}, de {{startTime}} a {{endTime}}). Corrige ese bloque a mano antes de guardar.",
     "gapOverWeekendBlock": "Ese hueco pisa «{{projectName}}», que está en fin de semana ({{date}}, de {{startTime}} a {{endTime}}). Muévelo a mano antes de guardar.",
-    "dropOverLockedBlock": "Ahí no cabe: pisa «{{projectName}}», que está bloqueado el {{date}} de {{startTime}} a {{endTime}}. Desbloquéalo o suéltalo en otro sitio. No se ha guardado nada.",
-    "dropOverGap": "Ahí no cabe: pisa un hueco del {{date}}, de {{startTime}} a {{endTime}}. Suéltalo en otro sitio o borra el hueco antes. No se ha guardado nada.",
+    "dropOverLockedBlock": "Ahí el bloque se queda exactamente donde lo sueltes, y esas horas son de «{{projectName}}», que está bloqueado ({{date}}, de {{startTime}} a {{endTime}}). Desbloquéalo o suéltalo en otro momento. No se ha guardado nada.",
+    "dropOverGap": "Ahí el bloque se queda exactamente donde lo sueltes, y esas horas son un hueco reservado ({{date}}, de {{startTime}} a {{endTime}}). Suéltalo en otro momento, o borra el hueco. No se ha guardado nada.",
     "mergeExceedsDay": "Al unir los dos bloques del mismo trabajo el resultado no cabría en el día ({{date}}). Suéltalo más temprano. No se ha guardado nada.",
     "displacedHoursUnplaceable": "No hay sitio para las horas que le quedan a «{{projectName}}» después de soltar ahí. Amplía el horizonte en Configuración o suéltalo en otro sitio. No se ha guardado nada.",
     "invalidPayload": "No se ha podido leer la petición.",

@@ -14,16 +14,31 @@
  *
  * | the drop is…                                  | it collides with… | same job | other job |
  * |-----------------------------------------------|-------------------|----------|-----------|
- * | FIXED (weekend, the Friday buffer, or locked)  | the day's FIXED rows | merged, hours summed | cut, tail pushed after |
- * | REFLOWED (Mon-Thu, unlocked)                   | the day's MOVABLE rows | nothing — the reflow lays them out contiguously and auto-merge joins them | cut, but only a row that STARTS BEFORE the drop |
+ * | PINNED (weekend, the Friday buffer, a margin, the lunch band, or locked) | the day's FIXED rows | merged, hours summed | cut, tail pushed after |
+ * | RE-RANKED (Mon-Thu inside the periods, unlocked) | the day's MOVABLE rows | nothing — the reflow lays them out contiguously and auto-merge joins them | cut, but only a row that STARTS BEFORE the drop |
  *
- * FRIDAY IS ON THE FIXED SIDE because a drop there is hand-placed (`handPlaced`), which
+ * FRIDAY IS ON THE PINNED SIDE because a drop there is hand-placed (`handPlaced`), which
  * takes it out of the movable pool — that is how work stays on the colchón at all. So is
  * any row already carrying that mark, whatever day it is on.
  *
- * and a LOCKED row is never overlapped: on the fixed side that is the 409
- * `overlaps-locked-block`, on the reflowed side the row is simply ignored, because
+ * and a LOCKED row is never overlapped: on the pinned side that is the 409
+ * `overlaps-locked-block`, on the re-ranked side the row is simply ignored, because
  * flexible work flows around it.
+ *
+ * THE TWO QUESTIONS ARE NOT THE SAME QUESTION, and conflating them is what made the ghost
+ * lie in both directions (measured 2026-08-13, reconciled 2026-08-14):
+ *
+ * - "DOES THE ROW KEEP THE MINUTE?" is `dropPins`, the mirror of `pinsTheRow` in
+ *   src/lib/operations/blocks.ts. The Friday buffer, the weekend, a locked unit — and, on
+ *   EVERY day including Monday, a footprint that reaches a visual margin or the lunch band.
+ * - "MAY THE DROP BE REFUSED FOR A COLLISION?" is `dayReflowsOn`, the mirror of `dayReflows`
+ *   in src/lib/composition.ts. Only where the engine does NOT lay the day out: the weekend,
+ *   a closed day, the frozen past — plus a locked unit on any day.
+ *
+ * Read off one predicate, a Friday drop onto a gap was previewed as a refusal the server
+ * now accepts, and a Monday drop into the lunch band over a gap was previewed as a harmless
+ * re-rank while the server slid it forward past the gap. `resolveDropPreview` asks both, in
+ * the server's own order, and applies the server's own slide.
  *
  * THE DROP'S FOOTPRINT IS ITS SEGMENTS, not the rectangle the pointer draws. A drop is
  * stored cut at the break between two working periods (CLAUDE.md, *A Drop Is Stored In
@@ -43,6 +58,9 @@
  */
 
 import { overlapsSegments, segmentDroppedRow, type DropSegment } from '../../lib/dropSegments';
+import { firstClearStart } from '../../lib/dropSlide';
+import { usesManualOnlyTime } from '../../lib/manualWindow';
+import type { DayRole } from '../../lib/composition';
 import type { WorkPeriod } from '../../types';
 
 /** The row shapes this needs. `WeekBlock` satisfies it; a test can build one by hand. */
@@ -74,11 +92,23 @@ export interface DropEffectInput {
   /** Every row of a weekend day is fixed, whatever its padlock says. */
   dayIsWeekend: boolean;
   /**
-   * The target day is the Friday buffer, where a drop is hand-placed and therefore
-   * fixed. Unlike the weekend it does NOT make the rows already there fixed: an
-   * engine-placed Friday row is still movable and the reflow can recover it.
+   * THE DROP KEEPS THE MINUTE IT IS RELEASED ON — `dropPins`, the mirror of `pinsTheRow`.
+   * It picks the SIDE the collision is resolved on, exactly as `isMovable(placed)` does in
+   * `resolveManualPlacement`: a pinned drop collides with the day's fixed rows, an
+   * unpinned one with its movable rows.
+   *
+   * Not the same thing as `dayReflows` below. The Friday buffer pins AND reflows; a
+   * Monday drop that reaches the lunch band pins on a day that reflows.
    */
-  dayIsBuffer: boolean;
+  pinned: boolean;
+  /**
+   * THE ENGINE LAYS THIS DAY OUT — `dayReflowsOn`, the mirror of `dayReflows`. When it is
+   * true a drop can never be refused for a collision: it is a re-ranking of the queue and
+   * the reflow is what finds the room. Only a day the engine never writes to — the
+   * weekend, a closed day, the frozen past — makes a collision permanent and a refusal
+   * honest.
+   */
+  dayReflows: boolean;
   /** The dragged unit is locked, so the reflow will not lay it out either. */
   locked: boolean;
   /**
@@ -95,6 +125,15 @@ export interface DropEffectInput {
 export type DropEffectKind =
   /** The row underneath is cut here and its tail continues after the drop. */
   | 'cut'
+  /**
+   * The row underneath is covered from its very start, so there is no head to leave
+   * behind: it is not cut, it is moved whole to after the drop.
+   *
+   * Told apart from `cut` because the sentence was a lie in the one case the owner is
+   * most likely to make it — releasing exactly on top of a short row — and a toast that
+   * says a job was split when it was not teaches the owner to distrust the others.
+   */
+  | 'displace'
   /** The same job's row absorbs the drop: one row, hours SUMMED. */
   | 'merge'
   /** A locked row is in the way. The save is refused (409) and nothing is written. */
@@ -113,20 +152,232 @@ export interface DropEffect {
 }
 
 /**
+ * DOES THIS DROP KEEP THE MINUTE IT WAS RELEASED ON, OR ONLY A PLACE IN THE QUEUE?
+ *
+ * The mirror of `pinsTheRow` (src/lib/operations/blocks.ts) with the padlock added, which
+ * is the whole of the server's answer: a locked unit never moves, so honouring the padlock
+ * means honouring the slot. Branch for branch —
+ *
+ * - PINNED: a locked unit, or a day the engine does not lay out (`role !== 'auto'`: the
+ *   Friday colchón and the weekend), or a footprint that asks for MANUAL-ONLY TIME — a
+ *   visual margin or the lunch band — on ANY day, Monday included, because the engine's
+ *   index space has no margin minutes in it and an unpinned margin row is pulled straight
+ *   back inside the periods.
+ * - RE-RANKED otherwise: the drop writes a place in the queue and the reflow decides the
+ *   clock, so the ghost's minutes are an AIM rather than a promise.
+ *
+ * Everything the owner was fighting came from the two being drawn the same way: a ghost
+ * reading `09:00–14:00` over Thursday, released, and the row settling on Wednesday at
+ * 12:00 — the app looked like it had ignored the drag. See `WeekGrid`'s ghost.
+ *
+ * It is the drop's INTENT, not the last word: on a day the engine reflows the server may
+ * slide a pinned drop forward, or hand it back as a plain rank. `resolveDropPreview`
+ * applies both, from the same shared arithmetic the server uses.
+ */
+export function dropPins(input: {
+  /** The dragged unit is locked, so the reflow will not lay it out either. */
+  locked: boolean;
+  /** `auto` Mon-Thu, `buffer` Friday, `manual` Sat/Sun — `WeekDay.role`. */
+  role: DayRole;
+  /** The day's WORKING periods: the minutes auto-fill may use, margins excluded. */
+  periods: readonly WorkPeriod[];
+  /** The periods with the margins fused on: the view a hand action is cut over. */
+  manualWindows: readonly WorkPeriod[];
+  startMinutes: number;
+  durationMinutes: number;
+}): boolean {
+  if (input.locked || input.role !== 'auto') return true;
+  return usesManualOnlyTime(
+    input.periods,
+    segmentDroppedRow(input.manualWindows, {
+      startMinutes: input.startMinutes,
+      durationMinutes: input.durationMinutes,
+    }),
+  );
+}
+
+/**
+ * DOES THE ENGINE LAY THIS DAY OUT? The mirror of `dayReflows` (src/lib/composition.ts),
+ * asked of what a `WeekDay` carries so the grid does not have to import the engine.
+ *
+ * It is the predicate that says whether a drop here may be REFUSED for a collision, and it
+ * is deliberately NOT the pin question. On a day the engine reflows a drop is not a literal
+ * placement, it is a re-ranking of the queue, and asking "does the footprint fit here as
+ * the calendar stands right now" has a circular answer: moving the row off its current day
+ * frees the space there, everything behind it shifts earlier, and THAT is what opens the
+ * room on the target day. The owner's report, exactly: «si lo intento pasar al día
+ * siguiente en el que ahora no hay hueco pero si lo muevo se recalcula y queda disponible,
+ * no lo puedo asignar directamente porque "aún no cabe"».
+ */
+export function dayReflowsOn(day: { role: DayRole; isClosed: boolean; isPast: boolean }): boolean {
+  return !day.isClosed && day.role !== 'manual' && !day.isPast;
+}
+
+/** A row as the QUEUE sees it: a job, a rank, and the two flags that take it out. */
+export interface QueueRow {
+  id: string;
+  date: string;
+  startMinutes: number;
+  locked: boolean;
+  handPlaced: boolean;
+  project: { name: string };
+}
+
+/**
+ * THE ROW A RE-RANKED DROP WILL FALL IN BEHIND, or `null` when nothing in the week
+ * precedes it.
+ *
+ * This is the only honest thing a ghost can say on a day the engine reflows. The engine's
+ * queue is the MOVABLE rows in (date, start) order — `QueueItem` in src/lib/composition.ts:
+ * "movable order is preserved by the reflow" — so the row immediately before the release
+ * point is the row the drop ranks itself after, whatever day the packer then lays it out
+ * on. Naming it turns "09:00–14:00" (which the drop will not produce) into "tras
+ * «Escalera»" (which is exactly what the drop means).
+ *
+ * `null` is returned rather than "it goes first" when nothing is found: the queue reaches
+ * back before the week on screen, and a ghost has no business claiming a rank it cannot
+ * see. The caller says the generic sentence then.
+ */
+export function dropPredecessor(
+  /** Every MOVABLE row of the visible week, in queue order — see `buildDropQueue`. */
+  queue: readonly QueueRow[],
+  movingBlockIds: readonly string[],
+  date: string,
+  startMinutes: number,
+): QueueRow | null {
+  let found: QueueRow | null = null;
+  for (const row of queue) {
+    if (movingBlockIds.includes(row.id)) continue;
+    if (row.date > date || (row.date === date && row.startMinutes >= startMinutes)) break;
+    found = row;
+  }
+  return found;
+}
+
+/**
+ * The week's movable rows in queue order: the pool the reflow lays out, and therefore the
+ * only rows a rank can be expressed against.
+ *
+ * A row is out of it for exactly the reasons the engine leaves it where it is — a padlock,
+ * a hand-placed day, or a day the engine never writes to at all (the past and the weekend).
+ * The Friday colchón is NOT one of those: an engine-placed Friday row is still movable and
+ * the reflow can pull it back, which is why the buffer does not appear here even though
+ * it decides whether a drop ONTO Friday pins (`dropPins`).
+ */
+export function buildDropQueue(
+  rows: readonly QueueRow[],
+  isReflowingDate: (date: string) => boolean,
+): QueueRow[] {
+  return rows
+    .filter((row) => !row.locked && !row.handPlaced && isReflowingDate(row.date))
+    .sort(
+      (a, b) =>
+        (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) ||
+        a.startMinutes - b.startMinutes ||
+        (a.id < b.id ? -1 : 1),
+    );
+}
+
+/** What the drop will really be, once the server has had its say. */
+export interface DropResolution {
+  /**
+   * The minute the row will be STORED at — the release point, moved forward past the gaps
+   * and locks the server will not let it share minutes with (`firstClearStart`). Equal to
+   * the release point for every drop that was already clear, which is nearly all of them,
+   * and meaningless when `pinned` is false (there the reflow picks the clock).
+   */
+  startMinutes: number;
+  /**
+   * The row keeps `startMinutes`. False when the drop was never pinned, and false when it
+   * WAS pinned but the day had no clear slot for it — there the server gives up the pin
+   * rather than refuse, and the drop becomes an ordinary queue rank.
+   */
+  pinned: boolean;
+  /**
+   * The server moved the drop DOWN the day to get clear of a gap or a lock, so the ghost
+   * is no longer under the pointer. Said out loud: a rectangle that jumps away from the
+   * hand and explains nothing is the same defect as one that freezes (`clamped`).
+   */
+  slid: boolean;
+  /** What it does to the row underneath, or `null` when it disturbs nothing. */
+  effect: DropEffect | null;
+}
+
+/**
+ * THE WHOLE ANSWER THE GHOST NEEDS, in the server's own order.
+ *
+ * `resolveManualPlacement` resolves a drop in three steps and the preview has to walk the
+ * same three or it will promise something else:
+ *
+ *  1. is the drop LITERAL — a locked unit, or a day the engine does not lay out? Then the
+ *     release point is stored as released and a collision is a real refusal.
+ *  2. otherwise, if it PINS, SLIDE it forward on the day the owner named to the first slot
+ *     clear of a gap and of a lock (`firstClearStart`, shared with the engine). That is
+ *     what makes a Friday drop land on that Friday: a rank there is pulled straight back
+ *     into Mon-Thu.
+ *  3. if the day has no such slot, the drop GIVES UP ITS PIN and becomes a queue rank —
+ *     the side with no failure mode. So on a day the engine reflows, nothing here can
+ *     produce `blocked` or `gap`, which is the point.
+ */
+export function resolveDropPreview(input: DropEffectInput): DropResolution {
+  const literal = input.locked || !input.dayReflows;
+  if (literal || !input.pinned) {
+    return {
+      startMinutes: input.startMinutes,
+      pinned: input.pinned,
+      slid: false,
+      effect: dropEffectOf(input),
+    };
+  }
+
+  const slid = firstClearStart({
+    windows: input.manualWindows,
+    immovable: [
+      ...(input.gaps ?? []),
+      ...input.rows.filter((row) => row.locked && !input.movingBlockIds.includes(row.id)),
+    ].map((row) => ({ startMinutes: row.startMinutes, durationMinutes: row.durationMinutes })),
+    startMinutes: input.startMinutes,
+    durationMinutes: input.durationMinutes,
+  });
+
+  if (slid === null) {
+    // The pin is given up at the release point, not at some slid one — the second attempt
+    // in `resolveManualPlacement` starts from the drop as it was made.
+    const asRank = { ...input, pinned: false };
+    return {
+      startMinutes: input.startMinutes,
+      pinned: false,
+      slid: false,
+      effect: dropEffectOf(asRank),
+    };
+  }
+  const settled = { ...input, startMinutes: slid };
+  return {
+    startMinutes: slid,
+    pinned: true,
+    slid: slid !== input.startMinutes,
+    effect: dropEffectOf(settled),
+  };
+}
+
+/**
  * The one thing worth drawing, or `null` when the drop disturbs nothing.
  *
  * One effect rather than a list: a drop can legally cut several rows at once, but the
  * hint has room for one sentence and the first row the drop lands in is the one the
  * pointer is actually over. A refusal always wins, because it is the only outcome
  * where nothing is saved at all.
+ *
+ * Callers on the grid go through `resolveDropPreview`, which asks this at the minute the
+ * row will really be stored at. Asked directly it answers about the minute it is given.
  */
 export function dropEffectOf(input: DropEffectInput): DropEffect | null {
   // The clock the drop will really hold once it is stored: its segments, with the break
   // it skips left out of them.
   const footprint = dropFootprint(input);
-  // The drop's own side of the calendar: a fixed drop lands where the reflow may not
+  // The drop's own side of the calendar: a pinned drop lands where the reflow may not
   // reach, so it collides with the other fixed rows and nothing will separate them.
-  const reflowed = !input.locked && !input.dayIsWeekend && !input.dayIsBuffer;
+  const reflowed = !input.pinned;
 
   const overlapping = [...input.rows]
     .filter(
@@ -173,7 +424,12 @@ export function dropEffectOf(input: DropEffectInput): DropEffect | null {
   if (sameJob !== undefined) return effect('merge', sameJob, input.startMinutes);
 
   const victim = overlapping[0];
-  return victim === undefined ? null : effect('cut', victim, Math.max(victim.startMinutes, input.startMinutes));
+  if (victim === undefined) return null;
+  // Nothing is left in FRONT of the drop, so there is no head to leave behind: the server
+  // deletes the row and re-places its whole duration after the drop, reusing its id
+  // (`spareIds`). Calling that a split is the one lie the owner catches immediately.
+  const kind = input.startMinutes <= victim.startMinutes ? 'displace' : 'cut';
+  return effect(kind, victim, Math.max(victim.startMinutes, input.startMinutes));
 }
 
 function effect(kind: DropEffectKind, row: DropRow, cutMinutes: number): DropEffect {

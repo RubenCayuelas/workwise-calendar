@@ -65,7 +65,7 @@ import {
 } from '@tabler/icons-react';
 import { IconButton } from '../ui';
 import { useFormat } from '../../lib/useFormat';
-import { MIN_LABEL_HEIGHT, type Timeline } from './geometry';
+import { ACTIONS_BAR_HEIGHT, MIN_ACTIONS_HEIGHT, MIN_LABEL_HEIGHT, type Timeline } from './geometry';
 import type { BlockSegment, LanePlacement } from './grouping';
 import styles from './CalendarBlock.module.css';
 
@@ -90,7 +90,11 @@ export interface CalendarBlockProps {
    * before releasing, not afterwards in a toast.
    */
   cutAtMinutes?: number;
-  /** A mutation is in flight: the action bar locks so nothing is queued twice. */
+  /**
+   * A mutation or a reload is in flight: the action bar locks so nothing is queued twice,
+   * and the row stops offering a grab it cannot honour. A press is not swallowed either —
+   * it says why nothing moved (`InertReason.busy`).
+   */
   busy: boolean;
   onPointerDownBody: (event: React.PointerEvent) => void;
   /**
@@ -147,6 +151,26 @@ export function CalendarBlock({
 
   const height = timeline.heightOf(block.durationMinutes);
   const endMinutes = block.startMinutes + block.durationMinutes;
+
+  /*
+   * A ROW TOO SHORT TO HOLD ITS OWN ACTION BAR, and what is done about it.
+   *
+   * The bar is 24 px anchored 3 px inside the top edge and the resize handle owns the
+   * bottom; under `MIN_ACTIONS_HEIGHT` they meet and the row has no surface left of its
+   * own. A half-hour row is 24 px at the default scale, so the bar covered ALL of it: the
+   * drag still started (a press on the bar begins the same move), but a click — the gesture
+   * that opens the job — could only land on a button, and on the middle of that row the
+   * button is *Cerrar el día aquí*. A gesture that quietly does something else is worse
+   * than one that does nothing.
+   *
+   * So on a cramped row the bar leaves the row's hit area altogether and docks against the
+   * outside of its top edge, flush, so the pointer can reach it without crossing a dead
+   * pixel (it stays a DOM child, which is what keeps `:hover` alive out there). It goes
+   * BELOW instead when the row is at the very top of the axis and there is nothing above it
+   * but the sticky day header.
+   */
+  const cramped = height < MIN_ACTIONS_HEIGHT;
+  const barBelow = cramped && timeline.yOf(block.startMinutes) < ACTIONS_BAR_HEIGHT;
 
   /*
    * Every row states ITS OWN hours, which is what the wireframe does on both of its
@@ -218,10 +242,14 @@ export function CalendarBlock({
     seamBelow ? styles.continuesBelow : '',
     overflow ? styles.overflow : '',
     frozen ? styles.frozen : '',
+    // Not merely the buttons: while a save is in flight the whole row stops advertising a
+    // drag, because a press on it cannot start one.
+    busy && !frozen ? styles.saving : '',
     lifted ? styles.lifted : '',
     block.manualDuration ? styles.manual : '',
     block.handPlaced ? styles.handPlaced : '',
     cutAtMinutes === undefined ? '' : styles.cutting,
+    cramped ? styles.cramped : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -240,10 +268,18 @@ export function CalendarBlock({
         end: format.time(endMinutes),
         hours: format.hourNumber(block.durationMinutes),
       })}
+      /*
+       * The tooltip carries the row's facts AND its gesture vocabulary. The two drags mean
+       * different things and neither is discoverable by looking — a shop PC has no gesture
+       * tutorial, so the hover is where "drag the body to change the queue position, drag
+       * the bottom edge to change the length" has to be said. Withheld on a frozen day,
+       * where neither gesture is offered at all.
+       */
       title={[
         format.dayTimeHours(block.date, block.startMinutes, block.durationMinutes),
         ...seamHints,
         ...markHints,
+        ...(frozen ? [t('day.frozenHint')] : [t('block.drag'), t('block.resize')]),
       ].join('\n')}
       style={{
         '--ww-block-color': block.project.color,
@@ -259,8 +295,12 @@ export function CalendarBlock({
         onOpen();
       }}
     >
-      <span className={styles.name}>{block.project.name}</span>
-      {height >= MIN_LABEL_HEIGHT ? <span className={styles.hours}>{hoursLabel}</span> : null}
+      {/* Clipped on its own, because the block itself no longer clips — the action bar has
+          to be able to hang outside a narrow one. See `.body` in the stylesheet. */}
+      <div className={styles.body}>
+        <span className={styles.name}>{block.project.name}</span>
+        {height >= MIN_LABEL_HEIGHT ? <span className={styles.hours}>{hoursLabel}</span> : null}
+      </div>
 
       {/*
        * The three marks share the corner the action bar takes over on hover, and they
@@ -298,7 +338,7 @@ export function CalendarBlock({
 
       {frozen ? null : (
         <div
-          className={styles.actions}
+          className={[styles.actions, barBelow ? styles.actionsBelow : ''].filter(Boolean).join(' ')}
           // The bar sits ON the drag surface, so a press here starts the same drag a press on
           // the body would — the alternative was a dead grab point over the block's name on
           // every narrow column. A press that does not travel is still the BUTTON's click.

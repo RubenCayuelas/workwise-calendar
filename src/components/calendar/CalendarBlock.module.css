@@ -10,12 +10,26 @@
  * on from above.
  */
 
+/*
+ * `overflow` IS VISIBLE, AND THAT IS THE FIX FOR A BUTTON THE OWNER COULD NOT REACH.
+ *
+ * The hover action bar is 102 px anchored 4 px from the block's right edge. On a weekend
+ * column at a 1100 px window a block is 82 px, so the bar was 24 px WIDER than the thing it
+ * lives in — and `overflow: hidden` clipped what stuck out, which is its left end: the
+ * padlock was drawn entirely outside the block and cut away. Four buttons rendered, three
+ * were clickable, and nothing said which one was missing (measured 2026-08-13).
+ *
+ * Nothing else here needed the clip: `.name` and `.hours` do their own ellipsis, and every
+ * other child is inset. So the bar is simply allowed to hang over the column instead, which
+ * is where it has to go — a 24 px control cannot be made narrower and still be a target
+ * (`--ww-control-height-sm` is the floor a mouse on a shop PC can hit).
+ */
 .block {
   position: absolute;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  overflow: hidden;
+  overflow: visible;
   padding: 5px 7px;
   border: var(--ww-hairline) solid var(--ww-block-color);
   border-radius: 0;
@@ -42,7 +56,25 @@
   transition: box-shadow var(--ww-duration-fast) ease-out;
 }
 
-.block:hover {
+/*
+ * The block's own text, clipped. It is a wrapper rather than a property of `.block` because
+ * `.block` may no longer clip (see above) and a 15-minute row is about ten pixels tall —
+ * shorter than one line of its own name, which without this would spill onto the row below.
+ */
+.body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+
+/* Hovered wins the paint order: its action bar hangs outside the block on a narrow
+   column, and it must not go behind the next row along. */
+.block:hover,
+.block:focus-within {
+  z-index: 2;
   box-shadow: var(--ww-shadow-popover);
 }
 
@@ -208,6 +240,7 @@
   position: absolute;
   top: 3px;
   right: 3px;
+  z-index: 3;
   display: none;
   gap: 2px;
 }
@@ -217,13 +250,58 @@
   display: flex;
 }
 
-/* The unit's single resize handle: the bottom edge of its last row. */
+/*
+ * A ROW TOO SHORT TO HOLD THE BAR HANDS IT OUT (see `MIN_ACTIONS_HEIGHT` in geometry.ts).
+ *
+ * The bar is 24 px tall and the handle owns the bottom of the row, so on a half-hour row —
+ * 24 px at the default scale — the two covered the whole rectangle and there was nothing
+ * left to click. The drag survived that (a press on the bar starts the same move), the
+ * click did not: it landed on whichever button was under the cursor, which down the middle
+ * of that row is *Cerrar el día aquí*.
+ *
+ * Docked FLUSH against the outside of the row's edge — `100%` with a pixel of overlap, no
+ * gap — because the pointer has to be able to travel from the row into the bar without
+ * passing over a pixel that belongs to neither: the bar is only up while the row is
+ * hovered, and it is a DOM child, so hovering the bar keeps the row hovered wherever the
+ * bar has been moved to.
+ */
+.cramped .actions {
+  top: auto;
+  bottom: calc(100% - 1px);
+}
+
+/* At the very top of the axis there is nothing above the row but the sticky day header, so
+   the bar docks under it instead. Chosen in the component, which is what knows the row's
+   place on the axis. */
+.cramped .actions.actionsBelow {
+  top: calc(100% - 1px);
+  bottom: auto;
+}
+
+/* The marks share the corner the bar takes over — but on a cramped row the bar has left,
+   so there is no longer anything to make room for. Last, so it wins over the rule above. */
+.cramped:hover .marks,
+.cramped:focus-within .marks {
+  display: flex;
+}
+
+/*
+ * The row's resize handle: its bottom edge.
+ *
+ * TEN PIXELS, BUT NEVER MORE THAN A THIRD OF THE ROW. Seven was a mean target for a mouse
+ * on a shop PC; ten is honest. The cap is what makes the extra pixels safe: a 15-minute row
+ * is about ten pixels tall at the smallest scale, so a flat 10 px strip would have covered
+ * the whole thing and the row could no longer be DRAGGED at all — one gesture would have
+ * eaten the other. The percentage resolves against the row's own height, so short rows keep
+ * most of their body and only give up a proportionate sliver.
+ */
 .resize {
   position: absolute;
   right: 0;
   bottom: 0;
   left: 0;
-  height: 7px;
+  height: min(10px, 34%);
+  min-height: 3px;
   cursor: ns-resize;
 }
 
@@ -243,6 +321,31 @@
 
 .block:hover .resize::after {
   opacity: 0.7;
+}
+
+/* On the handle itself: full strength, so the owner can see they have ACQUIRED it before
+   they press rather than after they have moved something. The selector has to out-specify
+   `.block:hover .resize::after` above, which is already matching by then. */
+.block:hover .resize:hover::after {
+  opacity: 1;
+  height: 3px;
+}
+
+/*
+ * A save or a reload is in flight, so nothing can start. The cursor says so — it used to go
+ * on saying `grab` while every press was being dropped on the floor, which is the difference
+ * between "wait a moment" and "this app ignores me".
+ */
+.saving {
+  cursor: progress;
+}
+
+.saving .resize {
+  cursor: progress;
+}
+
+.saving:hover {
+  box-shadow: none;
 }
 
 /*

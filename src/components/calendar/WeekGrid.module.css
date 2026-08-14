@@ -28,12 +28,20 @@
   min-height: 0;
 }
 
+/*
+ * SAT/SUN HAVE A FLOOR, and the number is not cosmetic. A weekend column is half a weekday
+ * and at a 1100 px window that came out at 86 px, so a block in it was 82 px — narrower than
+ * its own 102 px hover action bar, whose left end was then clipped away and unclickable. 116
+ * px is the smallest column that fits the bar (102 + the block's 4 px inset + the bar's 3 px
+ * offset, rounded up), so the drop target and the buttons stay honest at every width the
+ * shop uses. The scroll container absorbs it on a window too narrow for the whole week.
+ */
 .grid {
   display: grid;
   grid-template-columns:
     var(--ww-axis-width, 58px)
     repeat(5, minmax(0, 1fr))
-    repeat(2, minmax(0, 0.52fr));
+    repeat(2, minmax(116px, 0.52fr));
   min-width: 100%;
 }
 
@@ -46,10 +54,17 @@
   pointer-events: none;
 }
 
-/* While the week reloads: visible, inert, obviously not current. */
+/*
+ * While the week reloads: visible, obviously not current — but NOT deaf.
+ *
+ * `pointer-events: none` used to be here, and it was the last of the silent dead ends. Every
+ * mutation ends with a refetch, so this state is the second right after a drop, resize or
+ * lock; a press in it hit nothing at all, and nothing said why. The rows now take the press
+ * and explain themselves (`InertReason.busy`), which is why the buttons carry `disabled`
+ * instead — they are individually inert rather than the whole grid being unreachable.
+ */
 .stale {
   opacity: 0.55;
-  pointer-events: none;
 }
 
 /* --------------------------------------------------------------------------
@@ -243,6 +258,13 @@
    The drag ghost
    -------------------------------------------------------------------------- */
 
+/*
+ * The ghost is TRANSLUCENT, not tinted-opaque. It sits at z-index 4 over whatever it is
+ * landing on, and an opaque fill hid exactly the thing the owner needs to see before
+ * releasing: the reserved gap under a drop the weekend will refuse was completely invisible
+ * behind it (measured 2026-08-13). `transparent` in the mix instead of `--ww-surface` keeps
+ * the same colour recipe and lets the obstacle read through.
+ */
 .ghost {
   position: absolute;
   right: 2px;
@@ -254,16 +276,66 @@
   padding: 5px 7px;
   border: 1px dashed var(--ww-block-color);
   border-radius: var(--ww-radius);
-  /* Re-declared on the element that sets `--ww-block-color`; see CalendarBlock.module.css. */
-  --ww-block-tint: color-mix(
-    in srgb,
-    var(--ww-block-color) var(--ww-block-tint-strength, 12%),
-    var(--ww-surface)
-  );
-  background: var(--ww-block-tint);
+  background: color-mix(in srgb, var(--ww-block-color) 16%, transparent);
   font-size: var(--ww-text-sm);
   line-height: var(--ww-line-tight);
   pointer-events: none;
+}
+
+/*
+ * A DROP THAT ONLY WRITES A RANK, drawn as the insertion point it is.
+ *
+ * Monday to Thursday a drop does not keep the minute it was released on: it takes a place in
+ * the queue and the reflow lays it out, often on an earlier day. Drawn identically to a
+ * pinned drop, the ghost was a promise the app could not keep — `09:00–14:00` over Thursday,
+ * then the row settling on Wednesday at 12:00, which reads as the drag having been ignored.
+ *
+ * So it is hollow, with the rule on the edge the rank is taken at. Nothing about it says
+ * "the block will be here"; it says "it goes in here, in this order" — which is exactly what
+ * the drop writes. The solid, filled ghost is kept for the weekend and the colchón, where
+ * the rectangle IS the answer.
+ */
+.ghostRanked {
+  border-color: color-mix(in srgb, var(--ww-block-color) 45%, transparent);
+  border-top: 3px solid var(--ww-block-color);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--ww-block-color) 8%, transparent);
+  padding-top: 4px;
+}
+
+/*
+ * The continuation of a ranked drop is drawn faintly: the segments a re-ranked drop would
+ * be cut into are the reflow's business, not the owner's, and a second heavy rule would
+ * read as a second insertion point.
+ */
+.ghostRanked.ghostContinued {
+  border-top: var(--ww-hairline) dashed color-mix(in srgb, var(--ww-block-color) 45%, transparent);
+  opacity: 0.6;
+}
+
+/* The rank in words: the row this will fall in behind. It replaces the clock range, which
+   on this side of the calendar is not knowable until the reflow has run. */
+.ghostRank {
+  font-weight: var(--ww-weight-medium);
+  color: var(--ww-block-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * The ghost's words, on their own backing so they stay legible over whatever the drop is
+ * hovering. Almost-opaque rather than opaque: the rectangle is translucent on purpose (see
+ * `.ghost`) and a solid slab of surface would hide the same obstacle by the back door.
+ */
+.ghostLabel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 4px;
+  margin: -3px -5px;
+  border-radius: var(--ww-radius);
+  background: color-mix(in srgb, var(--ww-surface) 88%, transparent);
 }
 
 .ghostName {
@@ -279,9 +351,12 @@
   white-space: nowrap;
 }
 
+/* Last, so it wins over `.ghostRanked`: a refused drop is a refusal first and a rank
+   second. Still translucent, so the owner can see what is in the way. */
 .ghostDenied {
-  border-color: var(--ww-danger);
-  background: var(--ww-danger-tint);
+  border: 1px dashed var(--ww-danger);
+  border-radius: var(--ww-radius);
+  background: color-mix(in srgb, var(--ww-danger) 14%, transparent);
   color: var(--ww-danger);
 }
 
@@ -306,8 +381,21 @@
   color: var(--ww-text-muted);
 }
 
-.ghostDenied .ghostEffect {
+.ghostDenied .ghostEffect,
+.ghostDenied .ghostRank {
   color: var(--ww-danger);
+}
+
+/*
+ * "It will not go any lower": the unit is too long to start where the pointer is. A rule
+ * about the day rather than something happening to another row, so it is drawn in the
+ * warning colour instead of the muted one — the ghost has stopped following the hand and
+ * this is the sentence that says why.
+ */
+.ghostClamped {
+  margin-top: 2px;
+  color: var(--ww-warning);
+  font-size: var(--ww-text-xs);
 }
 
 /* --------------------------------------------------------------------------

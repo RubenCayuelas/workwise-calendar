@@ -45,12 +45,13 @@ import type { CloseDayRequest } from '../../lib/closeDay';
 import { PROJECT_COLORS } from '../../lib/projectColors';
 import { manualWindowsOf } from '../../lib/manualWindow';
 import { clampDropStart, rankFor, createTimeline, type GridMetrics, type Timeline } from './geometry';
+import { dropPins } from './dropEffect';
 import { describeDrop, type DropOutcomeKind } from './dropOutcome';
 import { SummaryStrip } from './SummaryStrip';
 import { WeekHeader } from './WeekHeader';
 import { WeekGrid, type PlacingFragment, type SettleRequest } from './WeekGrid';
 import { MIN_SPLITTABLE_MINUTES, SplitBlockDialog } from './SplitBlockDialog';
-import { useBlockDrag, type DragTarget } from './useBlockDrag';
+import { useBlockDrag, type DragTarget, type InertReason } from './useBlockDrag';
 import { useWeek } from './useWeek';
 import styles from './CalendarScreen.module.css';
 
@@ -304,6 +305,21 @@ export function CalendarScreen({
   }, [t, toast]);
 
   /**
+   * A press that could not become a gesture, saying why.
+   *
+   * All three used to be a press that did nothing at all, which the owner reads as the app
+   * ignoring them — and one of them, `busy`, lands in the second right after a drop, when
+   * the next press is most likely. See `InertReason`.
+   */
+  const onInert = useCallback(
+    (reason: InertReason): void => {
+      toast.info(t(INERT_KEYS[reason]));
+    },
+    [t, toast],
+  );
+
+
+  /**
    * The bottom edge. Two things the grid cannot show by itself, so both are said here:
    *
    * - THE CONSEQUENCE IS NOT LOCAL. A resize is a transfer inside the job, so the hours
@@ -394,10 +410,18 @@ export function CalendarScreen({
     timeline: fittedTimeline ?? FALLBACK_TIMELINE,
     dayAt,
     takenStartsOn,
-    enabled: fittedTimeline !== null && !busy && !loading && placing === null,
+    // WIRED, not WRITABLE. `busy` and `loading` used to be in here, which made every press
+    // in the second after a drop do nothing whatsoever; they are now an `inert` press the
+    // grid tags per row, so a click still opens the job and a drag says why it will not
+    // move. See `BeginOptions.inert`.
+    enabled: fittedTimeline !== null && placing === null,
+    // Read at press, in the same tick: `busy` is state and arrives a render late, and that
+    // frame is exactly where a fast second press lands.
+    writable: () => !week.mutating.current && !loading,
     onMove,
     onResize,
     onRejected,
+    onInert,
     onClick: (target) => setOpenJobId(target.projectId),
   });
 
@@ -462,8 +486,15 @@ export function CalendarScreen({
       if (fragment === null || timeline === null) return;
 
       const day = dayAt(slot.date);
-      // The engine never writes to the past, and neither does a placement.
-      if (day === undefined || day.isPast) return;
+      if (day === undefined) return;
+      // The engine never writes to the past, and neither does a placement. Said out loud,
+      // and the fragment STAYS ARMED: this used to be a bare `return`, so the one click the
+      // owner is being asked for did nothing, said nothing, and left the grid still waiting
+      // for it — the same silence as a swallowed drop, in the middle of a two-step gesture.
+      if (day.isPast) {
+        toast.warning(t('notices.dropRefusedPast'));
+        return;
+      }
 
       setPlacing(null);
       void mutate(() =>
@@ -479,6 +510,16 @@ export function CalendarScreen({
             takenStartsOn(slot.date, [fragment.blockId]),
             (minutes) =>
               clampDropStart(day.manualWindows, minutes, fragment.durationMinutes, timeline),
+            // The fragment is a drop like any other, so it pins on the same days and in the
+            // same bands — and where it pins the minute is stored, so it must not be nudged.
+            dropPins({
+              locked: false,
+              role: day.role,
+              periods: day.periods,
+              manualWindows: day.manualWindows,
+              startMinutes: slot.startMinutes,
+              durationMinutes: fragment.durationMinutes,
+            }),
           ),
         }),
       ).then((result) => {
@@ -552,6 +593,27 @@ export function CalendarScreen({
 
   const emptyWeek = view !== null && view.blocks.length === 0 && view.gaps.length === 0;
 
+  /**
+   * The sentence under the grid while a gesture is in the air, and there are three of them
+   * because a drag means three different things.
+   *
+   * The move used to always say "it takes this place in the queue and settles behind the
+   * one before it" — which is exactly wrong over the weekend and over the colchón, where a
+   * drop keeps the minute it was released on and the owner is in charge. Reading the rule
+   * off the day the pointer is over is what makes the hint worth reading at all, and it is
+   * the same predicate the ghost switches on.
+   */
+  const dragHintKey =
+    drag.preview === null
+      ? 'grid.dropRankHint'
+      : drag.preview.kind === 'resize'
+        ? 'block.resizeHint'
+        : // The gesture's own answer, which covers the SLOT as well as the day: a drop into
+          // a margin or the lunch band pins on Monday too. See `DragPreview.pinned`.
+          drag.preview.pinned === true
+          ? 'grid.dropPinHint'
+          : 'grid.dropRankHint';
+
   return (
     <div className="ww-app">
       <WeekHeader
@@ -606,6 +668,9 @@ export function CalendarScreen({
                 onReleaseDuration={onReleaseDuration}
                 onSplit={onSplit}
                 onDelete={onDelete}
+                // The same sentence a press on a block gets, for the one thing on the grid
+                // that is not one: every press either starts something or says why not.
+                onPressHint={onInert}
                 metricsRef={metricsRef}
                 settle={settle}
                 onSettled={onSettled}
@@ -616,13 +681,15 @@ export function CalendarScreen({
           <div className={styles.legend}>
             {/* The two drags say different things, and the resize now happens on rows
                 where it never used to be offered — so it needs its own line rather than
-                the drop's. */}
+                the drop's. A MOVE says two different things too: see `dragHintKey`. */}
             {drag.preview !== null ? (
-              <span className={styles.hint}>
-                {t(drag.preview.kind === 'resize' ? 'block.resizeHint' : 'grid.dropRankHint')}
-              </span>
+              <span className={styles.hint}>{t(dragHintKey)}</span>
             ) : placing !== null ? (
-              <span className={styles.hint}>{t('block.splitHint')}</span>
+              // NOT `block.splitHint` here, which is what the DIALOG says: by this point the
+              // owner has agreed to the split and the grid has taken the pointer, so the one
+              // thing worth saying is what to do with it — and how to get out, which nothing
+              // on screen used to mention.
+              <span className={styles.hint}>{t('grid.placingHint')}</span>
             ) : emptyWeek ? (
               <span>{t('jobForm.hint')}</span>
             ) : (
@@ -769,6 +836,16 @@ function mergeMutations(results: readonly BlockMutation[]): BlockMutation | unde
     displacedProjectIds: union((result) => result.displacedProjectIds),
   };
 }
+
+/**
+ * What a press that cannot write says. One key per `InertReason`, each naming the reason
+ * AND what the owner can still do — a message with no next step is only half delivered.
+ */
+const INERT_KEYS: Record<InertReason, string> = {
+  busy: 'notices.pressWhileBusy',
+  past: 'notices.pressOnPastDay',
+  gap: 'notices.pressOnGap',
+};
 
 /**
  * What the toast says about each way a drop can end. One key per branch of

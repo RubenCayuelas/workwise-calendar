@@ -1173,6 +1173,28 @@ describe('a drop names the whole unit, so a unit moves in ONE transaction', () =
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
+  it('moves the whole unit onto the buffer, where the reflow is live between requests', () => {
+    // The day that made the race visible. Friday IS in the movable pool, so one request
+    // per row re-laid the job's remaining hours onto different ids in between and the
+    // second request moved whatever row had inherited the id the drag captured. One
+    // transaction, one reflow: both halves land and the estimate never moves.
+    const uno = job('Uno', 6, BLUE, THU);
+    resizeBlock(uno.blocks[0].id, { durationMinutes: 8 * 60, today: THU }, db);
+    const unit = listBlocks(db);
+    expect(calendar()).toEqual([`${THU} 08:00-14:00 Uno`, `${THU} 15:30-17:30 Uno`]);
+
+    const result = moveBlock(
+      unit[0].id,
+      { date: FRI, startMinutes: 10 * 60, today: THU, unitBlockIds: unit.map((row) => row.id) },
+      db,
+    );
+
+    expect(calendar()).toEqual([`${FRI} 10:00-14:00 Uno`, `${FRI} 15:30-19:30 Uno`]);
+    expect(result.blocks.reduce((total, row) => total + row.durationMinutes, 0)).toBe(8 * 60);
+    expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
   it('ignores an id that is not part of the unit, and one that no longer exists', () => {
     job('Uno', 4, BLUE, THU);
     const dos = job('Dos', 2, GREEN, THU);
@@ -1222,24 +1244,42 @@ describe('the scissors keep the calendar on the quarter hour', () => {
   });
 });
 
-describe('a drop onto a gap, where the reflow will not separate them', () => {
-  it('is refused naming the gap, exactly as a gap over a hand-placed row is', () => {
-    // Gaps and blocks are one occupancy set, and the MIRROR gesture is already refused.
-    // On Mon-Thu the reflow keeps auto work off a gap, so this only bit where the drop
-    // PINS — the buffer, the weekend, a margin, the lunch band.
+describe('a drop onto a gap', () => {
+  it('slides clear of it on the buffer, keeping the day the owner aimed at', () => {
+    // Gaps and blocks are one occupancy set, so the drop may not share those minutes —
+    // but Friday is a day the engine reflows, and there a refusal was a dead end: the
+    // owner aimed at a Friday, and the answer has to be a Friday. So the drop gives up
+    // the exact minute (never the day) and lands at the first slot clear of the gap.
     job('Uno', 2, BLUE, THU);
     const dos = job('Dos', 1, GREEN, THU);
     createGap({ date: FRI, startMinutes: 10 * 60, durationMinutes: 60, reason: 'Avería', today: THU }, db);
+
+    const result = moveBlock(dos.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: THU }, db);
+
+    expect(calendar()).toEqual([`${THU} 08:00-10:00 Uno`, `${FRI} 11:00-12:00 Dos`]);
+    // Still the owner's Friday: the slide keeps the pin, so the engine never takes it back.
+    expect(result.block?.handPlaced).toBe(true);
+    expect(listGaps(db)).toHaveLength(1);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('is refused on the WEEKEND, where nothing will ever separate the two', () => {
+    // The one place the exact minute IS the promise: the engine lays nothing out on a
+    // Saturday, so a drop there is a literal placement and a collision with a gap is a
+    // real, permanent conflict. Sliding it would move the row the owner aimed with.
+    job('Uno', 2, BLUE, THU);
+    const dos = job('Dos', 1, GREEN, THU);
+    createGap({ date: SAT, startMinutes: 10 * 60, durationMinutes: 60, reason: 'Avería', today: THU }, db);
     const before = calendar();
 
     const error = refusal(() =>
-      moveBlock(dos.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: THU }, db),
+      moveBlock(dos.blocks[0].id, { date: SAT, startMinutes: 10 * 60, today: THU }, db),
     );
 
     expect(error.status).toBe(409);
     expect(error.code).toBe('overlaps-gap');
     expect(error.messageKey).toBe('errors.dropOverGap');
-    expect(error.details).toMatchObject({ date: FRI, startTime: '10:00', endTime: '11:00', reason: 'Avería' });
+    expect(error.details).toMatchObject({ date: SAT, startTime: '10:00', endTime: '11:00', reason: 'Avería' });
     expect(calendar()).toEqual(before);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
@@ -1262,6 +1302,124 @@ describe('a drop onto a gap, where the reflow will not separate them', () => {
     moveBlock(dos.blocks[0].id, { date: NEXT_MON, startMinutes: 10 * 60, today: THU }, db);
 
     expect(listGaps(db)).toHaveLength(1);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// «Aún no cabe» — the drop that was refused for a room the reflow was about to make
+// ---------------------------------------------------------------------------
+//
+// The owner's report, in full: «cuando intento mover algo se coloca antes de
+// recalcularse, por lo que si lo intento pasar al día siguiente en el que ahora no hay
+// hueco pero si lo muevo se recalcula y queda disponible, no lo puedo asignar
+// directamente porque "aún no cabe"». The refusal measured the drop against the calendar
+// as it stood at that instant, and the answer was circular: the room on the target day is
+// made BY the move, because the row leaves a hole on its own day and the work behind it
+// moves up into it.
+
+describe('a drop onto a day that is full at the moment it is released', () => {
+  /**
+   * Monday and Tuesday both full at the 10 h stop line, and a gap in one of Tuesday's
+   * visual margins — the slot a drop PINS itself in, and therefore the one that used to
+   * be refused.
+   *
+   *   MON  08:00-14:00 Uno (6 h)   TUE  08:00-12:00 Tres (4 h)
+   *        15:30-19:30 Dos (4 h)        12:00-14:00 + 15:30-19:30 Cuatro (6 h)
+   */
+  function fullWeek(gap: { startMinutes: number; reason: string }) {
+    job('Uno', 6, BLUE, MON);
+    const dos = job('Dos', 4, GREEN, MON);
+    job('Tres', 4, PROJECT_COLORS[2], MON);
+    job('Cuatro', 6, PROJECT_COLORS[3], MON);
+    createGap({ date: TUE, durationMinutes: 60, today: MON, ...gap }, db);
+    expect(calendar()).toEqual([
+      `${MON} 08:00-14:00 Uno`,
+      `${MON} 15:30-19:30 Dos`,
+      `${TUE} 08:00-12:00 Tres`,
+      `${TUE} 12:00-14:00 Cuatro`,
+      `${TUE} 15:30-19:30 Cuatro`,
+    ]);
+    return dos;
+  }
+
+  it('lands there anyway, slid clear of the gap: the reflow is what makes the room', () => {
+    // «Quiero empezar el martes con esto»: the drop is aimed at the top margin, which is
+    // manual-only time and therefore PINS the row — and the shop does not open until
+    // 08:00, which is what the gap says. It used to answer 409 `overlaps-gap`, «Ahí no
+    // cabe», with Tuesday visibly full underneath it.
+    const dos = fullWeek({ startMinutes: 7 * 60, reason: 'Apertura' });
+
+    const result = moveBlock(dos.blocks[0].id, { date: TUE, startMinutes: 7 * 60, today: MON }, db);
+
+    // Tuesday had no free minute when the mouse was released. It has one now BECAUSE of
+    // the move: Dos left a hole on Monday, Tres moved up into it, and Cuatro shifted into
+    // the morning Tres had been holding.
+    expect(calendar()).toEqual([
+      `${MON} 08:00-14:00 Uno`,
+      `${MON} 15:30-19:30 Tres`,
+      `${TUE} 08:00-12:00 Dos`,
+      `${TUE} 12:00-14:00 Cuatro`,
+      `${TUE} 15:30-19:30 Cuatro`,
+    ]);
+    // The gap kept its minutes and the drop kept its day: it gave up the hour it could
+    // not have and landed at the first one it could. The slot was asked for by hand, so
+    // it stays hand-placed — *back to automatic* is the way out.
+    expect(result.block?.date).toBe(TUE);
+    expect(result.block?.startMinutes).toBe(8 * 60);
+    expect(result.block?.handPlaced).toBe(true);
+    expect(
+      listProjects(db).map((project) => `${project.name} ${project.totalMinutes}`).sort(),
+    ).toEqual(['Cuatro 360', 'Dos 240', 'Tres 240', 'Uno 360']);
+    expect(listGaps(db)).toHaveLength(1);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('gives up the exact slot rather than the day when the day has no clear one', () => {
+    // The same drop at the other end: 16:30 is the latest a 4 h row may start and still
+    // end inside the day, so it is where the ghost sits when the owner aims at the bottom
+    // of a full Tuesday — and it reaches into a margin the gap covers to the last minute.
+    // There is nowhere on Tuesday to slide to, so the drop gives up its PIN instead of the
+    // day: an ordinary queue rank, which is what a Monday-Thursday drop always was.
+    const dos = fullWeek({ startMinutes: 19 * 60 + 30, reason: 'Cierre' });
+
+    const result = moveBlock(dos.blocks[0].id, { date: TUE, startMinutes: 16 * 60 + 30, today: MON }, db);
+
+    // Dos took the rank it was dropped at, inside Cuatro's afternoon row, so Cuatro was
+    // cut and continues behind it (*A Drop That Overlaps*) — with its 6 h intact.
+    expect(calendar()).toEqual([
+      `${MON} 08:00-14:00 Uno`,
+      `${MON} 15:30-19:30 Tres`,
+      `${TUE} 08:00-11:00 Cuatro`,
+      `${TUE} 11:00-14:00 Dos`,
+      `${TUE} 15:30-16:30 Dos`,
+      `${TUE} 16:30-19:30 Cuatro`,
+    ]);
+    expect(result.block?.date).toBe(TUE);
+    expect(result.block?.handPlaced).toBe(false);
+    expect(result.displacedProjectIds).toHaveLength(1);
+    expect(
+      listProjects(db).map((project) => `${project.name} ${project.totalMinutes}`).sort(),
+    ).toEqual(['Cuatro 360', 'Dos 240', 'Tres 240', 'Uno 360']);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('is still refused when the row being dragged is LOCKED', () => {
+    // The one promise a re-rank would break. A locked row keeps the exact slot wherever it
+    // lands, so nothing will ever separate it from the gap: here "does it fit" really is
+    // the question, and the answer is no.
+    const dos = fullWeek({ startMinutes: 19 * 60 + 30, reason: 'Cierre' });
+    setBlockLock(dos.blocks[0].id, true, { today: MON }, db);
+    const before = calendar();
+
+    const error = refusal(() =>
+      moveBlock(dos.blocks[0].id, { date: TUE, startMinutes: 16 * 60 + 30, today: MON }, db),
+    );
+
+    expect(error.status).toBe(409);
+    expect(error.code).toBe('overlaps-gap');
+    expect(error.details).toMatchObject({ date: TUE, startTime: '19:30', endTime: '20:30', reason: 'Cierre' });
+    expect(calendar()).toEqual(before);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 });

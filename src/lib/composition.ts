@@ -41,6 +41,7 @@ import {
   weekdayOf,
 } from './dates';
 import { overlapsSegments, segmentDroppedRow, type DropSegment } from './dropSegments';
+import { firstClearStart } from './dropSlide';
 import {
   adjacentInWindows,
   clockEndOf,
@@ -457,6 +458,30 @@ export function isMovable(block: Block, today: string): boolean {
   if (block.locked || block.handPlaced) return false;
   if (compareDates(block.date, today) < 0) return false;
   return !isWeekend(block.date);
+}
+
+/**
+ * WHETHER THE REFLOW LAYS THE DAY OUT AT ALL. Not "will it move this row" — that is
+ * `isMovable`, a question about one row — but "does the engine decide what sits here".
+ *
+ * It is the question that says whether a drop onto this day may be REFUSED for a
+ * collision, and the two must not be confused. On a day the engine reflows, a drop is
+ * not a literal placement: it is a re-ranking of the queue, and the reflow is what finds
+ * the room. Asking "does the footprint fit here as the calendar stands right now" gives
+ * the wrong answer for a circular reason — moving the row off its current day frees the
+ * space there, everything behind it shifts earlier, and THAT is what opens the room on
+ * the target day. The owner's report, exactly: «si lo intento pasar al día siguiente en
+ * el que ahora no hay hueco pero si lo muevo se recalcula y queda disponible, no lo
+ * puedo asignar directamente porque "aún no cabe"».
+ *
+ * True for Monday-Thursday and for the Friday buffer (Friday IS in the movable pool —
+ * that is how the colchón self-cleans), from today onwards. False for the weekend, for a
+ * closed day and for the past: there the engine never lays anything out, so a drop lands
+ * exactly where it was released and a collision is real.
+ */
+export function dayReflows(config: DayConfig, date: string, today: string): boolean {
+  if (config.isClosed || config.role === 'manual') return false;
+  return compareDates(date, today) >= 0;
 }
 
 /**
@@ -1739,6 +1764,26 @@ export function findGapConflicts(
 //  - fixed rows are ignored on this side, because the reflow flows around them.
 //
 // Same resolver, same two rules, one branch on whether the reflow can reach the rows.
+//
+// AND A REFUSAL BELONGS TO ONE SIDE ONLY (2026-08-13). Every refusal above is an answer
+// to "does the footprint fit on this day as it stands right now", and on a day the engine
+// reflows that is the WRONG QUESTION, with a circular answer: the row is being moved off
+// another day, everything behind it shifts earlier, and that is precisely what opens the
+// room here. So on a day `dayReflows` is true for — Monday-Thursday and the Friday
+// buffer, from today on — a drop is NEVER refused for a collision. Two steps, in order:
+//
+//  - SLIDE. A pinned drop is moved forward, on the day the owner named, to the first
+//    start where its footprint touches neither a GAP nor a LOCKED row — the two things
+//    nothing will ever move out of the way. This is what makes a Friday drop land on the
+//    Friday: there a queue rank would be pulled straight back into Mon-Thu, so keeping
+//    the day and giving up the exact minute is the only answer that honours the gesture.
+//  - RE-RANK. If the day has no such slot, the drop gives up its PIN instead and becomes
+//    an ordinary queue rank. The reflowed side has no failure mode at all, so this
+//    always answers.
+//
+// Where the drop lands LITERALLY the refusals stand, because there the collision is real
+// and permanent: the weekend, a closed day, the frozen past — and a LOCKED row being
+// dragged, on any day, since the padlock is precisely "this row does not move".
 
 export type ManualPlacementErrorCode =
   | 'unknown-block'
@@ -1832,10 +1877,52 @@ export interface ManualPlacement {
  *
  * Every branch conserves hours, so `SUM(blocks.duration) == projects.total_hours`
  * holds for every touched project by construction rather than by inspection.
+ *
+ * ON A DAY THE ENGINE REFLOWS IT CANNOT FAIL. Every refusal below asks whether the
+ * footprint fits on the day as it stands at this instant, which is the wrong question
+ * wherever the reflow decides the layout (see `dayReflows` and the note above the
+ * refusal codes). So the resolution is attempted with the drop's exact slot, slid clear
+ * of the gaps and locks it cannot share minutes with, and if that still cannot be
+ * resolved the drop gives up its PIN and is resolved again as an ordinary queue rank —
+ * the side of this function that has no failure mode. A refusal comes back only from a
+ * drop that lands literally: the weekend, a closed day, the frozen past, or a LOCKED row
+ * being dragged.
  */
 export function resolveManualPlacement(
   input: ComposeInput,
   placement: ManualPlacement,
+): ManualPlacementResult {
+  const target = input.blocks.find((block) => block.id === placement.blockId);
+  if (target === undefined) {
+    return manualFailure('unknown-block', { blockId: placement.blockId });
+  }
+
+  // Is this drop LITERAL — the row staying exactly where it was released, with nothing
+  // that will ever come along and separate it from what it landed on? Only then is a
+  // collision a real conflict, and only then may this refuse. The padlock counts on every
+  // day: it says "this row does not move", so honouring it means honouring the slot.
+  const literal =
+    target.locked || !dayReflows(input.getDayConfig(target.date), target.date, input.today);
+
+  const settled = resolveDrop(input, placement, { maySlide: !literal });
+  if (settled.ok || literal) return settled;
+  // The day reflows, so the drop was never a promise about the minute: it is a rank, and
+  // the reflow is what finds the room. Re-ranking has no failure mode.
+  return resolveDrop(input, placement, { asRank: true });
+}
+
+/** How much latitude the resolution has — see `resolveManualPlacement`. */
+interface DropLatitude {
+  /** Move the drop forward on its day to the first slot clear of gaps and locks. */
+  maySlide?: boolean;
+  /** Give up the pin: the drop is an ordinary queue rank and the reflow places it. */
+  asRank?: boolean;
+}
+
+function resolveDrop(
+  input: ComposeInput,
+  placement: ManualPlacement,
+  latitude: DropLatitude,
 ): ManualPlacementResult {
   const draft = input.blocks.map(cloneBlock);
   let placed = draft.find((block) => block.id === placement.blockId);
@@ -1843,12 +1930,32 @@ export function resolveManualPlacement(
     return manualFailure('unknown-block', { blockId: placement.blockId });
   }
 
+  // Handing the row back to the engine IS clearing the pin: `isMovable` reads that flag,
+  // so this is what moves the resolution onto the reflowed side and what stops `compose`
+  // treating the row as an obstacle it must lay the rest of the day around.
+  if (latitude.asRank === true) placed.handPlaced = false;
   const reflowed = isMovable(placed, input.today);
   // A drop is a HAND action, so it is cut over the day's MANUAL WINDOWS: the margins are
   // time the owner may use, and a drop that starts in one runs on into the period below it
   // without any boundary between them. The lunch break is still the only cut, because that
   // is the only hole a manual window leaves — see src/lib/manualWindow.ts.
   const periods = input.getDayConfig(placed.date).manualWindows;
+
+  // 0. The drop keeps its day and gives up its exact minute, rather than being refused
+  //    for landing on the one thing nothing will move. Forward only — the drop said
+  //    "here or later" — and a no-op when the slot is already clear, which is every
+  //    ordinary drop. A day with no clear slot leaves the start alone and the steps below
+  //    refuse as they always did; `resolveManualPlacement` then re-ranks instead.
+  if (!reflowed && latitude.maySlide === true) {
+    const clear = firstClearStart({
+      windows: periods,
+      immovable: immovableOn(input, draft, placed),
+      startMinutes: placed.startMinutes,
+      durationMinutes: placed.durationMinutes,
+    });
+    if (clear !== null) placed.startMinutes = clear;
+  }
+
   /** Ids the merge freed. Reused by the segmentation below before any id is minted. */
   const absorbedIds: string[] = [];
   const displacedProjectIds: string[] = [];
@@ -2018,6 +2125,22 @@ export function resolveManualPlacement(
  */
 function overlapsDrop(row: Block, dropRows: readonly DropSegment[]): boolean {
   return overlapsSegments(dropRows, row.startMinutes, row.durationMinutes);
+}
+
+/**
+ * THE THINGS ON `date` NOTHING WILL EVER MOVE OUT OF A DROP'S WAY: the gaps and the locked
+ * rows. Handed to `firstClearStart`, which is shared with the drag ghost — see
+ * src/lib/dropSlide.ts for why the slide is not implemented twice.
+ */
+function immovableOn(
+  input: ComposeInput,
+  draft: readonly Block[],
+  placed: Block,
+): DropSegment[] {
+  return [
+    ...input.gaps.filter((gap) => gap.date === placed.date),
+    ...draft.filter((row) => row.locked && row.date === placed.date && row.id !== placed.id),
+  ].map((row) => ({ startMinutes: row.startMinutes, durationMinutes: row.durationMinutes }));
 }
 
 /**

@@ -41,8 +41,17 @@
  *   reflow may not reach, so an overlap there is resolved on the spot: `mergedBlockIds`
  *   lists rows of the same job the drop absorbed (hours SUMMED, so 2 h onto a 2 h row is
  *   one 4 h row), and `displacedProjectIds` lists jobs whose row was cut and pushed
- *   after the drop. Both are empty for `resize` and `lock`. A drop onto a LOCKED row is
- *   refused with 409 `overlaps-locked-block` and nothing is written.
+ *   after the drop. Both are empty for `resize` and `lock`.
+ *
+ * A MOVE IS NEVER REFUSED FOR A COLLISION ON A DAY THE ENGINE REFLOWS — Monday to
+ * Thursday and the Friday buffer, from today on. There a drop is a re-ranking of the
+ * queue and the reflow is what finds the room, so asking whether the footprint fits at
+ * this instant answers the wrong question: a gap or a lock in the way slides the drop
+ * forward on that day, and a day with no clear slot takes it as a plain queue rank
+ * (`handPlaced: false`). The 409s below survive only where the drop lands LITERALLY and
+ * a conflict is therefore permanent — the weekend, a closed day, the frozen past, or a
+ * LOCKED row being dragged: `overlaps-locked-block`, `overlaps-gap`, `merge-exceeds-day`
+ * and `displaced-hours-unplaceable`. Nothing is written by any of them.
  *
  * A drop is stored in SEGMENTS: a stretch crossing the lunch break comes back as two
  * rows of one job (10:00-14:00 and 15:30-17:30 for 6 h at 10:00), never one row running

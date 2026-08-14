@@ -105,10 +105,18 @@
     "dropHere": "Drop here",
     "dropRankHint": "Dropping sets the block's place in the queue; it then settles right behind the block before it. Lock it to pin it to an exact time.",
     "loadingWeek": "Loading the week…",
-    "dropCuts": "This will cut \"{{name}}\": the rest carries on right behind, and into the next day if it no longer fits this one.",
+    "dropCuts": "This will cut \"{{name}}\": the rest carries on right behind, and the engine re-places it if it no longer fits this day.",
+    "dropDisplaces": "Moves \"{{name}}\" aside: that whole block goes right behind, and the engine re-places it if it no longer fits this day.",
     "dropMerges": "This will merge with \"{{name}}\": the hours are summed into one block.",
-    "dropOnGap": "That does not fit there: it lands on a gap. Nothing will be saved.",
-    "dropBlocked": "It does not fit: \"{{name}}\" is locked. Nothing will be saved."
+    "dropOnGap": "A block dropped there keeps the exact slot, and those hours are a reserved gap. Nothing will be saved.",
+    "dropBlocked": "A block dropped there keeps the exact slot, and those hours belong to \"{{name}}\", which is locked. Nothing will be saved.",
+    "dropPinHint": "Dropping leaves the block at the exact time you release it: you decide here and the engine will not move it.",
+    "dropAfter": "Goes in behind “{{name}}”",
+    "dropTakesRank": "Takes its place in the queue here",
+    "dropSlid": "Something there does not move: the block will drop down to {{time}}.",
+    "dropNoLower": "No lower: {{hours}} h cannot start after {{time}}.",
+    "placingHint": "Click the day and the time where the separated part should go. Press Esc to leave things as they were.",
+    "gapOpensHint": "Gaps are not dragged: click to open its form and change the day or the time."
   },
   "block": {
     "continuesBelow": "{{hours}} h · continues…",
@@ -273,7 +281,6 @@
     "languageHint": "It can be changed at any time and is remembered on this machine."
   },
   "colors": {
-    "groupLabel": "Job colour",
     "1": "Blue",
     "2": "Green",
     "3": "Orange",
@@ -281,7 +288,8 @@
     "5": "Red",
     "6": "Dark green",
     "7": "Pink",
-    "8": "Grey"
+    "8": "Grey",
+    "groupLabel": "Job colour"
   },
   "notices": {
     "touchedLockedBlocks_one": "One locked block was adjusted because the job had no unlocked hours left.",
@@ -295,12 +303,15 @@
     "dropRefusedPast": "You cannot drop there: the past is frozen and the engine never writes in it. Correct that day from the job panel.",
     "mergedOverlap_one": "It was merged with the block of the same job that was already there. No hours were lost.",
     "mergedOverlap_other": "It was merged with {{count}} blocks of the same job that were already there. No hours were lost.",
-    "displacedBlocks_one": "\"{{names}}\" was split and its remainder now sits right behind. Move it again if that is not what you wanted.",
-    "displacedBlocks_other": "{{count}} jobs were split ({{names}}) and their remainders now sit right behind. Move them again if that is not what you wanted.",
+    "displacedBlocks_one": "\"{{names}}\" was moved aside to make room and the engine re-placed its hours. Move it again if that is not what you wanted.",
+    "displacedBlocks_other": "{{count}} jobs were moved aside ({{names}}) to make room and the engine re-placed their hours. Move them again if that is not what you wanted.",
     "nothingSaved": "Nothing was saved.",
     "resizeShrunk": "\"{{name}}\" now runs {{hours}} h here and that length is fixed. The spare hours go to the job's last block, the rest carries on the next day, and whatever follows in the queue takes the space.",
     "resizeGrown": "\"{{name}}\" now runs {{hours}} h here and that length is fixed. Those hours come off the job's last block; if it was the last one, the job's total goes up.",
-    "released": "The engine is in charge again: it takes back the length and the day you had set by hand. The block keeps its place in the queue."
+    "released": "The engine is in charge again: it takes back the length and the day you had set by hand. The block keeps its place in the queue.",
+    "pressWhileBusy": "Hold on a moment: the previous change is still saving. The calendar accepts drags again as soon as it lands.",
+    "pressOnPastDay": "That day has already happened and is not dragged: it is the record of what you did. Change the hours from the job panel.",
+    "pressOnGap": "Gaps are not dragged: click the gap to open its form and change the day or the time there."
   },
   "weekdays": {
     "short": {
@@ -365,8 +376,8 @@
     "gapOverHandPlacedBlock": "That gap lands on \"{{projectName}}\", which you placed by hand on {{date}} from {{startTime}} to {{endTime}}. Put it back to automatic or move it before saving.",
     "gapOverPastBlock": "That gap lands on \"{{projectName}}\", which is on a past day ({{date}}, {{startTime}} to {{endTime}}). Correct that block by hand before saving.",
     "gapOverWeekendBlock": "That gap lands on \"{{projectName}}\", which is on the weekend ({{date}}, {{startTime}} to {{endTime}}). Move it by hand before saving.",
-    "dropOverLockedBlock": "That does not fit there: it lands on \"{{projectName}}\", which is locked on {{date}} from {{startTime}} to {{endTime}}. Unlock it or drop somewhere else. Nothing was saved.",
-    "dropOverGap": "That does not fit there: it lands on a gap on {{date}}, from {{startTime}} to {{endTime}}. Drop it somewhere else, or delete the gap first. Nothing was saved.",
+    "dropOverLockedBlock": "A block dropped there keeps the exact slot, and those hours belong to \"{{projectName}}\", which is locked ({{date}}, {{startTime}} to {{endTime}}). Unlock it, or drop it at another time. Nothing was saved.",
+    "dropOverGap": "A block dropped there keeps the exact slot, and those hours are a reserved gap ({{date}}, {{startTime}} to {{endTime}}). Drop it at another time, or delete the gap. Nothing was saved.",
     "mergeExceedsDay": "Merging the two blocks of the same job would not fit inside the day ({{date}}). Drop it earlier. Nothing was saved.",
     "displacedHoursUnplaceable": "There is nowhere for the hours \"{{projectName}}\" has left after that drop. Widen the horizon in Settings or drop somewhere else. Nothing was saved.",
     "invalidPayload": "The request could not be read.",

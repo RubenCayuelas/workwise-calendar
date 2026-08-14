@@ -501,6 +501,16 @@ export function deleteProject(
  *
  * Either way the row is stored in SEGMENTS: a drop crossing the lunch break comes back
  * as two rows of one job, and `block` is the first of them.
+ *
+ * IT IS NEVER REFUSED FOR A COLLISION on a day the engine reflows — Monday to Thursday
+ * and the Friday buffer, from today on. There a drop is a rank and the reflow is what
+ * finds the room, so a gap or a locked row in the way slides the drop forward on that day
+ * (still pinned, at the nearest slot it can have), and a day with no clear slot takes it
+ * as a plain rank (`handPlaced: false`). The 409s — `overlaps-gap`,
+ * `overlaps-locked-block`, `merge-exceeds-day`, `displaced-hours-unplaceable` — are left
+ * only where the drop lands literally: the weekend, a closed day, the frozen past, and a
+ * LOCKED row being dragged. So the caller must expect a landing that is neither the drop
+ * point nor a refusal, which is what `describeDrop` is for.
  */
 export function moveBlock(
   blockId: string,

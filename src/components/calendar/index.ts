@@ -75,11 +75,15 @@ export {
 } from './grouping';
 
 export {
+  dayReflowsOn,
   dropEffectOf,
   dropFootprint,
+  dropPins,
+  resolveDropPreview,
   type DropEffect,
   type DropEffectInput,
   type DropEffectKind,
+  type DropResolution,
   type DropRow,
 } from './dropEffect';
 

@@ -208,18 +208,28 @@ describe('drop targets', () => {
     expect(hit).toEqual({ date: '2026-08-11', exactMinutes: 487, snappedMinutes: 480 });
   });
 
-  it('breaks a rank tie away from the row it landed on', () => {
+  it('breaks a rank tie BEFORE the row it landed on, whichever way the hand wandered', () => {
     const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
     // The clamp is the caller's, so the nudge obeys whatever keeps the row inside the day.
     const onAxis = (minutes: number): number => timeline.clampStart(minutes);
     // No tie: the snapped value stands.
-    expect(rankFor(480, 483, [600], onAxis)).toBe(480);
-    // Pointer ABOVE the existing start means "before it".
-    expect(rankFor(480, 477, [480], onAxis)).toBe(479);
-    // Pointer BELOW means "after it".
-    expect(rankFor(480, 484, [480], onAxis)).toBe(481);
+    expect(rankFor(480, 483, [600], onAxis, false)).toBe(480);
+    // Landing on a start means "put me before this one" (owner, 2026-08-13) — and it means
+    // that from either side of the minute, because the owner cannot aim at a hair.
+    expect(rankFor(480, 477, [480], onAxis, false)).toBe(479);
+    expect(rankFor(480, 484, [480], onAxis, false)).toBe(479);
     // A tie on the very first minute of the axis can only go the other way.
-    expect(rankFor(420, 418, [420], onAxis)).toBe(421);
+    expect(rankFor(420, 418, [420], onAxis, false)).toBe(421);
+  });
+
+  it('never nudges a PINNED placement, whose minute is the clock and not a rank', () => {
+    // Matrix N-3/N-4: nudged, a Saturday drop released on 10:00 came back stored at 09:59
+    // and the day's durations read 2,02 h and 1,98 h — minutes the owner never drew, on the
+    // one kind of day whose whole promise is that what they drew is what they get.
+    const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
+    const onAxis = (minutes: number): number => timeline.clampStart(minutes);
+    expect(rankFor(600, 597, [600], onAxis, true)).toBe(600);
+    expect(rankFor(600, 604, [600], onAxis, true)).toBe(600);
   });
 });
 

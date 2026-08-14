@@ -30,6 +30,7 @@ import {
   changeProjectMinutes,
   compose,
   createDayConfigResolver,
+  dayReflows,
   findGapConflicts,
   horizonEndDate,
   isMovable,
@@ -3746,6 +3747,134 @@ describe('manual placement — a locked row is never overlapped', () => {
   });
 });
 
+describe('manual placement — on a day the engine reflows, a drop is never refused', () => {
+  // The owner's «aún no cabe». Every refusal above answers "does the footprint fit here as
+  // the calendar stands right now", and where the reflow decides the layout that question
+  // is not only wrong but circular: the room on the target day is made BY the move. So a
+  // drop onto a day `dayReflows` is true for keeps its day and gives up whatever it has to.
+
+  it('knows which days it lays out: Mon-Thu and the buffer, from today on', () => {
+    const config = createDayConfigResolver(SHAPE, [closedDay(WED)]);
+    expect(dayReflows(config(TUE), TUE, MON)).toBe(true);
+    // Friday IS in the movable pool — that is how the colchón self-cleans.
+    expect(dayReflows(config(FRI), FRI, MON)).toBe(true);
+    expect(dayReflows(config(SAT), SAT, MON)).toBe(false);
+    expect(dayReflows(config(SUN), SUN, MON)).toBe(false);
+    expect(dayReflows(config(WED), WED, MON)).toBe(false);
+    expect(dayReflows(config(LAST_FRI), LAST_FRI, MON)).toBe(false);
+  });
+
+  it('slides a pinned Friday drop clear of a gap instead of refusing it', () => {
+    // A drop onto the buffer PINS, so it cannot share the gap's minutes — and a rank would
+    // be worthless there (the reflow pulls the row back into Mon-Thu). Keeping the day and
+    // giving up the exact minute is the only answer that honours the gesture.
+    const composeInput = input({
+      today: MON,
+      gaps: [gap({ date: FRI, from: '10:00', hours: 1, reason: 'Avería' })],
+      blocks: [block({ id: 'soltado', project: 'porton', date: FRI, from: '10:00', hours: 2, handPlaced: true })],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('soltado')));
+
+    expect(calendarRows(resolved.blocks)).toEqual([`${FRI} 11:00-13:00 porton`]);
+    expect(resolved.blocks[0].handPlaced).toBe(true);
+    expect(minutesByProject(resolved.blocks)).toEqual(minutesByProject(composeInput.blocks));
+  });
+
+  it('slides past a LOCKED row on the buffer, and stores the result in segments', () => {
+    // The lock keeps every minute it had; the drop takes the first ones it can, and the
+    // stretch it lands on crosses the lunch break, so it comes back as two rows.
+    const composeInput = input({
+      today: MON,
+      blocks: [
+        block({ id: 'cita', project: 'revision', date: FRI, from: '09:00', hours: 2, locked: true }),
+        block({ id: 'soltado', project: 'porton', date: FRI, from: '09:00', hours: 6, handPlaced: true }),
+      ],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('soltado')));
+
+    expect(calendarRows(resolved.blocks)).toEqual([
+      `${FRI} 09:00-11:00 revision [locked]`,
+      `${FRI} 11:00-14:00 porton`,
+      `${FRI} 15:30-18:30 porton`,
+    ]);
+    expect(minutesByProject(resolved.blocks)).toEqual(minutesByProject(composeInput.blocks));
+  });
+
+  it('gives up the PIN, not the day, when the day has no clear slot left', () => {
+    // The gap runs to the end of Friday, so there is nowhere to slide to. The drop becomes
+    // an ordinary queue rank — `handPlaced` cleared — and `compose` places it, which is the
+    // one side of the resolver that has no failure mode.
+    const composeInput = input({
+      today: MON,
+      gaps: [gap({ date: FRI, from: '09:00', hours: 11, reason: 'Puente' })],
+      blocks: [block({ id: 'soltado', project: 'porton', date: FRI, from: '10:00', hours: 2, handPlaced: true })],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('soltado')));
+
+    expect(resolved.blocks).toHaveLength(1);
+    expect(resolved.blocks[0].handPlaced).toBe(false);
+    expect(resolved.blocks[0].durationMinutes).toBe(2 * 60);
+    // And now that it is back in the pool, the reflow is what says where it goes.
+    expect(rows(compose({ ...composeInput, blocks: resolved.blocks }))).toEqual([
+      `${MON} 08:00-10:00 porton`,
+    ]);
+  });
+
+  it('never slides a row past the end of the day to get clear', () => {
+    // The slide is forward only, and the end of the day is a line no write may cross: the
+    // first slot clear of this gap is 19:00, where a 2 h row would reach 21:00. So there is
+    // no slot, and the drop re-ranks rather than hanging below the grid's last rule.
+    const composeInput = input({
+      today: MON,
+      gaps: [gap({ date: FRI, from: '18:00', hours: 1, reason: 'Limpieza' })],
+      blocks: [block({ id: 'soltado', project: 'porton', date: FRI, from: '18:00', hours: 2, handPlaced: true })],
+    });
+
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('soltado')));
+
+    expect(resolved.blocks[0].handPlaced).toBe(false);
+    expect(resolved.blocks[0].startMinutes + resolved.blocks[0].durationMinutes).toBeLessThanOrEqual(
+      t('20:30'),
+    );
+    expect(minutesByProject(resolved.blocks)).toEqual(minutesByProject(composeInput.blocks));
+  });
+
+  it('still refuses the same drop on the WEEKEND, where the minute is the whole promise', () => {
+    const composeInput = input({
+      today: MON,
+      gaps: [gap({ date: SAT, from: '10:00', hours: 1, reason: 'Avería' })],
+      blocks: [block({ id: 'soltado', project: 'porton', date: SAT, from: '10:00', hours: 2 })],
+    });
+
+    const result = resolveManualPlacement(composeInput, dropOf('soltado'));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('a drop onto a gap on the weekend must be refused');
+    expect(result.error.code).toBe('overlaps-gap');
+    expect(result.error.reason).toBe('Avería');
+  });
+
+  it('still refuses when the row being DRAGGED is locked, on a day that reflows', () => {
+    // The padlock says "this row does not move", so honouring it means honouring the slot:
+    // there is nothing left to slide and nothing left to re-rank.
+    const composeInput = input({
+      today: MON,
+      gaps: [gap({ date: FRI, from: '10:00', hours: 1, reason: 'Avería' })],
+      blocks: [block({ id: 'soltado', project: 'porton', date: FRI, from: '10:00', hours: 2, locked: true })],
+    });
+
+    const result = resolveManualPlacement(composeInput, dropOf('soltado'));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('a locked drop onto a gap must be refused');
+    expect(result.error.code).toBe('overlaps-gap');
+    expect(result.error.date).toBe(FRI);
+  });
+});
+
 describe('manual placement — what it hands to the engine is already settled', () => {
   it('leaves a calendar the reflow changes nothing about', () => {
     const composeInput = input({
@@ -4493,9 +4622,13 @@ describe('manual placement holds over the same generated calendars', () => {
       // nothing at all on its day, because nothing will move it afterwards.
       //
       // A SEGMENT OF THE DROP ITSELF only keeps the slot the owner chose — margins
-      // included — so it may still lie over a MOVABLE row, which the reflow settles.
-      // What it may never overlap is a row the reflow cannot move: one of another job
-      // was cut above, one of the drop's own was merged above.
+      // included — so an overlap is fine wherever the REFLOW WILL REPAIR IT, which needs
+      // only one of the two rows to be movable: either the row underneath is laid out
+      // around the drop, or the drop itself is (a drop onto a day the engine reflows that
+      // could not keep its exact slot gives up the PIN and becomes an ordinary queue rank,
+      // and `compose` then places it clear of every obstacle). What may never overlap is
+      // two rows that are BOTH outside the pool: one of another job was cut above, one of
+      // the drop's own was merged above.
       const created = result.blocks.filter((row) => row.id.startsWith('cola-'));
       for (const row of created) {
         const isSegmentOfTheDrop = row.projectId === dropped.projectId;
@@ -4509,7 +4642,12 @@ describe('manual placement holds over the same generated calendars', () => {
         ).toBe(true);
         for (const other of result.blocks) {
           if (other === row) continue;
-          if (isSegmentOfTheDrop && isMovable(other, composeInput.today)) continue;
+          if (
+            isSegmentOfTheDrop &&
+            (isMovable(other, composeInput.today) || isMovable(row, composeInput.today))
+          ) {
+            continue;
+          }
           expect(
             Math.min(
               row.startMinutes + row.durationMinutes,

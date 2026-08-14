@@ -127,8 +127,16 @@ export interface MoveBlockInput {
  *
  * `manualPlacementBlockId` is what stops the drop leaving a silent overlap where the
  * reflow cannot reach — the weekend, the frozen past, and now a hand-placed Friday row.
- * Same job: one row, hours summed. Another job: cut, tail pushed after the drop. A
- * lock: refused, 409. And the drop is stored in segments, never across the lunch break.
+ * Same job: one row, hours summed. Another job: cut, tail pushed after the drop. And the
+ * drop is stored in segments, never across the lunch break.
+ *
+ * ON A DAY THE ENGINE REFLOWS IT CANNOT BE REFUSED for a collision. A gap or a lock in
+ * the way slides the drop forward on the day the owner named, and if the day has no clear
+ * slot the drop gives up its PIN and settles as an ordinary queue rank —
+ * `resolveManualPlacement` owns both, and the note above `ManualPlacementErrorCode` says
+ * why "does it fit here right now" is the wrong question there. A refusal comes back only
+ * from a drop that lands literally: the weekend, a closed day, the frozen past, or a
+ * LOCKED row being dragged.
  */
 export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb()): BlockMutation {
   const today = input.today ?? todayLocal();
@@ -191,6 +199,12 @@ export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb
  *   back inside the periods, which is why the margins were configurable and unusable. The
  *   drop is cut over the manual windows first, so the test is asked of the rows that will
  *   really be stored.
+ *
+ * It is the drop's INTENT, not the last word: on a day the engine reflows,
+ * `resolveManualPlacement` may slide the pinned row forward to the first slot clear of a
+ * gap or a lock, or hand it back to the engine as a plain rank when the day has none.
+ * The alternative was refusing the gesture, and a refusal on a day the reflow is about to
+ * rearrange is an answer to a question nobody asked.
  */
 function pinsTheRow(
   date: string,

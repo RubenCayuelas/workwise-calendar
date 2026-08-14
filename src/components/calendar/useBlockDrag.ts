@@ -16,6 +16,18 @@
  * A press that does not travel is a click, so the same handler opens the job panel.
  * That is why there is no `onClick` on a block: one gesture, one decision point.
  *
+ * NO PRESS MAY END IN SILENCE. That decision point has exactly three outcomes and every
+ * press reaches one of them: it starts a drag, it opens the job, or it says why it can do
+ * neither (`InertReason`). The three holes this closed were all the same shape — the app
+ * appearing to ignore the owner:
+ *
+ * - a press while a save was in flight was dropped on the floor, and that is precisely the
+ *   second AFTER a drop, when the next press is most likely;
+ * - a press on the resize edge that did not travel was not read as a click, so clicking
+ *   the bottom of a row — most of a short row — opened nothing;
+ * - a press that travelled five pixels was a DRAG, and a five-pixel drag lands on the slot
+ *   it started from, so it wrote nothing and was not a click either (`CLICK_SLOP`).
+ *
  * ONE AXIS PER GESTURE, FIXED AT PRESS. The mapping a gesture is resolved against is
  * captured when the pointer goes down and kept for the whole gesture; only the grid's
  * ORIGIN is re-measured on every pointer event, which is what keeps a scroll mid-drag
@@ -41,7 +53,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { clockEndOf, dayEndMinutes } from '../../lib/manualWindow';
+import { dayEndMinutes } from '../../lib/manualWindow';
 import {
   clampDropStart,
   durationTo,
@@ -51,12 +63,45 @@ import {
   type GridMetrics,
   type Timeline,
 } from './geometry';
+import { dropPins } from './dropEffect';
 import type { WeekDay } from '../../lib/api-client';
 
 /** Pixels of travel before a press becomes a drag rather than a click. */
 const DRAG_THRESHOLD = 4;
 
+/**
+ * How far a press may wander and still be read as a click WHEN THE DRAG RESOLVED TO
+ * NOTHING.
+ *
+ * The dead zone this closes: a press that travels five pixels is a drag, and a drag of
+ * five pixels lands on the slot it started from, so the release wrote nothing AND was not
+ * a click either. Nothing opened, nothing moved, nothing was said — on a shop PC with a
+ * worn mouse that is a routine outcome, and it teaches the owner the app is broken.
+ *
+ * Deliberately only consulted when the gesture came to nothing: a drag that really
+ * travelled and was deliberately put back stays silent, because the ghost was under the
+ * pointer the whole way and said so.
+ */
+const CLICK_SLOP = 12;
+
 export type DragKind = 'move' | 'resize';
+
+/**
+ * Why a press cannot write, when it cannot. Every one of these used to be a press that
+ * did NOTHING AT ALL — no ghost, no message — which is the single worst thing a gesture
+ * can do (CLAUDE.md's own rule about drops applies to presses: "a gesture the app refuses
+ * has to say so, in the same breath as one it accepts").
+ *
+ * | reason | the press lands on…                                    |
+ * |--------|--------------------------------------------------------|
+ * | `busy` | the calendar while a save or a reload is still in flight |
+ * | `past` | a frozen day, which is a record and not a plan           |
+ * | `gap`  | a gap, which has no drag gesture at all                  |
+ *
+ * A CLICK still happens on the first two: opening the job panel writes nothing, and it is
+ * the very place the owner has to go to edit a past day by hand.
+ */
+export type InertReason = 'busy' | 'past' | 'gap';
 
 /** What is being dragged. Built by the grid from a group and its rows. */
 export interface DragTarget {
@@ -98,6 +143,28 @@ export interface DragPreview {
   durationMinutes: number;
   /** False over a day that takes no work — a frozen (past) day. */
   allowed: boolean;
+  /**
+   * THE GHOST HAD TO BE PULLED UP: the pointer is below the last minute this unit can
+   * start on and still end inside the day (`clampDropStart`).
+   *
+   * It exists so the preview can SAY that rather than simply stopping. A 6 h unit cannot
+   * start after 13:00 on the documented shift, so the last 350 px of the column all mean
+   * 13:00 — the ghost freezes, the pointer keeps going, and nothing on screen explains the
+   * distance between them. That is a rule about the day, and a rule the owner cannot see is
+   * indistinguishable from a drag the app has stopped listening to.
+   *
+   * A resize never sets it: its edge follows the pointer all the way down.
+   */
+  clamped?: boolean;
+  /**
+   * THE ROW WILL KEEP THE MINUTE IT IS RELEASED ON, so the ghost's clock range is a promise
+   * and the hint says the owner is in charge here.
+   *
+   * Not the same question as "can this drop be refused" (`dayReflowsOn`, which is about the
+   * day). A drop into a visual margin or the lunch band pins on EVERY day, Monday included
+   * — see the note where this is computed.
+   */
+  pinned?: boolean;
 }
 
 export interface BlockDragOptions {
@@ -114,8 +181,27 @@ export interface BlockDragOptions {
   dayAt: (date: string) => WeekDay | undefined;
   /** The starts already taken on a date, so a drop rank never ties. */
   takenStartsOn: (date: string, excludeBlockIds: readonly string[]) => number[];
-  /** Off while a mutation is in flight or the week is still loading. */
+  /**
+   * The gestures are WIRED AT ALL: the axis has arrived and no split fragment is waiting
+   * for its target (during which the columns own the pointer).
+   *
+   * It no longer covers "a save is in flight". That used to live here and it made every
+   * press in the second after a drop do nothing at all — no drag, no click, no message —
+   * which is the moment the owner is most likely to press again. That state is now an
+   * `inert` press instead: see `BeginOptions.inert`.
+   */
   enabled: boolean;
+  /**
+   * "Can anything be written RIGHT NOW?", asked at the moment the pointer goes down.
+   *
+   * The grid already tags a press `inert: 'busy'` from render state, and that covers the
+   * whole visible saving window — but state arrives one render late, and the frame between
+   * a mutation starting and the grid re-rendering is precisely where a fast second press
+   * lands. Asked here as a function so the answer is the current tick's, not the last
+   * render's, and so a gesture that slips through the frame still explains itself instead
+   * of queueing a second write against a calendar already being rewritten.
+   */
+  writable: () => boolean;
   onMove: (target: DragTarget, drop: { date: string; startMinutes: number }) => void;
   onResize: (target: DragTarget, durationMinutes: number) => void;
   /**
@@ -128,6 +214,12 @@ export interface BlockDragOptions {
    */
   onRejected: (target: DragTarget, drop: { date: string; startMinutes: number }) => void;
   onClick: (target: DragTarget) => void;
+  /**
+   * A press that cannot become a gesture said so. Called ONCE per press, the moment the
+   * pointer travels far enough to prove the owner meant to drag — not on the press itself,
+   * because a press that turns out to be a click has nothing to apologise for.
+   */
+  onInert: (reason: InertReason) => void;
 }
 
 /** What is different about a press that lands on the hover action bar. */
@@ -147,6 +239,13 @@ export interface BeginOptions {
    * press that does not travel is NOT read as a click on the block.
    */
   overlay?: boolean;
+  /**
+   * This press may not write, and why. It is still TRACKED rather than dropped: a click
+   * still opens the job panel, and the first real travel says why nothing will move.
+   *
+   * Undefined is the ordinary case. See `InertReason` for the three that are not.
+   */
+  inert?: InertReason;
 }
 
 export interface DragController {
@@ -161,7 +260,12 @@ export interface DragController {
   activeGroupId: string | null;
   kind: DragKind | null;
   beginMove: (event: React.PointerEvent, target: DragTarget, options?: BeginOptions) => void;
-  beginResize: (event: React.PointerEvent, target: DragTarget) => void;
+  /**
+   * The bottom edge. It takes the same options as a move because it needs the same
+   * `inert`: the past is read-only to EVERY block gesture, and a resize of a past row is
+   * as much a rewrite of the record as a drag of it.
+   */
+  beginResize: (event: React.PointerEvent, target: DragTarget, options?: BeginOptions) => void;
 }
 
 /**
@@ -174,6 +278,15 @@ export interface DragSession {
   target: DragTarget;
   /** The press landed on the hover action bar — see `BeginOptions.overlay`. */
   overlay?: boolean;
+  /** The press cannot write — see `BeginOptions.inert`. No ghost, no request. */
+  inert?: InertReason;
+  /** The inert press has already explained itself; it must not do so twice. */
+  explained?: boolean;
+  /**
+   * The furthest the pointer ever got from the press, in pixels. Read once, at the
+   * release, and only to tell a shaky click from a deliberate put-back — see `CLICK_SLOP`.
+   */
+  travelled: number;
   /**
    * The axis AS IT WAS AT PRESS. Every minute this gesture reports is read off this one,
    * never off `options.timeline`, which may re-fit while the pointer is still down.
@@ -236,15 +349,20 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
       // off the session; `live.current.timeline` is never consulted again.
       const timeline = live.current.timeline;
       const pointerMinutes = timeline.minutesAt(event.clientY - metrics.top);
+      // The row's own reason wins — the past is a stronger rule than a save in flight, and
+      // it names the thing the owner can actually do about it.
+      const inert = options.inert ?? (live.current.writable() ? undefined : 'busy');
       session.current = {
         kind: dragKind,
         target,
         overlay: options.overlay === true,
+        inert,
         timeline,
         originX: event.clientX,
         originY: event.clientY,
         grabOffsetMinutes: dragKind === 'move' ? pointerMinutes - target.startMinutes : 0,
         moved: false,
+        travelled: 0,
         exactMinutes: pointerMinutes,
         preview: null,
       };
@@ -253,8 +371,24 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         const current = session.current;
         if (current === null) return;
 
+        const travelled = Math.hypot(moveEvent.clientX - current.originX, moveEvent.clientY - current.originY);
+        current.travelled = Math.max(current.travelled, travelled);
+
+        // A press that cannot write never becomes a drag: no ghost is published, so
+        // nothing on screen promises a move. It only speaks, once, as soon as the travel
+        // proves a drag was meant.
+        if (current.inert !== undefined) {
+          if (travelled < DRAG_THRESHOLD || current.explained === true) return;
+          current.explained = true;
+          // `moved` without a kind or a target: nothing is published, so no ghost and no
+          // "lifted" styling — but the release is no longer read as a click either. A
+          // refused drag refuses; it does not quietly navigate somewhere instead.
+          current.moved = true;
+          live.current.onInert(current.inert);
+          return;
+        }
+
         if (!current.moved) {
-          const travelled = Math.hypot(moveEvent.clientX - current.originX, moveEvent.clientY - current.originY);
           if (travelled < DRAG_THRESHOLD) return;
           current.moved = true;
           setKind(current.kind);
@@ -286,8 +420,13 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         // A press that never travelled is a click: open the job. On the action bar it is the
         // BUTTON's click, which is already on its way — reading it as a click on the block
         // too would open the job panel every time the owner locked or split a row.
+        //
+        // THE RESIZE EDGE COUNTS AS THE BLOCK. It used to be excluded (`kind === 'move'`),
+        // which made a click on the bottom ten pixels of a row do nothing whatsoever — and
+        // on a short row that strip is most of what there is to aim at. A click is a click
+        // wherever on the block it lands; only the DRAG differs between the two surfaces.
         if (!current.moved) {
-          if (current.kind === 'move' && current.overlay !== true) live.current.onClick(current.target);
+          if (current.overlay !== true) live.current.onClick(current.target);
           return;
         }
         // A drag that STARTED on the action bar and travelled must not also press the button
@@ -305,15 +444,29 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         }
 
         if (current.kind === 'move') {
-          if (settled.date === current.target.date && settled.startMinutes === current.target.startMinutes) return;
+          if (settled.date === current.target.date && settled.startMinutes === current.target.startMinutes) {
+            // The drag came to nothing. If the pointer barely wandered, the owner was
+            // clicking and the mouse moved under their hand — so honour the click rather
+            // than swallowing the press. See `CLICK_SLOP`.
+            if (current.travelled <= CLICK_SLOP && current.overlay !== true) {
+              live.current.onClick(current.target);
+            }
+            return;
+          }
           const taken = live.current.takenStartsOn(settled.date, current.target.blockIds);
           const windows = live.current.dayAt(settled.date)?.manualWindows ?? [];
           live.current.onMove(current.target, {
             date: settled.date,
-            startMinutes: rankFor(settled.startMinutes, current.exactMinutes, taken, (minutes) =>
-              // The tie-break is one minute, and on a day that PINS that minute is stored:
-              // it may not carry the row past the end of the day either.
-              clampDropStart(windows, minutes, settled.durationMinutes, current.timeline),
+            // The rank, or the clock: `rankFor` leaves a PINNED drop alone. See its note.
+            startMinutes: rankFor(
+              settled.startMinutes,
+              current.exactMinutes,
+              taken,
+              // A drop that lands in manual-only time is stored exactly as sent — on EVERY
+              // day, the auto-filled ones included — so the nudge may not carry the row past
+              // the end of the day either.
+              (minutes) => clampDropStart(windows, minutes, settled.durationMinutes, current.timeline),
+              settled.pinned === true,
             ),
           });
           return;
@@ -321,7 +474,11 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
 
         if (settled.durationMinutes !== current.target.durationMinutes) {
           live.current.onResize(current.target, settled.durationMinutes);
+          return;
         }
+        // Same dead zone as a move that resolved to its own slot: a hand that slipped a few
+        // pixels off the bottom edge was clicking, not resizing.
+        if (current.travelled <= CLICK_SLOP) live.current.onClick(current.target);
       };
 
       const onKeyDown = (keyEvent: KeyboardEvent): void => {
@@ -352,7 +509,8 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
   );
 
   const beginResize = useCallback(
-    (event: React.PointerEvent, target: DragTarget) => begin(event, target, 'resize'),
+    (event: React.PointerEvent, target: DragTarget, options?: BeginOptions) =>
+      begin(event, target, 'resize', options),
     [begin],
   );
 
@@ -364,6 +522,66 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
     beginMove,
     beginResize,
   };
+}
+
+/**
+ * A press on something that has no drag gesture at all, wired so it explains itself.
+ *
+ * The one on the grid is a GAP. It is a `<button>`: pressing and releasing on it opens its
+ * form, and pressing it and DRAGGING — which is the obvious thing to try when you want the
+ * breakdown moved to another hour — used to produce nothing at all, because the click never
+ * fired. This turns that into a sentence, once per press, the moment the travel proves a
+ * drag was meant.
+ *
+ * Deliberately not a drag: a gap's date and time live in its form (CLAUDE.md gives gaps a
+ * form and no drop rules), so there is nothing here to make draggable yet — only something
+ * to stop being silent about.
+ */
+export function usePressHint(
+  onHint: () => void,
+  /**
+   * Speak on the RELEASE too, not only once the press has travelled.
+   *
+   * The default is for something that HAS a click — a gap opens its form — where a press
+   * that did not travel is that click and has nothing to apologise for. `true` is for a
+   * press that can do nothing at all right now (a gap while a save is in flight): there is
+   * no click to fall back on, so every press has to answer, and it must answer ONCE —
+   * which is why this lives here rather than in a second `onClick` that would toast the
+   * same sentence twice on a short drag.
+   */
+  onRelease = false,
+): (event: React.PointerEvent) => void {
+  const live = useRef(onHint);
+  live.current = onHint;
+  const speakOnRelease = useRef(onRelease);
+  speakOnRelease.current = onRelease;
+
+  return useCallback((event: React.PointerEvent): void => {
+    if (event.button !== 0) return;
+    const originX = event.clientX;
+    const originY = event.clientY;
+    let spoken = false;
+
+    const speak = (): void => {
+      if (spoken) return;
+      spoken = true;
+      live.current();
+    };
+    const onMove = (moveEvent: PointerEvent): void => {
+      if (spoken) return;
+      if (Math.hypot(moveEvent.clientX - originX, moveEvent.clientY - originY) < DRAG_THRESHOLD) return;
+      speak();
+    };
+    const done = (): void => {
+      if (speakOnRelease.current) speak();
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', done);
+      window.removeEventListener('pointercancel', done);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', done);
+    window.addEventListener('pointercancel', done);
+  }, []);
 }
 
 /**
@@ -413,9 +631,10 @@ export function previewMove(
   const day = dayAt(date);
   // Clamped over the DAY the unit is over, not over the axis: `durationMinutes` is net
   // working minutes, so only the day's windows can say where a 6 h unit still fits.
+  const snapped = snapTo(exact);
   const startMinutes = clampDropStart(
     day?.manualWindows ?? [],
-    snapTo(exact),
+    snapped,
     current.target.durationMinutes,
     timeline,
   );
@@ -427,6 +646,35 @@ export function previewMove(
     date,
     startMinutes,
     durationMinutes: current.target.durationMinutes,
+    // Pulled UP from where the hand actually is: the unit is too long to start where the
+    // pointer is and still end inside the day. Only downwards — a release above the top of
+    // the axis is not a rule the owner needs explaining, it is the edge of the screen.
+    clamped: snapped > startMinutes,
+    /*
+     * WILL THE ROW KEEP THE MINUTE IT IS RELEASED ON? The ghost and the hint under the grid
+     * are drawn from this, and it is NOT the same question as "can this drop be refused"
+     * (that one is `dayReflowsOn`, and it is about the day alone).
+     *
+     * `dropPins` is the mirror of the server's `pinsTheRow`, one implementation asked from
+     * both sides. A drop into manual-only time — a visual margin or the lunch band — is
+     * stored exactly as released ON ANY DAY, Monday included, because the engine's index
+     * space has no margin minutes in it and an unpinned margin row would be pulled straight
+     * back inside the periods.
+     *
+     * It is the INTENT. On a day the engine reflows the server may still slide the row
+     * forward past a gap or a lock, or give the pin up altogether; the grid applies both
+     * (`resolveDropPreview`), because only there are the day's rows and gaps in reach.
+     */
+    pinned:
+      day === undefined ||
+      dropPins({
+        locked: current.target.locked,
+        role: day.role,
+        periods: day.periods,
+        manualWindows: day.manualWindows,
+        startMinutes,
+        durationMinutes: current.target.durationMinutes,
+      }),
     // The engine never writes to the past and neither does a drop; the day is still
     // editable by hand from the job panel, which is where CLAUDE.md puts that.
     allowed: day !== undefined && !day.isPast,

@@ -114,6 +114,8 @@ function press(
     originY: TOP + axis.yOf(pressMinutes),
     grabOffsetMinutes: kind === 'move' ? pressMinutes - dragTarget.startMinutes : 0,
     moved: true,
+    // Past the click slop: these cases are all real drags, never a shaky click.
+    travelled: 40,
     exactMinutes: pressMinutes,
     preview: null,
   };
@@ -303,6 +305,85 @@ describe('previewMove', () => {
 
     expect(preview.date).toBe('2026-08-13');
     expect(preview.startMinutes).toBe(11 * 60 + 45);
+  });
+
+  /**
+   * WHAT THE GHOST IS ALLOWED TO PROMISE, which is the whole difference between the two
+   * ways it is drawn. `pinned` says the row keeps the minute it was released on, so the
+   * clock range is a promise; without it the release is only a queue rank.
+   *
+   * The case that was wrong: a drop into a MARGIN or the lunch band is stored exactly as
+   * released on every day, Monday included (`pinsTheRow`, src/lib/operations/blocks.ts) —
+   * the engine's index space has no margin minutes in it. Read off the day alone, the ghost
+   * drew those as an insertion point and the hint promised a re-flow, while the server was
+   * storing them hand-placed.
+   */
+  describe('pinned', () => {
+    const moveTo = (date: string, release: number, over: Partial<DragTarget> = {}) => {
+      const session = press('move', 8 * 60, PRESS_AXIS, { date, startMinutes: 8 * 60, ...over });
+      session.grabOffsetMinutes = 0;
+      return previewMove(
+        { clientX: date === '2026-08-13' ? 260 : 460, clientY: yOf(release) },
+        session,
+        METRICS,
+        { dayAt },
+      );
+    };
+
+    it('is false inside the working periods of a day the engine reflows', () => {
+      expect(moveTo('2026-08-13', 10 * 60, { durationMinutes: 120 }).pinned).toBe(false);
+    });
+
+    it('is true in the top margin of that same day', () => {
+      // 07:15 + 2 h: an hour of it is margin, which the engine cannot represent.
+      expect(moveTo('2026-08-13', 7 * 60 + 15, { durationMinutes: 120 }).pinned).toBe(true);
+    });
+
+    it('is true when the unit is long enough to reach the bottom margin', () => {
+      // 6 h from 13:00 is 13:00-14:00 plus 15:30-20:30, and the last hour of that is margin.
+      expect(moveTo('2026-08-13', 13 * 60, { durationMinutes: 360 }).pinned).toBe(true);
+    });
+
+    it('is true on the weekend, wherever the release lands', () => {
+      expect(moveTo('2026-08-15', 10 * 60, { durationMinutes: 120 }).pinned).toBe(true);
+    });
+
+    it('is true for a locked unit on a day the engine reflows', () => {
+      expect(moveTo('2026-08-13', 10 * 60, { durationMinutes: 120, locked: true }).pinned).toBe(true);
+    });
+  });
+
+  /**
+   * The ghost stops following the pointer at the last minute the unit can start on and still
+   * end inside the day — a real rule (an unclamped rank comes back 409 `row-past-day-end`),
+   * and one the owner cannot see. `clamped` is what lets the preview say it out loud instead
+   * of freezing in silence for the last third of the column.
+   */
+  describe('clamped', () => {
+    const releaseAt = (release: number, durationMinutes: number) => {
+      const session = press('move', 8 * 60, PRESS_AXIS, {
+        date: '2026-08-13',
+        startMinutes: 8 * 60,
+        durationMinutes,
+      });
+      session.grabOffsetMinutes = 0;
+      return previewMove({ clientX: 260, clientY: yOf(release) }, session, METRICS, { dayAt });
+    };
+
+    it('is not set while the ghost is still under the pointer', () => {
+      expect(releaseAt(11 * 60, 360).clamped).toBe(false);
+      expect(releaseAt(13 * 60, 360).clamped).toBe(false);
+    });
+
+    it('is set once the release is below the last start that fits the day', () => {
+      const preview = releaseAt(18 * 60, 360);
+      expect(preview.startMinutes).toBe(13 * 60);
+      expect(preview.clamped).toBe(true);
+    });
+
+    it('is not set for a release above the axis, which is the edge of the screen', () => {
+      expect(releaseAt(6 * 60, 120).clamped).toBe(false);
+    });
   });
 
   it('follows the grid when the grid itself moves under a still hand', () => {

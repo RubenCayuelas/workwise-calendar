@@ -16,8 +16,12 @@
  * The FRAGMENT is the dropped row, so splitting onto a weekend the job already
  * occupies MERGES the two into one row of the summed hours and reports the absorbed
  * id in `mergedBlockIds`; splitting onto another job's weekend row cuts that row and
- * lists it in `displacedProjectIds`; splitting onto a LOCKED row is refused with 409
- * `overlaps-locked-block`.
+ * lists it in `displacedProjectIds`; splitting onto a LOCKED weekend row is refused with
+ * 409 `overlaps-locked-block`.
+ *
+ * The fragment is a drop, so it follows a drop's rules exactly: onto a day the engine
+ * reflows (Mon-Thu, the Friday buffer) it is never refused for a collision — it slides
+ * clear of a gap or a lock, or takes an ordinary queue rank. See `PATCH /api/blocks/:id`.
  */
 
 import type { NextRequest } from 'next/server';

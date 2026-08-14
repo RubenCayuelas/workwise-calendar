@@ -33,6 +33,31 @@ export const SNAP_MINUTES = 15;
 /** A row shorter than this cannot show its own hours, only its name. */
 export const MIN_LABEL_HEIGHT = 34;
 
+/**
+ * THE SHORTEST ROW THAT CAN HOST THE HOVER ACTION BAR INSIDE ITSELF.
+ *
+ * The bar is 24 px tall and sits 3 px down from the row's top edge; the resize handle takes
+ * the bottom `min(10px, 34%)`. Below this height the two meet and the row has NO surface of
+ * its own left: measured on the running app (2026-08-13), a half-hour row is 24 px tall, so
+ * the bar covered all of it and overhung by 4 px, and every press on the row landed on a
+ * button — *Cerrar el día aquí* down the middle, *Eliminar* at the right end. The drag still
+ * started (a press on the bar begins the same move), but the CLICK could no longer open the
+ * job, and the button it hit instead was one the owner never aimed at.
+ *
+ * 56 px leaves at least 19 px of body between the bar and the handle, which is a target a
+ * mouse on a shop PC can actually acquire. Above it the bar stays where the wireframe puts
+ * it; below it the bar lifts off the row entirely (`.cramped` in CalendarBlock.module.css).
+ */
+export const MIN_ACTIONS_HEIGHT = 56;
+
+/**
+ * The hover action bar's own height (`--ww-control-height-sm` plus its inset), which the
+ * grid needs as a number for one decision: a cramped row docks its bar against the OUTSIDE
+ * of its top edge, and a row with less than this above it on the axis has nowhere to put it
+ * but under the sticky day header, so it docks below instead.
+ */
+export const ACTIONS_BAR_HEIGHT = 27;
+
 /** Default vertical scale, used until the grid has been measured. */
 export const DEFAULT_PIXELS_PER_HOUR = 72;
 
@@ -330,6 +355,18 @@ export function snapTo(minutes: number, snap: number = SNAP_MINUTES): number {
  * an interval end: the set of legal starts is not an interval. A release inside the lunch
  * band is legal whenever the row, stored uncut, still ends inside the day — that latitude
  * is `segmentDroppedRow`'s and an Open Decision in CLAUDE.md, so it is preserved exactly.
+ *
+ * IT BINDS ON EVERY DAY, INCLUDING THE ONES THE ENGINE REFLOWS, and that is not obvious:
+ * there the release is only a queue rank, so the unit's own length looks like it should
+ * have no say in it. The reason it does is that the REQUEST still carries the whole unit's
+ * duration, and a drop that lands in manual-only time is stored exactly as sent (see
+ * `pinsTheRow` in src/lib/operations/blocks.ts) — so an unclamped rank on an auto day comes
+ * straight back as 409 `row-past-day-end`. Measured on the running app, 2026-08-13: a 6 h
+ * unit ranked at 18:00 on a reflowing Wednesday is refused, at 13:00 it is stored.
+ *
+ * The cost is a dead zone: a 6 h unit cannot be aimed below 13:00, and the ghost stops
+ * following the pointer there. That is why the preview says so out loud rather than
+ * silently freezing — see `DragPreview.clamped`.
  */
 export function clampDropStart(
   manualWindows: readonly WorkPeriod[],
@@ -348,30 +385,50 @@ export function clampDropStart(
  * A block's (date, start) IS its place in the queue, and the order is total: ties are
  * broken by `created_at` then `id`, so a drop landing exactly on an existing block's
  * start silently loses to the older row and the drag appears to have done nothing.
- * The fix is to rank strictly between neighbours, and the direction comes from the
- * unsnapped pointer position: above the tie means "before it", below means "after".
+ * The fix is to rank strictly between neighbours.
+ *
+ * THE TIE ALWAYS RESOLVES *BEFORE* THE ROW IT LANDED ON — decided with the owner,
+ * 2026-08-13: "landing on the start means «put me before this one»; the row underneath
+ * stays whole and follows. To cut a row, release below its start." The direction used to
+ * come from the unsnapped pointer instead, and a hair BELOW the start produced the defect
+ * that decision was taken to remove: ranked one minute AFTER, the drop cuts the row it
+ * meant to precede, and the cut lands one minute in — `Beta 08:00-08:01 (0,02 h)`,
+ * `Alfa 08:01-10:01`, `Beta 10:01-12:00`. A one-minute row is below `MIN_ROW_MINUTES`,
+ * nothing on screen asked for it, and the two halves of a 15-minute snap gave opposite
+ * answers for a difference the owner cannot see or aim at. Releasing below the start is
+ * still how you cut a row: one snap step is 15 minutes and does not tie at all.
  *
  * One minute is enough — the rank is an ordering, not a time, and the reflow rewrites
  * the position anyway.
  *
- * `clampStart` is the caller's clamp, not the axis's: on a day that PINS, the rank IS the
- * stored time, so a nudge must not be able to push the last legal start one minute past
- * the end of the day. Passing the function keeps that one decision in one place
- * (`clampDropStart`) instead of restating it here.
+ * WHICH IS WHY A PINNED PLACEMENT IS NEVER NUDGED. Where the row keeps the minute it was
+ * released on (`pinsTheRow`: the weekend, the colchón, a visual margin, the lunch band, a
+ * locked unit) that minute is not an ordering at all — it is the clock, and it is stored.
+ * Nudged, a Saturday drop released on 10:00 came back as `09:59`, the row it landed on was
+ * re-placed at `11:59`, and their durations read 2,02 h and 1,98 h: minutes the owner never
+ * drew, on a day whose whole promise is that what they drew is what they get (matrix
+ * N-3/N-4, 2026-08-13). Nothing there needs the tie broken — a pinned drop is resolved
+ * against the day's fixed rows by merge and cut, and queue order never reaches them.
+ *
+ * `clampStart` is the caller's clamp, not the axis's: a nudge must not be able to push the
+ * last legal start one minute past the end of the day. Passing the function keeps that one
+ * decision in one place (`clampDropStart`) instead of restating it here.
  */
 export function rankFor(
   snappedMinutes: number,
   exactMinutes: number,
   takenStarts: readonly number[],
   clampStart: (minutes: number) => number,
+  /** The placement keeps this exact minute, so it is a time and not a rank. */
+  pinned: boolean,
 ): number {
+  if (pinned) return snappedMinutes;
   if (!takenStarts.includes(snappedMinutes)) return snappedMinutes;
-  const direction = exactMinutes < snappedMinutes ? -1 : 1;
-  const nudged = clampStart(snappedMinutes + direction);
+  const nudged = clampStart(snappedMinutes - 1);
   // Clamping may have pushed it back onto the tie (a drop on the very first minute of
-  // the axis); the other direction is then the only one left.
+  // the axis); after it is then the only place left.
   if (nudged !== snappedMinutes) return nudged;
-  return clampStart(snappedMinutes - direction);
+  return clampStart(snappedMinutes + 1);
 }
 
 // ---------------------------------------------------------------------------

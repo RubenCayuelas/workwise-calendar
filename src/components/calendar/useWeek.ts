@@ -14,7 +14,7 @@
  * moving through the weeks safe to hold an arrow key down on.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { addDays, startOfWeek } from '../../lib/dates';
 import { apiErrorMessage, getWeek, isAbortError, type WeekView } from '../../lib/api-client';
@@ -27,6 +27,16 @@ export interface WeekController {
   loading: boolean;
   /** A mutation is in flight: the grid stops accepting gestures. */
   busy: boolean;
+  /**
+   * The same fact as `busy`, readable WITHOUT waiting for a render.
+   *
+   * `busy` is state, so it reaches the grid one render late — and the gap is exactly where
+   * the owner's next press lands, a few milliseconds after the last one. A press in that
+   * frame started a real drag against a calendar that was already being rewritten. The
+   * gesture layer therefore asks this at the moment the pointer goes down; see
+   * `BeginOptions.inert`.
+   */
+  mutating: React.MutableRefObject<boolean>;
   /** The week could not be loaded. Translated; the banner offers a retry. */
   loadError: string | null;
   /** A mutation was refused. Translated. */
@@ -58,6 +68,9 @@ export function useWeek(): WeekController {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+  // Set and cleared synchronously around the request, so a press can ask "is anything in
+  // flight?" in the same tick rather than a render later.
+  const mutating = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -83,6 +96,7 @@ export function useWeek(): WeekController {
 
   const mutate = useCallback(
     async <T,>(work: () => Promise<T>): Promise<T | undefined> => {
+      mutating.current = true;
       setBusy(true);
       setActionError(null);
       try {
@@ -92,6 +106,7 @@ export function useWeek(): WeekController {
         setActionError(apiErrorMessage(error, t, language));
         return undefined;
       } finally {
+        mutating.current = false;
         setBusy(false);
         // Always resync: a refusal wrote nothing, but a 404 means this screen is stale.
         setNonce((value) => value + 1);
@@ -131,6 +146,7 @@ export function useWeek(): WeekController {
       view,
       loading,
       busy,
+      mutating,
       loadError,
       actionError,
       clearActionError,

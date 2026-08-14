@@ -10,12 +10,29 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { dropEffectOf, dropFootprint, type DropEffectInput, type DropRow } from './dropEffect';
+import {
+  buildDropQueue,
+  dayReflowsOn,
+  dropEffectOf,
+  dropFootprint,
+  dropPins,
+  dropPredecessor,
+  resolveDropPreview,
+  type DropEffectInput,
+  type DropRow,
+  type QueueRow,
+} from './dropEffect';
 
 /** The documented shift: 08:00-14:00, lunch, 15:30-19:30. */
 const PERIODS = [
   { startMinutes: 8 * 60, endMinutes: 14 * 60 },
   { startMinutes: 15 * 60 + 30, endMinutes: 19 * 60 + 30 },
+];
+
+/** The same day as a HAND action sees it: the periods with the margins fused on. */
+const MANUAL_WINDOWS = [
+  { startMinutes: 7 * 60, endMinutes: 14 * 60 },
+  { startMinutes: 15 * 60 + 30, endMinutes: 20 * 60 + 30 },
 ];
 
 function row(overrides: Partial<DropRow> & { id: string }): DropRow {
@@ -36,7 +53,9 @@ function input(overrides: Partial<DropEffectInput> = {}): DropEffectInput {
     movingBlockIds: ['dropped'],
     projectId: 'porton',
     dayIsWeekend: false,
-    dayIsBuffer: false,
+    // The ordinary Monday drop: a plain queue rank on a day the engine lays out.
+    pinned: false,
+    dayReflows: true,
     locked: false,
     manualWindows: PERIODS,
     startMinutes: 10 * 60,
@@ -84,7 +103,7 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
   it('merges into the same job on the weekend, rather than cutting it', () => {
     const effect = dropEffectOf(
       input({
-        dayIsWeekend: true,
+        dayIsWeekend: true, pinned: true, dayReflows: false,
         rows: [row({ id: 'saturday', projectId: 'porton', project: { name: 'Portón' } })],
       }),
     );
@@ -93,13 +112,13 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
   });
 
   it('cuts another job on the weekend', () => {
-    const effect = dropEffectOf(input({ dayIsWeekend: true, rows: [row({ id: 'barandilla' })] }));
+    const effect = dropEffectOf(input({ dayIsWeekend: true, pinned: true, dayReflows: false, rows: [row({ id: 'barandilla' })] }));
     expect(effect).toMatchObject({ kind: 'cut', blockId: 'barandilla' });
   });
 
   it('refuses a locked row rather than cutting it', () => {
     const effect = dropEffectOf(
-      input({ dayIsWeekend: true, rows: [row({ id: 'pinned', locked: true })] }),
+      input({ dayIsWeekend: true, pinned: true, dayReflows: false, rows: [row({ id: 'pinned', locked: true })] }),
     );
     expect(effect).toMatchObject({ kind: 'blocked', blockId: 'pinned' });
   });
@@ -107,7 +126,7 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
   it('refuses a merge whose own row is the locked one', () => {
     const effect = dropEffectOf(
       input({
-        dayIsWeekend: true,
+        dayIsWeekend: true, pinned: true, dayReflows: false,
         locked: true,
         rows: [row({ id: 'saturday', projectId: 'porton' })],
       }),
@@ -120,8 +139,8 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
     // and passes straight through the movable ones, which the reflow will move.
     const movable = row({ id: 'movable' });
     const pinned = row({ id: 'pinned', locked: true, project: { name: 'Escalera' } });
-    expect(dropEffectOf(input({ locked: true, rows: [movable] }))).toBeNull();
-    expect(dropEffectOf(input({ locked: true, rows: [pinned] }))).toMatchObject({
+    expect(dropEffectOf(input({ locked: true, pinned: true, rows: [movable] }))).toBeNull();
+    expect(dropEffectOf(input({ locked: true, pinned: true, rows: [pinned] }))).toMatchObject({
       kind: 'blocked',
       projectName: 'Escalera',
     });
@@ -136,17 +155,17 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
       handPlaced: true,
       project: { name: 'Portón' },
     });
-    expect(dropEffectOf(input({ dayIsBuffer: true, rows: [mine] }))).toMatchObject({
+    expect(dropEffectOf(input({ pinned: true, rows: [mine] }))).toMatchObject({
       kind: 'merge',
       blockId: 'viernes',
     });
     expect(
-      dropEffectOf(input({ dayIsBuffer: true, rows: [row({ id: 'a-mano', handPlaced: true })] })),
+      dropEffectOf(input({ pinned: true, rows: [row({ id: 'a-mano', handPlaced: true })] })),
     ).toMatchObject({ kind: 'cut', blockId: 'a-mano' });
     // ...but only against the rows that are themselves fixed. An engine-placed Friday
     // row is still movable — that is the buffer self-cleaning — so the reflow lays it
     // out around the drop and there is nothing to promise.
-    expect(dropEffectOf(input({ dayIsBuffer: true, rows: [row({ id: 'desborde' })] }))).toBeNull();
+    expect(dropEffectOf(input({ pinned: true, rows: [row({ id: 'desborde' })] }))).toBeNull();
   });
 
   it('treats a hand-placed row as fixed on the reflowed side too, so it is passed by', () => {
@@ -163,7 +182,7 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
     const inLunch = row({ id: 'comida', startMinutes: 14 * 60 + 15, durationMinutes: 45 });
     expect(
       dropEffectOf(
-        input({ dayIsWeekend: true, startMinutes: 10 * 60, durationMinutes: 6 * 60, rows: [inLunch] }),
+        input({ dayIsWeekend: true, pinned: true, dayReflows: false, startMinutes: 10 * 60, durationMinutes: 6 * 60, rows: [inLunch] }),
       ),
     ).toBeNull();
 
@@ -172,15 +191,29 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
     const afternoon = row({ id: 'tarde', startMinutes: 17 * 60, durationMinutes: 60 });
     expect(
       dropEffectOf(
-        input({ dayIsWeekend: true, startMinutes: 10 * 60, durationMinutes: 6 * 60, rows: [afternoon] }),
+        input({ dayIsWeekend: true, pinned: true, dayReflows: false, startMinutes: 10 * 60, durationMinutes: 6 * 60, rows: [afternoon] }),
       ),
-    ).toMatchObject({ kind: 'cut', blockId: 'tarde' });
+      // Covered from its very start, so there is no head to leave behind: the server
+      // deletes the row and re-places its whole duration after the drop. Not a split.
+    ).toMatchObject({ kind: 'displace', blockId: 'tarde' });
+  });
+
+  it('tells a whole displacement from a real cut, because the toast afterwards does', () => {
+    const cut = row({ id: 'medio', startMinutes: 9 * 60, durationMinutes: 3 * 60 });
+    expect(
+      dropEffectOf(input({ dayIsWeekend: true, pinned: true, dayReflows: false, rows: [cut] })),
+    ).toMatchObject({ kind: 'cut', blockId: 'medio', cutMinutes: 10 * 60 });
+
+    const covered = row({ id: 'entero', startMinutes: 10 * 60, durationMinutes: 60 });
+    expect(
+      dropEffectOf(input({ dayIsWeekend: true, pinned: true, dayReflows: false, rows: [covered] })),
+    ).toMatchObject({ kind: 'displace', blockId: 'entero' });
   });
 
   it('reports the merge before the cut, the order the server resolves them in', () => {
     const effect = dropEffectOf(
       input({
-        dayIsWeekend: true,
+        dayIsWeekend: true, pinned: true, dayReflows: false,
         startMinutes: 9 * 60,
         durationMinutes: 4 * 60,
         rows: [
@@ -193,33 +226,108 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
   });
 });
 
-describe('dropEffectOf — a gap under the drop', () => {
-  it('announces the refusal on a day that pins, before the mouse is released', () => {
-    // The server refuses it (409 `overlaps-gap`), so the ghost has to say so: a preview
-    // that promises a placement the save will not perform is worse than no preview.
-    const effect = dropEffectOf(
+describe('a gap or a lock under the drop — refused, or slid past?', () => {
+  it('announces the refusal on a day that neither reflows nor moves: the weekend', () => {
+    // Nothing there will ever move, so the server answers 409 `overlaps-gap` and the ghost
+    // has to say so: a preview that promises a placement the save will not perform is
+    // worse than no preview.
+    const resolved = resolveDropPreview(
       input({
-        dayIsBuffer: true,
+        dayIsWeekend: true,
+        pinned: true,
+        dayReflows: false,
         startMinutes: 10 * 60,
         durationMinutes: 60,
         gaps: [{ startMinutes: 10 * 60, durationMinutes: 60 }],
       }),
     );
-    expect(effect).toMatchObject({ kind: 'gap' });
+    expect(resolved.effect).toMatchObject({ kind: 'gap' });
+    expect(resolved.slid).toBe(false);
   });
 
-  it('says nothing on Monday-Thursday, where the reflow keeps auto work off the gap', () => {
-    expect(
-      dropEffectOf(
-        input({ startMinutes: 10 * 60, durationMinutes: 60, gaps: [{ startMinutes: 10 * 60, durationMinutes: 60 }] }),
-      ),
-    ).toBeNull();
+  it('SLIDES a Friday drop past the gap instead of refusing it', () => {
+    // The colchón pins the row but the engine still lays the day out, so the drop is never
+    // refused for a collision: it keeps the day the owner named and gives up the minute.
+    const resolved = resolveDropPreview(
+      input({
+        pinned: true,
+        startMinutes: 10 * 60,
+        durationMinutes: 60,
+        gaps: [{ startMinutes: 10 * 60, durationMinutes: 60 }],
+      }),
+    );
+    expect(resolved).toMatchObject({ startMinutes: 11 * 60, pinned: true, slid: true });
+    expect(resolved.effect).toBeNull();
+  });
+
+  it('slides a Monday lunch-band drop past a gap, which the old preview called harmless', () => {
+    // The one the matrix flagged as K-1: the pin comes from the SLOT, not the day, so the
+    // preview used to read the re-ranked side and say nothing at all while the server
+    // moved the row somewhere else entirely.
+    const resolved = resolveDropPreview(
+      input({
+        pinned: true,
+        startMinutes: 14 * 60 + 30,
+        durationMinutes: 2 * 60,
+        gaps: [{ startMinutes: 15 * 60 + 30, durationMinutes: 60 }],
+      }),
+    );
+    expect(resolved).toMatchObject({ startMinutes: 16 * 60 + 30, pinned: true, slid: true });
+  });
+
+  it('slides past a LOCKED row too, and then has nothing left to refuse', () => {
+    const resolved = resolveDropPreview(
+      input({
+        pinned: true,
+        startMinutes: 10 * 60,
+        durationMinutes: 60,
+        rows: [row({ id: 'locked', locked: true, startMinutes: 10 * 60, durationMinutes: 60 })],
+      }),
+    );
+    expect(resolved).toMatchObject({ startMinutes: 11 * 60, pinned: true, slid: true });
+    expect(resolved.effect).toBeNull();
+  });
+
+  it('gives up the PIN when the day has no clear slot, rather than refusing', () => {
+    // Gaps over every minute the unit could still start on: `firstClearStart` answers
+    // null, the server re-ranks, and the ghost has to become an insertion point.
+    const resolved = resolveDropPreview(
+      input({
+        pinned: true,
+        startMinutes: 10 * 60,
+        durationMinutes: 60,
+        gaps: [{ startMinutes: 10 * 60, durationMinutes: 4 * 60 }, { startMinutes: 15 * 60 + 30, durationMinutes: 5 * 60 }],
+      }),
+    );
+    expect(resolved).toMatchObject({ startMinutes: 10 * 60, pinned: false, slid: false });
+    expect(resolved.effect).toBeNull();
+  });
+
+  it('never slides a LOCKED unit: the padlock means the slot as well as the row', () => {
+    const resolved = resolveDropPreview(
+      input({
+        locked: true,
+        pinned: true,
+        startMinutes: 10 * 60,
+        durationMinutes: 60,
+        gaps: [{ startMinutes: 10 * 60, durationMinutes: 60 }],
+      }),
+    );
+    expect(resolved).toMatchObject({ startMinutes: 10 * 60, pinned: true, slid: false });
+    expect(resolved.effect).toMatchObject({ kind: 'gap' });
+  });
+
+  it('says nothing on a plain Monday-to-Thursday rank, where the reflow avoids the gap', () => {
+    const resolved = resolveDropPreview(
+      input({ startMinutes: 10 * 60, durationMinutes: 60, gaps: [{ startMinutes: 10 * 60, durationMinutes: 60 }] }),
+    );
+    expect(resolved).toMatchObject({ pinned: false, slid: false, effect: null });
   });
 
   it('names a locked row first, which is the more actionable of the two refusals', () => {
     const effect = dropEffectOf(
       input({
-        dayIsWeekend: true,
+        dayIsWeekend: true, pinned: true, dayReflows: false,
         startMinutes: 10 * 60,
         durationMinutes: 60,
         rows: [row({ id: 'locked', locked: true, startMinutes: 10 * 60, durationMinutes: 60 })],
@@ -231,15 +339,15 @@ describe('dropEffectOf — a gap under the drop', () => {
 
   it('is not confused by a gap the drop does not reach', () => {
     expect(
-      dropEffectOf(
+      resolveDropPreview(
         input({
-          dayIsBuffer: true,
+          pinned: true,
           startMinutes: 10 * 60,
           durationMinutes: 60,
           gaps: [{ startMinutes: 12 * 60, durationMinutes: 60 }],
         }),
       ),
-    ).toBeNull();
+    ).toMatchObject({ startMinutes: 10 * 60, slid: false, effect: null });
   });
 });
 
@@ -257,3 +365,119 @@ describe('dropFootprint — what the ghost draws', () => {
     ]);
   });
 });
+
+/**
+ * THE QUESTION THE GHOST HAS TO ANSWER BEFORE IT PRINTS ANYTHING: is the minute under the
+ * pointer a promise, or only a place in a queue?
+ *
+ * Getting it wrong is the defect the owner lived with — a ghost reading `09:00–14:00` over
+ * Thursday, released, and the row settling on Wednesday at 12:00. Nothing was broken; the
+ * preview had simply promised something a re-ranking drop cannot deliver.
+ */
+describe('dropPins — does the row keep the minute it is released on?', () => {
+  const day = { periods: PERIODS, manualWindows: MANUAL_WINDOWS, startMinutes: 10 * 60, durationMinutes: 2 * 60 };
+
+  it('re-ranks an unlocked unit dropped inside a Monday-to-Thursday period', () => {
+    expect(dropPins({ ...day, locked: false, role: 'auto' })).toBe(false);
+  });
+
+  it.each([
+    ['the weekend', { locked: false, role: 'manual' as const }],
+    ['the Friday colchón', { locked: false, role: 'buffer' as const }],
+    ['a locked unit, wherever it lands', { locked: true, role: 'auto' as const }],
+  ])('pins the exact minute on %s', (_name, drop) => {
+    expect(dropPins({ ...day, ...drop })).toBe(true);
+  });
+
+  it('pins a MONDAY drop whose footprint reaches a visual margin', () => {
+    // The clause that lives only on the server (`pinsTheRow`) and that the preview used to
+    // miss: read off the day alone, this was drawn as a harmless re-rank and stored as a pin.
+    expect(
+      dropPins({ ...day, locked: false, role: 'auto', startMinutes: 7 * 60, durationMinutes: 60 }),
+    ).toBe(true);
+  });
+
+  it('pins a MONDAY drop that starts in the lunch band', () => {
+    expect(
+      dropPins({ ...day, locked: false, role: 'auto', startMinutes: 14 * 60 + 30, durationMinutes: 60 }),
+    ).toBe(true);
+  });
+});
+
+describe('dayReflowsOn — may a collision refuse the drop at all?', () => {
+  const day = { role: 'auto' as const, isClosed: false, isPast: false };
+
+  it.each([
+    ['Monday to Thursday', day],
+    ['the Friday colchón, which the engine still lays out', { ...day, role: 'buffer' as const }],
+  ])('%s: the drop is a re-ranking, so it is never refused', (_name, value) => {
+    expect(dayReflowsOn(value)).toBe(true);
+  });
+
+  it.each([
+    ['the weekend', { ...day, role: 'manual' as const }],
+    ['a closed day', { ...day, isClosed: true }],
+    ['the frozen past', { ...day, isPast: true }],
+  ])('%s: the drop lands literally, so a collision is real', (_name, value) => {
+    expect(dayReflowsOn(value)).toBe(false);
+  });
+});
+
+describe('the queue a re-ranked drop is expressed against', () => {
+  const rows = [
+    queueRow({ id: 'mon', date: '2026-08-17', startMinutes: 8 * 60, name: 'Puerta' }),
+    queueRow({ id: 'tue', date: '2026-08-18', startMinutes: 8 * 60, name: 'Escalera' }),
+    queueRow({ id: 'tue-pm', date: '2026-08-18', startMinutes: 15 * 60 + 30, name: 'Escalera' }),
+    queueRow({ id: 'wed', date: '2026-08-19', startMinutes: 8 * 60, name: 'Marco' }),
+  ];
+  const queue = buildDropQueue(rows, () => true);
+
+  it('names the row a Thursday drop falls in behind, which is on Wednesday', () => {
+    // The whole point: the drop's own COLUMN is not where the answer lives. The reflow
+    // packs forward from the first free slot, so the only stable fact is the rank.
+    expect(dropPredecessor(queue, [], '2026-08-20', 9 * 60)?.id).toBe('wed');
+  });
+
+  it('names the row above when the drop lands lower down the same day', () => {
+    expect(dropPredecessor(queue, [], '2026-08-18', 17 * 60)?.id).toBe('tue-pm');
+  });
+
+  it('skips the rows being dragged: a unit cannot rank itself behind itself', () => {
+    expect(dropPredecessor(queue, ['wed'], '2026-08-20', 9 * 60)?.id).toBe('tue-pm');
+  });
+
+  it('answers null before the first row of the week, rather than claiming a first place', () => {
+    // The queue reaches back into weeks this screen cannot see, so "it goes first" is a
+    // claim the ghost has no way to check. The caller says the generic sentence instead.
+    expect(dropPredecessor(queue, [], '2026-08-17', 8 * 60)).toBeNull();
+  });
+
+  it('leaves out every row the engine will not lay out', () => {
+    const mixed = [
+      queueRow({ id: 'locked', date: '2026-08-17', startMinutes: 9 * 60, name: 'A', locked: true }),
+      queueRow({ id: 'hand', date: '2026-08-17', startMinutes: 10 * 60, name: 'B', handPlaced: true }),
+      queueRow({ id: 'weekend', date: '2026-08-22', startMinutes: 9 * 60, name: 'C' }),
+      queueRow({ id: 'movable', date: '2026-08-17', startMinutes: 11 * 60, name: 'D' }),
+    ];
+    const built = buildDropQueue(mixed, (date) => date !== '2026-08-22');
+    expect(built.map((entry) => entry.id)).toEqual(['movable']);
+  });
+});
+
+function queueRow(over: {
+  id: string;
+  date: string;
+  startMinutes: number;
+  name: string;
+  locked?: boolean;
+  handPlaced?: boolean;
+}): QueueRow {
+  return {
+    id: over.id,
+    date: over.date,
+    startMinutes: over.startMinutes,
+    locked: over.locked ?? false,
+    handPlaced: over.handPlaced ?? false,
+    project: { name: over.name },
+  };
+}

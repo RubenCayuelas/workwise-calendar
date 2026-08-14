@@ -32,9 +32,18 @@ import {
   type GridMetrics,
   type Timeline,
 } from './geometry';
-import { dropEffectOf, dropFootprint, type DropEffect } from './dropEffect';
+import {
+  buildDropQueue,
+  dayReflowsOn,
+  dropFootprint,
+  dropPredecessor,
+  resolveDropPreview,
+  type DropEffect,
+  type DropResolution,
+  type QueueRow,
+} from './dropEffect';
 import { groupBlocks, packDay, segmentsOf, type BlockGroup } from './grouping';
-import type { DragController, DragTarget } from './useBlockDrag';
+import { usePressHint, type DragController, type DragTarget, type InertReason } from './useBlockDrag';
 import styles from './WeekGrid.module.css';
 
 /** A fragment waiting for the click that says where it goes. */
@@ -88,6 +97,16 @@ export interface WeekGridProps {
   onCloseDay?: (request: CloseDayRequest) => void;
   onSplit: (block: WeekBlock) => void;
   onDelete: (block: WeekBlock) => void;
+  /**
+   * A press the grid cannot turn into a gesture, saying why — the same sentence a press on
+   * a block gets, for the two things on the grid that are not blocks.
+   *
+   * `gap`: gaps have no drop rules (their date and time live in their form), so a drag of
+   * one has nothing to start. `busy`: a save is in flight, and the gap's form is withheld
+   * until it lands — which used to be a `disabled` button, i.e. a press that did nothing at
+   * all and said nothing, in the second right after every mutation.
+   */
+  onPressHint: (reason: InertReason) => void;
   metricsRef: React.MutableRefObject<(() => GridMetrics | null) | null>;
   settle: SettleRequest | null;
   onSettled: () => void;
@@ -108,6 +127,7 @@ export function WeekGrid({
   onCloseDay,
   onSplit,
   onDelete,
+  onPressHint,
   metricsRef,
   settle,
   onSettled,
@@ -115,6 +135,12 @@ export function WeekGrid({
   const { t } = useTranslation();
   const format = useFormat();
   const gridRef = useRef<HTMLDivElement | null>(null);
+  // Two hints for the one thing on the grid that is not a block. Which one a gap arms
+  // depends on why it cannot be dragged right now; both are the same promise as a block's.
+  const onPressGap = usePressHint(() => onPressHint('gap'));
+  // Every press answers, travelled or not: while a save is in flight the gap's form is
+  // withheld, so there is no click to fall back on.
+  const onPressGapBusy = usePressHint(() => onPressHint('busy'), true);
 
   const measure = useCallback((): GridMetrics | null => {
     const root = gridRef.current;
@@ -140,6 +166,21 @@ export function WeekGrid({
   // lanes so hand-made overlaps (allowed on the weekend and in the past) stay visible.
   const layout = useMemo(() => buildLayout(view), [view]);
   const ticks = useMemo(() => axisTicks(view.shape.periods, timeline), [view.shape.periods, timeline]);
+
+  /**
+   * THE QUEUE, so a re-ranking drop can say what it really means.
+   *
+   * On Monday-Thursday a drop writes a place in this order and the reflow decides the
+   * clock, so the only true thing a ghost can print is the row it will fall in behind. Built
+   * once for the whole week rather than per column, because the row a Thursday drop ranks
+   * itself after is usually on Wednesday.
+   */
+  const queue = useMemo<QueueRow[]>(() => {
+    const reflowing = new Set(
+      view.days.filter((day) => !day.isPast && !day.isWeekend).map((day) => day.date),
+    );
+    return buildDropQueue(view.blocks, (date) => reflowing.has(date));
+  }, [view.blocks, view.days]);
 
   useSettleAnimation({ gridRef, settle, timeline, view, onSettled });
 
@@ -227,12 +268,15 @@ export function WeekGrid({
               ticks={ticks}
               timeline={timeline}
               gapColor={view.settings.gapColor}
-              busy={busy}
+              busy={busy || stale}
+              queue={queue}
               drag={drag}
               placing={placing}
               placingSlot={hover}
               onOpenJob={onOpenJob}
               onOpenGap={onOpenGap}
+              onPressGap={onPressGap}
+              onPressGapBusy={onPressGapBusy}
               onToggleLock={onToggleLock}
               onReleaseDuration={onReleaseDuration}
               onCloseDay={onCloseDay}
@@ -322,13 +366,24 @@ interface DayColumnProps {
   ticks: { minutes: number; boundary: boolean }[];
   timeline: Timeline;
   gapColor: string;
+  /**
+   * NOTHING CAN BE WRITTEN RIGHT NOW: a mutation is in flight, or the week is reloading.
+   * It disables the action bar, and it is the reason a press on a block explains itself
+   * (`InertReason.busy`) instead of quietly doing nothing.
+   */
   busy: boolean;
+  /** The week's movable rows in queue order, for what a re-ranking drop will say. */
+  queue: readonly QueueRow[];
   drag: DragController;
   placing: PlacingFragment | null;
   /** The slot the pointer is over while placing a fragment. */
   placingSlot: { date: string; startMinutes: number } | null;
   onOpenJob: (projectId: string) => void;
   onOpenGap?: (gap: Gap) => void;
+  /** Arms the "a gap is not dragged" hint. One handler for every gap on the grid. */
+  onPressGap: (event: React.PointerEvent) => void;
+  /** The same, for a gap pressed while a save is in flight: it says "wait" instead. */
+  onPressGapBusy: (event: React.PointerEvent) => void;
   onToggleLock: (block: WeekBlock) => void;
   onReleaseDuration: (blockIds: readonly string[]) => void;
   onCloseDay?: (request: CloseDayRequest) => void;
@@ -347,11 +402,14 @@ function DayColumn({
   timeline,
   gapColor,
   busy,
+  queue,
   drag,
   placing,
   placingSlot,
   onOpenJob,
   onOpenGap,
+  onPressGap,
+  onPressGapBusy,
   onToggleLock,
   onReleaseDuration,
   onCloseDay,
@@ -365,24 +423,47 @@ function DayColumn({
   const preview = drag.preview?.date === day.date ? drag.preview : null;
 
   /**
-   * What the drop hovering over this column will do to the row underneath it — a cut,
-   * a merge, or a refusal. `null` for a resize (which touches only its own row) and
-   * whenever the ghost is over free time.
+   * DOES THE GHOST DRAW A PLACE OR A RANK?
+   *
+   * The whole reason the drag felt broken. A move onto Monday-Thursday writes a place in
+   * the queue and the reflow picks the clock — often another day entirely — so a ghost
+   * reading `09:00–14:00` over Thursday was promising something the drop could not
+   * produce, and the row settling on Wednesday at 12:00 read as the app ignoring the drag.
+   *
+   * So the two are drawn as different things. A PINNED drop (the weekend, the colchón, a
+   * locked unit) keeps the minute it was released on, so its rectangle is the answer and
+   * the clock range is a promise. A RE-RANKED drop is an INSERTION POINT: the rectangle is
+   * only where the owner is aiming, and what it says is the row it will fall in behind.
+   *
+   * A resize is neither — it sizes its own row in place — so it keeps the literal reading.
    */
-  const dropEffect = useMemo<DropEffect | null>(() => {
+  /**
+   * WHAT THE SERVER WILL ACTUALLY DO WITH THIS DROP — the minute it will be stored at,
+   * whether that minute is a promise, and what it does to the row underneath.
+   *
+   * All three come from one call because the server decides them together: a pinned drop
+   * that lands on a gap or a lock is SLID forward on the day the owner named, and if the
+   * day has no clear slot it gives up the pin and becomes a queue rank. Computed here
+   * rather than in the gesture because only the grid has the day's rows and gaps.
+   */
+  const resolution = useMemo<DropResolution | null>(() => {
     // Nothing to promise about a drop that will not be accepted (a past day), and a
     // resize touches only its own row.
     if (preview === null || !preview.allowed || preview.kind !== 'move') return null;
     if (drag.target === null) return null;
-    return dropEffectOf({
+    return resolveDropPreview({
       rows: groups.flatMap((group) => group.blocks),
-      // Gaps are occupancy too, and on a day that pins a drop onto one is refused.
+      // Gaps are occupancy too: on a day that pins AND does not reflow a drop onto one is
+      // refused, and on a day that reflows it is what the drop is slid past.
       gaps,
       movingBlockIds: drag.target.blockIds,
       projectId: drag.target.projectId,
       dayIsWeekend: day.isWeekend,
-      // Friday pins a drop instead of re-ranking it, so the preview reads the fixed side.
-      dayIsBuffer: day.role === 'buffer',
+      // The gesture asked the whole pin question — the day AND the slot — so it is not
+      // re-derived here. See `DragPreview.pinned`.
+      pinned: preview.pinned === true,
+      // The engine lays this day out, so a collision here can never refuse the drop.
+      dayReflows: dayReflowsOn(day),
       locked: drag.target.locked,
       // The drop is cut at this day's own break, so its footprint is measured against
       // this day's MANUAL WINDOWS rather than the rectangle the pointer drew — the
@@ -391,7 +472,29 @@ function DayColumn({
       startMinutes: preview.startMinutes,
       durationMinutes: preview.durationMinutes,
     });
-  }, [preview, drag.target, groups, gaps, day.isWeekend, day.role, day.manualWindows]);
+  }, [preview, drag.target, groups, gaps, day]);
+
+  const ranked = resolution !== null && !resolution.pinned;
+
+  /** Where the ghost is really drawn: the release point, or the slid one. */
+  const ghostStartMinutes = resolution?.startMinutes ?? preview?.startMinutes ?? 0;
+
+  /**
+   * The row a re-ranked drop lands behind, if the week on screen can see it. `null` says
+   * the queue reaches back further than this week, and the ghost falls back to naming the
+   * rank without naming a neighbour rather than claiming a first place it cannot check.
+   */
+  const rankAfter =
+    !ranked || drag.target === null
+      ? null
+      : dropPredecessor(queue, drag.target.blockIds, day.date, ghostStartMinutes);
+
+  /**
+   * What the drop hovering over this column will do to the row underneath it — a cut,
+   * a displacement, a merge, or a refusal. `null` for a resize (which touches only its
+   * own row) and whenever the ghost is over free time.
+   */
+  const dropEffect: DropEffect | null = resolution?.effect ?? null;
 
   /**
    * The rectangles the ghost is drawn as: one per row the gesture will be STORED as.
@@ -410,10 +513,13 @@ function DayColumn({
         ? []
         : dropFootprint({
             manualWindows: day.manualWindows,
-            startMinutes: preview.startMinutes,
+            // The SLID minute, not the released one: on a reflowing day a pinned drop over
+            // a gap or a lock is moved forward by the server, and a ghost that stayed under
+            // the pointer would promise a slot the row never takes.
+            startMinutes: ghostStartMinutes,
             durationMinutes: preview.durationMinutes,
           }),
-    [preview, day.manualWindows],
+    [preview, day.manualWindows, ghostStartMinutes],
   );
 
   /** Where the whole drop ends on the clock — its last segment's end, lunch included. */
@@ -521,9 +627,26 @@ function DayColumn({
             type="button"
             className={`${styles.gap} ${styles.gapButton}`}
             style={style}
-            title={`${reason}\n${label}`.trim()}
-            disabled={busy}
-            onClick={() => onOpenGap(gap)}
+            // The third line is the gesture vocabulary of a gap, which is short: it opens,
+            // it does not drag. Said on the hover as well as on the failed drag, so the
+            // owner can learn it without having to fail first.
+            title={`${reason}\n${label}\n${t('grid.gapOpensHint')}`.trim()}
+            /*
+             * NOT `disabled` WHILE A SAVE IS IN FLIGHT, which is what this used to be. A
+             * disabled button takes the press and drops it: no form, no drag, no message,
+             * and nothing on screen even looks different — in the second right after every
+             * mutation, which is exactly when the next press lands. The form is still
+             * withheld; the press now says why.
+             */
+            aria-disabled={busy}
+            // A press that turns into a drag has nothing to start here, so it says so —
+            // otherwise the gesture ends with no click and no message. While busy the same
+            // handler answers every press, so the click below stays silent rather than
+            // repeating the sentence. See `usePressHint`.
+            onPointerDown={busy ? onPressGapBusy : onPressGap}
+            onClick={() => {
+              if (!busy) onOpenGap(gap);
+            }}
           >
             <span className={styles.gapReason}>{reason}</span>
           </button>
@@ -534,6 +657,17 @@ function DayColumn({
       {segmentsOf(groups, day.manualWindows).map((segment) => {
         const target = targetFor(segment.group, day);
         const closeDay = closeDayAfter(closeDayInput, segment.block);
+        /*
+         * WHY THIS PRESS CANNOT WRITE, when it cannot — and the press is still tracked, so
+         * a CLICK still opens the job. `undefined` is the ordinary row.
+         *
+         * The past comes first because it is the stronger rule: a frozen day is a record of
+         * what the shop did, so no gesture rewrites it (spec, 2026-08-13 — "on a past day:
+         * no drag, no resize, no split"). It also closes a hole: `allowed` is worked out for
+         * the day the ghost is OVER, so a past row dragged onto a future day was accepted
+         * and history moved.
+         */
+        const inert = day.isPast ? ('past' as const) : busy ? ('busy' as const) : undefined;
         return (
           <CalendarBlock
             key={segment.block.id}
@@ -549,25 +683,31 @@ function DayColumn({
                 : undefined
             }
             busy={busy}
-            onPointerDownBody={(event) => drag.beginMove(event, target)}
+            onPointerDownBody={(event) => drag.beginMove(event, target, { inert })}
             // The hover bar is over the block, so it drags the block too — see
             // `BeginOptions.overlay` for the two things that keeps working.
-            onPointerDownActions={(event) => drag.beginMove(event, target, { overlay: true })}
+            onPointerDownActions={(event) => drag.beginMove(event, target, { overlay: true, inert })}
             onPointerDownResize={(event) =>
-              drag.beginResize(event, {
-                ...target,
-                // A move is the whole unit; a resize is the STRETCH THAT BEGINS AT THIS
-                // ROW — this row plus the rows of the unit that continue it after the
-                // break, which is the same stretch `resizeBlock` sizes on the server.
-                // Each row of a unit is its own rectangle with its own bottom edge, so
-                // the morning half's edge sizes "from 10:00 to wherever I let go" and
-                // the afternoon half's edge sizes only itself.
-                blockId: segment.block.id,
-                startMinutes: segment.block.startMinutes,
-                durationMinutes: segment.group.blocks
-                  .slice(segment.index)
-                  .reduce((total, row) => total + row.durationMinutes, 0),
-              })
+              drag.beginResize(
+                event,
+                {
+                  ...target,
+                  // A move is the whole unit; a resize is the STRETCH THAT BEGINS AT THIS
+                  // ROW — this row plus the rows of the unit that continue it after the
+                  // break, which is the same stretch `resizeBlock` sizes on the server.
+                  // Each row of a unit is its own rectangle with its own bottom edge, so
+                  // the morning half's edge sizes "from 10:00 to wherever I let go" and
+                  // the afternoon half's edge sizes only itself.
+                  blockId: segment.block.id,
+                  startMinutes: segment.block.startMinutes,
+                  durationMinutes: segment.group.blocks
+                    .slice(segment.index)
+                    .reduce((total, row) => total + row.durationMinutes, 0),
+                },
+                // The same reason a move carries it: a resize of a past row rewrites the
+                // record just as much as a drag of it does.
+                { inert },
+              )
             }
             onOpen={() => onOpenJob(segment.block.projectId)}
             onToggleLock={() => onToggleLock(segment.block)}
@@ -599,6 +739,9 @@ function DayColumn({
               key={row.startMinutes}
               className={[
                 styles.ghost,
+                // An insertion point rather than a placement: hollow, with a rule on the
+                // edge the drop ranks itself at. See `ranked` above.
+                ranked ? styles.ghostRanked : '',
                 index === 0 ? '' : styles.ghostContinued,
                 // A refusal is drawn like a forbidden day: the save writes nothing either
                 // way. (`dropEffect` is null unless `allowed`, so this reads as one test.)
@@ -622,17 +765,65 @@ function DayColumn({
                * read as two separate drops, which is the one thing this is not.
                */}
               {index === 0 ? (
-                <>
-                  <span className={styles.ghostMeta}>
-                    {format.timeRange(preview.startMinutes, ghostEndMinutes)}
-                  </span>
+                /*
+                 * The words sit on their own backing. The ghost itself is translucent so the
+                 * row or the reserved gap underneath stays visible — which is the whole point
+                 * of hovering there — and on a 128 px weekend column that left the ghost's
+                 * sentence and the block's own name printed on top of one another.
+                 */
+                <div className={styles.ghostLabel}>
+                  {/*
+                   * THE CLOCK RANGE IS PRINTED ONLY WHERE IT IS A PROMISE — a pinned drop
+                   * and a resize. On a re-ranked drop the hours are the only true number,
+                   * and what takes the range's place is the rank itself: the row this will
+                   * fall in behind, which is what the drop actually writes.
+                   */}
+                  {ranked ? null : (
+                    <span className={styles.ghostMeta}>
+                      {format.timeRange(ghostStartMinutes, ghostEndMinutes)}
+                    </span>
+                  )}
                   <span className={styles.ghostMeta}>{format.hours(preview.durationMinutes)}</span>
+                  {!ranked ? null : (
+                    <span className={styles.ghostRank}>
+                      {rankAfter === null
+                        ? t('grid.dropTakesRank')
+                        : t('grid.dropAfter', { name: rankAfter.project.name })}
+                    </span>
+                  )}
+                  {/*
+                   * WHY THE GHOST STOPPED FOLLOWING THE POINTER. The unit is too long to
+                   * start where the hand is and still end inside the day, so the release
+                   * point is pulled up to the last minute that fits — and on a 6 h unit
+                   * that is 13:00, which leaves the whole afternoon meaning one thing and
+                   * the ghost sitting still while the pointer keeps going. The rule is
+                   * real; the silence was the defect.
+                   */}
+                  {preview.clamped !== true ? null : (
+                    <span className={styles.ghostClamped}>
+                      {t('grid.dropNoLower', {
+                        hours: format.hourNumber(preview.durationMinutes),
+                        time: format.time(preview.startMinutes),
+                      })}
+                    </span>
+                  )}
+                  {/*
+                   * WHY THE GHOST IS NOT UNDER THE POINTER. A pinned drop that lands on a
+                   * gap or a locked row is not refused on a day the engine reflows — it is
+                   * slid down to the first clear slot. The rectangle already draws where
+                   * the row will really be; this says who moved it.
+                   */}
+                  {resolution?.slid !== true ? null : (
+                    <span className={styles.ghostClamped}>
+                      {t('grid.dropSlid', { time: format.time(ghostStartMinutes) })}
+                    </span>
+                  )}
                   {dropEffect === null ? null : (
                     <span className={styles.ghostEffect}>
                       {t(DROP_EFFECT_KEYS[dropEffect.kind], { name: dropEffect.projectName })}
                     </span>
                   )}
-                </>
+                </div>
               ) : null}
             </div>
           ))}
@@ -663,11 +854,11 @@ function DayColumn({
               } as React.CSSProperties}
             >
               {index === 0 ? (
-                <>
+                <div className={styles.ghostLabel}>
                   <span className={styles.ghostName}>{placing.projectName}</span>
                   <span className={styles.ghostMeta}>{format.hours(placing.durationMinutes)}</span>
                   <span className={styles.ghostMeta}>{t('grid.dropHere')}</span>
-                </>
+                </div>
               ) : null}
             </div>
           ))}
@@ -682,6 +873,7 @@ function DayColumn({
 /** What the ghost says about the row it is over. One key per branch of the resolver. */
 const DROP_EFFECT_KEYS: Record<DropEffect['kind'], string> = {
   cut: 'grid.dropCuts',
+  displace: 'grid.dropDisplaces',
   merge: 'grid.dropMerges',
   blocked: 'grid.dropBlocked',
   gap: 'grid.dropOnGap',
