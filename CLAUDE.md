@@ -93,8 +93,8 @@ The workshop operates with a **split shift (jornada partida)** by default:
 - **defaultDayCapacity**: Default 10 hours (6h morning + 4h afternoon when Period 2 is active)
   - A **stop-line for auto-fill only**: "fill less than the full shift so the shop can leave early",
     never "work more hours than the shift covers".
-  - Range: 1 to the sum of the enabled periods. Re-capped automatically when period times change or
-    Period 2 is toggled.
+  - Range: 1 to the sum of the enabled periods.
+  - **The app never changes it by itself** — see *The Capacity Is Never Touched Alone* below.
   - **It never blocks manual placement.** The user can keep dropping blocks by hand up to the end of
     the periods and into the visual margins.
 - **Visual Margins**
@@ -111,6 +111,33 @@ The workshop operates with a **split shift (jornada partida)** by default:
 - `gapColor`: Colour hex for all user-defined gaps.
 
 All values are user-editable in Settings and apply Monday-Friday (extendable to weekends if needed).
+
+### The Capacity Is Never Touched Alone
+> **`defaultDayCapacity` changes only when the owner changes it. When a settings change would leave
+> it above the hours the shift buys, the app ASKS — naming the old number, the new one and what the
+> new one costs per day — and cancelling saves nothing.**
+
+- **The write path refuses.** `validateSettings` throws `SettingsValidationError` on a capacity above
+  the sum of the enabled periods, exactly as it does for every other out-of-range value. There is no
+  re-cap. A caller shortening the shift must send the capacity it wants **in the same patch**, which
+  is what lets the Settings screen ask first and save the answer in one round trip.
+- **The read path still repairs.** `readSettings` clamps a stored value above the shift, because a
+  hand-edited row must not be able to make `capacityMinutes` claim hours the periods do not have.
+  Repairing a READ is not the trap; repairing a WRITE was.
+- **The two paths must agree on the whole range, or the repair becomes the trap again.** The write
+  refuses a capacity **above the shift, below `min(1, shift)`, or off a whole minute** — the exact
+  range the read path would otherwise silently pull it into. Invariant, and it holds for every field:
+  *what `writeSettings` returns is what the next `readSettings` gives back.* (It did not: 0.5 h saved
+  fine and read back as 1 h.)
+- **The form never adjusts it either** — not on a keystroke, not on save. The draft holds the owner's
+  number even while it exceeds the draft's shift; the capacity field's own stepper max opens up to
+  that value so the control cannot pull it down behind them. In `NumberStepper`, **a bound beats the
+  step grid**: it snaps to `step` first and clamps second, or a ceiling that is not a multiple of the
+  step (a 9.75 h shift) gets rounded back past itself and a focus-and-blur raises the capacity.
+- **A capacity below the shift is stated, not warned about.** Choosing to fill 6 h of a 10 h day is
+  legitimate and otherwise invisible — every afternoon simply stays empty — so the Settings field and
+  the header strip both say which hours auto-fill is leaving free.
+- *(Why, and the reproduction: DECISIONS.md § The Capacity Is Never Touched Alone.)*
 
 **Plannable hours for a day** =
 `min(defaultDayCapacity, enabled period minutes − minutes already occupied by gaps and locked blocks)`,
@@ -1034,6 +1061,10 @@ minute by minute, at several fitted scales — never at sample points.
 
 ### Settings
 Work periods, auto-fill capacity, visual margins, planning horizon, gap colour, language.
+- **A change that narrows the day asks first**, in ONE confirmation: it names the blocks the narrower
+  periods or margins would strand, and — per *The Capacity Is Never Touched Alone* — the capacity the
+  new shift can no longer buy, with both numbers. **Cancel writes nothing** and leaves the rest of the
+  unsaved form exactly as it was.
 
 ---
 

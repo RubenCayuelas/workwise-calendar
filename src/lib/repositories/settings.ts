@@ -4,7 +4,8 @@
  * `src/lib/settings.ts` already IS this table's repository: it owns the key/value
  * TEXT storage, the forgiving read path, the strict write path and the derived
  * `DayShape`. Re-implementing any of it here would give the schema two owners,
- * and the capacity re-cap would be the first thing to drift.
+ * and the capacity ceiling would be the first thing to drift — a second writer that
+ * did not refuse a capacity above the shift is exactly the trap coming back.
  *
  * This module exists so `src/lib/repositories/` really is one module per table and
  * a caller can reach every table through the same directory. It adds nothing but

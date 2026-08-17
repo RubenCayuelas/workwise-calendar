@@ -10,11 +10,14 @@ import {
   applySettingsPatch,
   autoFillStopMinutes,
   capCapacityHours,
+  capacityReductionOf,
+  capacitySlackMinutes,
   changedFields,
   draftIssues,
   hasIssues,
   lunchOf,
   maxCapacityHours,
+  patchToSave,
   periodsOf,
   shiftMinutesOf,
   timelineOf,
@@ -96,29 +99,97 @@ describe('capacity, the stop line for auto-fill', () => {
 });
 
 describe('applySettingsPatch', () => {
-  it('re-caps the capacity when the afternoon is switched off, and says so', () => {
-    const result = applySettingsPatch(settings(), { period2Enabled: false });
-    expect(result.settings.defaultDayCapacity).toBe(6);
-    expect(result.recappedToHours).toBe(6);
+  it('never lowers the capacity to fit a shorter shift — that was the trap', () => {
+    // Switching the afternoon off leaves 10 h of capacity on a 6 h shift. The draft keeps
+    // it: the owner is asked on save, and until then their number is their number.
+    const draft = applySettingsPatch(settings(), { period2Enabled: false });
+    expect(draft.defaultDayCapacity).toBe(10);
+    expect(maxCapacityHours(draft)).toBe(6);
   });
 
-  it('re-caps the capacity when the morning is shortened', () => {
-    const result = applySettingsPatch(settings({ period2Enabled: false }), { period1End: '12:00' });
-    expect(result.settings.defaultDayCapacity).toBe(4);
-    expect(result.recappedToHours).toBe(4);
+  it('never lowers it when a period is shortened either', () => {
+    const draft = applySettingsPatch(settings({ period2Enabled: false }), { period1End: '12:00' });
+    expect(draft.defaultDayCapacity).toBe(10);
   });
 
-  it('does not announce a re-cap when the capacity field is what was edited', () => {
-    // The field already shows its own maximum; a notice would be noise.
-    const result = applySettingsPatch(settings(), { defaultDayCapacity: 6 });
-    expect(result.settings.defaultDayCapacity).toBe(6);
-    expect(result.recappedToHours).toBeUndefined();
+  it('applies the capacity the owner types', () => {
+    expect(applySettingsPatch(settings(), { defaultDayCapacity: 6 }).defaultDayCapacity).toBe(6);
   });
 
-  it('leaves an untouched capacity alone when the shift grows', () => {
-    const result = applySettingsPatch(settings({ defaultDayCapacity: 8 }), { period2End: '20:30' });
-    expect(result.settings.defaultDayCapacity).toBe(8);
-    expect(result.recappedToHours).toBeUndefined();
+  it('does not raise it when the shift grows', () => {
+    const draft = applySettingsPatch(settings({ defaultDayCapacity: 8 }), { period2End: '20:30' });
+    expect(draft.defaultDayCapacity).toBe(8);
+  });
+});
+
+describe('capacityReductionOf', () => {
+  it('says nothing while the capacity fits the draft', () => {
+    expect(capacityReductionOf(settings())).toBeUndefined();
+    expect(capacityReductionOf(settings({ defaultDayCapacity: 6 }))).toBeUndefined();
+  });
+
+  it('names both numbers and the hours a day they cost', () => {
+    expect(capacityReductionOf(settings({ period2Enabled: false }))).toEqual({
+      fromHours: 10,
+      toHours: 6,
+      lostHours: 4,
+    });
+  });
+
+  it('reads the whole shift, not the afternoon toggle alone', () => {
+    expect(capacityReductionOf(settings({ period1End: '12:00', period2End: '17:30' }))).toEqual({
+      fromHours: 10,
+      toHours: 6,
+      lostHours: 4,
+    });
+  });
+
+  it('stays quiet while a period time is unusable, since that draft cannot be saved', () => {
+    expect(capacityReductionOf(settings({ period1Start: '', period2Enabled: false }))).toBeUndefined();
+  });
+});
+
+describe('patchToSave', () => {
+  it('sends only what changed while the capacity still fits', () => {
+    const saved = settings();
+    expect(patchToSave(saved, settings({ gapColor: '#AABBCC' }))).toEqual({ gapColor: '#AABBCC' });
+    expect(patchToSave(saved, saved)).toEqual({});
+  });
+
+  /**
+   * The lowered capacity exists in exactly one place — this patch — and it is only built
+   * when the owner presses Save. A cancelled confirmation never sends anything, because
+   * there is no other path the number could travel on, and the server refuses the shift
+   * change on its own.
+   */
+  it('carries the lowered capacity with the shift change, in one request', () => {
+    expect(patchToSave(settings(), settings({ period2Enabled: false }))).toEqual({
+      period2Enabled: false,
+      defaultDayCapacity: 6,
+    });
+  });
+
+  it('sends nothing at all when the draft matches what is stored', () => {
+    // The state a cancelled confirmation leaves behind, once the owner puts the period
+    // back: no shift change, so no reduction, so no request.
+    expect(patchToSave(settings(), settings())).toEqual({});
+  });
+
+  it('does not touch the capacity the owner typed', () => {
+    expect(patchToSave(settings(), settings({ defaultDayCapacity: 4 }))).toEqual({
+      defaultDayCapacity: 4,
+    });
+  });
+});
+
+describe('capacitySlackMinutes', () => {
+  it('reports the hours a day auto-fill leaves free', () => {
+    expect(capacitySlackMinutes(settings({ defaultDayCapacity: 6 }))).toBe(240);
+    expect(capacitySlackMinutes(settings())).toBe(0);
+  });
+
+  it('reports nothing for a capacity above the shift — that draft is asked about instead', () => {
+    expect(capacitySlackMinutes(settings({ period2Enabled: false }))).toBe(0);
   });
 });
 

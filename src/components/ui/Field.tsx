@@ -29,6 +29,7 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { IconChevronDown, IconMinus, IconPlus } from '@tabler/icons-react';
+import { snapWithinBounds } from './stepper';
 import styles from './Field.module.css';
 
 interface FieldContextValue {
@@ -248,9 +249,16 @@ export interface NumberStepperProps {
 /**
  * `Horas totales` and every numeric setting.
  *
- * Clamped to `min`/`max` and snapped to `step`, and it never emits `NaN`: an empty or
- * half-typed input keeps the last valid value, so a job can never be saved with no
+ * Snapped to `step` and then bounded by `min`/`max`, and it never emits `NaN`: an empty
+ * or half-typed input keeps the last valid value, so a job can never be saved with no
  * hours because the owner was mid-keystroke.
+ *
+ * THE ORDER OF THOSE TWO IS LOAD-BEARING. It used to bound first and snap second, so a
+ * bound that is not itself a multiple of the step got rounded straight back past itself:
+ * on a 9.75 h shift the Settings capacity has max 9.75, and merely focusing the field and
+ * clicking away turned 9.75 into 10 — the capacity moving on its own, which is the one
+ * thing CLAUDE.md's *The Capacity Is Never Touched Alone* forbids. Bounds win over the
+ * grid; a limit is always a legal value.
  */
 export function NumberStepper({
   value,
@@ -269,13 +277,7 @@ export function NumberStepper({
   const { t } = useTranslation();
   const bound = useFieldBinding({ id, describedBy: describedByProp });
 
-  const clamp = (next: number): number => {
-    let result = next;
-    if (min !== undefined && result < min) result = min;
-    if (max !== undefined && result > max) result = max;
-    // Rounded to the step so repeated +0.5 cannot accumulate a float tail.
-    return Math.round(result / step) * step;
-  };
+  const clamp = (next: number): number => snapWithinBounds(next, { step, min, max });
 
   const nudge = (direction: 1 | -1): void => {
     onChange(clamp(value + direction * step));

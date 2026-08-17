@@ -16,7 +16,7 @@ import es from '../../../public/locales/es/common.json';
 import en from '../../../public/locales/en/common.json';
 import { formatHourNumber, formatLongDate, formatMediumDate } from '../../lib/format';
 import type { ScheduleSummary } from '../../lib/composition';
-import { scheduleSummaryMessage, type SummaryFormatter } from './summary';
+import { capacityNoticeMessage, scheduleSummaryMessage, type SummaryFormatter } from './summary';
 
 const THURSDAY = '2026-08-20';
 const FRIDAY = '2026-08-14';
@@ -106,4 +106,53 @@ describe('scheduleSummaryMessage', () => {
       });
     }
   }
+});
+
+/**
+ * The other half of the capacity rule. Refusing to lower the capacity behind the owner's
+ * back is only useful if a capacity BELOW the shift is visible — otherwise "six hours of a
+ * ten hour day" still reads as an app that has stopped filling the afternoon.
+ */
+describe('capacityNoticeMessage', () => {
+  it('states both numbers when the stop line sits below the shift', () => {
+    const text = capacityNoticeMessage(
+      { capacityMinutes: 6 * 60, shiftMinutes: 10 * 60 },
+      translator(es as Record<string, unknown>),
+      formatter('es'),
+    );
+    expect(text).toBe('Relleno automático: 6 h de las 10 h de jornada');
+  });
+
+  it('says nothing when auto-fill fills the whole shift', () => {
+    expect(
+      capacityNoticeMessage(
+        { capacityMinutes: 10 * 60, shiftMinutes: 10 * 60 },
+        translator(es as Record<string, unknown>),
+        formatter('es'),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('says nothing about a day with no working time at all', () => {
+    // A closed day is already labelled as closed; "0 h of 0 h" would be noise.
+    expect(
+      capacityNoticeMessage(
+        { capacityMinutes: 0, shiftMinutes: 0 },
+        translator(es as Record<string, unknown>),
+        formatter('es'),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('is worded in both languages', () => {
+    for (const [language, bundle] of languages) {
+      const text = capacityNoticeMessage(
+        { capacityMinutes: 6 * 60, shiftMinutes: 10 * 60 },
+        translator(bundle),
+        formatter(language),
+      );
+      expect(text, language).toContain('6');
+      expect(text, language).toContain('10');
+    }
+  });
 });

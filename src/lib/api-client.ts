@@ -95,7 +95,7 @@ export interface SettingsView {
   settings: Settings;
   /** The same configuration in minutes, including the timeline the grid draws. */
   shape: DayShape;
-  /** The ceiling `defaultDayCapacity` is re-capped to. Show it next to the field. */
+  /** The ceiling `defaultDayCapacity` may not exceed. Show it next to the field. */
   maxDayCapacityHours: number;
 }
 
@@ -718,10 +718,11 @@ export function getSettings(options?: RequestOptions): Promise<SettingsView> {
 /**
  * Saves any subset. TWO THINGS THE SETTINGS SCREEN MUST DO:
  *
- * - Render the RETURNED settings, not its own form state. `defaultDayCapacity` is
- *   re-capped to the shift rather than rejected, and the re-cap is invisible if the
- *   form keeps showing what was typed.
- * - Surface `error.field` on a 400: every other value is rejected, not repaired.
+ * - Send `defaultDayCapacity` whenever the patch shortens the shift below it. The
+ *   capacity is never re-capped for you: a shift that cannot buy it is refused with
+ *   `field: 'defaultDayCapacity'`, so the owner is asked and the answer travels in the
+ *   same request (CLAUDE.md, *The Capacity Is Never Touched Alone*).
+ * - Surface `error.field` on a 400: every value is rejected, not repaired.
  *
  * A save recomposes, so NARROWING `planningHorizonWeeks` can fail with
  * `horizon-exceeded` and roll the whole settings change back with it.

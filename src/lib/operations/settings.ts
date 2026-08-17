@@ -9,11 +9,13 @@
  * reflow share one transaction: if the reflow cannot be satisfied, the settings
  * change is rolled back with it and nothing is half-applied.
  *
- * Worth knowing before the UI shows the response: `writeSettings` returns the
- * EFFECTIVE settings, which may differ from what was submitted. `defaultDayCapacity`
- * is a stop line derived from the shift, so shortening the periods (or switching the
- * afternoon off) re-caps it instead of rejecting the save. The Settings form must
- * render the returned values rather than its own state, or the re-cap is invisible.
+ * Worth knowing before the UI shows the response: what comes back is what was
+ * submitted, merged over what was stored. Nothing is adjusted. `defaultDayCapacity`
+ * in particular is no longer re-capped to a shortened shift — a patch that would
+ * leave it above the hours the enabled periods cover is REFUSED, naming
+ * `defaultDayCapacity`, so the caller has to send the capacity it wants along with
+ * the shorter shift. That is what lets the Settings screen ask the owner first
+ * (CLAUDE.md, *The Capacity Is Never Touched Alone*).
  */
 
 import { getDb, type Db } from '../db';
@@ -34,7 +36,7 @@ export interface SettingsView {
   settings: Settings;
   /** The minutes view the grid draws: periods, capacity, the 07:00-20:30 timeline. */
   shape: DayShape;
-  /** The ceiling the capacity field must not exceed, given the current periods. */
+  /** The ceiling the capacity may not exceed, given the current periods. A save above it is refused. */
   maxDayCapacityHours: number;
 }
 

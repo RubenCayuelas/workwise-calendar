@@ -8,12 +8,18 @@
  * the period times as they are edited, before anything is saved.
  *
  * The server remains the authority. Every value goes through `validateSettings()` on
- * save, which rejects out-of-range input with the offending `field` attached, and
- * re-caps `defaultDayCapacity` rather than rejecting it. Nothing here decides whether a
- * save is legal — it only keeps the form from proposing an impossible one.
+ * save, which rejects out-of-range input with the offending `field` attached —
+ * `defaultDayCapacity` above the shift included. Nothing here decides whether a save is
+ * legal; it exists so the form can tell the owner what a change implies BEFORE it sends
+ * anything, which is the only way to ask them about the capacity in one round trip.
+ *
+ * NOTHING HERE ADJUSTS THE CAPACITY EITHER. `applySettingsPatch` used to clamp it to the
+ * draft's shift, so the number moved under the owner's cursor as they edited a period —
+ * the same trap as the server's old re-cap, one layer up. See CLAUDE.md, *The Capacity Is
+ * Never Touched Alone*.
  *
  * KEEP IN SYNC with src/lib/settings.ts: `MIN/MAX_MARGIN_HOURS`, `MIN/MAX_HORIZON_WEEKS`,
- * `workPeriodsOf`, `capCapacity`, `dayShapeFromSettings`.
+ * `workPeriodsOf`, `maxDayCapacityHours`, `dayShapeFromSettings`.
  */
 
 import { MINUTES_PER_DAY, hoursToMinutes, minutesToHours } from '../../lib/dates';
@@ -131,7 +137,14 @@ export function minCapacityHours(settings: Settings): number {
   return Math.min(1, maxCapacityHours(settings));
 }
 
-/** Capacity clamped into the draft's shift, as `capCapacity` does on the server. */
+/**
+ * Capacity clamped into the draft's shift — FOR DRAWING ONLY.
+ *
+ * The stop line and the preview have to point somewhere inside the day even while the
+ * draft holds a capacity the shift cannot buy (which it now can: the form no longer
+ * lowers it). This never touches the draft; `applySettingsPatch` leaves the owner's
+ * number exactly as they left it.
+ */
 export function capCapacityHours(hours: number, settings: Settings): number {
   const shiftHours = maxCapacityHours(settings);
   // A draft with no usable period yet (a time mid-retype) must not silently zero the
@@ -139,6 +152,20 @@ export function capCapacityHours(hours: number, settings: Settings): number {
   if (shiftHours <= 0) return hours;
   const clamped = Math.min(Math.max(Number.isFinite(hours) ? hours : shiftHours, Math.min(1, shiftHours)), shiftHours);
   return Math.round(clamped * 60) / 60;
+}
+
+/**
+ * Working minutes a day the stop line will not fill, because the capacity sits below the
+ * shift. 0 when auto-fill runs to the end of the periods.
+ *
+ * "Six hours of a ten hour shift" is a legitimate choice, and an invisible one — every
+ * afternoon simply stays empty. This is the number the Settings field and the header strip
+ * state so it is never a mystery, from either direction.
+ */
+export function capacitySlackMinutes(settings: Settings): number {
+  const shiftMinutes = shiftMinutesOf(settings);
+  if (shiftMinutes <= 0) return 0;
+  return Math.max(0, shiftMinutes - hoursToMinutes(capCapacityHours(settings.defaultDayCapacity, settings)));
 }
 
 /** Top and bottom of the time axis the calendar would draw, margins included. */
@@ -178,32 +205,15 @@ export function autoFillStopMinutes(settings: Settings): number | undefined {
 // Editing a draft
 // ---------------------------------------------------------------------------
 
-export interface DraftPatchResult {
-  settings: Settings;
-  /**
-   * Set when the patch pulled `defaultDayCapacity` down by itself — a shorter shift or
-   * the afternoon switched off. CLAUDE.md re-caps rather than rejecting, so the form has
-   * to say it out loud or the number changes under the owner's eyes with no explanation.
-   */
-  recappedToHours?: number;
-}
-
 /**
- * Applies a field change to the draft and re-caps the capacity in the same step, so the
- * ceiling can never lag a period edit by a render.
+ * Applies a field change to the draft. A plain merge, and that is the point: the ONE
+ * field it would be tempting to adjust here is `defaultDayCapacity`, and adjusting it is
+ * what left the shop at half a day for ever. Shortening the shift leaves the capacity
+ * where the owner put it, above the new ceiling, until they confirm the lower number on
+ * save — `capacityReductionOf` below is how the screen knows to ask.
  */
-export function applySettingsPatch(draft: Settings, patch: Partial<Settings>): DraftPatchResult {
-  const merged: Settings = { ...draft, ...patch };
-  const capped = capCapacityHours(merged.defaultDayCapacity, merged);
-  const editedCapacityDirectly = patch.defaultDayCapacity !== undefined;
-
-  return {
-    settings: { ...merged, defaultDayCapacity: capped },
-    // Editing the capacity field itself already shows its own max; only an indirect
-    // re-cap needs announcing.
-    recappedToHours:
-      !editedCapacityDirectly && capped !== merged.defaultDayCapacity ? capped : undefined,
-  };
+export function applySettingsPatch(draft: Settings, patch: Partial<Settings>): Settings {
+  return { ...draft, ...patch };
 }
 
 /** The subset to PATCH: only what actually differs from what is stored. */
@@ -213,6 +223,48 @@ export function changedFields(saved: Settings, draft: Settings): Partial<Setting
     if (draft[key] !== saved[key]) patch[key] = draft[key];
   }
   return patch as Partial<Settings>;
+}
+
+export interface CapacityReduction {
+  /** The capacity on screen — what the owner last chose. */
+  fromHours: number;
+  /** The most the draft's periods can buy: what saving would make it. */
+  toHours: number;
+  /** Hours a day auto-fill would stop planning. `fromHours - toHours`. */
+  lostHours: number;
+}
+
+/**
+ * The capacity this draft cannot afford, or `undefined` when it fits.
+ *
+ * This is the question the Settings screen has to answer BEFORE it saves, and answering
+ * it client-side is what keeps the whole exchange to one round trip: the server would
+ * refuse the save, but a refusal is not a choice. `undefined` for a draft with no usable
+ * period (a time mid-retype), which cannot be saved anyway.
+ */
+export function capacityReductionOf(draft: Settings): CapacityReduction | undefined {
+  const ceiling = maxCapacityHours(draft);
+  if (ceiling <= 0 || draft.defaultDayCapacity <= ceiling) return undefined;
+  return {
+    fromHours: draft.defaultDayCapacity,
+    toHours: ceiling,
+    lostHours: draft.defaultDayCapacity - ceiling,
+  };
+}
+
+/**
+ * What the Save button would send: the changed fields, plus the lowered capacity when the
+ * draft's shift can no longer buy the one on screen.
+ *
+ * The lowered capacity ONLY ever enters a patch here, so a confirmation the owner cancels
+ * sends nothing at all — there is no other path that could carry it. Without the explicit
+ * field the server refuses the whole save, which is exactly what makes this the single
+ * place the number can change.
+ */
+export function patchToSave(saved: Settings, draft: Settings): Partial<Settings> {
+  const patch = changedFields(saved, draft);
+  const reduction = capacityReductionOf(draft);
+  return reduction === undefined ? patch : { ...patch, defaultDayCapacity: reduction.toHours };
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +321,9 @@ export function draftIssues(draft: Settings): SettingsIssues {
   ) {
     issues.planningHorizonWeeks = 'range';
   }
+  // Zero or nonsense is an issue. A capacity ABOVE the draft's shift deliberately is
+  // NOT: that draft is savable — it saves with the lower capacity the owner confirms —
+  // and flagging it would disable the Save button that raises the question.
   if (!Number.isFinite(draft.defaultDayCapacity) || draft.defaultDayCapacity <= 0) {
     issues.defaultDayCapacity = 'range';
   }

@@ -11,6 +11,7 @@ import {
   validateSettings,
   writeSettings,
 } from './settings';
+import type { Settings } from '../types';
 
 let db: Db;
 
@@ -99,25 +100,130 @@ describe('readSettings', () => {
   });
 });
 
-describe('the capacity cap', () => {
+describe('the capacity is never touched alone', () => {
   it('never lets auto-fill claim more hours than the shift covers', () => {
     expect(maxDayCapacityHours(DEFAULT_SETTINGS)).toBe(10);
+    // The READ path still repairs a stored row above the shift: a hand edit must not be
+    // able to make `capacityMinutes` claim hours the periods do not have.
     expect(normalizeSettings({ defaultDayCapacity: '12' }).defaultDayCapacity).toBe(10);
   });
 
-  it('re-caps to the morning alone when the afternoon is switched off', () => {
-    const settings = writeSettings({ period2Enabled: false }, db);
-    expect(settings.defaultDayCapacity).toBe(6);
+  /**
+   * THE TRAP, as the owner hit it. Their capacity read 6 h against a 10 h shift and they
+   * had never chosen 6: switching the afternoon off re-capped it, switching the afternoon
+   * back on left it there, and the shop planned mornings only for weeks with nothing said.
+   *
+   * The rule now: the capacity is what the owner last chose, at every step.
+   */
+  it('refuses a shift that cannot buy the stored capacity, then keeps the number the owner chose', () => {
+    expect(readSettings(db).defaultDayCapacity).toBe(10);
+
+    // Switching the afternoon off would leave 10 h of capacity on a 6 h shift. Refused,
+    // and nothing is written — not the capacity, not the toggle that came with it.
+    expect(() => writeSettings({ period2Enabled: false }, db)).toThrow(SettingsValidationError);
+    expect(readSettings(db).defaultDayCapacity).toBe(10);
+    expect(readSettings(db).period2Enabled).toBe(true);
+
+    // The owner is asked and answers: 6 h, sent WITH the shorter shift, in one write.
+    const off = writeSettings({ period2Enabled: false, defaultDayCapacity: 6 }, db);
+    expect(off.defaultDayCapacity).toBe(6);
     expect(readSettings(db).defaultDayCapacity).toBe(6);
+
+    // Switching the afternoon back on does not restore 10 h either — that would be the
+    // same silent adjustment in the other direction. 6 h is what they last chose.
+    const on = writeSettings({ period2Enabled: true }, db);
+    expect(on.defaultDayCapacity).toBe(6);
+    expect(readSettings(db).defaultDayCapacity).toBe(6);
+    expect(maxDayCapacityHours(readSettings(db))).toBe(10);
   });
 
-  it('re-caps when the period times shrink', () => {
-    const settings = writeSettings({ period2End: '17:30' }, db);
-    expect(settings.defaultDayCapacity).toBe(8);
+  it('refuses shrinking the period times below the capacity, and names the field', () => {
+    try {
+      writeSettings({ period2End: '17:30' }, db);
+      expect.unreachable('an 8 h shift cannot buy the stored 10 h capacity');
+    } catch (error) {
+      expect(error).toBeInstanceOf(SettingsValidationError);
+      expect((error as SettingsValidationError).field).toBe('defaultDayCapacity');
+      // The refusal names the ceiling, so a caller is never left guessing the number.
+      expect((error as SettingsValidationError).message).toContain('8 h');
+    }
+    expect(readSettings(db).period2End).toBe('19:30');
+
+    expect(writeSettings({ period2End: '17:30', defaultDayCapacity: 8 }, db).defaultDayCapacity).toBe(8);
   });
 
   it('leaves a capacity below the shift alone — stopping early is the point', () => {
     expect(writeSettings({ defaultDayCapacity: 8 }, db).defaultDayCapacity).toBe(8);
+    // And a longer shift does not raise it back to the new ceiling.
+    expect(writeSettings({ period2End: '20:30' }, db).defaultDayCapacity).toBe(8);
+    expect(maxDayCapacityHours(readSettings(db))).toBe(11);
+  });
+
+  it('accepts a capacity that exactly fills the shift', () => {
+    expect(writeSettings({ period2Enabled: false, defaultDayCapacity: 6 }, db).defaultDayCapacity).toBe(6);
+    expect(() =>
+      writeSettings({ period2Enabled: false, defaultDayCapacity: 6.5 }, db),
+    ).toThrow(SettingsValidationError);
+  });
+
+  /**
+   * THE SIBLING, found by asking every field the same question: is there a value the
+   * WRITE path accepts and the READ path then quietly changes? For nine of the ten
+   * settings, no. For this one there were two — the floor and the granularity — and the
+   * read path's repair was doing the same job the re-cap used to do, in the other
+   * direction: `writeSettings({ defaultDayCapacity: 0.5 })` returned 0.5, stored "0.5",
+   * and every later read said 1. Half an hour of auto-fill a day, from nowhere.
+   *
+   * `clampCapacityToShift` says the effective range is `[min(1, shift), shift]` in whole
+   * minutes, so that is what a write has to refuse outside of. Then the repair really is
+   * the no-op its comment claims for anything that came through here.
+   */
+  it('refuses a capacity below the floor the read path would raise it to', () => {
+    expect(() => writeSettings({ defaultDayCapacity: 0.5 }, db)).toThrow(SettingsValidationError);
+    expect(() => writeSettings({ defaultDayCapacity: 0.001 }, db)).toThrow(SettingsValidationError);
+    expect(readSettings(db).defaultDayCapacity).toBe(10);
+
+    // The floor is the shift itself when the shift is shorter than an hour, so a
+    // half-hour morning can still be filled to the brim.
+    expect(
+      writeSettings(
+        { period1End: '08:30', period2Enabled: false, defaultDayCapacity: 0.5 },
+        db,
+      ).defaultDayCapacity,
+    ).toBe(0.5);
+  });
+
+  it('refuses a capacity that is not a whole number of minutes', () => {
+    expect(() => writeSettings({ defaultDayCapacity: 5.7777 }, db)).toThrow(SettingsValidationError);
+    // Halves and quarters are what the form produces, and 20 minutes is a third of an hour.
+    expect(writeSettings({ defaultDayCapacity: 6.5 }, db).defaultDayCapacity).toBe(6.5);
+    expect(writeSettings({ defaultDayCapacity: 1 / 3 + 6 }, db).defaultDayCapacity).toBe(1 / 3 + 6);
+  });
+
+  /**
+   * The invariant behind both refusals, stated once: for every field, what a write
+   * returns is what the next read gives back. Anything else and the response the Settings
+   * screen renders is not the configuration the engine is running.
+   */
+  it('never returns a value the next read would disagree with', () => {
+    const cases: Array<Partial<Settings>> = [
+      { defaultDayCapacity: 6 },
+      { defaultDayCapacity: 6.5 },
+      { defaultDayCapacity: 10 },
+      { visualMarginTop: 0, visualMarginBottom: 2 },
+      { visualMarginTop: 1.5 },
+      { planningHorizonWeeks: 1 },
+      { planningHorizonWeeks: 104 },
+      { gapColor: '#aabbcc' },
+      { period1Start: '07:00', period1End: '13:00' },
+      { period2Enabled: false, defaultDayCapacity: 6 },
+      { period2Enabled: true, period2Start: '15:00', period2End: '18:00', defaultDayCapacity: 9 },
+    ];
+
+    for (const patch of cases) {
+      const written = writeSettings(patch, db);
+      expect(readSettings(db)).toEqual(written);
+    }
   });
 });
 

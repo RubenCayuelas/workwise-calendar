@@ -1467,7 +1467,13 @@ describe('the lunch break is not a slot', () => {
     // are laid out from the first minute that can hold work, so the row stops crossing the
     // break instead of being grown further through it.
     const uno = job('Uno', 2, BLUE, THU);
-    updateSettings({ period1End: '13:00', period2Start: '15:30' }, { today: THU }, db);
+    // The capacity travels with the shorter shift: 5 h of morning plus 4 h of afternoon is
+    // 9 h, and a 10 h capacity on a 9 h shift is refused rather than re-capped.
+    updateSettings(
+      { period1End: '13:00', period2Start: '15:30', defaultDayCapacity: 9 },
+      { today: THU },
+      db,
+    );
     // Recomposed against the shorter morning, the row is back inside a period; put it in the
     // break by hand, where the settings change can leave one.
     updateBlock(
@@ -1505,7 +1511,7 @@ describe('the lunch break is not a slot', () => {
     // runs to midnight. There is no later working minute to offer, so the release stands and
     // the day's own end is what answers: a roll on a day the engine lays out, a refusal on one
     // it does not.
-    updateSettings({ period2Enabled: false }, { today: THU }, db);
+    updateSettings({ period2Enabled: false, defaultDayCapacity: 6 }, { today: THU }, db);
     const uno = job('Uno', 2, BLUE, THU);
 
     // On a day the engine lays out, the roll answers: Thursday's next day is the colchón, and
@@ -2182,7 +2188,24 @@ describe('gaps', () => {
 });
 
 describe('settings', () => {
-  it('re-caps the capacity to the shift and reflows the calendar', () => {
+  it('refuses a shift the stored capacity cannot fit, writing nothing at all', () => {
+    // The trap, over the operation that the Settings screen actually calls: switching the
+    // afternoon off against a 10 h capacity is a 400, not a quiet re-cap to 6 h. The
+    // calendar is untouched with it — the settings write and the reflow are one
+    // transaction, so a refused save cannot leave the week half-moved.
+    job('Escalera', 12);
+    const before = calendar();
+
+    const error = refusal(() => updateSettings({ period2Enabled: false }, { today: MON }, db));
+
+    expect(error.status).toBe(400);
+    expect(error.field).toBe('defaultDayCapacity');
+    expect(readSettings(db).period2Enabled).toBe(true);
+    expect(readSettings(db).defaultDayCapacity).toBe(10);
+    expect(calendar()).toEqual(before);
+  });
+
+  it('lowers the capacity and reflows when the owner sends both together', () => {
     job('Escalera', 12);
     expect(calendar()).toEqual([
       `${MON} 08:00-14:00 Escalera`,
@@ -2190,12 +2213,23 @@ describe('settings', () => {
       `${TUE} 08:00-10:00 Escalera`,
     ]);
 
-    const result = updateSettings({ period2Enabled: false }, { today: MON }, db);
+    // What the confirmation dialog sends: the shorter shift AND the capacity it can buy.
+    const result = updateSettings(
+      { period2Enabled: false, defaultDayCapacity: 6 },
+      { today: MON },
+      db,
+    );
 
-    // The stop line was 10 h; with no afternoon the shift is 6 h and the setting is
-    // pulled down rather than the save being rejected.
     expect(result.settings.defaultDayCapacity).toBe(6);
     expect(readSettings(db).defaultDayCapacity).toBe(6);
+    expect(calendar()).toEqual([
+      `${MON} 08:00-14:00 Escalera`,
+      `${TUE} 08:00-14:00 Escalera`,
+    ]);
+
+    // And putting the afternoon back does NOT restore 10 h: 6 h is the owner's number now.
+    const back = updateSettings({ period2Enabled: true }, { today: MON }, db);
+    expect(back.settings.defaultDayCapacity).toBe(6);
     expect(calendar()).toEqual([
       `${MON} 08:00-14:00 Escalera`,
       `${TUE} 08:00-14:00 Escalera`,
@@ -2207,7 +2241,7 @@ describe('settings', () => {
     // fields the request omitted arrive as explicit `undefined`. A spread merge does
     // not skip those, so this used to wipe `period1Start` and then fail validating it.
     const result = updateSettings(
-      { period1Start: undefined, gapColor: undefined, period2Enabled: false },
+      { period1Start: undefined, gapColor: undefined, period2Enabled: false, defaultDayCapacity: 6 },
       { today: MON },
       db,
     );

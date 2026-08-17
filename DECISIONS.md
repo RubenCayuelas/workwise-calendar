@@ -53,6 +53,124 @@ together on `DayConfig` and on the week view's `days[]`.
 
 ---
 
+## The Capacity Is Never Touched Alone
+
+**Decided with the owner, 2026-08-17; built the same day.** The owner reported that afternoon hours
+had stopped being placed. Their real settings held `defaultDayCapacity = 6` against a 10 h shift
+(08:00-14:00 plus 15:30-19:30), so the engine spent its six hours on the morning and stopped — day
+after day of `08:00-14:00 6h` with every afternoon empty. **They had never chosen 6.**
+
+**The reproduction, on a clean database.** Three writes, and the third is the defect:
+
+| step | capacity |
+|---|---|
+| factory | 10 h, afternoon on |
+| turn the afternoon OFF | **6 h** — re-capped to the shift, which is reasonable on its own |
+| turn the afternoon back ON | **6 h** — not restored, and nothing said |
+
+One toggle and the shop is at half a day for ever. With capacity 6 on a 10 h shift a 20 h job lays
+out `6h, 6h, 6h, 2h` across four mornings and the afternoons stay blank.
+
+**We built the trap ourselves.** The re-cap came in when the owner decided the capacity must never
+exceed the shift, and CLAUDE.md wrote it down as "re-capped automatically when period times change".
+That is a rule that lowers silently and never raises — the asymmetry is the whole bug, and it sat in
+`writeSettings` as the ONE deliberate exception in a validator that otherwise refuses everything.
+
+**The alternative the owner rejected** was restoring the capacity when the shift grows again, which
+would have made the reproduction above end at 10 h. Their answer chose the stricter reading:
+
+> *«Nunca la toques sola.»*
+
+So the capacity is now refused rather than corrected, and the Settings screen ASKS — the same
+confirmation it already raises when a change would strand existing work, naming both numbers and the
+hours a day the lower one costs. Cancel writes nothing.
+
+**Why the refusal lives in `validateSettings` and the question in the form.** The server cannot ask; a
+400 is not a choice. But it must be impossible to save a capacity the shift cannot buy, or the trap
+comes back through the next caller. So the shape is: the server refuses and names the ceiling
+(`maxDayCapacityHours`), and the form — which already mirrors the shift arithmetic client-side for the
+live preview — works out the implied number BEFORE it sends, asks, and puts the answer in the same
+patch. One round trip, and the lowered capacity exists in exactly one place (`patchToSave`), which is
+what makes "cancel saves nothing" true by construction rather than by care.
+
+**Why the read path still clamps.** `readSettings` repairs a stored capacity above the shift, because
+a hand-edited row would otherwise let `capacityMinutes` claim hours the periods do not have, and the
+engine and the grid both read that as a fact. Repairing a READ was never the trap. Repairing a WRITE
+was.
+
+**The form does not adjust it either, and that was half the defect.** `applySettingsPatch` used to
+re-cap the draft as the owner edited a period, so the number moved under their cursor one layer above
+the server doing the same thing. It is a plain merge now, and the capacity field's stepper max opens
+up to the current value while it exceeds the shift — otherwise the control's own blur-clamp would
+lower the number the owner is about to be asked about.
+
+**A reduced capacity is now stated out loud** — flagged here for the owner to veto, since it goes
+beyond what they asked for. It is the half that makes the trap unreachable from any direction: the
+Settings field says which hours auto-fill is leaving free, and so does the header strip, because *"why
+is my afternoon empty"* is a question about the WEEK and the answer had been living in a field the
+owner had no reason to open. Both are flat statements of two numbers, not warnings: choosing to work
+six hours is legitimate.
+
+**Verified 2026-08-17.** The reproduction above, asserted at every step in `settings.test.ts` and over
+`updateSettings` in `scheduler.test.ts` — the toggle off is a 400 naming `defaultDayCapacity` with the
+week and the settings untouched, the owner's confirmed 6 h saves and reflows, and the toggle back on
+leaves 6 h alone. Then in a real browser on a scratch database: cancelling the confirmation left the
+stored settings and the unsaved form exactly as they were, and the same three steps through the form
+ended at capacity 6 h on a 10 h shift — asked for, and stated on screen. The consequence is gone too:
+with the capacity left at 10 a 20 h job lays out `Mon 08:00-14:00 + 15:30-19:30`, `Tue` the same,
+instead of four mornings.
+
+### Its siblings: the same question asked of every other setting
+
+A validator that corrects instead of refusing is a pattern, so the sweep asked one question of all ten
+fields: **is there a value the write path accepts that the read path then quietly changes?** For nine
+of them, no. For `defaultDayCapacity` there were two more, both in the repair the trap left behind —
+`clampCapacityToShift` enforces `[min(1, shift), shift]` *in whole minutes*, while the write only ever
+checked "more than zero" and the ceiling:
+
+| sent to PATCH | write said | on disk | next GET said |
+|---|---|---|---|
+| `0.5` | 0.5 | `0.5` | **1** |
+| `5.7777` | 5.7777 | `5.7777` | **5.783333333333333** |
+
+Half an hour of auto-fill a day, appearing out of nowhere, and a response the Settings screen renders
+that is not the configuration the engine runs. **Fixed**: `validateSettings` refuses below the floor
+and off a whole minute, so the repair is the no-op its own comment claims. The tolerance on "whole
+minute" is deliberate — the form legitimately offers the shift itself as the capacity, and a 593-minute
+shift is `593/60`, whose double times 60 is 592.999….
+
+**And one outside the settings module, in the control.** `NumberStepper` bounded the value first and
+snapped it to `step` second, so a bound that is not a multiple of the step was rounded straight back
+past itself: `min 1, max 9.75, step 0.5` returned **10** for an input of 9.75. On a 9.75 h shift (the
+afternoon ending at 19:15 — quarter-hour period times are ordinary) that made *focusing the capacity
+field and clicking away* raise the capacity to 10 and then ask to lower it again. Snapping now comes
+first and the bounds win; the arithmetic moved to `src/components/ui/stepper.ts` so it could be tested
+without a DOM, and the browser confirms 9.75 stays 9.75 with Save still disabled. The same latent
+rounding was reachable from the gap duration (max = the drawn timeline, e.g. 13.25 h) and the scissors
+(max = the block minus a step, e.g. 1.75 h).
+
+**Recorded, not fixed** — all three are self-consistent between write and read, which is the line:
+
+- **`gapColor` is canonicalised**: `"  #aabbcc  "` is stored `#AABBCC` (the route trims, the validator
+  upper-cases). The same colour, and the form uppercases as it goes, so nothing the owner chose is
+  changed. Left alone.
+- **Sub-minute margins are kept but draw as nothing**: `visualMarginTop: 0.008` stores and reads back
+  as `0.008`, and `hoursToMinutes` renders it 0 minutes. The number is never rewritten, so the field
+  and the axis merely disagree at a resolution nobody can point at. Unreachable from the form (the
+  stepper's step is half an hour).
+- **An afternoon that is switched off keeps inconsistent times**: with `period2Enabled: false`, times
+  like `10:00-11:00` behind a morning that ends at 14:00 save happily and are held for the day the
+  afternoon comes back. Switching it on is then REFUSED naming `period2Start` — a refusal, not a
+  correction, and the form disables Save on the same rule. Deliberate: a disabled period is a
+  scratchpad.
+
+The read path's other repairs stay as they are, for the reason the capacity's does: they exist so a
+hand-edited row cannot take the calendar down, and none of them can be reached by a write. The
+strongest is `normalizeSettings` **switching the afternoon off** when a corrupt row holds an afternoon
+that cannot exist behind its morning; the write path refuses that combination outright.
+
+---
+
 ## The End of the Day Is a Line No Write May Cross
 
 **2026-08-13.** CLAUDE.md already said this twice — in the data model, and in *Block Resize*'s "it

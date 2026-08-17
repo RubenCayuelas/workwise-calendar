@@ -11,12 +11,13 @@
  *
  * TWO THINGS THE SETTINGS SCREEN MUST DO:
  *
- * 1. Render the RETURNED settings, not its own form state. `defaultDayCapacity` is a
- *    stop line derived from the shift, so shortening the periods or switching the
- *    afternoon off re-caps it instead of rejecting the save — and the re-cap is
- *    invisible if the form keeps showing what was typed.
- * 2. Surface `error.field` on a 400. Every other value is rejected rather than
- *    repaired, and `field` names the input to highlight.
+ * 1. Send the capacity it wants whenever it shortens the shift. `defaultDayCapacity`
+ *    may not exceed the hours the enabled periods cover, and a patch that would leave
+ *    it above them is REFUSED naming `defaultDayCapacity` — never quietly re-capped.
+ *    The screen therefore asks the owner before it saves, and cancelling sends nothing
+ *    (CLAUDE.md, *The Capacity Is Never Touched Alone*).
+ * 2. Surface `error.field` on a 400. Every value is rejected rather than repaired, and
+ *    `field` names the input to highlight.
  *
  * A save recomposes, because periods and capacity decide every day's plannable
  * hours. So NARROWING `planningHorizonWeeks` can fail with `horizon-exceeded` if the
@@ -57,7 +58,7 @@ export async function PATCH(request: NextRequest): Promise<Response> {
 
 /**
  * Only checks that the value IS a number — the ranges, the cross-field rules and the
- * capacity re-cap all belong to `validateSettings`, which throws with the offending
+ * capacity ceiling all belong to `validateSettings`, which throws with the offending
  * `field` attached. Duplicating a bound here would give it two owners.
  */
 function readSettingsNumber(body: JsonBody, key: keyof Settings): number | undefined {

@@ -699,7 +699,7 @@ export function CalendarScreen({
 
       <main className="ww-app__body">
         <div className={styles.screen}>
-          <SummaryStrip summary={view?.summary ?? null} />
+          <SummaryStrip summary={view?.summary ?? null} shape={view?.shape ?? null} />
 
           {week.loadError === null ? null : (
             <InlineBanner tone="error" title={t('errors.title')} onRetry={week.reload}>

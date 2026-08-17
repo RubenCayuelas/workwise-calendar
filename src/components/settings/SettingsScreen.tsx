@@ -6,17 +6,20 @@
  *
  * THREE THINGS THAT DRIVE THE WHOLE DESIGN OF THIS FILE
  *
- * 1. The server can change what you saved. `defaultDayCapacity` is a stop line derived
- *    from the shift, so shortening the periods RE-CAPS it instead of rejecting the save.
- *    Both the local edit path (`applySettingsPatch`) and the save path render the
- *    EFFECTIVE value and say so out loud with `settings.capacityRecapped` — a number that
- *    changes silently under the owner's cursor is the bug this screen exists to avoid.
+ * 1. NOTHING MOVES BY ITSELF, AND THE CAPACITY LEAST OF ALL. Shortening the shift below
+ *    `defaultDayCapacity` used to re-cap it — here as the owner typed, and again on the
+ *    server as it saved. That is how the shop ended up planning 6 h of a 10 h day for
+ *    weeks: one toggle lowered the number and switching back never restored it. The
+ *    capacity now stays exactly where the owner put it, the server REFUSES a shift that
+ *    cannot buy it, and this screen asks before it sends — naming both numbers and what
+ *    the lower one costs per day. Cancel sends nothing, and the rest of the unsaved form
+ *    survives untouched, because the draft is never rewritten to ask the question.
  * 2. Narrowing the day is warned about, never silently applied. Switching the afternoon
  *    off, moving a period end earlier or shrinking a visual margin can leave existing
  *    blocks in time that is no longer a working period — or outside the drawn axis
- *    entirely. The save then goes through a confirmation that names the blocks. Nothing
- *    is deleted either way (the write and the reflow are one transaction), but the owner
- *    decides.
+ *    entirely. The save then goes through the same confirmation, which names the blocks.
+ *    Nothing is deleted either way (the write and the reflow are one transaction), but
+ *    the owner decides.
  * 3. The language is not part of `Settings`. It lives in localStorage under
  *    `workwise.language` (see src/lib/i18n.ts), so its control applies immediately and is
  *    deliberately outside the Save button's scope — which is exactly what
@@ -57,13 +60,16 @@ import {
   MARGIN_MAX_HOURS,
   MARGIN_MIN_HOURS,
   applySettingsPatch,
-  changedFields,
+  capacityReductionOf,
+  capacitySlackMinutes,
   draftIssues,
   hasIssues,
   maxCapacityHours,
   minCapacityHours,
+  patchToSave,
   shiftMinutesOf,
   timelineOf,
+  type CapacityReduction,
 } from './shift';
 import {
   assessRisk,
@@ -82,6 +88,8 @@ interface PendingSave {
   patch: Partial<Settings>;
   affected: AffectedBlock[];
   risk: ChangeRisk;
+  /** Set when saving would have to lower the capacity: the question, with both numbers. */
+  reduction?: CapacityReduction;
 }
 
 export function SettingsScreen(): React.JSX.Element {
@@ -97,7 +105,6 @@ export function SettingsScreen(): React.JSX.Element {
   const [loadError, setLoadError] = useState<unknown>(undefined);
   const [saveError, setSaveError] = useState<unknown>(undefined);
   const [attempt, setAttempt] = useState(0);
-  const [recappedToHours, setRecappedToHours] = useState<number | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
   const [pending, setPending] = useState<PendingSave | undefined>(undefined);
@@ -121,9 +128,9 @@ export function SettingsScreen(): React.JSX.Element {
   const patchDraft = useCallback(
     (patch: Partial<Settings>): void => {
       if (draft === undefined) return;
-      const result = applySettingsPatch(draft, patch);
-      setDraft(result.settings);
-      if (result.recappedToHours !== undefined) setRecappedToHours(result.recappedToHours);
+      // A merge and nothing else: the capacity is not pulled down to fit a shorter shift
+      // here, on save, or anywhere between. See ./shift.ts.
+      setDraft(applySettingsPatch(draft, patch));
       // A stale field error would keep pointing at an input the owner has just fixed.
       setSaveError(undefined);
     },
@@ -131,8 +138,16 @@ export function SettingsScreen(): React.JSX.Element {
   );
 
   const issues = useMemo(() => (draft === undefined ? {} : draftIssues(draft)), [draft]);
+  /** The capacity the draft can no longer afford, if any: what the confirmation is about. */
+  const reduction = useMemo(
+    () => (draft === undefined ? undefined : capacityReductionOf(draft)),
+    [draft],
+  );
+  // The changed fields PLUS that lowered capacity, so one request carries the whole
+  // decision. `dirty` reads the same patch: lowering the capacity IS a change to save,
+  // even when every field on screen still matches what is stored.
   const patch = useMemo(
-    () => (saved === undefined || draft === undefined ? {} : changedFields(saved, draft)),
+    () => (saved === undefined || draft === undefined ? {} : patchToSave(saved, draft)),
     [saved, draft],
   );
   const dirty = Object.keys(patch).length > 0;
@@ -146,14 +161,9 @@ export function SettingsScreen(): React.JSX.Element {
       try {
         const result = await updateSettings(fields);
         setSaved(result.settings);
-        // Render what the server decided, not what was typed: this is where an invisible
-        // capacity re-cap would otherwise hide.
+        // Still the server's values rather than the form's, though they can no longer
+        // disagree: what comes back is what was sent, merged over what was stored.
         setDraft(result.settings);
-        setRecappedToHours(
-          result.settings.defaultDayCapacity === draft.defaultDayCapacity
-            ? undefined
-            : result.settings.defaultDayCapacity,
-        );
         setPending(undefined);
         toast.success(t('settings.saved'));
       } catch (error) {
@@ -172,14 +182,12 @@ export function SettingsScreen(): React.JSX.Element {
     if (saved === undefined || draft === undefined || !dirty || hasIssues(issues)) return;
 
     const risk = assessRisk(saved, draft);
+    let affected: AffectedBlock[] = [];
+
     if (needsBlockCheck(risk)) {
       setChecking(true);
       try {
-        const affected = findAffectedBlocks(saved, draft, await loadScheduledBlocks());
-        if (affected.length > 0) {
-          setPending({ patch, affected, risk });
-          return;
-        }
+        affected = findAffectedBlocks(saved, draft, await loadScheduledBlocks());
       } catch (error) {
         // The check itself failed. Saving anyway would be exactly the silent discard the
         // brief forbids, so stop and let the owner retry.
@@ -192,8 +200,16 @@ export function SettingsScreen(): React.JSX.Element {
       }
     }
 
+    // Either question goes through the same dialog, and a change can raise both at once —
+    // switching the afternoon off strands the afternoon's blocks AND cannot buy the
+    // capacity. One confirmation states everything the save will do.
+    if (affected.length > 0 || reduction !== undefined) {
+      setPending({ patch, affected, risk, reduction });
+      return;
+    }
+
     await commit(patch);
-  }, [saved, draft, dirty, issues, patch, commit]);
+  }, [saved, draft, dirty, issues, patch, reduction, commit]);
 
   // ---- loading and hard failures -----------------------------------------
 
@@ -219,6 +235,7 @@ export function SettingsScreen(): React.JSX.Element {
 
   const shiftMinutes = shiftMinutesOf(draft);
   const shiftHours = maxCapacityHours(draft);
+  const slackMinutes = capacitySlackMinutes(draft);
   const timeline = timelineOf(draft);
   const failedField = isApiError(saveError) ? saveError.field : undefined;
 
@@ -309,23 +326,35 @@ export function SettingsScreen(): React.JSX.Element {
             value={draft.defaultDayCapacity}
             onChange={(value) => patchDraft({ defaultDayCapacity: value })}
             min={shiftHours > 0 ? minCapacityHours(draft) : undefined}
-            max={shiftHours > 0 ? shiftHours : undefined}
+            // The shift is the ceiling, EXCEPT while the draft already sits above it: the
+            // stepper clamps on blur, so a max below the current value would have the
+            // field itself lower the number the owner is about to be asked about. At that
+            // value "+" is disabled and "−" still works, which is exactly the offer.
+            max={shiftHours > 0 ? Math.max(shiftHours, draft.defaultDayCapacity) : undefined}
             step={HOUR_STEP}
             suffix={t('units.hoursSuffix')}
             disabled={shiftHours <= 0}
           />
         </Field>
 
-        {recappedToHours === undefined ? null : (
-          <InlineBanner
-            tone="info"
-            onDismiss={() => setRecappedToHours(undefined)}
-          >
-            {t('settings.capacityRecapped', {
-              hours: format.hourNumber(hoursToMinutes(recappedToHours)),
+        {/* Two quiet facts, never a warning: choosing to fill six hours of a ten hour day
+            is legitimate, it is just invisible on the grid unless it is said here. */}
+        {reduction !== undefined ? (
+          <p className={styles.note}>
+            {t('settings.capacityWillLower', {
+              from: format.hourNumber(hoursToMinutes(reduction.fromHours)),
+              to: format.hourNumber(hoursToMinutes(reduction.toHours)),
             })}
-          </InlineBanner>
-        )}
+          </p>
+        ) : slackMinutes > 0 ? (
+          <p className={styles.note}>
+            {t('settings.capacityBelowShift', {
+              capacity: format.hourNumber(hoursToMinutes(draft.defaultDayCapacity)),
+              shift: format.hourNumber(shiftMinutes),
+              free: format.hourNumber(slackMinutes),
+            })}
+          </p>
+        ) : null}
       </Section>
 
       {/* ---- visual margins ---- */}
@@ -463,6 +492,23 @@ export function SettingsScreen(): React.JSX.Element {
         description={
           pending === undefined ? undefined : (
             <>
+              {/* The capacity question first: it is the one the owner did not ask for. */}
+              {pending.reduction === undefined ? null : (
+                <>
+                  <span className={styles.warnLine}>
+                    {t('settings.capacityLowerConfirm', {
+                      from: format.hourNumber(hoursToMinutes(pending.reduction.fromHours)),
+                      to: format.hourNumber(hoursToMinutes(pending.reduction.toHours)),
+                    })}
+                  </span>
+                  <span className={styles.warnLine}>
+                    {t('settings.capacityLowerCost', {
+                      lost: format.hourNumber(hoursToMinutes(pending.reduction.lostHours)),
+                    })}
+                  </span>
+                </>
+              )}
+
               {pending.risk.disablesAfternoon ? (
                 <span className={styles.warnLine}>{t('settings.period2EnabledHint')}</span>
               ) : null}
@@ -470,22 +516,28 @@ export function SettingsScreen(): React.JSX.Element {
                 <span className={styles.warnLine}>{t('settings.planningHorizonWarning')}</span>
               ) : null}
 
-              <span className={styles.warnLine}>
-                {t('units.blocks', { count: pending.affected.length })}
-              </span>
-              {/* Every affected block, not a truncated sample: the count above it has to
-                  match what is on screen, and the list scrolls inside the dialog rather
-                  than growing it past the window. */}
-              <span className={styles.warnList}>
-                {pending.affected.map((entry) => (
-                  <span key={entry.block.id} className={styles.warnItem}>
-                    {blockLabel(entry)}
+              {pending.affected.length === 0 ? null : (
+                <>
+                  <span className={styles.warnLine}>
+                    {t('units.blocks', { count: pending.affected.length })}
                   </span>
-                ))}
-              </span>
+                  {/* Every affected block, not a truncated sample: the count above it has
+                      to match what is on screen, and the list scrolls inside the dialog
+                      rather than growing it past the window. */}
+                  <span className={styles.warnList}>
+                    {pending.affected.map((entry) => (
+                      <span key={entry.block.id} className={styles.warnItem}>
+                        {blockLabel(entry)}
+                      </span>
+                    ))}
+                  </span>
+                </>
+              )}
 
               <span className={styles.warnLine}>{t('notices.recomposed')}</span>
-              <span className={styles.warnLine}>{t('day.frozenHint')}</span>
+              {pending.affected.length === 0 ? null : (
+                <span className={styles.warnLine}>{t('day.frozenHint')}</span>
+              )}
             </>
           )
         }

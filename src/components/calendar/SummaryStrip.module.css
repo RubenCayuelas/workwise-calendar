@@ -34,3 +34,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The capacity clause: a fact, not a second warning, so it is quieter than the sentence
+   it follows and truncates last — the load line gives up its width first. */
+.capacity {
+  flex: none;
+  padding-left: var(--ww-space-3);
+  border-left: var(--ww-hairline) solid var(--ww-accent-border);
+  color: var(--ww-text-muted);
+  font-size: var(--ww-text-sm);
+  white-space: nowrap;
+}
