@@ -89,6 +89,63 @@ describe('dropLanding — a drop aimed below what the day holds', () => {
     ).toEqual({ date: NEXT_MON, startMinutes: t('08:00') });
   });
 
+  it('reads every minute of the break as the first minute that can hold work', () => {
+    // A release with no working time under it asks for a slot that does not exist. It is
+    // settled here rather than only at the write, because the padlock, the queue rank and the
+    // ghost's rectangle are all decided from this one start. 14:00 is the boundary that bit:
+    // the exclusive END of the first window and before the start of the second, so it belonged
+    // to no window and the drop was stored uncut, `14:00 +120m -> 16:00`.
+    for (const minute of ['14:00', '14:01', '14:30', '15:00', '15:29', '15:30']) {
+      expect(
+        dropLanding({ date: THU, startMinutes: t(minute), durationMinutes: 120, dayOf: calendar(WEEKEND) }),
+        `released at ${minute}`,
+      ).toEqual({ date: THU, startMinutes: t('15:30') });
+    }
+    // The last minute of the morning is working time, so it is its own answer.
+    expect(
+      dropLanding({ date: THU, startMinutes: t('13:59'), durationMinutes: 120, dayOf: calendar(WEEKEND) }),
+    ).toEqual({ date: THU, startMinutes: t('13:59') });
+    // And it holds on a day the engine never lays out, where that minute is the whole promise.
+    expect(
+      dropLanding({ date: SAT, startMinutes: t('14:30'), durationMinutes: 120, dayOf: calendar(WEEKEND) }),
+    ).toEqual({ date: SAT, startMinutes: t('15:30') });
+  });
+
+  it('rolls a run the afternoon cannot hold to the next day, measured from 15:30', () => {
+    // 5 h aimed at the break is 5 h from 15:30, which reaches 20:30 — the day's last minute,
+    // margin included — so it stays. Add a quarter of an hour and no part of the day can take
+    // it, so it goes to Friday at the top of the periods.
+    expect(
+      dropLanding({ date: THU, startMinutes: t('14:00'), durationMinutes: 300, dayOf: calendar(WEEKEND) }),
+    ).toEqual({ date: THU, startMinutes: t('15:30') });
+    expect(
+      dropLanding({ date: THU, startMinutes: t('14:00'), durationMinutes: 315, dayOf: calendar(WEEKEND) }),
+    ).toEqual({ date: FRI, startMinutes: t('08:00') });
+  });
+
+  it('leaves the hole after the last window alone, afternoon switched off', () => {
+    // The day is `07:00-15:00` and the hole after it runs to midnight: there is no later
+    // working minute to offer, so the release stands and the roll answers for it instead.
+    const morning: DropDay = {
+      periods: [PERIODS[0]],
+      manualWindows: manualWindowsOf([PERIODS[0]], 60, 60),
+      reflows: true,
+    };
+    expect(
+      dropLanding({ date: THU, startMinutes: t('15:00'), durationMinutes: 120, dayOf: () => morning }),
+    ).toEqual({ date: FRI, startMinutes: t('08:00') });
+    // And on a day the engine does not lay out there is nowhere to roll to: the release is
+    // returned exactly as it was made and the write path's end-of-day guard refuses it.
+    expect(
+      dropLanding({
+        date: SAT,
+        startMinutes: t('18:00'),
+        durationMinutes: 120,
+        dayOf: () => ({ ...morning, reflows: false }),
+      }),
+    ).toEqual({ date: SAT, startMinutes: t('18:00') });
+  });
+
   it('will not send a run to a day that could only hold it by using the margin', () => {
     // 10 h 30 fits from 08:00 only by running to 20:00, an hour into the bottom margin —
     // which would come back padlocked. No day can take it on those terms, so the drop is

@@ -60,13 +60,19 @@
  * Everything else about the drop is re-read at the moment it is released — the day under
  * the pointer, the rows to aim against, the starts already taken — because all of it comes
  * from `live.current`, which is the CURRENT week. So a drop is always resolved against the
- * week it was released in, and never against the week it was picked up in. The two places
- * that could have remembered the old week are named where they are fixed: `previewMove`'s
- * fallback date, and the ghost, which is re-resolved from the last pointer position the
- * moment the columns change (`weekKey`) rather than waiting for the hand to move.
+ * week it was released in, and never against the week it was picked up in. THREE places
+ * could have remembered the old week, and each is named where it is fixed:
+ *
+ * - `previewMove`'s fallback date, which keeps the remembered column only while it is still a
+ *   column and otherwise takes the nearest one;
+ * - the GHOST, re-resolved from the last pointer position the moment the columns change
+ *   (`weekKey`), in a LAYOUT effect so no paint and no event can fall between the two;
+ * - the RELEASE itself, which re-resolves rather than committing the preview it happens to
+ *   be holding (`resolveRelease`). That was the real hole: the ghost being right one render
+ *   later is no use to a `pointerup` that has already been handled.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { dayEndMinutes } from '../../lib/manualWindow';
 import {
   clampDropStart,
@@ -516,8 +522,20 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
    *   just arrived. Without this the preview keeps a date no column carries any more, so
    *   the block vanishes from the hand until the mouse is jiggled;
    * - the hold, if it was waiting for this week, arms its next countdown.
+   *
+   * A LAYOUT EFFECT, NOT A PASSIVE ONE, and that is a correctness difference rather than a
+   * frame of polish. A passive effect is flushed in a scheduler callback, so there is a
+   * moment when the new columns are in the DOM and the preview still names a day of the week
+   * that has left the screen — and a `pointerup` dispatched in that moment was committed
+   * against the OLD week. Measured 2026-08-17 by releasing from inside a MutationObserver
+   * callback: the columns read `2026-08-24`, no ghost was drawn at all, and the drop was
+   * stored on `2026-08-23` and padlocked there, after which `showWeekOf` pulled the screen
+   * back a week to show the owner where their block had gone. A layout effect runs inside
+   * the same synchronous commit, so that moment does not exist. The release re-resolves as
+   * well (see `onPointerUp`), because a guarantee this load-bearing should not rest on one
+   * scheduling detail.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     const current = session.current;
     if (current === null || !current.moved || current.kind !== 'move' || current.point === null) {
       return;
@@ -652,7 +670,32 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         // it started on: the pointer may still be over it at the release.
         if (current.overlay === true) swallowNextClick();
 
-        const settled = current.preview;
+        /*
+         * THE DROP IS RESOLVED AGAINST THE WEEK IT IS RELEASED IN — resolved HERE, at the
+         * release, and not read off a preview computed on the last pointer event.
+         *
+         * Everything a release needs is already live: `measure()` re-reads the columns from
+         * the DOM and `live.current` carries the current week's days and rows. What was not
+         * live was the ANSWER: `current.preview` is only recomputed by a pointer move or by
+         * the week-change effect above, and edge paging replaces the columns while the hand is
+         * deliberately holding STILL. Release inside that gap and the drop was written to a
+         * week that had already left the screen (reproduced 2026-08-17 — see the effect's
+         * note). Re-resolving costs one measurement and is IDEMPOTENT: `previewMove` is pure,
+         * so a release with nothing changed under it returns the ghost the owner was looking
+         * at, to the minute.
+         *
+         * It does not touch `current.timeline`. ONE AXIS PER GESTURE is about the VERTICAL
+         * mapping, which `previewMove` takes from the session and never from the options; what
+         * is re-read here is the set of COLUMNS, which is a horizontal fact and the one thing
+         * a page turn really changes.
+         *
+         * Only a MOVE: a resize belongs to one row on one day, another week has nothing to
+         * offer it, and `previewResize` reads no columns at all.
+         */
+        const settled =
+          current.kind === 'move' && current.point !== null
+            ? resolveRelease(current, live.current)
+            : current.preview;
         if (settled === null) return;
         if (!settled.allowed) {
           live.current.onRejected(current.target, {
@@ -942,10 +985,12 @@ export function previewMove(
      * (that one is `dayReflowsOn`, and it is about the day alone).
      *
      * `dropPins` is the mirror of the server's `pinsTheRow`, one implementation asked from
-     * both sides. A drop into manual-only time — a visual margin or the lunch band — is
-     * stored exactly as released ON ANY DAY, Monday included, because the engine's index
-     * space has no margin minutes in it and an unpinned margin row would be pulled straight
-     * back inside the periods.
+     * both sides. A drop into manual-only time — a VISUAL MARGIN — is stored exactly as
+     * released ON ANY DAY, Monday included, because the engine's index space has no margin
+     * minutes in it and an unpinned margin row would be pulled straight back inside the
+     * periods. It is asked of `startMinutes` AFTER `resolveDropDay`, which matters for the
+     * lunch band: a release there is read as 15:30, so on Monday-Thursday it asks for no
+     * manual-only time and does not pin.
      *
      * It is the INTENT. On a day the engine reflows the server may still slide the row
      * forward past a gap or a lock, or give the pin up altogether; the grid applies both
@@ -965,6 +1010,26 @@ export function previewMove(
     // editable by hand from the job panel, which is where CLAUDE.md puts that.
     allowed: day !== undefined && !day.isPast,
   };
+}
+
+/**
+ * WHERE THE RUN LANDS, ASKED AT THE MOMENT THE BUTTON COMES UP.
+ *
+ * The same `previewMove` the ghost is drawn from, run once more against the columns and the
+ * week that are live at the release rather than against the ones the last pointer event saw.
+ * With nothing changed under the pointer it returns exactly what the ghost was showing —
+ * `previewMove` is pure — so this is a correction and never a surprise.
+ *
+ * It falls back to the last preview rather than refusing when the grid cannot be measured
+ * (it has been unmounted, or the week has none of it left): a release that cannot be
+ * re-resolved is still a release, and dropping it on the floor is the silence this whole
+ * file exists to remove.
+ */
+function resolveRelease(current: DragSession, options: BlockDragOptions): DragPreview | null {
+  if (current.point === null) return current.preview;
+  const metrics = options.measure();
+  if (metrics === null) return current.preview;
+  return previewMove(current.point, current, metrics, options);
 }
 
 /**

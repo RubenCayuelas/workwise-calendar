@@ -159,9 +159,10 @@ Where it lives, in the order that actually guarantees it:
 - **`dayEndMinutes`, `clockEndOf`, `latestStartFor`** (`src/lib/manualWindow.ts`, pure). `duration`
   is NET working minutes, so only `clockEndOf` can say that 6 h at 13:15 reaches 20:45.
 - **The drag layer clamps** (`clampDropStart` in `geometry.ts`) — but only as a LAST RESORT now; see
-  *Aiming Below What A Day Holds Means The Next Day*. The set of legal starts is not an interval — a
-  release inside the lunch band is legal whenever the row, stored uncut, still ends inside the day —
-  so it clamps to the latest legal start rather than to an interval end.
+  *Aiming Below What A Day Holds Means The Next Day*. It clamps to the latest legal START rather than
+  to an interval end, because a release is measured from the first minute that can hold work (*A
+  Minute With No Working Time*) and a row crosses the break for free: 6 h aimed at the break is 6 h
+  from 15:30, so it clamps, while 5 h stands.
 - **The resize is capped at the day's end and at the row's own end** (`ResizeReach`), never at the
   axis. A row already outside the windows (its margin was set to 0) keeps its hours, can be
   shortened, and can never be grown.
@@ -229,7 +230,8 @@ sets `locked = 1`.
 |---|---|
 | Friday, the buffer | yes |
 | Saturday and Sunday | yes |
-| manual-only time on ANY day — a visual margin, or the lunch band | yes |
+| manual-only time on ANY day — a visual margin | yes |
+| the lunch break, any day | **no** — it is not a slot: the drop starts at 15:30, inside the periods |
 | Monday-Thursday inside the periods | **no** — it re-ranks the queue and the row settles contiguously |
 
 Two details keep the manual-only rule honest: it needs at least a quarter of an hour of manual-only
@@ -237,6 +239,11 @@ time (`MIN_MANUAL_ONLY_MINUTES`, held equal to the drag layer's `SNAP_MINUTES` b
 drop's rank may be nudged by a single minute and one minute of margin is a tie-break rather than a
 request; and a **resize** padlocks too, since a length reaching into a margin cannot exist without
 the slot.
+
+The test is asked of the rows that will REALLY be stored, which is why the lunch break is not in the
+table any more: a drop aimed there is stored from 15:30 (*A Minute With No Working Time*), so it asks
+for no manual-only minutes at all. It used to pin, and it had to — the row was stored where it was
+released, and the engine's only possible answer to a row in the break is to undo the drop.
 
 **The padlock is only ever ADDED by a gesture, never removed by one.** Dropping a padlocked row back
 onto Mon-Thu leaves it padlocked, where it lands on the exact minute it was released at. The way
@@ -537,13 +544,42 @@ move only its first day's part.
 > engine places is cut at the break between two periods.** 6 h dropped at 10:00 is stored as
 > `10:00-14:00` plus `15:30-17:30`, two rows of one job, on every kind of day.
 
-It applies to the merge below too. Two things it deliberately leaves alone, because each is latitude
-a hand drop already has and neither is a straddle: a row that **starts** outside every window (the
-lunch band itself), and anything whose tail would land past midnight. A row that starts in a
-**margin** is not one of them — the margin is inside the manual window.
+It applies to the merge below too. One thing it deliberately leaves alone, because it is latitude a
+hand drop already has and it is not a straddle: anything whose tail would land past midnight. A row
+that starts in a **margin** is not one of them — the margin is inside the manual window.
 
 `segmentDroppedRow` in `src/lib/dropSegments.ts` is imported by both the engine and the preview
 rather than restated in each.
+
+#### A Minute With No Working Time Means The Next Minute That Has Some
+> **A gesture aimed at a minute no window covers — the lunch break — starts at the first minute that
+> can hold work. On the documented shift 14:00, 15:00 and 15:29 all mean 15:30.**
+
+The break is not a slot. Aiming at it asks for work in time the shop cannot work, and the whole band
+is already an arithmetic dead zone for a **resize** (`durationTo` counts net working minutes, so all
+three of those minutes commit the same duration), so the drop reads it the same way.
+
+- **It is NOT the visual margins' latitude.** A margin is workable time the owner chose and a row may
+  sit in one; the break is not workable at all. The margins are inside the manual window, so nothing
+  about them changes.
+- **Where there is no later working minute the release is left exactly as it came**: past the end of
+  the day, and on a day whose afternoon is switched off, where the hole runs to midnight. There is
+  nothing to offer, so *Aiming Below What A Day Holds Means The Next Day* and the end-of-day guard
+  answer instead.
+- **A Monday-Thursday drop aimed at the break therefore does NOT padlock**: read as 15:30 it is an
+  ordinary request inside the periods, so it is a queue rank like any other. The **day** still pins
+  (Friday, the weekend), and so does a margin.
+- **A GAP is untouched.** A gap's `duration` is CLOCK minutes — *stop the day here* makes one across
+  the comida on purpose — so a gap is the one row that MAY span a break.
+
+`firstWorkingMinute` (`src/lib/manualWindow.ts`) is the rule, and it is read in exactly two places
+so a preview and a write cannot disagree: `dropLanding` settles the gesture's start (the padlock, the
+queue rank and the ghost's rectangle are all decided from it) and `segmentDroppedRow` lays the stored
+rows out from it — **so its returned start may differ from the one asked for and every caller reads it
+back**. `reachableRuns`, and therefore `clockEndOf`, read a non-working start the same way, because the
+end-of-day guard and the drag's clamp decide from that number what the write path will do.
+
+*(Why: DECISIONS.md § A Minute With No Working Time.)*
 
 ### A Drop That Overlaps
 A drop onto the **weekend, the frozen past or a padlocked row** lands where the engine may not
@@ -587,8 +623,8 @@ no hours move. On the fixed side the same answer falls out by construction — a
 from its very start leaves no head, so that row is pushed whole.
 
 **A PINNED placement is never nudged at all.** Where the row keeps the minute it was released on —
-the weekend, the colchón, a visual margin, the lunch band, a locked unit — that minute is not an
-ordering, it is the clock, and it is what gets stored. `rankFor(…, pinned)` in
+the weekend, the colchón, a visual margin, a locked unit — that minute is not an ordering, it is the
+clock, and it is what gets stored. `rankFor(…, pinned)` in
 `src/components/calendar/geometry.ts` is the one place both rules live.
 
 ### Thirds Decide Where a Drop Lands Relative to the Row Under It
@@ -633,7 +669,8 @@ at all.** The reflowed side of the resolver has no failure mode.
 | Saturday, Sunday (`manual`) | yes | the engine lays out nothing there: the exact minute IS the promise |
 | a closed day (`day_overrides`) | yes | same as a weekend |
 | a past day (frozen) | **refused outright** | not a collision rule: 409 `drop-onto-past-day` |
-| a **visual margin** or the lunch band, any day | yes, once the slide finds nothing | the drop padlocks there, so it lands literally |
+| a **visual margin**, any day | yes, once the slide finds nothing | the drop padlocks there, so it lands literally |
+| the **lunch break**, any day | it is not a slot: the drop starts at 15:30 and is then judged by the day it is on |
 | ANY day, when the row being dragged is already **locked** | yes, once the slide finds nothing | the padlock means the row lands where it was released |
 
 A padlocked row being dragged is **slid** like any other padlocking drop: the padlock keeps the
@@ -743,15 +780,22 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
 - **Time axis**: vertical, from the top visual margin to the bottom visual margin. Grey bands mark
   the margins and the lunch break, labelled "solo arrastre manual".
 - **The axis is PIECEWISE, and only the break between two periods is compressed.** Working time and
-  the visual margins share one scale; the break is drawn as a fixed **28 px hatched seam**
+  the visual margins share one scale; the break is drawn as a fixed **28 px seam**
   (`BREAK_BAND_HEIGHT` in `geometry.ts`) however tall an hour is — "hay un hueco pero es
   despreciable". A margin is never compressed: the owner puts real work in one by hand.
+  - **The seam is DISCREET: the margins' own grey fill between two hairlines in the ordinary
+    border colour.** No hatch, no heavy rules. Three things already say "nothing lives here" —
+    it is the same grey as the top and bottom margins (a margin and the comida are the same kind
+    of nothing), it spans the week edge to edge and square (nothing else on the grid has that
+    shape, so it cannot be misread as a very short block), and 28 px where an hour is 50-plus is
+    itself the statement.
   - The fitted scale is spread over WORKING minutes only, each seam costing its flat height first.
   - **Both directions stay exact everywhere, seam and margins included** — see *One Axis Per Gesture*.
     A pixel inside the seam is worth ~3 minutes instead of ~1; **what a pointer in there MEANS is
     unchanged**: a resize counts net working minutes, so the seam is the same dead zone it always was
-    (14:00, 15:00 and 15:29 commit the same duration), and a drop still lands on the minute it was
-    released on and padlocks.
+    (14:00, 15:00 and 15:29 commit the same duration), and a DROP is now read the same way — every
+    minute of the seam means 15:30 (*A Minute With No Working Time*). Nobody works there, so a target
+    that redirects to the first minute they do is the answer, not a harder aim.
   - **A rectangle is the clock interval it occupies** (`Timeline.heightBetween`). No row straddles a
     break, so a block's height is its own minutes exactly; a GAP may span one and covers the seam.
 - **Every hour is labelled**, plus both edges of every period. A label is dropped only where it would
@@ -765,7 +809,7 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
     stretching to 28 — and two 18 px labels do not fit in 9 px, so `14:00` and `14:10` printed one
     through the other. The margins step in half hours, so at `MIN_PIXELS_PER_HOUR` a 0.5 h margin puts
     the axis end 21 px from `08:00`. **The earlier of two edges survives** (it is when work stops), and
-    the boundary is not lost with its label: the seam draws a solid rule on both of its own edges.
+    the boundary is not lost with its label: the seam draws a rule on both of its own edges.
   - **Nothing left on the axis ever overlaps anything else** — asserted as a property over every shift
     Settings can produce at every scale the window can ask for, not just the cases above.
   - The two hanging classes (`.tickFirst` / `.tickLast`) are keyed on the MINUTE, never on the tick's
@@ -806,7 +850,7 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   - **And the drawn footprint never leaves the day** (`footprintWithinDay`). `segmentDroppedRow` returns
     a stretch UNCUT when its tail would pass midnight, so the server can refuse the drop as it was
     made — and since the drag unit is the whole RUN, that is the ORDINARY case, not a corner: an 18 h
-    run drew a single rectangle over the entire column, hatched seam included, on every day the
+    run drew a single rectangle over the entire column, seam included, on every day the
     pointer crossed. The drawing is capped at the net minutes the day can still hold, so the shape is
     one that can exist; the label beside it already says the rest does not fit today. Storage is
     untouched — only the rectangle is.
@@ -856,10 +900,12 @@ per branch.
   window the columns scroll inside it. On the left it is the whole **time-axis gutter** (58 px),
   which belongs to no day; on the right, where there is no gutter, the last **40 px of Sunday**
   (`EDGE_ZONE_PX`). Past the frame counts as inside the strip.
-- **How long.** **500 ms** for the first turn, then **320, 240, 200** for the repeats
-  (`edgeDelayFor`). A repeat is only scheduled once the week the last one asked for has ARRIVED, so
-  the gesture can never outrun the calendar, and a week that fails to load stops the hold instead of
-  hammering the endpoint.
+- **How long.** **500 ms** for the first turn, then a **constant 800 ms** for every repeat
+  (`edgeDelayFor`, `EDGE_REPEAT_DELAY_MS`). The repeat is a metronome, not an acceleration: a hold
+  has to be **stoppable** on the week it was aimed at, and the rail names its destination by dates,
+  which a pace that outruns its own label makes pointless. A repeat is only scheduled once the week
+  the last one asked for has ARRIVED, so the gesture can never outrun the calendar, and a week that
+  fails to load stops the hold instead of hammering the endpoint.
 - **What it looks like.** Both rails are drawn for as long as a MOVE is in the air and never
   otherwise — that is how the gesture is discovered rather than fallen into. Each names the week it
   leads to by its dates. The one the pointer is in fills over exactly the wait that is running, so
@@ -873,14 +919,40 @@ per branch.
 - **The axis is untouched.** Paging changes the COLUMNS; *One Axis Per Gesture* is about the vertical
   mapping, which the screen holds still for as long as a block is in the air.
 - **The drop is resolved against the week it is released in**, because the day, the rows and the
-  taken starts are all read at the release. Two consequences are wired for it: the preview falls back
-  to the NEAREST column when the date it remembers has left the screen, and the ghost is
+  taken starts are all read at the release. **Three** consequences are wired for it: the preview
+  falls back to the NEAREST column when the date it remembers has left the screen; the ghost is
   re-resolved from the last pointer position the moment the columns change, without waiting for the
-  hand to move.
+  hand to move, in a LAYOUT effect so no paint and no event can fall between the two; and the
+  RELEASE itself re-resolves rather than committing the preview it happens to be holding. The
+  re-resolve is pure, so with nothing changed underneath it returns the ghost the owner was looking
+  at, to the minute.
 - **Released before the new week has arrived**, the drop belongs to the week that was on screen and
   the pending page turn is cancelled (`showWeekOf`), so the owner is never left looking at a week
   their block is not in.
 - **Escape still cancels the drag**; the week paged to stays, since nothing was written.
+
+### A Week Change Says Which Way It Went
+> **A new week slides in from the side it came from: forward it enters from the right, back from the
+> left. 180 ms, `ease-out`, 26 px, opacity 0.2 to 1. The FIRST week never slides — opening the app is
+> not a page turn — and a refetch of the SAME week never slides, because a save must not look like
+> one.**
+
+- **The direction is DERIVED, not passed in** (`useWeekSlide`, by comparing this week's Monday with
+  the last one), so the header buttons, the arrow keys, `Hoy` and the edge hold all get it for free
+  and none of them can get it wrong.
+- **What moves is what belongs to the WEEK**: each column's blocks, gaps and `libre` pill, inside a
+  `.columnBody` wrapper, and each day header's WORDS. Moving the header's BOX instead puts its border
+  26 px from the column border under it, which reads as misalignment rather than motion.
+- **What does NOT move**: the axis, the grey bands, the hour rules and the time-axis header cell —
+  the shape of a day is the same in every week, and a horizontal rule sliding sideways reads as
+  breakage. Neither does the **GHOST**, which is a sibling of `.columnBody` and not a child of it:
+  the one rectangle that promises where the block in the owner's hand will land may never slide out
+  from under the pointer.
+- **And it may not move the CALENDAR.** `translateX` past the last column's right edge is scrollable
+  overflow, and a scrollbar appearing for 180 ms narrowed the whole grid by 15 px and jumped the
+  ghost 14 px sideways under a still hand. A column therefore clips sideways **while, and only
+  while, its contents are travelling** (`.columnSliding`) — permanently would hide most of the
+  settle, which crosses a whole column.
 
 ### Block Gestures
 - **Drag the body**: move the whole RUN — this reorders the queue and triggers a reflow.
@@ -1024,9 +1096,16 @@ The reproductions are in DECISIONS.md § *Reproductions behind the Open Decision
 4. **A resize may grow a row over another job, or over a gap, wherever the reflow cannot separate
    them.** Candidates: refuse naming the row or the gap; cut at the obstacle the way a drop does; or
    keep allowing it and draw the overlap on purpose.
-5. **A drop released in the lunch band stores one solid row straight through the break.** Candidates:
-   cut it at 15:30 like every other drop; refuse a release inside the band for anything that would
-   not fit inside it; or clamp the ghost to 15:30 while the pointer is in the band.
+5. ~~**A drop released in the lunch band stores one solid row straight through the break.**~~
+   **ANSWERED 2026-08-17 — and it was not a question about what a gesture means after all.** It was
+   listed here because the STORED shape looked like latitude *A Drop Is Stored In Segments* granted
+   on purpose. It is not: the data model states as an INVARIANT that no stored row straddles a
+   non-working interval, "and this holds for a HAND DROP too", so the two rules contradicted each
+   other and the invariant is the one that is load-bearing — rendering, the overlap maths and
+   auto-merge all rest on it. The rule now is *A Minute With No Working Time Means The Next Minute
+   That Has Some*: a release anywhere in the break starts at 15:30 and is cut like any other drop.
+   **One consequence is a real change and wants the owner's eye**: a Monday-Thursday drop aimed at
+   the break no longer padlocks, because at 15:30 there is nothing left for a padlock to protect.
 6. **A drop whose grab offset pushes the unit above the axis lands hours away from the pointer and
    padlocks it on a Monday-Thursday day.** Candidates: do not count clamp-forced minutes as a
    request; clamp to the first minute inside the PERIODS on an auto-fill day; or measure the grab
@@ -1088,8 +1167,8 @@ The reproductions are in DECISIONS.md § *Reproductions behind the Open Decision
 
 ## Current Project Status
 
-**v0.11 (current).** The engine, the API, the week view, the gestures and the drag layer are built
-and green: `tsc --noEmit` clean, `vitest run` 747 passing across 25 files (including four 2000-seed
+**v0.12 (current).** The engine, the API, the week view, the gestures and the drag layer are built
+and green: `tsc --noEmit` clean, `vitest run` 820 passing across 27 files (including four 2000-seed
 property harnesses over placement, editing, drops and shrinking), `next lint` clean, `next build`
 clean.
 

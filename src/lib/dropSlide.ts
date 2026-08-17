@@ -36,7 +36,7 @@
 
 import { addDays } from './dates';
 import { segmentDroppedRow, overlapsSegments, type DropSegment } from './dropSegments';
-import { clockEndOf, dayEndMinutes } from './manualWindow';
+import { clockEndOf, dayEndMinutes, firstWorkingMinute } from './manualWindow';
 import type { WorkPeriod } from '../types';
 
 export interface DropSlideInput {
@@ -82,7 +82,7 @@ export function firstClearStart(input: DropSlideInput): number | null {
         ? null
         : startMinutes;
     }
-    startMinutes = insideWindows(input.windows, hit.startMinutes + hit.durationMinutes);
+    startMinutes = firstWorkingMinute(input.windows, hit.startMinutes + hit.durationMinutes);
   }
   return null;
 }
@@ -156,13 +156,27 @@ const MAX_LANDING_DAYS = 14;
  *   periods is left exactly where it was released, and the write path's own end-of-day
  *   refusal answers for it on the day the owner actually chose.
  *
+ * AND IT SETTLES THE MINUTE BEFORE THE DAY. A release with no working time under it — the
+ * lunch break — is read as the next minute that has some (`firstWorkingMinute`), because
+ * everything below measures the drop from its start and everything above the write decides
+ * from it: the padlock, the queue rank, the ghost's rectangle. Where there is no later
+ * working minute (past the end of the day, or a day whose afternoon is switched off) the
+ * release is left alone and the roll below is what answers for it.
+ *
  * Pure arithmetic over integer minutes, so the drag ghost can reach the same landing the
  * server will store: same reason `firstClearStart` and `segmentDroppedRow` live here.
  */
 export function dropLanding(input: DropLandingInput): DropLanding {
-  const released = { date: input.date, startMinutes: input.startMinutes };
   const here = input.dayOf(input.date);
-  if (fitsFrom(here.manualWindows, input.startMinutes, input.durationMinutes)) return released;
+  // A MINUTE WITH NO WORKING TIME MEANS THE NEXT MINUTE THAT HAS SOME. Aiming at the lunch
+  // break asks for work in a slot that does not exist, so the drop starts where the shop can
+  // start: 14:00, 15:00 and 15:29 all mean 15:30. It is settled HERE rather than only at the
+  // write, because this one start is what the rest of the gesture is decided from — whether
+  // the row is padlocked (`pinsTheRow`), the queue rank it takes, and the rectangle the
+  // ghost draws, which imports this function so it cannot answer differently.
+  const startMinutes = firstWorkingMinute(here.manualWindows, input.startMinutes);
+  const released = { date: input.date, startMinutes };
+  if (fitsFrom(here.manualWindows, startMinutes, input.durationMinutes)) return released;
   if (!here.reflows) return released;
 
   const horizon = input.maxDays ?? MAX_LANDING_DAYS;
@@ -186,13 +200,4 @@ function fitsFrom(
   netMinutes: number,
 ): boolean {
   return clockEndOf(windows, startMinutes, netMinutes) <= dayEndMinutes(windows);
-}
-
-/** `minute`, moved forward to the first minute a window actually covers. */
-function insideWindows(windows: readonly WorkPeriod[], minute: number): number {
-  for (const window of windows) {
-    if (minute < window.startMinutes) return window.startMinutes;
-    if (minute < window.endMinutes) return minute;
-  }
-  return minute;
 }

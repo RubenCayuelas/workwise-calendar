@@ -22,6 +22,7 @@
  */
 
 import { MINUTES_PER_DAY } from './dates';
+import { firstWorkingMinute } from './manualWindow';
 import type { WorkPeriod } from '../types';
 
 /** One stored row's worth of a drop. A drop across the lunch break has two. */
@@ -44,14 +45,25 @@ export interface DropSegment {
  * in a margin runs on into the period below it with no boundary between them, which is
  * what makes the margins usable at all.
  *
- * Three things it deliberately leaves alone, all of them latitude a hand action already
- * has and none of them a straddle:
+ * A ROW WHOSE START IS NOT WORKING TIME BEGINS AT THE NEXT MINUTE THAT IS
+ * (`firstWorkingMinute`), and is then cut like any other. **The returned start may
+ * therefore differ from the one that was asked for, and a caller must read it back.** It
+ * used to be left alone — "there is no boundary inside such a row to cut it at" — and that
+ * was wrong twice over: the boundary is AHEAD of such a row, not inside it, so 2 h released
+ * at 14:00 came back as one row `14:00 +120m -> 16:00`, straight through the break the data
+ * model says no stored row may cross, claiming two hours of work where ninety minutes of it
+ * is lunch. It was not an off-by-one at the edge either: every minute from 14:00 to 15:29
+ * did it, because none of them belongs to a window.
  *
- * - a row that STARTS outside every window — in the lunch band itself, say. There is no
- *   boundary inside such a row to cut it at;
- * - the minutes that run past the LAST window. They stay on the final row;
- * - anything whose tail would land past midnight. A row is a rectangle inside ONE day,
- *   so the drop is left precisely as it was made rather than half-cut.
+ * Two things it still deliberately leaves alone, both of them latitude a hand action really
+ * has and neither of them a straddle:
+ *
+ * - the minutes that run past the LAST window. They stay on the final row, and the
+ *   end-of-day guard is what has an opinion about them;
+ * - anything whose tail would land past midnight, INCLUDING after the start moved forward.
+ *   A row is a rectangle inside ONE day, so the drop is returned precisely as it was made —
+ *   at the start it was made at — rather than half-cut, and the caller refuses it as such
+ *   (`assertFitsInDay`, and the drawn-footprint cap in the ghost).
  *
  * Always returns at least one segment, so a caller can read `[0]` without a guard.
  */
@@ -60,7 +72,7 @@ export function segmentDroppedRow(
   row: DropSegment,
 ): DropSegment[] {
   const rows: DropSegment[] = [];
-  let startMinutes = row.startMinutes;
+  let startMinutes = firstWorkingMinute(windows, row.startMinutes);
   let remaining = row.durationMinutes;
 
   for (let index = 0; index + 1 < windows.length; index += 1) {
@@ -75,8 +87,8 @@ export function segmentDroppedRow(
     startMinutes = breakEnd;
   }
 
-  if (rows.length === 0) return [{ ...row }];
   if (startMinutes + remaining > MINUTES_PER_DAY) return [{ ...row }];
+  if (rows.length === 0) return [{ startMinutes, durationMinutes: remaining }];
   rows.push({ startMinutes, durationMinutes: remaining });
   return rows;
 }

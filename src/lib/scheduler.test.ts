@@ -1344,6 +1344,186 @@ describe('the end of the day is a line no write may cross', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// The lunch break is not a slot: a gesture aimed at it means 15:30
+// ---------------------------------------------------------------------------
+//
+// The OTHER edge of the same line, and it was open in the other direction. The manual
+// windows are `07:00-14:00` and `15:30-20:30`, so 14:00 is the exclusive END of the first
+// and before the start of the second: it belongs to no window, the segmenter found no
+// boundary to cut against, and the drop was stored WHOLE —
+//
+//     dropped at 13:30  ->  `13:30-14:00 (30m)` + `15:30-17:00 (90m)`   correct
+//     dropped at 14:00  ->  `14:00 +120m -> 16:00`                       one illegal row
+//
+// — running straight through the break and claiming two hours of work where ninety minutes
+// of it is lunch. It was never an off-by-one at the edge: every minute from 14:00 to 15:29
+// did it, and so did the scissors' target.
+//
+// The rule, in one line: A GESTURE AIMED AT A MINUTE WITH NO WORKING TIME MEANS THE NEXT
+// MINUTE THAT HAS SOME (`firstWorkingMinute`). Aiming at 14:00 asks for a slot that does not
+// exist, and the break is already an arithmetic dead zone for a resize — 14:00, 15:00 and
+// 15:29 all commit the same duration — so answering all three with 15:30 is the reading the
+// gesture already had everywhere else. It is deliberately NOT the visual margins' latitude:
+// a margin is workable time the owner chose and a row may sit in one, while the break is not
+// workable at all.
+//
+// The cases below are the boundary minutes, never a sample from the middle.
+
+describe('the lunch break is not a slot', () => {
+  it('stores a drop aimed anywhere in the break from 15:30, on a day that keeps the minute', () => {
+    // Saturday keeps the exact minute a drop asks for, so what is stored here is the whole
+    // promise: an error on this day is permanent.
+    for (const startMinutes of [14 * 60, 14 * 60 + 1, 14 * 60 + 30, 15 * 60, 15 * 60 + 29]) {
+      db.close();
+      db = openDatabase(':memory:');
+      const uno = job('Uno', 2);
+
+      moveBlock(uno.blocks[0].id, { date: SAT, startMinutes, today: MON }, db);
+
+      expect(calendar(), `released at ${minutesToHHmm(startMinutes)}`).toEqual([
+        `${SAT} 15:30-17:30 Uno [locked]`,
+      ]);
+      expect(() => assertProjectHours(db)).not.toThrow();
+    }
+  });
+
+  it('still cuts a drop released on the last minute of the morning', () => {
+    // 13:45 IS working time, so it is its own answer and the break is where it is cut. This is
+    // the case that always worked, and it has to keep working: the fix must move the minutes
+    // with no work in them and nothing else.
+    const uno = job('Uno', 2);
+
+    moveBlock(uno.blocks[0].id, { date: SAT, startMinutes: 13 * 60 + 45, today: MON }, db);
+
+    expect(calendar()).toEqual([
+      `${SAT} 13:45-14:00 Uno [locked]`,
+      `${SAT} 15:30-17:15 Uno [locked]`,
+    ]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('does not padlock a Monday-Thursday drop aimed at the break, because 15:30 is a period', () => {
+    // It used to, and it had to: the row was stored where it was released, and the engine's
+    // only possible answer to a row in the lunch band is to undo the drop. Read as 15:30 the
+    // request is an ordinary one, so the drop is a queue RANK like any other Mon-Thu drop and
+    // the reflow settles it — which is the documented rule, not a new one.
+    job('Uno', 2);
+    const dos = job('Dos', 2, GREEN);
+
+    const result = moveBlock(dos.blocks[0].id, { date: WED, startMinutes: 14 * 60, today: MON }, db);
+
+    expect(calendar()).toEqual([`${MON} 08:00-10:00 Uno`, `${MON} 10:00-12:00 Dos`]);
+    expect(result.block?.locked).toBe(false);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('padlocks it at 15:30 when the DAY is what pins the drop', () => {
+    // The Friday colchón and the weekend still pin, because there the pin is about the day.
+    const uno = job('Uno', 2);
+
+    moveBlock(uno.blocks[0].id, { date: FRI, startMinutes: 15 * 60, today: MON }, db);
+
+    expect(calendar()).toEqual([`${FRI} 15:30-17:30 Uno [locked]`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('sends the scissors\' fragment to 15:30 too', () => {
+    // The fragment IS a drop, so it takes the same reading. It used to store `14:00 +120m`.
+    const uno = job('Uno', 6);
+
+    splitBlock(
+      uno.blocks[0].id,
+      { durationMinutes: 2 * 60, date: SAT, startMinutes: 14 * 60, today: MON },
+      db,
+    );
+
+    expect(calendar()).toEqual([`${MON} 08:00-12:00 Uno`, `${SAT} 15:30-17:30 Uno [locked]`]);
+    expect(listProjects(db)[0].totalMinutes).toBe(6 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('rolls a drop the afternoon cannot hold to the next day, measured from 15:30', () => {
+    // 5 h from 15:30 reaches 20:30, the day's last minute; 5 h 15 reaches past it. Thursday's
+    // next day is the colchón, so the roll shows up in what is stored — and it is the roll,
+    // not a row hanging below the grid.
+    const uno = job('Uno', 5.25, BLUE, THU);
+    const unit = listBlocks(db);
+
+    moveBlock(
+      unit[0].id,
+      { date: THU, startMinutes: 14 * 60, unitBlockIds: unit.map((row) => row.id), today: THU },
+      db,
+    );
+
+    expect(calendar()).toEqual([`${FRI} 08:00-13:15 Uno [locked]`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('takes a row a settings change stranded in the break out of it on the next resize', () => {
+    // The one way a row can still START in the break: the owner shortens the morning under a
+    // row that was legally placed. Nothing rewrites it where it sits — the past-and-present
+    // rows keep their hours — but the moment a gesture rewrites its LENGTH, the new segments
+    // are laid out from the first minute that can hold work, so the row stops crossing the
+    // break instead of being grown further through it.
+    const uno = job('Uno', 2, BLUE, THU);
+    updateSettings({ period1End: '13:00', period2Start: '15:30' }, { today: THU }, db);
+    // Recomposed against the shorter morning, the row is back inside a period; put it in the
+    // break by hand, where the settings change can leave one.
+    updateBlock(
+      {
+        id: uno.blocks[0].id,
+        projectId: uno.project.id,
+        date: THU,
+        startMinutes: 14 * 60,
+        durationMinutes: 2 * 60,
+        locked: true,
+        manualDuration: false,
+      },
+      db,
+    );
+    expect(calendar()).toEqual([`${THU} 14:00-16:00 Uno [locked]`]);
+
+    resizeBlock(listBlocks(db)[0].id, { durationMinutes: 3 * 60, today: THU }, db);
+
+    expect(calendar()).toEqual([`${THU} 15:30-18:30 Uno [locked]`]);
+    expect(listProjects(db)[0].totalMinutes).toBe(3 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('leaves a GAP across the break exactly where it was put', () => {
+    // A gap's `duration` is CLOCK minutes, not net working time — "stop the day here" makes
+    // one straight across the comida on purpose, and the grid draws it over the seam. So the
+    // rule above must not touch it: gaps are the one row that MAY span a break.
+    createGap({ date: THU, startMinutes: 14 * 60, durationMinutes: 120, reason: 'Averia', today: THU }, db);
+
+    expect(gapLines()).toEqual([`${THU} 14:00-16:00 Averia`]);
+  });
+
+  it('leaves the hole after the last window alone when the afternoon is switched off', () => {
+    // The day becomes `07:00-15:00` — the morning and its two margins — and the hole after it
+    // runs to midnight. There is no later working minute to offer, so the release stands and
+    // the day's own end is what answers: a roll on a day the engine lays out, a refusal on one
+    // it does not.
+    updateSettings({ period2Enabled: false }, { today: THU }, db);
+    const uno = job('Uno', 2, BLUE, THU);
+
+    // On a day the engine lays out, the roll answers: Thursday's next day is the colchón, and
+    // landing there padlocks the row like any other Friday drop.
+    moveBlock(uno.blocks[0].id, { date: THU, startMinutes: 18 * 60, today: THU }, db);
+    expect(calendar()).toEqual([`${FRI} 08:00-10:00 Uno [locked]`]);
+
+    // On a day it does not lay out there is nowhere to roll to, so the end-of-day guard is
+    // what answers, and it writes nothing.
+    const error = refusal(() =>
+      moveBlock(listBlocks(db)[0].id, { date: SAT, startMinutes: 18 * 60, today: THU }, db),
+    );
+    expect(error.code).toBe('row-past-day-end');
+    expect(calendar()).toEqual([`${FRI} 08:00-10:00 Uno [locked]`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+});
+
 describe('a drop names the whole unit, so a unit moves in ONE transaction', () => {
   it('moves both halves of a lunch-split unit, and lands where the ghost drew it', () => {
     // One PATCH per row with a full reflow between them left part of the unit behind: the

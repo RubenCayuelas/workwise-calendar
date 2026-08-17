@@ -84,6 +84,39 @@ export function manualWindowsOf(
 }
 
 /**
+ * THE FIRST MINUTE AT OR AFTER `minute` THAT `intervals` ACTUALLY COVER — the answer to
+ * "the owner aimed HERE; where can work really start?"
+ *
+ * A minute inside a window is its own answer, so this is a no-op for every ordinary
+ * gesture. It exists for the minutes that are not: **the lunch break**, where a gesture
+ * aimed at a slot that does not exist and the honest reading is the next one that does.
+ * On the documented shift 14:00, 15:00 and 15:29 all mean 15:30, which is already exactly
+ * what the same band means to a RESIZE — `netMinutesBetween` counts no working minutes in
+ * there, so all three commit the same duration.
+ *
+ * WHY IT IS NOT A CLAMP AND NOT A REFUSAL. Left as it came, a start in the break makes a
+ * stored row claim work in time the shop cannot work: 2 h released at 14:00 was saved as
+ * ONE row `14:00 +120m -> 16:00`, ninety minutes of which is lunch, straddling the break
+ * that the data model says no stored row may cross. Refusing instead would answer a plain
+ * gesture — "put it after lunch" — with an error about a minute.
+ *
+ * `minute` IS RETURNED UNCHANGED WHEN NO WINDOW EVER COVERS IT AGAIN: past the end of the
+ * day, and on a day whose afternoon is switched off, where the hole after the last window
+ * runs to midnight. There is no later working minute to offer, so the answer belongs to
+ * `dayEndMinutes` and its callers — the drop rolls to the next day, or the write path
+ * refuses — and inventing a start here would hide that from them.
+ */
+export function firstWorkingMinute(intervals: readonly WorkPeriod[], minute: number): number {
+  let answer: number | undefined;
+  for (const interval of intervals) {
+    if (minute >= interval.endMinutes) continue;
+    const candidate = Math.max(minute, interval.startMinutes);
+    if (answer === undefined || candidate < answer) answer = candidate;
+  }
+  return answer ?? minute;
+}
+
+/**
  * Minutes of `intervals` inside `[from, to)`. Zero across the lunch break and across a
  * margin when `intervals` are the periods; zero only across the lunch break when they
  * are the manual windows. That difference is the whole point of the two views.
@@ -114,10 +147,19 @@ export function netMinutesOf(intervals: readonly WorkPeriod[]): number {
  *
  * From inside a window it is that window from `startMinutes` on, PLUS every later
  * window: a row starting at 10:00 can be dragged to 17:30 and the lunch break in between
- * contributes nothing, which is exactly the owner's worked example. From inside a HOLE —
- * the lunch band, or past the last window — it is that hole alone, up to the next
- * window's start, because a row is a solid rectangle and may not swallow working time it
- * does not own. `endOfDayMinutes` closes the last hole (the axis's own end).
+ * contributes nothing, which is exactly the owner's worked example.
+ *
+ * FROM INSIDE THE BREAK IT IS THE WINDOWS AFTER IT, because that is where the row itself
+ * starts: `firstWorkingMinute` is the one reading of a non-working start, and this function
+ * has to give the same one `segmentDroppedRow` does or `clockEndOf` — which is built on it,
+ * and which the end-of-day guard and the drop's landing both consult — would describe a row
+ * the write path stores somewhere else. It used to return the HOLE ALONE, up to the next
+ * window's start, which read the row as sitting in the lunch band and is what let a 2 h
+ * release at 14:00 be measured (and stored) as `14:00-16:00`.
+ *
+ * PAST THE LAST WINDOW there is no later working minute, so it is that hole alone and
+ * `endOfDayMinutes` closes it (the axis's own end). A row stranded out there by a settings
+ * change keeps its hours and can still be shortened; it can never be grown.
  */
 export function reachableRuns(
   manualWindows: readonly WorkPeriod[],
@@ -125,24 +167,16 @@ export function reachableRuns(
   endOfDayMinutes: number,
 ): WorkPeriod[] {
   const ordered = [...manualWindows].sort((a, b) => a.startMinutes - b.startMinutes);
+  const from = firstWorkingMinute(ordered, startMinutes);
   const runs: WorkPeriod[] = [];
 
   for (const window of ordered) {
-    if (window.endMinutes <= startMinutes) continue;
-    if (window.startMinutes <= startMinutes) {
-      runs.push({ startMinutes, endMinutes: window.endMinutes });
-      continue;
-    }
-    // The first window that begins AFTER the row does. With no run open yet the row
-    // starts in a hole and stops where that hole does.
-    if (runs.length === 0) {
-      return [{ startMinutes, endMinutes: Math.max(startMinutes, window.startMinutes) }];
-    }
-    runs.push({ ...window });
+    if (window.endMinutes <= from) continue;
+    runs.push({ startMinutes: Math.max(window.startMinutes, from), endMinutes: window.endMinutes });
   }
 
   if (runs.length === 0) {
-    return [{ startMinutes, endMinutes: Math.max(startMinutes, endOfDayMinutes) }];
+    return [{ startMinutes: from, endMinutes: Math.max(from, endOfDayMinutes) }];
   }
   return runs;
 }
@@ -174,9 +208,13 @@ export function dayEndMinutes(manualWindows: readonly WorkPeriod[]): number {
  * `duration` is net working time, so this is the one conversion that turns a gesture's
  * number back into the geometry it will occupy: 6 h at 13:15 reaches 20:45, because the
  * 45 minutes before lunch and the 5 h after it leave a quarter of an hour to put
- * somewhere. It agrees with `segmentDroppedRow` by construction, including its two
- * latitudes: a row that starts inside a hole is not cut, and there `start + net` is
- * exactly what this returns.
+ * somewhere.
+ *
+ * It agrees with `segmentDroppedRow` by construction, and that agreement is load-bearing:
+ * both read a non-working start through `firstWorkingMinute`, so 2 h at 14:00 ends at
+ * 17:30 here and is stored as `15:30-17:30` there. The two would otherwise disagree by the
+ * whole break, and the end-of-day guard, the drag's clamp and the drop's landing all decide
+ * from this number what the write path will do with that one.
  */
 export function clockEndOf(
   manualWindows: readonly WorkPeriod[],
@@ -271,9 +309,15 @@ export function manualOnlyMinutes(
 }
 
 /**
- * True when `segments` ask for a real amount of time the day's PERIODS do not cover — a
- * visual margin, or the lunch band itself. The grid draws exactly that time grey and
- * labels it "solo arrastre manual".
+ * True when `segments` ask for a real amount of time the day's PERIODS do not cover — in
+ * practice a VISUAL MARGIN. The grid draws exactly that time grey and labels it "solo
+ * arrastre manual".
+ *
+ * The lunch band is drawn the same grey but is no longer reachable this way by a drop or a
+ * resize: `segmentDroppedRow` lays both out from `firstWorkingMinute`, so their segments start
+ * inside a period. What can still score break minutes here is a segment the segmenter returned
+ * UNCUT because its tail would pass midnight — an over-long RUN — which is one of the three
+ * things CLAUDE.md's Open Decision 13 deliberately leaves feeding on that number.
  *
  * It is what decides that a hand action has to PADLOCK its row: the engine's index space
  * has no margin minutes in it, so a row the reflow still owns would be pulled straight

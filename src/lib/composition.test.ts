@@ -23,7 +23,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MINUTES_PER_DAY, compareDates, hhmmToMinutes as t, isWeekend, minutesToHHmm } from './dates';
 import { DEFAULT_SETTINGS, dayShapeFromSettings } from './settings';
-import { manualWindowsOf } from './manualWindow';
+import { firstWorkingMinute, manualWindowsOf } from './manualWindow';
 import { MIN_ROW_MINUTES } from './validation';
 import type { Block, DayOverride, DayShape, Gap } from '../types';
 import {
@@ -4553,7 +4553,14 @@ function straddlesABreak(
   const end = row.startMinutes + row.durationMinutes;
   return union.some((period, index) => {
     const next = union[index + 1];
-    return next !== undefined && row.startMinutes < period.end && end > next.start;
+    if (next === undefined) return false;
+    // Minutes on BOTH sides of the hole.
+    if (row.startMinutes < period.end && end > next.start) return true;
+    // Or a start INSIDE the hole, running out of it. This half was missing, and it is the
+    // shape a drop released in the lunch band used to store: no period covers 14:00, so
+    // `startMinutes < period.end` is false for `14:00 +120m -> 16:00` and the test above
+    // said nothing about a row holding ninety minutes of lunch.
+    return row.startMinutes >= period.end && row.startMinutes < next.start && end > next.start;
   });
 }
 
@@ -4915,11 +4922,21 @@ describe('a drop the reflow WILL settle holds over the same generated calendars'
       // The dropped row keeps the slot the owner dropped it in; only what it landed in
       // moves. Its LENGTH may be cut at the lunch break — a stored row never straddles
       // one — so the hours are checked as a total over its segments.
+      //
+      // "The slot it was dropped in" is the first minute of it that is WORKING TIME: a start
+      // inside the break is read as the next minute the shop can start at, here as everywhere
+      // else. On this side that minute is only a queue RANK, so nothing is being pinned by
+      // it — but it has to be the same minute `segmentDroppedRow` uses, or the cut below and
+      // the rank would be measured from two different places.
       const after = resolved.blocks.find((row) => row.id === dropped.id);
+      const droppedStart = firstWorkingMinute(
+        composeInput.getDayConfig(dropped.date).manualWindows,
+        dropped.startMinutes,
+      );
       expect(
         `${after?.date} ${after?.startMinutes} ${after?.locked}`,
         `${where}: the drop itself was moved`,
-      ).toBe(`${dropped.date} ${dropped.startMinutes} ${dropped.locked}`);
+      ).toBe(`${dropped.date} ${droppedStart} ${dropped.locked}`);
       // Only the DROP's own rows: on this side a cut victim's tail is a queue RANK and
       // not a placement — one row carrying the tail's hours, ranked just behind the drop —
       // so it may well read `13:30 + 150 min` across the break. `compose` re-lays it out

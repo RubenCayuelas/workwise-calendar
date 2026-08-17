@@ -555,12 +555,9 @@ exist. Hence the rails, which are not decoration but the feature's discoverabili
   sliced down the middle (`08:00` reading as `0`), so it became the gutter's own width — and the
   rail draws itself over `max(--ww-edge-zone, --ww-axis-width)`, the same number the grid's column
   template is built from, so the trigger and the paint cannot drift apart.
-- **The wait: 500 ms, then 320, 240, 200.** Long enough that no drag merely PASSING through the
-  strip ever fires, short enough not to feel stuck — the owner asked for *«fluido y ligero»*. The
-  repeats shorten because the first turn has already proved the intent, and they stop at 200 ms
-  because a week that goes past faster than that cannot be read on the way. Measured on the running
-  app: a continuous hold walked 34 → 39 in about 1.5 s, and each week's dates were legible on the
-  rail as it went.
+- **The wait: 500 ms, then ~~320, 240, 200~~ a constant 800 ms** (revised 2026-08-17, see *The
+  Repeat Is a Metronome* below). 500 ms is long enough that no drag merely PASSING through the strip
+  ever fires and short enough not to feel stuck — the owner asked for *«fluido y ligero»*.
 - **The rail's fill lasts exactly the wait that is running** — `EdgeHold.delayMs` is published by
   the drag layer rather than re-derived in CSS, because a progress bar that finishes before or after
   the thing it measures is worse than none.
@@ -606,11 +603,115 @@ the case where the row DID stay: it names the day, the week, and the way back to
 
 **Verified in a real browser, 2026-08-17** (scratch DB, 1646×963): rails drawn on both ends the
 moment a block leaves the ground, naming `10–16 ago 2026` and `24–30 ago 2026`; a hold at the right
-edge pages after ~500 ms and repeats accelerating; the ghost follows onto the new week's column
+edge pages after ~500 ms and then repeats at a steady pace; the ghost follows onto the new week's column
 without the pointer moving; the arrow keys page both ways mid-drag; a padlocked run dropped on
 Wednesday 26 August landed exactly there with the `movedWeek` sentence; a 10 h run released on
 Saturday 29 August landed on the two ghost rectangles **to the pixel** (`top 257 h 261` and
 `top 546 h 261`, stored `09:00 +5 h` and `15:30 +5 h`, padlocked).
+
+---
+
+## The Repeat Is a Metronome, Not an Acceleration
+
+**Revised 2026-08-17, from the owner using it:** *«si mantengo el ratón ahí empieza a ir como loco
+semana a semana»*. The ramp — 320, then 240, then 200 ms — was argued from "by the second turn the
+owner has already said what they want". What it actually proved is that a hold had no brakes. Measured
+before the change: 2.5 s at the edge walked from **week 34 to week 41**, nine weeks, and a hold that
+travelled 34 → 41 in 2.9 s.
+
+**Nobody at the edge of a calendar is looking two months out.** They are looking one or two weeks
+ahead and want to stop on one. So the number is chosen for STOPPING, and the three constraints pin it
+between about 600 and 1000 ms:
+
+- **Stoppable.** Reaction to a change on screen is around 250 ms and the hand then has to travel out
+  of the strip. Under about half a second the week the owner meant to stop on is already gone, which
+  is exactly what «como loco» describes.
+- **Readable.** The rail names its destination by DATES. A pace that outruns its own label makes the
+  label pointless, and the label is how the owner knows where they are going.
+- **Alive.** Past about a second the calendar feels stuck to the pointer, which is the failure the
+  500 ms first wait was tuned away from.
+
+**800 ms.** A little over a week a second: brisk, and countable. The ramp is gone entirely —
+`edgeDelayFor` is two values, because the first turn is the one the owner must be protected from
+firing by accident and every turn after it is one they must be able to stop on. A test holds the
+constant inside the 600–1000 ms window so the next agent has to argue with the reasoning rather than
+just the number.
+
+**Measured on the running app** (holding still, no pointer events, six seconds at each end): first
+turn at **503 ms** going forward and **497 ms** going back; then 809, 885, 896, 870, 897, 887, 880 ms
+forward and 875, 879, 868, 847, 878, 863, 842 ms back. The ~70 ms over 800 is the repeat being gated
+on the week ARRIVING, which was already the design. Eight weeks in 6.6 s, both directions — 1.2 weeks
+a second. The owner's own 2.5 s now travels **3 weeks** instead of nine.
+
+---
+
+## A Week Change Says Which Way It Went
+
+**Asked for by the owner, 2026-08-17:** *«estaría bien alguna animación fluida que indique visualmente
+que se ha cambiado de semana tanto adelante como hacia atrás»*. Paging was silent: seven columns
+replaced in one frame, and the only thing saying which way was the header label — which the owner is
+not reading, because they are looking at the block in their hand.
+
+**Directional, or it says nothing.** An animation that looks the same both ways says "something
+changed", which the owner already knew. Forward the new week enters from the right, back from the
+left: two mirror keyframes and no other difference between them, so the direction is readable without
+being counted. 180 ms (`--ww-duration`, the number the rest of the app moves at), `ease-out`, 26 px,
+opacity 0.2 → 1. `from`-only keyframes with no fill mode, so nothing is left behind.
+
+**The direction is derived, not passed in.** `useWeekSlide` compares this week's Monday with the last
+one (ISO dates compare chronologically), so the header buttons, the arrow keys, `Hoy` and the edge
+hold all get it for free and none of them can get it wrong. The first week never slides — opening the
+app is not a page turn — and a same-week refetch remounts nothing, so a save never looks like one.
+
+**The ghost is why `.columnBody` exists.** Everything belonging to the WEEK (blocks, gaps, the `libre`
+pill) went into a wrapper so the animation has something to move that is NOT the ghost. A block held
+at an edge pages the calendar, and the one rectangle that must never slide out from under the pointer
+is the one promising where that block will land. Measured through a mid-drag page turn: the ghost's
+`animationName` is `none` and its `transform` is `none` on every one of 155 sampled frames while the
+column body runs `weekFromNext`.
+
+**The header slides its WORDS, not its box.** The first attempt moved the header cell, which put its
+`border-left` 26 px from the column border directly under it: for 180 ms the grid read as
+MISALIGNED rather than as moving, the opposite of a cue. Frame-sampled proof of the final version:
+`headBox: none`, `headWord: +26px → 0`, `columnBody: +26px → 0`, `axis/band/tick: none`.
+
+**And then it moved the whole calendar, which the integration pass caught.** `translateX(26px)` on the
+last column's body reaches 26 px past the grid's own right edge, and that is SCROLLABLE overflow. The
+scroll container answered with a cascade: a horizontal scrollbar appeared (−15 px of height), which
+made the grid taller than its box, which raised a vertical scrollbar (−15 px of width), which
+re-laid-out every column. Measured: `clientWidth` 1566 → 1551, `clientHeight` 736 → 721, Sunday's left
+edge 1453.17 → 1439.45, twice per page turn. **During a drag — which is when paging is used at all —
+the ghost therefore jumped 14 px sideways under a perfectly still hand at every turn**: the horizontal
+twin of the drift *One Axis Per Gesture* exists to forbid. It was easy to miss because only the
+FORWARD direction does it — overflow to the left of the scroll origin is not scrollable, so
+`weekFromPrevious` was already clean.
+
+**Three fixes were tried and two were wrong, both instructively:**
+
+- **`overflow-x: clip` on `.grid`** stops it and silently breaks the documented "the scroll container
+  absorbs it on a window too narrow for the whole week": the grid's box is `min-width: 100%`, so it is
+  the column TRACKS that overflow it, and clipping them makes Saturday and Sunday unreachable rather
+  than scrollable. Measured with the floors forced past the viewport: Sunday's right edge at 1975 px,
+  `scrollWidth` still 1566, `scrollLeft` stuck at 0.
+- **`clip-path` in the keyframes** does not reduce scrollable overflow at all — the cascade was
+  identical with it in place.
+- **`overflow-x: clip` on `.column`** stops it and is the right place, but NOT permanently: the SETTLE
+  animates a row in from the column it was released over, so `dx` is a whole column width, and a
+  column that clipped for ever would trade one animation for another. Measured on a real travelling
+  settle: `translate(249.672px, -360px) → 0`, 248 px of it outside the destination column.
+
+**So the clip lasts exactly as long as the slide.** `DayColumn` holds a `sliding` flag, true from the
+mount of a column that arrived with a page turn until its own `animationend`, and false for ever
+after. `slide` itself cannot serve — it is the direction of the LAST page turn and stays non-null for
+the rest of the session, which is what makes it correct for the animation (a page turn remounts every
+column, so the class is present exactly when a fresh element needs it) and useless as "is it moving
+now". Only the X axis is clipped, because the hover action bar docks OUTSIDE a short row's TOP edge;
+`contain: paint` and a container query would clip both, which is the trap CLAUDE.md already warns
+about. Verified after: `clientWidth`, `clientHeight` and Sunday's left edge constant across three page
+turns; `overflow-x` observed going `visible → clip → visible` with 0 sliding columns left at the end;
+one distinct ghost `left` across 145 frames and three turns; the sticky day header still at top 0
+after scrolling 143 px down; the action bar drawn inside its column and every button reachable by
+`elementFromPoint`, including a 30-minute row in Saturday's top margin whose bar docks below.
 
 ---
 
@@ -650,10 +751,12 @@ unchanged, and that is the answer:
 - a RESIZE released in the band was already a dead zone by ARITHMETIC — `durationTo` counts net
   working minutes, so 14:00, 15:00 and 15:29 have always committed the same duration. Compressing
   the band shrinks a zone in which the pointer already did nothing, which is the right direction;
-- a DROP released in there still lands on its minute and padlocks the row (Open Decision 5 is about
-  how that row is then segmented, and is untouched). It is now a 28 px target — ~3.2 minutes to the
-  pixel, a `SNAP_MINUTES` step every ~4.7 px — so it has to be aimed at on purpose. Nobody works
-  there, so a harder target is a feature.
+- a DROP released in there ~~still lands on its minute and padlocks the row~~ **is now read the same
+  way the resize always was: every minute of the band means the first minute that can hold work** (see
+  § *A Minute With No Working Time*, decided later the same day). It is a 28 px target — ~3.2 minutes
+  to the pixel, a `SNAP_MINUTES` step every ~4.7 px — so it has to be aimed at on purpose. Nobody
+  works there, so a harder target is a feature, and a target that redirects to the first minute they
+  DO work is a better one still.
 
 **The dangerous part was never the paint, it was the arithmetic.** A piecewise axis has no single
 "pixels per minute", and the drag layer rests on the mapping being an exact inverse BOTH ways; the
@@ -663,6 +766,24 @@ last scale defect here cost a round (*One Axis Per Gesture*, a 1.2% drift that m
 offset into the segment below it, so both functions return the stored number there and cannot
 disagree by a rounding error. The round trip is asserted minute by minute over the whole axis at six
 fitted scales, and monotonicity beside it.
+
+**AND THEN MADE DISCREET** (also 2026-08-17, the owner: *«para la zona del medio que has modificado
+me gustaría que fuera más discreta»*). It shipped as a 45° hatch between two solid graphite rules
+(`--ww-border-strong`, #444441), and those rules were the highest-contrast thing on the whole
+calendar — darker than any block's own border, drawn straight across all seven columns, in the one
+part of the day that carries NO information. The eye went to it first.
+
+What is left is the hole itself, and that turns out to be enough. Three things say "nothing lives
+here" with no decoration at all: it is **the same grey as the top and bottom margins**
+(`--ww-margin-fill`), which is honest — a margin and the comida are the same kind of nothing, and the
+legend already lumps them together; it **spans the week edge to edge, square**, which nothing else on
+the grid does, so it cannot be misread as a very short block (the original argument for the hatch);
+and **28 px where an hour is 52 px is itself the statement**. The two edges keep a rule, because a
+boundary must survive its LABEL being dropped, and it is now the ordinary `--ww-border` at hairline
+weight — measured identical to what `.lineBoundary` draws every other period edge with
+(`1px rgb(211, 209, 199)`), so the band's edges match the rest of the axis instead of shouting over
+it. Verified at the documented shift and at a 10-minute break (`08:00-14:00` / `14:10-18:10`), where
+the band draws at its own 8 px, `14:00` survives, `14:10` is dropped and no labels collide.
 
 **`heightOf(duration)` was REMOVED from `Timeline`, not fixed.** "How tall is 90 minutes" has no
 answer on a piecewise axis without saying where, and the two callers that asked it were wrong in
@@ -722,6 +843,99 @@ the margins are a full hour each. Then the two gestures that cross the seam: a S
 on 09:00 and released on 17:00 stored `16:00` exactly (a pinned drop keeps its minute, so an axis
 error there is stored), and a resize of the Monday morning row released on the 19:00 label stored
 `08:00-14:00` + `15:30-19:00` — 9,5 h.
+
+---
+
+## A Minute With No Working Time
+
+**2026-08-17.** This was Open Decision 5 and it should not have been one. What it was listed as — "a
+drop released in the lunch band stores one solid row straight through the break" — reads as a
+question about what a gesture MEANS. It is not, because CLAUDE.md had already answered it twice, in
+two places that contradicted each other:
+
+| where | what it said |
+|---|---|
+| the data model | "a stored block never straddles a non-working interval… **this holds for a HAND DROP too**: the drop is cut at the break when it is saved" |
+| *A Drop Is Stored In Segments* | a row that "**starts** outside every window (the lunch band itself)" is deliberately left uncut |
+
+The first is stated as an INVARIANT and three things rest on it — rendering (`heightBetween` is
+`duration * pixelsPerMinute` only because no row straddles a break), the overlap arithmetic, and
+auto-merge. The second is a latitude. So the contradiction had a right answer, and applying the
+stronger rule is not inventing one.
+
+**It was never an off-by-one at 14:00.** The reproduction handed over was `startMinutes: 840` — the
+minute period 1 ends, the exclusive end of the first manual window and before the start of the
+second, belonging to neither. Sweeping the band minute by minute showed **every** minute from 14:00
+to 15:29 storing the same illegal row, on the weekend and on Monday-Thursday alike, and the
+scissors' target doing it too:
+
+```
+dropped 13:59  ->  13:59-14:00 (1m)  + 15:30-17:29 (119m)     cut, correct
+dropped 14:00  ->  15:30-17:30 (120m)                          was: 14:00 +120m -> 16:00
+dropped 15:29  ->  15:30-17:30 (120m)                          was: 15:29 +120m -> 17:29
+```
+
+**Why "the next working minute" and not the two other candidates.**
+
+- **Cutting it at 15:30 and leaving the head in the band** (candidate (a) as listed) removes the
+  straddle and keeps the other half of the defect: `14:00 +90m` books ninety minutes of work over
+  lunch, and the day then reports itself booked while the morning is empty. The complaint was never
+  only the straddle.
+- **Refusing a release inside the band** answers a plain gesture — "put it after lunch" — with an
+  error about a minute. The owner's recorded reaction to exactly that shape of refusal is
+  *«Que se rechaza, de qué friki. Pasa al siguiente día. ¿Sabes cómo funciona un calendario?»*
+- **The next working minute is the reading the app already had everywhere else.** A RESIZE released
+  in the band has always been a dead zone by arithmetic — `durationTo` counts net working minutes, so
+  14:00, 15:00 and 15:29 commit the same duration — and the axis draws the band as a 28 px seam
+  labelled *solo arrastre manual*. Making the drop agree costs nothing and removes a boundary.
+
+**Why it is NOT the visual margins' latitude, though it looks adjacent.** A margin is workable time
+the owner chose to have and a row may legitimately sit in one; that is why a margin pins its row. The
+break is not workable at all. `firstWorkingMinute` is stated over the MANUAL windows, so the margins
+are inside them and nothing about them changes.
+
+**The consequence that is a real behaviour change, and the reason it is right.** A Monday-Thursday
+drop aimed at the break used to PADLOCK, and it had to: the row was stored where it was released, and
+the engine's only possible answer to a row in the break is to undo the drop. Read as 15:30 it is an
+ordinary request inside the periods, so it takes a queue rank like every other Mon-Thu drop. Keeping
+the padlock would have made the POINTER decide the mark for two identical stored rows — 15:29 pins,
+15:31 does not — which is the same off-by-one class this round exists to remove. The DAY still pins
+(Friday, the weekend), and so does a margin.
+
+**Four siblings the sweep found, all of them the same missing reading:**
+
+1. **`reachableRuns`** read a start in the band as "the hole alone, up to 15:30", so `clockEndOf`
+   measured a 2 h release at 14:30 as ending at 16:30 while the segmenter stored it at 15:30-17:30 —
+   the end-of-day guard and the drag's clamp deciding from a number the write path disagreed with by
+   the whole break. They now read it through the same helper.
+2. **The ghost re-derived the start.** `resolveDropDay` took `dropLanding`'s answer only when the DAY
+   changed and otherwise returned `input.startMinutes`, so a preview drawn in the band promised a
+   rectangle the server would store after it. The file's own doc comment warns against exactly that
+   ("this file and the write path were briefly two implementations of one rule").
+3. **The drop's write path ignored the segmenter's start**, reading back only `durationMinutes`. It
+   matters for a MERGE, whose survivor takes the earlier of two starts and so can be moved backwards
+   into a break a settings change opened under it.
+4. **The property harness could not see the shape.** `straddlesABreak` tested
+   `startMinutes < period.end && end > next.start`, which is false for `14:00 +120m` because no period
+   covers 14:00 — so 2000 generated calendars had been green over a row holding ninety minutes of
+   lunch. Fixed, it fails at seed 17 with the old segmenter and passes with the new one, which is what
+   makes it a regression guard rather than a description.
+
+**A row can still START in a break, and it is left where it is.** The owner shortens the morning under
+a row that was legally placed; nothing rewrites it in place, because the tolerance the end-of-day
+guard already has ("no write may make an overrun WORSE") is the right shape here too and a new refusal
+would have made every unrelated save on that calendar fail. But the moment a gesture rewrites its
+LENGTH the new segments are laid out from the first minute that can hold work, so it stops crossing
+the break instead of being grown further through it. No write-path straddle guard was added, for that
+reason.
+
+**Verified over HTTP on the running app, 2026-08-17** (scratch DB, `WORKWISE_DB_PATH`), sweeping a 2 h
+job onto Saturday 22 August: 13:15 → `13:15-14:00` + `15:30-16:45`; 13:30 → `13:30-14:00` +
+`15:30-17:00`; 13:59 → `13:59-14:00` + `15:30-17:29`; and 14:00, 14:01, 14:30 and 15:00 all →
+`15:30-17:30 (120m)`, one legal row after the break. Then at the operations layer against a real
+migrated SQLite database, over every boundary minute plus the scissors' target, a resize of a row a
+settings change stranded in the break, a gap across the break (unchanged, as it must be), and a day
+whose afternoon is switched off (no later working minute, so the roll or the refusal answers).
 
 ---
 
@@ -835,6 +1049,8 @@ waste the answer.
    `segmentDroppedRow` skips the cut whenever the row STARTS outside every window, which is latitude
    *A Drop Is Stored In Segments* grants on purpose — written for a row that stays inside the hole,
    not one six hours long.
+   **ANSWERED 2026-08-17. See § A Minute With No Working Time above**, including why this was not
+   really an open question, and the four siblings the boundary sweep turned up beside it.
 
 6. **A drop whose grab offset pushes the unit above the axis lands hours away from the pointer and
    padlocks it on a Monday-Thursday day.** `grabOffsetMinutes` is measured on the CLOCK, so grabbing
@@ -884,7 +1100,7 @@ filling with `formatTime` complaints, forty per drag). The integration pass meas
   rectangle straight through the grey band promises a shape that will never exist". `dropFootprint`
   returns a stretch UNCUT when its tail would pass midnight — deliberate, so the server can refuse
   the drop as it was made — and for a multi-day run that is the ORDINARY path. An 18 h run picked up
-  on Tuesday drew a single translucent rectangle over the whole 679 px column, hatched comida
+  on Tuesday drew a single translucent rectangle over the whole 679 px column, the comida band
   included, on every one of the seven days the pointer crossed. `footprintWithinDay` caps the drawing
   at the net minutes the day can still hold, so it is two rectangles with the seam left clear, which
   is what the label beside it already said in words. Storage is untouched — only the rectangle;
@@ -1209,6 +1425,9 @@ files**, `next lint` clean, `next build` exit 0. Zero console errors in every se
   cleanly at the last window's end: `10:00-14:00` + `15:30-20:30` = 9 h, pinned, and dragging to 22:00
   gives the same answer as 20:30. A row that starts INSIDE the lunch band still stops where that hole
   does (1 h at 14:00 grows to 1,5 h and no further), so nothing swallows working time it does not own.
+  *(That last sentence was SUPERSEDED on 2026-08-17: a row starting in the break now begins at the
+  first minute that can hold work, so it reaches as far as one starting at 15:30. See § A Minute With
+  No Working Time — the old reading is what let the drop store a row through the break.)*
 - **Report C, both margins, both gestures.** A drop at 07:00 stays at `07:00-09:00` with the hand mark
   and the next job flows around it from 09:00; a 1 h job dropped at 19:30 stays at `19:30-20:30` and
   survives an unrelated creation; the scissors putting an hour at 07:00 pins the fragment; a resize of
@@ -1405,5 +1624,60 @@ marked HTTP, and the stored rows were read back from `/api/week`:
 *añadir otra parte* were decided in earlier rounds and are **not built**. See CLAUDE.md,
 *Open Decisions*. (Dragging to the edge was built on 2026-08-17 — see § *Dragging To The Edge
 Changes Week*.)
+
+---
+
+**v0.12 — the break boundary, the band and the paging, integrated (2026-08-17).** Two parallel rounds:
+one made the lunch break a redirect rather than a slot (§ *A Minute With No Working Time*), the other
+made the band discreet, re-paced the edge hold, closed the lost drop and added the week-change
+animation (§ *The Repeat Is a Metronome*, § *A Week Change Says Which Way It Went*). This round
+reconciled them, drove all four in a browser and found one defect neither had.
+
+*The defect the integration found:* **the week-change animation moved the whole calendar.** The
+arriving week's `translateX(26px)` reaches past the grid's right edge, which is scrollable overflow, and
+the scrollbar cascade that followed narrowed the grid by 15 px for the length of every page turn — and
+jumped the drag GHOST 14 px sideways under a perfectly still hand. Two candidate fixes were wrong for
+recorded reasons before the third was right; all of it is in § *A Week Change Says Which Way It Went*.
+
+*Reconciliation:* the two fronts turned out to agree on the break already — the break front had fixed
+the ghost's own re-derivation of the start in `dropAim.ts` — so this round's work there was to PROVE it
+and to clear the comments the change had left stale in `geometry.ts`, `dropEffect.ts`,
+`useBlockDrag.ts` and `manualWindow.ts`, each of which still described the band as manual-only time
+that padlocks a Monday drop.
+
+*Verified by driving the app* on an isolated copy of the source (`diff -r` clean) with its own scratch
+database (`WORKWISE_DB_PATH`, port 3479, chromium over CDP; the repo's `data/` untouched):
+
+| what | result |
+|---|---|
+| a 2 h run released 4 px INTO the band, Saturday | ghost drew one rectangle at `relTop 415.328 h 110.656` labelled `15:30–17:30 · 2 h`; stored `Sat 15:30 +120 [locked]` |
+| the same on Wednesday (auto) | ghost at 15:30, no clock range, «Entra detrás de…»; stored unlocked and settled by the reflow — the documented behaviour change |
+| the same with the row already padlocked | landed on the exact minute, `Wed 15:30 +120 [locked]` |
+| every minute 13:45–15:45, Saturday, over HTTP | 13:45–13:59 cut correctly at 14:00; **every minute 14:00–15:30 stored one legal row at 15:30**; no straddle anywhere |
+| 6 h released at 14:00 on Saturday | 409 `row-past-day-end`, nothing written (no room after the break, and a weekend does not roll) |
+| a row a settings change stranded at 15:30 | left where it sat through an unrelated save; the next resize laid it out from 16:30 |
+| the band's weight | 28 px, `--ww-margin-fill` solid, edges `1px rgb(211,209,199)` — byte-identical to what `.lineBoundary` draws every other period edge with |
+| the band at a 10-minute break | 8 px, `14:00` kept, `14:10` dropped, no labels overlapping |
+| holding at each edge for 6 s | first turn 503/497 ms, then 809–897 ms (mean ~875); 8 weeks in 6.6 s both ways — 1.2 weeks a second |
+| holding to a later week, then releasing on that week's Saturday | ghost `10:00–12:00` on `2026-09-05`; stored `2026-09-05 10:00 +120 [locked]`, screen stayed on week 36 |
+| the same released on that week's Wednesday | a queue rank: pulled back to `Thu 20 Aug`, and the `pulledBack` notice named the date and the padlock route |
+| the animation, both ways, frame-sampled | `weekFromNext` +26 → 0 and `weekFromPrevious` −26 → 0, opacity 0.2 → 1; `headBox: none`, `headWord` and `columnBody` travelling, `axis`/`band`/`tick`: none; `Hoy` on the same week: nothing moves |
+| the ghost through three mid-drag page turns | ONE distinct `left` across 145 frames, `transform: none`, `animationName: none` |
+| a travelling settle | `translate(249.672px, -360px) → 0`, 248 px of it outside the destination column and drawn |
+| `minutesAt(yOf(m)) === m` and every drawn block vs its stored minutes | at 692 px and 532 px of axis (55.33 and 42.00 px/hour): every hour rule within **0.011 px**, every block within **0.011 px**, band exactly 28 px at both |
+| a release on the pixel meaning a given minute | **34/34 at each of two viewport heights**, every quarter hour of both windows, margins included |
+| 770 drops over HTTP: 7 days × every quarter hour 07:00–20:30 × two durations | 0 straddling rows, 0 sub-quarter rows, 0 hours-invariant breaks, 0 refusals without a `messageKey` |
+| 36 resizes over HTTP across the break | same, and the only refusals were `shrink-needs-choice` and `row-past-day-end` |
+| the Friday buffer both ways | a new job's tail skipped it to next Monday; GROWTH landed on it unlocked; freeing Mon-Thu reclaimed it; a HAND drop on it padlocked and survived later recompositions |
+| the weekend never auto-recovered | a Sunday row stayed on Sunday with the padlock taken OFF, through an unrelated 6 h job's placement |
+| the frozen past | move / resize / lock / delete / split all 409 `past-block-frozen`; a drop ONTO a past day 409 `drop-onto-past-day`; *back to automatic* still 200 |
+| a 26 h job | split across Mon-Thu only, starting at the top of the first day it can use |
+| the scissors' floor | 5 min refused, a split leaving 5 min refused, half-and-half accepted |
+| no gesture ending in silence | a dragged gap said so exactly once and did NOT open the form; a refused drop raised the `role=alert` banner; a rank the reflow undid raised the `unchanged` notice teaching padlock-then-move |
+
+*Still open, and deliberately:* Open Decisions 1-4 and 6-14 in CLAUDE.md. Two of them were touched
+by this round's measurements and left exactly as they were — 13 (an over-long RUN cannot be dragged:
+a 14 h run aimed at 09:00 is clamped to 07:00 and refused with a sentence about a clock time) and the
+`out-of-range` refusals in the 770-drop sweep, which are the same thing.
 
 ---

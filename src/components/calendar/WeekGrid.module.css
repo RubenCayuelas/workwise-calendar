@@ -180,6 +180,13 @@
  * px is the smallest column that fits the bar (102 + the block's 4 px inset + the bar's 3 px
  * offset, rounded up), so the drop target and the buttons stay honest at every width the
  * shop uses. The scroll container absorbs it on a window too narrow for the whole week.
+ *
+ * DO NOT CLIP HERE. `overflow-x: clip` on the grid looks like the tidy place to stop the
+ * week-change animation escaping (see `.column`), and it silently breaks the sentence above:
+ * the grid's box is `min-width: 100%`, so on a window too narrow for the column floors the
+ * TRACKS are what overflow it, and clipping them makes Saturday and Sunday unreachable
+ * instead of scrollable. Measured 2026-08-17 with the floors forced past the viewport:
+ * Sunday's right edge at 1975 px, `scrollWidth` still 1566, `scrollLeft` stuck at 0.
  */
 .grid {
   display: grid;
@@ -210,6 +217,95 @@
  */
 .stale {
   opacity: 0.55;
+}
+
+/* --------------------------------------------------------------------------
+   The week change, drawn
+   -------------------------------------------------------------------------- */
+
+/*
+ * THE WEEK SLID IN FROM THE SIDE IT CAME FROM (2026-08-17, the owner: «estaría bien alguna
+ * animación fluida que indique visualmente que se ha cambiado de semana tanto adelante como
+ * hacia atrás»).
+ *
+ * Paging is otherwise silent: seven columns are replaced in one frame, and the only thing that
+ * says which way is the header label — which the owner is not looking at, because they are
+ * looking at the block in their hand. So the calendar says it itself, and it says it
+ * DIRECTIONALLY: going forward the new week enters from the right, going back from the left.
+ * Two keyframes, mirror images, and no other difference between them — the direction has to be
+ * readable without being counted.
+ *
+ * FOUR THINGS IT DELIBERATELY DOES NOT TOUCH, each for its own reason:
+ *
+ * - THE GHOST. It is rendered as a sibling of `.columnBody`, not inside it, so a week arriving
+ *   while a block is in the air cannot move the one rectangle that is a promise about where
+ *   that block will land. That is the whole reason for the wrapper.
+ * - THE AXIS AND THE GREY BANDS. The shape of a day is the same in every week; sliding a
+ *   horizontal rule sideways would leave a gap at one end of the column and read as breakage,
+ *   and *One Axis Per Gesture* holds the painted axis still while a block is in the air.
+ * - THE TIME-AXIS HEADER CELL, which belongs to no week.
+ * - THE SETTLE. A mutation refetches the SAME week, so no date changes, so nothing remounts and
+ *   this does not run — a save must not look like a page turn.
+ *
+ * It needs no key and no reset. Every `data-day-column` and every day header is keyed on its
+ * DATE, so a page turn remounts all fourteen of them and the animation starts from scratch by
+ * construction; a refetch of the same week remounts nothing.
+ *
+ * 180 ms (`--ww-duration`), which is the number the rest of the app moves at. It also has to
+ * stay well inside `EDGE_REPEAT_DELAY_MS`: a hold at the edge pages every 800 ms, and an
+ * animation longer than the gap between two turns would queue up behind itself and leave the
+ * calendar permanently mid-slide.
+ */
+.slideNext {
+  animation: weekFromNext var(--ww-duration) ease-out;
+}
+
+.slidePrevious {
+  animation: weekFromPrevious var(--ww-duration) ease-out;
+}
+
+/*
+ * THE DAY HEADER SLIDES ITS WORDS, NOT ITS BOX. The header is a cell with a `border-left` and
+ * an opaque background, and moving the cell itself put that border 26 px away from the column
+ * border directly under it — for 180 ms the grid read as MISALIGNED rather than as moving,
+ * which is the opposite of a cue. What has to travel is the DATE, so that is what travels:
+ * `Lun 24` and its chips, inside a frame that stays exactly where the columns are.
+ */
+.slideHeadNext > * {
+  animation: weekFromNext var(--ww-duration) ease-out;
+}
+
+.slideHeadPrevious > * {
+  animation: weekFromPrevious var(--ww-duration) ease-out;
+}
+
+/*
+ * `from` only, with no fill mode: the animation ends at the element's own computed style, so
+ * nothing is left behind — no residual transform on a `position: sticky` day header, and no
+ * stacking context outliving the 180 ms that needed one.
+ */
+@keyframes weekFromNext {
+  from {
+    transform: translateX(26px);
+    opacity: 0.2;
+  }
+}
+
+@keyframes weekFromPrevious {
+  from {
+    transform: translateX(-26px);
+    opacity: 0.2;
+  }
+}
+
+/*
+ * Everything in a column that belongs to the WEEK rather than to the shape of a day: the
+ * blocks, the gaps and the "libre" pill. `inset: 0` so every absolutely positioned child keeps
+ * the exact coordinates the timeline gave it — the wrapper is the same box as the column.
+ */
+.columnBody {
+  position: absolute;
+  inset: 0;
 }
 
 /* --------------------------------------------------------------------------
@@ -309,6 +405,48 @@
   border-left: var(--ww-hairline) solid var(--ww-border);
 }
 
+/*
+ * WHILE ITS CONTENTS ARE TRAVELLING, A COLUMN KEEPS THEM INSIDE ITSELF — SIDEWAYS, AND ONLY
+ * THEN (2026-08-17).
+ *
+ * `.columnBody` enters a new week from `translateX(±26px)`, so for 180 ms Sunday's body reached
+ * 26 px past the grid's own right edge. That is SCROLLABLE overflow, and the scroll container
+ * answered it with a cascade: a horizontal scrollbar appeared, which cost 15 px of HEIGHT,
+ * which made the grid taller than its box, which raised a vertical scrollbar, which cost 15 px
+ * of WIDTH. Every page turn — the header buttons, the arrow keys and the edge hold alike —
+ * therefore narrowed the whole calendar for the length of the animation and snapped it back.
+ * Measured: `clientWidth` 1566 -> 1551, `clientHeight` 736 -> 721, Sunday's left edge
+ * 1453.17 -> 1439.45. (Only FORWARD: overflow to the left of the scroll origin is not
+ * scrollable, so `weekFromPrevious` was already clean, which is exactly why this was easy to
+ * miss.)
+ *
+ * It was worst during a DRAG, which is when paging is used at all: the GHOST lives inside its
+ * column, so it jumped 14 px sideways under a perfectly still hand at every turn — the
+ * horizontal twin of the drift *One Axis Per Gesture* exists to forbid. Measured after this
+ * rule: one distinct ghost `left` across 145 frames and three page turns.
+ *
+ * FOUR THINGS ABOUT WHERE AND WHEN IT IS APPLIED, each of which was the wrong answer first:
+ *
+ * - NOT ON `.grid`. The grid's box is `min-width: 100%`, so on a window too narrow for the
+ *   column floors it is the TRACKS that overflow it, and clipping there makes Saturday and
+ *   Sunday unreachable rather than scrollable. See the note on `.grid`.
+ * - NOT PERMANENTLY ON `.column`. The SETTLE animates a row in from the column it was released
+ *   over — `dx` is a whole column width — so a column that clipped for ever would hide most of
+ *   that journey. Hence `sliding` in `DayColumn`, which is true only from a page turn's mount
+ *   until the entry animation ends.
+ * - `clip`, not `hidden`: it does not become a scroll container, so the sticky day headers go
+ *   on sticking to `.scroll`.
+ * - the X AXIS ONLY. The hover action bar docks OUTSIDE a short row's top edge
+ *   (`.detached .actions`), and `overflow-y: visible` is what lets it. Horizontally the bar is
+ *   `right: 3px` INSIDE its block, and 116 px is already the smallest column that holds it, so
+ *   there is nothing legitimate to clip sideways. `contain: paint` would clip both axes, which
+ *   is the trap CLAUDE.md already warns about under *Block Gestures*.
+ */
+.columnSliding {
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
 .columnWeekend {
   background: var(--ww-surface-alt);
 }
@@ -332,22 +470,37 @@
  * despreciable ya que no podemos trabajar ahí»).
  *
  * The axis gives it a flat 28 px however tall an hour is drawn (`BREAK_BAND_HEIGHT` in
- * geometry.ts), so at that height a plain grey fill would read as a very short BLOCK. The
- * hatch and the two rules say "nothing lives here" at a glance, and they say it across all
- * seven columns at once, which is what makes the strip read as one seam through the week
- * rather than as seven little boxes.
+ * geometry.ts).
  *
- * A visual margin keeps the plain fill and the axis's ordinary scale: the owner puts real
- * work in a margin by hand, and only the comida is negligible.
+ * AND THEN MADE DISCREET (also 2026-08-17: «para la zona del medio que has modificado me
+ * gustaría que fuera más discreta»). It was a 45° hatch between two solid graphite rules,
+ * and those rules were the highest-contrast thing on the whole calendar — darker than any
+ * block's own border, drawn straight across all seven columns, in the one part of the day
+ * that carries NO information. The eye went to it first.
+ *
+ * What is left is the hole itself, and that turns out to be enough. Three things say "nothing
+ * lives here" without any decoration at all:
+ *
+ * - THE FILL IS THE MARGINS' FILL, inherited from `.band` above. All non-working time on the
+ *   grid is now one grey, which is honest — a margin and the comida are the same kind of
+ *   nothing — and it is the fill the owner already reads as "no trabajamos aquí".
+ * - IT SPANS THE WEEK. Every block is inset 2 px inside its lane with rounded corners and a
+ *   saturated border; this runs edge to edge, square, across seven columns. Nothing else on
+ *   the calendar has that shape, so it cannot be misread as a very short block — which was
+ *   the original argument for the hatch.
+ * - THE HEIGHT. 28 px where an hour is 50-plus is itself the statement that the hole is
+ *   negligible.
+ *
+ * The two edges keep a rule, because the boundary must survive its LABEL being dropped (see
+ * `axisTicks`: a 10-minute break puts 14:00 and 14:10 inside 9 px and one of them goes). They
+ * are now the ordinary `--ww-border` at hairline weight, which is exactly what `.lineBoundary`
+ * draws every other period edge with — so the band's own edges match the rest of the axis
+ * instead of shouting over it.
  */
 .bandBreak {
-  border-top: var(--ww-hairline) solid var(--ww-border-strong);
-  border-bottom: var(--ww-hairline) solid var(--ww-border-strong);
-  background: repeating-linear-gradient(
-    -45deg,
-    var(--ww-margin-fill) 0 4px,
-    var(--ww-surface) 4px 8px
-  );
+  border-top: var(--ww-hairline) solid var(--ww-border);
+  border-bottom: var(--ww-hairline) solid var(--ww-border);
+  background: var(--ww-margin-fill);
 }
 
 .line {

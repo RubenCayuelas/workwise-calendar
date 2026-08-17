@@ -14,6 +14,9 @@
  *   are how that is discovered before it is triggered, and how the wait is made legible
  *   while it runs. The rule itself lives in `edgePaging.ts` and the timing in
  *   `useBlockDrag`; this draws it.
+ * - THE WEEK CHANGE ITSELF. Which way the calendar just travelled is a fact only this
+ *   component can see (it is the only place two consecutive weeks are ever compared), so it
+ *   owns `useWeekSlide` and the class that draws it.
  * - THE SETTLE. A drop writes a queue rank, so a row lands where the reflow put it. The
  *   grid knows both the released position and the settled one, so it is where the row
  *   is animated from one to the other.
@@ -197,6 +200,10 @@ export function WeekGrid({
 
   const columnWidths = useColumnWidths(gridRef, measure, view.week.dates.join());
 
+  // Which way the calendar just travelled, or `null` on the first week and on any render
+  // that is not a page turn. The columns and the headers slide in from that side.
+  const slide = useWeekSlide(view.week.startDate);
+
   // One pass over the week: the rows of each day, grouped into units and packed into
   // lanes so hand-made overlaps (allowed on the weekend and in the past) stay visible.
   const layout = useMemo(() => buildLayout(view), [view]);
@@ -289,7 +296,7 @@ export function WeekGrid({
           </div>
 
           {view.days.map((day) => (
-            <DayHeader key={day.date} day={day} />
+            <DayHeader key={day.date} day={day} slide={slide} />
           ))}
 
           <div className={styles.axis} aria-hidden="true">
@@ -331,6 +338,7 @@ export function WeekGrid({
               columnWidth={columnWidths.get(day.date) ?? null}
               ticks={ticks}
               timeline={timeline}
+              slide={slide}
               gapColor={view.settings.gapColor}
               busy={busy || stale}
               queue={queue}
@@ -440,7 +448,7 @@ function EdgeRail({
 // Day header
 // ---------------------------------------------------------------------------
 
-function DayHeader({ day }: { day: WeekDay }): React.JSX.Element {
+function DayHeader({ day, slide }: { day: WeekDay; slide: WeekSlide }): React.JSX.Element {
   const { t } = useTranslation();
   const format = useFormat();
 
@@ -488,6 +496,9 @@ function DayHeader({ day }: { day: WeekDay }): React.JSX.Element {
         styles.head,
         day.isWeekend ? styles.headWeekend : '',
         day.isPast ? styles.headPast : '',
+        // The header carries the DATE, which is what a page turn really changes, so it
+        // travels with the columns rather than being the one thing that jumps.
+        slideHeadClass(slide),
       ]
         .filter(Boolean)
         .join(' ')}
@@ -518,6 +529,8 @@ interface DayColumnProps {
   columnWidth: number | null;
   ticks: { minutes: number; boundary: boolean }[];
   timeline: Timeline;
+  /** Which way the calendar just travelled, for the entry animation. */
+  slide: WeekSlide;
   gapColor: string;
   /**
    * NOTHING CAN BE WRITTEN RIGHT NOW: a mutation is in flight, or the week is reloading.
@@ -555,6 +568,7 @@ function DayColumn({
   columnWidth,
   ticks,
   timeline,
+  slide,
   gapColor,
   busy,
   queue,
@@ -576,6 +590,26 @@ function DayColumn({
 
   const bands = nonWorkingBands(day.periods, timeline);
   const preview = drag.preview?.date === day.date ? drag.preview : null;
+
+  /*
+   * IS THIS COLUMN'S CONTENT TRAVELLING RIGHT NOW? True from the mount of a column that
+   * arrived with a page turn until its entry animation ends, and false for ever after.
+   *
+   * It exists so the sideways clip that keeps the slide inside the grid (`.columnSliding`,
+   * and the note on `.column`) lasts exactly as long as the slide does. The clip may NOT be
+   * permanent: the SETTLE animates a row in from the column it was released over, so `dx` is
+   * a whole column width, and a column that clipped for ever would hide most of that
+   * journey — trading one animation for another.
+   *
+   * `slide` cannot be used directly for this. It is the direction of the LAST page turn and
+   * stays non-null for the rest of the session, which is what makes it correct for the
+   * animation (a column is remounted by a page turn, so the class is present exactly when a
+   * fresh element needs it) and useless as "is it moving now".
+   *
+   * `animationend` always arrives: the animation has a non-zero duration and one iteration,
+   * and `prefers-reduced-motion` shortens it to 0.01 ms rather than removing it.
+   */
+  const [sliding, setSliding] = useState(slide !== null);
 
   /**
    * DOES THE GHOST DRAW A PLACE OR A RANK?
@@ -755,6 +789,7 @@ function DayColumn({
         styles.column,
         day.isWeekend ? styles.columnWeekend : '',
         day.isClosed ? styles.columnClosed : '',
+        sliding ? styles.columnSliding : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -790,151 +825,169 @@ function DayColumn({
         />
       ))}
 
-      {emptyLabel === null ? null : (
-        // Placed on the day's own working time rather than at the column's midpoint,
-        // which with the documented shift is 13:45 — on the lip of the lunch band and
-        // a hair above the 14:00 rule, where the word read as debris. See
-        // `emptyLabelMinutes`.
-        <span
-          className={styles.empty}
-          style={{ top: `${timeline.yOf(emptyLabelMinutes(day.periods, timeline))}px` }}
-        >
-          {emptyLabel}
-        </span>
-      )}
-
-      {gaps.map((gap) => {
-        const lane = lanes.get(gap.id) ?? SINGLE_LANE;
-        const label = format.dayTimeHours(gap.date, gap.startMinutes, gap.durationMinutes);
-        const style = {
-          '--ww-gap-color': gapColor,
-          top: `${timeline.yOf(gap.startMinutes)}px`,
-          // A GAP'S DURATION IS CLOCK MINUTES, not net working ones — "stop the day here"
-          // runs one from a moment to the end of the last period, straight across the
-          // lunch break — so it is the one occupancy on the grid that can contain the
-          // compressed band, and it has to be measured between two times to cover it.
-          height: `${timeline.heightBetween(gap.startMinutes, gap.startMinutes + gap.durationMinutes)}px`,
-          left: `calc(${(lane.lane / lane.lanes) * 100}% + 2px)`,
-          width: `calc(${100 / lane.lanes}% - 4px)`,
-        } as React.CSSProperties;
-        const reason = gap.reason ?? '';
-
-        return onOpenGap === undefined ? (
-          <div key={gap.id} className={styles.gap} style={style} title={`${reason}\n${label}`.trim()}>
-            <span className={styles.gapReason}>{reason}</span>
-          </div>
-        ) : (
-          <button
-            key={gap.id}
-            type="button"
-            className={`${styles.gap} ${styles.gapButton}`}
-            style={style}
-            // The third line is the gesture vocabulary of a gap, which is short: it opens,
-            // it does not drag. Said on the hover as well as on the failed drag, so the
-            // owner can learn it without having to fail first.
-            title={`${reason}\n${label}\n${t('grid.gapOpensHint')}`.trim()}
-            /*
-             * NOT `disabled` WHILE A SAVE IS IN FLIGHT, which is what this used to be. A
-             * disabled button takes the press and drops it: no form, no drag, no message,
-             * and nothing on screen even looks different — in the second right after every
-             * mutation, which is exactly when the next press lands. The form is still
-             * withheld; the press now says why.
-             */
-            aria-disabled={busy}
-            // A press that turns into a drag has nothing to start here, so it says so —
-            // otherwise the gesture ends with no click and no message. While busy the same
-            // handler answers every press, so the click below stays silent rather than
-            // repeating the sentence. See `usePressHint`.
-            onPointerDown={busy ? onPressGapBusy : onPressGap}
-            onClick={() => {
-              if (!busy) onOpenGap(gap);
-            }}
+      {/*
+       * EVERYTHING IN THIS COLUMN THAT BELONGS TO THE WEEK, and nothing that belongs to the
+       * gesture. The wrapper exists so the week-change animation has something to move that
+       * is NOT the ghost: a block held at the edge pages the calendar, and the one rectangle
+       * that must never slide out from under the pointer is the one promising where that
+       * block will land. The ghost and the placing preview are siblings of this, below.
+       *
+       * `inset: 0` makes it the same box as the column, so every child keeps the exact
+       * coordinates the timeline gave it.
+       */}
+      <div
+        className={[styles.columnBody, slideClass(slide)].filter(Boolean).join(' ')}
+        // Its own animation ending, not a block's `settling` bubbling up through it.
+        onAnimationEnd={(event) => {
+          if (event.target === event.currentTarget) setSliding(false);
+        }}
+      >
+        {emptyLabel === null ? null : (
+          // Placed on the day's own working time rather than at the column's midpoint,
+          // which with the documented shift is 13:45 — on the lip of the lunch band and
+          // a hair above the 14:00 rule, where the word read as debris. See
+          // `emptyLabelMinutes`.
+          <span
+            className={styles.empty}
+            style={{ top: `${timeline.yOf(emptyLabelMinutes(day.periods, timeline))}px` }}
           >
-            <span className={styles.gapReason}>{reason}</span>
-          </button>
-        );
-      })}
+            {emptyLabel}
+          </span>
+        )}
 
-      {/* The same view the grouping was read over, so a unit and its seam agree. */}
-      {segmentsOf(groups, day.manualWindows).map((segment) => {
-        const target = targetFor(segment.group, day, runFor(runs, segment.group));
-        const closeDay = closeDayAfter(closeDayInput, segment.block);
-        const lane = lanes.get(segment.group.id) ?? SINGLE_LANE;
-        /*
-         * WHY THIS PRESS CANNOT WRITE, when it cannot — and the press is still tracked, so
-         * a CLICK still opens the job. `undefined` is the ordinary row.
-         *
-         * The past comes first because it is the stronger rule: a frozen day is a record of
-         * what the shop did, so no gesture rewrites it (spec, 2026-08-13 — "on a past day:
-         * no drag, no resize, no split"). It also closes a hole: `allowed` is worked out for
-         * the day the ghost is OVER, so a past row dragged onto a future day was accepted
-         * and history moved.
-         */
-        const inert = day.isPast ? ('past' as const) : busy ? ('busy' as const) : undefined;
-        return (
-          <CalendarBlock
-            key={segment.block.id}
-            segment={segment}
-            timeline={timeline}
-            lane={lane}
-            // The block's own width, not the column's: `.block` is inset 2 px on each side
-            // of its lane's share (see its inline `left`/`width`).
-            blockWidth={columnWidth === null ? null : columnWidth / lane.lanes - 4}
-            overflow={isOverflow(segment.group, day)}
-            frozen={day.isPast}
-            lifted={drag.liftedBlockIds.includes(segment.block.id)}
-            cutAtMinutes={
-              dropEffect?.kind === 'cut' && dropEffect.blockId === segment.block.id
-                ? dropEffect.cutMinutes
-                : undefined
-            }
-            busy={busy}
-            onPointerDownBody={(event) => drag.beginMove(event, target, { inert })}
-            // The hover bar is over the block, so it drags the block too — see
-            // `BeginOptions.overlay` for the two things that keeps working.
-            onPointerDownActions={(event) => drag.beginMove(event, target, { overlay: true, inert })}
-            onPointerDownResize={(event) =>
-              drag.beginResize(
-                event,
-                {
-                  ...target,
-                  // A move is the whole unit; a resize is the STRETCH THAT BEGINS AT THIS
-                  // ROW — this row plus the rows of the unit that continue it after the
-                  // break, which is the same stretch `resizeBlock` sizes on the server.
-                  // Each row of a unit is its own rectangle with its own bottom edge, so
-                  // the morning half's edge sizes "from 10:00 to wherever I let go" and
-                  // the afternoon half's edge sizes only itself.
-                  blockId: segment.block.id,
-                  startMinutes: segment.block.startMinutes,
-                  durationMinutes: segment.group.blocks
-                    .slice(segment.index)
-                    .reduce((total, row) => total + row.durationMinutes, 0),
-                },
-                // The same reason a move carries it: a resize of a past row rewrites the
-                // record just as much as a drag of it does.
-                { inert },
-              )
-            }
-            onOpen={() => onOpenJob(segment.block.projectId)}
-            onToggleLock={() => onToggleLock(segment.block)}
-            // One release for the whole unit: a hand-set stretch cut at the lunch break
-            // is two marked rows, and giving the engine back only half of it would leave
-            // the other half holding the day open for no visible reason.
-            onReleaseDuration={
-              segment.group.manualBlockIds.length === 0
-                ? undefined
-                : () => onReleaseDuration(segment.group.manualBlockIds)
-            }
-            onCloseDay={
-              closeDay === null || onCloseDay === undefined
-                ? undefined
-                : () => onCloseDay(closeDay)
-            }
-            onSplit={() => onSplit(segment.block)}
-            onDelete={() => onDelete(segment.block)}
-          />
-        );
-      })}
+        {gaps.map((gap) => {
+          const lane = lanes.get(gap.id) ?? SINGLE_LANE;
+          const label = format.dayTimeHours(gap.date, gap.startMinutes, gap.durationMinutes);
+          const style = {
+            '--ww-gap-color': gapColor,
+            top: `${timeline.yOf(gap.startMinutes)}px`,
+            // A GAP'S DURATION IS CLOCK MINUTES, not net working ones — "stop the day here"
+            // runs one from a moment to the end of the last period, straight across the
+            // lunch break — so it is the one occupancy on the grid that can contain the
+            // compressed band, and it has to be measured between two times to cover it.
+            height: `${timeline.heightBetween(gap.startMinutes, gap.startMinutes + gap.durationMinutes)}px`,
+            left: `calc(${(lane.lane / lane.lanes) * 100}% + 2px)`,
+            width: `calc(${100 / lane.lanes}% - 4px)`,
+          } as React.CSSProperties;
+          const reason = gap.reason ?? '';
+
+          return onOpenGap === undefined ? (
+            <div key={gap.id} className={styles.gap} style={style} title={`${reason}\n${label}`.trim()}>
+              <span className={styles.gapReason}>{reason}</span>
+            </div>
+          ) : (
+            <button
+              key={gap.id}
+              type="button"
+              className={`${styles.gap} ${styles.gapButton}`}
+              style={style}
+              // The third line is the gesture vocabulary of a gap, which is short: it opens,
+              // it does not drag. Said on the hover as well as on the failed drag, so the
+              // owner can learn it without having to fail first.
+              title={`${reason}\n${label}\n${t('grid.gapOpensHint')}`.trim()}
+              /*
+               * NOT `disabled` WHILE A SAVE IS IN FLIGHT, which is what this used to be. A
+               * disabled button takes the press and drops it: no form, no drag, no message,
+               * and nothing on screen even looks different — in the second right after every
+               * mutation, which is exactly when the next press lands. The form is still
+               * withheld; the press now says why.
+               */
+              aria-disabled={busy}
+              // A press that turns into a drag has nothing to start here, so it says so —
+              // otherwise the gesture ends with no click and no message. While busy the same
+              // handler answers every press, so the click below stays silent rather than
+              // repeating the sentence. See `usePressHint`.
+              onPointerDown={busy ? onPressGapBusy : onPressGap}
+              onClick={() => {
+                if (!busy) onOpenGap(gap);
+              }}
+            >
+              <span className={styles.gapReason}>{reason}</span>
+            </button>
+          );
+        })}
+
+        {/* The same view the grouping was read over, so a unit and its seam agree. */}
+        {segmentsOf(groups, day.manualWindows).map((segment) => {
+          const target = targetFor(segment.group, day, runFor(runs, segment.group));
+          const closeDay = closeDayAfter(closeDayInput, segment.block);
+          const lane = lanes.get(segment.group.id) ?? SINGLE_LANE;
+          /*
+           * WHY THIS PRESS CANNOT WRITE, when it cannot — and the press is still tracked, so
+           * a CLICK still opens the job. `undefined` is the ordinary row.
+           *
+           * The past comes first because it is the stronger rule: a frozen day is a record of
+           * what the shop did, so no gesture rewrites it (spec, 2026-08-13 — "on a past day:
+           * no drag, no resize, no split"). It also closes a hole: `allowed` is worked out for
+           * the day the ghost is OVER, so a past row dragged onto a future day was accepted
+           * and history moved.
+           */
+          const inert = day.isPast ? ('past' as const) : busy ? ('busy' as const) : undefined;
+          return (
+            <CalendarBlock
+              key={segment.block.id}
+              segment={segment}
+              timeline={timeline}
+              lane={lane}
+              // The block's own width, not the column's: `.block` is inset 2 px on each side
+              // of its lane's share (see its inline `left`/`width`).
+              blockWidth={columnWidth === null ? null : columnWidth / lane.lanes - 4}
+              overflow={isOverflow(segment.group, day)}
+              frozen={day.isPast}
+              lifted={drag.liftedBlockIds.includes(segment.block.id)}
+              cutAtMinutes={
+                dropEffect?.kind === 'cut' && dropEffect.blockId === segment.block.id
+                  ? dropEffect.cutMinutes
+                  : undefined
+              }
+              busy={busy}
+              onPointerDownBody={(event) => drag.beginMove(event, target, { inert })}
+              // The hover bar is over the block, so it drags the block too — see
+              // `BeginOptions.overlay` for the two things that keeps working.
+              onPointerDownActions={(event) => drag.beginMove(event, target, { overlay: true, inert })}
+              onPointerDownResize={(event) =>
+                drag.beginResize(
+                  event,
+                  {
+                    ...target,
+                    // A move is the whole unit; a resize is the STRETCH THAT BEGINS AT THIS
+                    // ROW — this row plus the rows of the unit that continue it after the
+                    // break, which is the same stretch `resizeBlock` sizes on the server.
+                    // Each row of a unit is its own rectangle with its own bottom edge, so
+                    // the morning half's edge sizes "from 10:00 to wherever I let go" and
+                    // the afternoon half's edge sizes only itself.
+                    blockId: segment.block.id,
+                    startMinutes: segment.block.startMinutes,
+                    durationMinutes: segment.group.blocks
+                      .slice(segment.index)
+                      .reduce((total, row) => total + row.durationMinutes, 0),
+                  },
+                  // The same reason a move carries it: a resize of a past row rewrites the
+                  // record just as much as a drag of it does.
+                  { inert },
+                )
+              }
+              onOpen={() => onOpenJob(segment.block.projectId)}
+              onToggleLock={() => onToggleLock(segment.block)}
+              // One release for the whole unit: a hand-set stretch cut at the lunch break
+              // is two marked rows, and giving the engine back only half of it would leave
+              // the other half holding the day open for no visible reason.
+              onReleaseDuration={
+                segment.group.manualBlockIds.length === 0
+                  ? undefined
+                  : () => onReleaseDuration(segment.group.manualBlockIds)
+              }
+              onCloseDay={
+                closeDay === null || onCloseDay === undefined
+                  ? undefined
+                  : () => onCloseDay(closeDay)
+              }
+              onSplit={() => onSplit(segment.block)}
+              onDelete={() => onDelete(segment.block)}
+            />
+          );
+        })}
+      </div>
 
       {preview === null
         ? null
@@ -1102,6 +1155,56 @@ function DayColumn({
           ))}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// The week change, drawn
+// ---------------------------------------------------------------------------
+
+/** Which way the calendar last travelled. `null` on the first week and on any other render. */
+type WeekSlide = 'next' | 'previous' | null;
+
+/**
+ * WHICH WAY THE WEEK JUST MOVED, so the calendar can slide in from that side.
+ *
+ * The owner asked for it after using the pager and the edge hold: «estaría bien alguna
+ * animación fluida que indique visualmente que se ha cambiado de semana tanto adelante como
+ * hacia atrás». The direction is the whole point — an animation that looks the same both ways
+ * says "something changed", which the owner already knew, rather than "you went forward".
+ *
+ * Two decisions worth keeping:
+ *
+ * - **It is derived, not passed in.** No caller has to remember to say which way it paged, so
+ *   `goToday`, the arrow keys, the two header buttons and the edge hold all get it for free —
+ *   and none of them can get it wrong. ISO dates compare lexicographically, which for
+ *   `YYYY-MM-DD` is chronologically.
+ * - **The FIRST week never slides.** `direction` starts `null`, so opening the app is not
+ *   dressed up as a page turn. It stays whatever it last was after that, which is harmless:
+ *   the class only ever animates something that has just been remounted, and only a date
+ *   change remounts anything.
+ */
+function useWeekSlide(startDate: string): WeekSlide {
+  const previous = useRef(startDate);
+  const direction = useRef<WeekSlide>(null);
+  if (previous.current !== startDate) {
+    direction.current = startDate > previous.current ? 'next' : 'previous';
+    previous.current = startDate;
+  }
+  return direction.current;
+}
+
+/** The entry animation for a box of the week that has just arrived: a column's contents. */
+function slideClass(slide: WeekSlide): string {
+  return slide === null ? '' : slide === 'next' ? styles.slideNext : styles.slidePrevious;
+}
+
+/**
+ * The same, for a day HEADER, which travels its words rather than its box — see the CSS. A
+ * separate class rather than a flag because what differs is the SELECTOR, and a selector is a
+ * stylesheet's business.
+ */
+function slideHeadClass(slide: WeekSlide): string {
+  return slide === null ? '' : slide === 'next' ? styles.slideHeadNext : styles.slideHeadPrevious;
 }
 
 // ---------------------------------------------------------------------------

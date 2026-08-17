@@ -527,10 +527,21 @@ describe('dropPins — does the row keep the minute it is released on?', () => {
     ).toBe(true);
   });
 
-  it('pins a MONDAY drop that starts in the lunch band', () => {
-    expect(
-      dropPins({ ...day, locked: false, role: 'auto', startMinutes: 14 * 60 + 30, durationMinutes: 60 }),
-    ).toBe(true);
+  it('does NOT pin a MONDAY drop aimed at the lunch band, because it starts at 15:30', () => {
+    // The band is not a slot: a release with no working time under it means the next minute
+    // that has some (`firstWorkingMinute`), so the row is stored at 15:30 — inside the
+    // periods, where a Monday-to-Thursday drop is an ordinary queue rank. It used to pin,
+    // and it had to, because the row was stored where it was released: one solid row through
+    // the break, which the engine could only have answered by undoing the drop.
+    //
+    // A MARGIN still pins (the test above): margin time is workable time the owner chose,
+    // and the engine's index space has none of it.
+    for (const startMinutes of [14 * 60, 14 * 60 + 30, 15 * 60 + 29, 15 * 60 + 30]) {
+      expect(
+        dropPins({ ...day, locked: false, role: 'auto', startMinutes, durationMinutes: 60 }),
+        `released at ${startMinutes}`,
+      ).toBe(false);
+    }
   });
 });
 

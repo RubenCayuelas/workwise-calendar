@@ -593,11 +593,18 @@ describe('clampDropStart', () => {
     expect(clampDropStart(SHAPE.manualWindows, 6 * 60, 60, timeline)).toBe(7 * 60);
   });
 
-  it('leaves the lunch band reachable while the row still ends inside the day', () => {
-    // CLAUDE.md's Open Decision about a drop released in the band: untouched.
-    expect(clampDropStart(SHAPE.manualWindows, 14 * 60, 360, timeline)).toBe(14 * 60);
-    expect(clampDropStart(SHAPE.manualWindows, 14 * 60 + 30, 360, timeline)).toBe(14 * 60 + 30);
-    // 8 h from 14:30 would reach 22:30, so it is clamped like any other overrun.
+  it('measures a release in the lunch band from 15:30, which is where it will start', () => {
+    // A release with no working time under it means the next minute that has some, so 6 h
+    // aimed at the band is 6 h from 15:30 — 21:30, past the end of the day — and is clamped
+    // like any other overrun. It used to be left alone, because the row was measured as
+    // starting in the band and stored uncut straight through it.
+    expect(clampDropStart(SHAPE.manualWindows, 14 * 60, 360, timeline)).toBe(13 * 60);
+    expect(clampDropStart(SHAPE.manualWindows, 14 * 60 + 30, 360, timeline)).toBe(13 * 60);
+    // Short enough to fit from 15:30, the release stands: the clamp has nothing to say, and
+    // `dropLanding` is what turns it into 15:30.
+    expect(clampDropStart(SHAPE.manualWindows, 14 * 60, 120, timeline)).toBe(14 * 60);
+    expect(clampDropStart(SHAPE.manualWindows, 15 * 60 + 29, 300, timeline)).toBe(15 * 60 + 29);
+    // 8 h from 14:30 would reach 23:30, so it is clamped like any other overrun.
     expect(clampDropStart(SHAPE.manualWindows, 14 * 60 + 30, 480, timeline)).toBe(11 * 60);
   });
 
@@ -623,11 +630,17 @@ describe('maxDurationFrom', () => {
     expect(maxDurationFrom(7 * 60, SHAPE.manualWindows, REACH)).toBe(420 + 300);
   });
 
-  it('keeps a row that starts in a hole inside that hole', () => {
+  it('measures a row that starts in the break from the next working minute', () => {
     const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
-    // Inside the lunch break: up to the afternoon's start, exactly as before. Nothing
-    // may swallow working time it does not own.
-    expect(maxDurationFrom(14 * 60 + 30, SHAPE.manualWindows, REACH)).toBe(60);
+    // A row inside the lunch band reaches as far as one starting at 15:30 does, because that
+    // is where its hours really begin (`firstWorkingMinute`) and where the write path stores
+    // them. It used to be capped at the band itself — 60 minutes from 14:30 — which capped
+    // the DRAG at a number the storage disagreed with by the whole break.
+    expect(maxDurationFrom(14 * 60 + 30, SHAPE.manualWindows, REACH)).toBe(300);
+    expect(maxDurationFrom(14 * 60, SHAPE.manualWindows, REACH)).toBe(300);
+    // Past the last window there IS no next working minute, so the old reading stands: the
+    // hole alone, up to the end of the axis.
+    expect(maxDurationFrom(20 * 60, SHAPE.manualWindows, REACH)).toBe(30);
   });
 
   it('never returns less than one snap step', () => {
@@ -670,7 +683,12 @@ describe('durationTo', () => {
     expect(durationTo(10 * 60, 12 * 60 + 8, SHAPE.manualWindows, REACH)).toBe(135);
     // Dragged above its own start, or into the band right after it.
     expect(durationTo(13 * 60, 11 * 60, SHAPE.manualWindows, REACH)).toBe(SNAP_MINUTES);
-    expect(durationTo(14 * 60 + 30, 15 * 60, SHAPE.manualWindows, REACH)).toBe(30);
+    // A row INSIDE the band, dragged to another minute of the band: its hours start at 15:30,
+    // so nothing between 14:00 and 15:30 is a length at all and the floor answers. That is
+    // the same dead zone the band has always been to this gesture — "14:00, 15:00 and 15:29
+    // all commit the same duration" — now stated from the row's real start too.
+    expect(durationTo(14 * 60 + 30, 15 * 60, SHAPE.manualWindows, REACH)).toBe(SNAP_MINUTES);
+    expect(durationTo(14 * 60 + 30, 16 * 60, SHAPE.manualWindows, REACH)).toBe(30);
   });
 
   it('is the same resolution the pin threshold is stated in', () => {

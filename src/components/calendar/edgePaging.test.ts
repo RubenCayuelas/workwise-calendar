@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   EDGE_FIRST_DELAY_MS,
-  EDGE_REPEAT_DELAYS_MS,
+  EDGE_REPEAT_DELAY_MS,
   EDGE_ZONE_PX,
   edgeDelayFor,
   edgeSideAt,
@@ -59,24 +59,44 @@ describe('edgeSideAt', () => {
 });
 
 describe('edgeDelayFor', () => {
-  it('waits half a second for the first turn', () => {
+  it('waits half a second for the first turn — the one the owner said felt right', () => {
     expect(edgeDelayFor(0)).toBe(EDGE_FIRST_DELAY_MS);
     expect(EDGE_FIRST_DELAY_MS).toBe(500);
   });
 
-  it('accelerates, then holds at a floor a week can still be read at', () => {
-    const delays = [1, 2, 3, 4, 10].map(edgeDelayFor);
-    expect(delays).toEqual([320, 240, 200, 200, 200]);
-    // Never faster than the floor, and never slower than the first wait.
-    for (const delay of delays) {
-      expect(delay).toBeGreaterThanOrEqual(EDGE_REPEAT_DELAYS_MS[EDGE_REPEAT_DELAYS_MS.length - 1]);
-      expect(delay).toBeLessThanOrEqual(EDGE_FIRST_DELAY_MS);
-    }
+  /**
+   * THE REPEAT NEVER SHORTENS. This is the whole of the owner's «si mantengo el ratón ahí
+   * empieza a ir como loco semana a semana»: a hold that speeds up has no brakes, and the
+   * week they meant to stop on goes past before the hand can leave the strip.
+   */
+  it('repeats at one constant pace, however long the hold', () => {
+    const delays = [1, 2, 3, 4, 10, 60].map(edgeDelayFor);
+    expect(delays).toEqual(delays.map(() => EDGE_REPEAT_DELAY_MS));
+    expect(EDGE_REPEAT_DELAY_MS).toBe(800);
   });
 
-  it('is monotonic: a longer hold never waits longer than the turn before it', () => {
-    for (let turns = 1; turns < 8; turns += 1) {
-      expect(edgeDelayFor(turns)).toBeLessThanOrEqual(edgeDelayFor(turns - 1));
+  /**
+   * The two numbers, stated as what they have to be rather than as what they are: fast
+   * enough that the calendar is not stuck to the pointer, slow enough that a week can be
+   * read on the rail and stopped on.
+   */
+  it('keeps the pace inside the window a week can be read and stopped in', () => {
+    expect(EDGE_REPEAT_DELAY_MS).toBeGreaterThanOrEqual(600);
+    expect(EDGE_REPEAT_DELAY_MS).toBeLessThanOrEqual(1000);
+  });
+
+  /**
+   * The regression in the units the owner reported it in. Their 2.5 s at the edge used to
+   * travel nine weeks (500 + 320 + 240 + 200 × 6); three is "one or two weeks ahead" with
+   * room to overshoot, and it is what this file now promises.
+   */
+  it('travels three weeks in the two and a half seconds that used to travel nine', () => {
+    let elapsed = 0;
+    let turns = 0;
+    while (elapsed + edgeDelayFor(turns) <= 2500) {
+      elapsed += edgeDelayFor(turns);
+      turns += 1;
     }
+    expect(turns).toBe(3);
   });
 });

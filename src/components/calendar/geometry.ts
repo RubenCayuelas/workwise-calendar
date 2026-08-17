@@ -141,10 +141,16 @@ export const MAX_PIXELS_PER_HOUR = 96;
  * - a RESIZE released in there is a DEAD ZONE by arithmetic, not by paint: `durationTo`
  *   counts NET working minutes, so 14:00, 15:00 and 15:29 have always committed the same
  *   duration. Compressing the band shrinks a zone in which the pointer already did nothing;
- * - a DROP released in there still lands on the minute it was released on and padlocks the
- *   row (manual-only time — CLAUDE.md, *The Padlock Is the Only Pin*; how the row is then
- *   segmented is Open Decision 5 and is untouched). It is now a 28 px target that has to be
- *   aimed at on purpose, which is the wanted direction: nobody works there.
+ * - a DROP released in there is now read the SAME WAY the resize always was: every minute of
+ *   the band means the first minute that can hold work — 15:30 on the documented shift
+ *   (CLAUDE.md, *A Minute With No Working Time Means The Next Minute That Has Some*). So the
+ *   band is a redirect, not a slot: it asks for no manual-only time, and a Monday-Thursday
+ *   drop aimed at it therefore does not padlock. The 28 px still have to be aimed at on
+ *   purpose, which is the wanted direction: nobody works there.
+ *
+ * The band's PAINT is deliberately plain — the margins' own fill between two hairlines in the
+ * ordinary border colour, no hatch and no heavy rules (see `.bandBreak`). The compression, the
+ * full width of the week and the square edges are what say "nothing lives here".
  */
 export const BREAK_BAND_HEIGHT = 28;
 
@@ -734,8 +740,9 @@ export function clampDropStart(
  * and the reflow rewrites the position anyway.
  *
  * WHICH IS WHY A PINNED PLACEMENT IS NEVER NUDGED. Where the row keeps the minute it was
- * released on (`pinsTheRow`: the weekend, the colchón, a visual margin, the lunch band, a
- * locked unit) that minute is not an ordering at all — it is the clock, and it is stored.
+ * released on (`pinsTheRow`: the weekend, the colchón, a visual margin, a locked unit — the
+ * lunch band is NOT one of them any more, because a drop aimed there starts at 15:30, inside
+ * the periods) that minute is not an ordering at all — it is the clock, and it is stored.
  * Nudged, a Saturday drop released on 10:00 came back as `09:59`, the row it landed on was
  * re-placed at `11:59`, and their durations read 2,02 h and 1,98 h: minutes the owner never
  * drew, on a day whose whole promise is that what they drew is what they get (matrix
@@ -779,8 +786,12 @@ export function rankFor(
  * starting at 10:00 could not be made longer than 4 h, and the hour of margin the Settings
  * screen offers could not be reached by any gesture at all.
  *
- * A row that starts in a HOLE (the lunch band, or past the last window) still stops where
- * that hole does — see `reachableRuns`. Nothing may swallow working time it does not own.
+ * A row that starts PAST THE LAST WINDOW still stops where that hole does — there is no later
+ * working minute to reach, so it keeps its hours and can never be grown. A row a settings
+ * change stranded INSIDE THE BREAK reaches as far as one starting at 15:30 does, because that
+ * is where its hours really begin and where the write path lays them out
+ * (`firstWorkingMinute`); it used to be capped at the band, which capped the drag at a number
+ * the storage disagreed with by the whole break. See `reachableRuns`.
  *
  * THE REACH IS THE DAY'S OWN END, never the axis's. The axis is widened by `cover` to keep
  * a row left over from a longer working day visible, and passing that widened end let the

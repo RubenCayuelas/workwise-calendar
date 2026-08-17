@@ -2041,7 +2041,14 @@ function resolveDrop(
   // 2. The drop is stored in segments, cut at the break between two working periods.
   //    Done before the cuts below so the rows it lands across are measured against the
   //    time it REALLY occupies: 6 h dropped at 10:00 runs to 17:30, not to 16:00.
+  //
+  //    THE START IS READ BACK, not only the duration: a row whose start is not working time
+  //    begins at the next minute that is, and `segmentDroppedRow` is the one place that
+  //    reading lives. `dropLanding` has already applied it to the release, so for an ordinary
+  //    drop this is the same minute — it matters for the row a MERGE just moved backwards
+  //    onto an earlier start, which may be one a settings change left inside the break.
   const dropRows = segmentDroppedRow(periods, placed);
+  placed.startMinutes = dropRows[0].startMinutes;
   placed.durationMinutes = dropRows[0].durationMinutes;
   for (const extra of dropRows.slice(1)) {
     draft.push({

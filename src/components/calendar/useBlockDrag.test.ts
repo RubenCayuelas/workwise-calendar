@@ -294,21 +294,43 @@ describe('previewMove', () => {
     }
   });
 
-  it('still lets a drop start inside the lunch band, where the row is stored uncut', () => {
-    // An Open Decision in CLAUDE.md, deliberately untouched: 6 h released at 14:00 is one
-    // 14:00-20:00 row, which ends inside the day.
+  it('reads a release in the lunch band as 15:30, the first minute that can hold work', () => {
+    // Every minute of the band means the same thing, first and last included, because none of
+    // them is a slot: `firstWorkingMinute` in `dropLanding`, which the ghost imports so it
+    // cannot answer differently from the server. It used to leave the release alone and store
+    // one solid row through the break — `14:00 +120m -> 16:00`, ninety minutes of it lunch.
+    const session = press('move', 14 * 60, PRESS_AXIS, {
+      date: '2026-08-15',
+      startMinutes: 8 * 60,
+      durationMinutes: 120,
+    });
+    session.grabOffsetMinutes = 0;
+    for (const release of [14 * 60, 14 * 60 + 15, 15 * 60, 15 * 60 + 29, 15 * 60 + 30]) {
+      expect(
+        previewMove({ clientX: 460, clientY: yOf(release) }, session, METRICS, OPTIONS).startMinutes,
+        `released at ${release}`,
+      ).toBe(15 * 60 + 30);
+    }
+    // The last minute of the MORNING is still the morning's: it is working time, so it is its
+    // own answer and the row is cut at 14:00 like any other.
+    expect(
+      previewMove({ clientX: 460, clientY: yOf(13 * 60 + 45) }, session, METRICS, OPTIONS)
+        .startMinutes,
+    ).toBe(13 * 60 + 45);
+  });
+
+  it('clamps a run the day cannot hold from 15:30 rather than letting it overrun', () => {
+    // 6 h from 15:30 reaches 21:30. Saturday does not reflow, so there is no next day to roll
+    // to and the drag's own limit answers: the latest start that ends inside the day, 13:00.
     const session = press('move', 14 * 60, PRESS_AXIS, {
       date: '2026-08-15',
       startMinutes: 8 * 60,
       durationMinutes: 360,
     });
     session.grabOffsetMinutes = 0;
-    for (const release of [14 * 60, 14 * 60 + 15, 14 * 60 + 30]) {
-      expect(
-        previewMove({ clientX: 460, clientY: yOf(release) }, session, METRICS, OPTIONS).startMinutes,
-        `released at ${release}`,
-      ).toBe(release);
-    }
+    const preview = previewMove({ clientX: 460, clientY: yOf(14 * 60) }, session, METRICS, OPTIONS);
+    expect(preview.startMinutes).toBe(13 * 60);
+    expect(preview.clamped).toBe(true);
   });
 
   it('keeps the start when the pointer has not travelled at all', () => {

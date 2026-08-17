@@ -184,13 +184,22 @@ export function resolveDropDay(input: {
   // It landed on the day it was released on: either it fitted there, or nothing later
   // could hold it. Only the second needs the clamp, and only the first may keep a start
   // the drag axis would otherwise pull onto itself.
-  if (fitsFrom(day.manualWindows, input.startMinutes, input.durationMinutes)) {
-    return { date: input.date, startMinutes: input.startMinutes, rolled: false, clamped: false };
+  //
+  // THE LANDING'S MINUTE IS TAKEN, NOT `input.startMinutes`. Landing on the same DAY does not
+  // mean landing on the same MINUTE: `dropLanding` also reads a release with no working time
+  // under it as the next minute that has some, so a release anywhere in the lunch band is
+  // 15:30. Re-deriving the start from the pointer here is what made this file a second
+  // implementation of the rule — the ghost drew a rectangle in the band and the server stored
+  // one after it. It is NOT reported as `clamped`: nothing was pulled back off a limit, and
+  // the clamp's own sentence («no pueden empezar después de…») would be a lie about a start
+  // that works perfectly well.
+  if (fitsFrom(day.manualWindows, landing.startMinutes, input.durationMinutes)) {
+    return { date: input.date, startMinutes: landing.startMinutes, rolled: false, clamped: false };
   }
 
   const clamped = clampDropStart(
     day.manualWindows,
-    input.startMinutes,
+    landing.startMinutes,
     input.durationMinutes,
     input.timeline,
   );
@@ -198,7 +207,7 @@ export function resolveDropDay(input: {
     date: input.date,
     startMinutes: clamped,
     rolled: false,
-    clamped: clamped < input.startMinutes,
+    clamped: clamped < landing.startMinutes,
   };
 }
 

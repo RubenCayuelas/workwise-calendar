@@ -26,9 +26,15 @@
  * feel stuck, and the owner asked for «fluido y ligero». Half a second is long enough that
  * no drag that is merely PASSING through the zone ever fires, and short enough that a
  * deliberate hold does not feel ignored — and the rail fills over exactly that half
- * second, so the wait is legible rather than silent. The repeats accelerate because by the
- * second turn the owner has already said what they want; they stop accelerating at 200 ms
- * because a week that flashes past faster than that cannot be read on the way.
+ * second, so the wait is legible rather than silent.
+ *
+ * THE REPEAT IS A METRONOME, NOT AN ACCELERATION (2026-08-17). It used to shorten — 320,
+ * 240, then 200 ms — on the argument that the first turn had already proved the intent. What
+ * that really proved is that a hold has no brakes: the owner reported it as «si mantengo el
+ * ratón ahí empieza a ir como loco semana a semana», and measured, 2.5 s at the edge walked
+ * from week 34 to week 41. Nobody at the edge of a calendar is looking two months out; they
+ * are looking one or two weeks ahead and want to stop on one. So every repeat now waits the
+ * same `EDGE_REPEAT_DELAY_MS`, and the number is chosen so that STOPPING is possible.
  */
 
 /** Which way the calendar pages. Named for the answer, not for the side of the screen. */
@@ -54,15 +60,30 @@ export const EDGE_ZONE_PX = 40;
 export const EDGE_FIRST_DELAY_MS = 500;
 
 /**
- * The waits before the second, third and every later turn of one hold.
+ * The wait before the second and EVERY later turn of one hold — one number, unchanging.
  *
- * They shorten because the first turn has already proved the intent, and they stop at
- * 200 ms so the weeks can still be read as they go past. Each one is also bounded from
- * below by something this file cannot see: the next turn is not even scheduled until the
- * week the last one asked for has arrived (see `useBlockDrag`), so a slow load paces the
- * repeat rather than being outrun by it.
+ * 800 ms, and the three things that pin it there:
+ *
+ * - IT HAS TO BE STOPPABLE. A hold is aimed at a week, and the owner has to be able to take
+ *   the pointer out of the strip on the week they wanted. Human reaction to a change on
+ *   screen is around 250 ms and the hand then has to travel; under about half a second the
+ *   week they meant to stop on has already gone by, which is what «como loco» describes.
+ * - IT HAS TO BE READABLE. The rail names its destination by DATES, and reading `24–30 ago
+ *   2026` off a vertical label is not instant. A pace that outruns the label makes the label
+ *   pointless, and the label is how the owner knows where they are going.
+ * - IT HAS TO STAY ALIVE. Longer than about a second and the calendar feels stuck to the
+ *   pointer, which is the failure the 500 ms first wait was tuned away from. 800 ms is a
+ *   little over a week a second: brisk, and countable.
+ *
+ * What it costs, deliberately: the owner's own 2.5 s at the edge now travels **3 weeks**
+ * instead of the nine that were measured. Longer journeys are the header's ‹ › buttons and
+ * the arrow keys, which have no wait at all.
+ *
+ * It is bounded from below by something this file cannot see either: the next turn is not
+ * scheduled until the week the last one asked for has ARRIVED (see `useBlockDrag`), so a slow
+ * load paces the repeat rather than being outrun by it.
  */
-export const EDGE_REPEAT_DELAYS_MS: readonly number[] = [320, 240, 200];
+export const EDGE_REPEAT_DELAY_MS = 800;
 
 /**
  * The frame's inner edges in viewport coordinates, and how wide the strip at each end is
@@ -95,11 +116,14 @@ export function edgeSideAt(x: number, bounds: EdgeBounds): EdgeSide | null {
   return null;
 }
 
-/** The wait before the turn after `turns` have already fired in this hold. */
+/**
+ * The wait before the turn after `turns` have already fired in this hold.
+ *
+ * Two values and no ramp: the first turn is the one the owner has to be protected from
+ * triggering by accident, every turn after it is one they have to be able to stop on.
+ */
 export function edgeDelayFor(turns: number): number {
-  if (turns <= 0) return EDGE_FIRST_DELAY_MS;
-  const index = Math.min(turns, EDGE_REPEAT_DELAYS_MS.length) - 1;
-  return EDGE_REPEAT_DELAYS_MS[index];
+  return turns <= 0 ? EDGE_FIRST_DELAY_MS : EDGE_REPEAT_DELAY_MS;
 }
 
 /**

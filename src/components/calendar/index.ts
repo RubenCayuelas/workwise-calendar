@@ -40,7 +40,7 @@ export {
 
 export {
   EDGE_FIRST_DELAY_MS,
-  EDGE_REPEAT_DELAYS_MS,
+  EDGE_REPEAT_DELAY_MS,
   EDGE_ZONE_PX,
   edgeDelayFor,
   edgeSideAt,

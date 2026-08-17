@@ -14,7 +14,7 @@
  *
  * | the drop is…                                  | it collides with… | same job | other job |
  * |-----------------------------------------------|-------------------|----------|-----------|
- * | PINNED (weekend, the Friday buffer, a margin, the lunch band, or locked) | the day's FIXED rows | merged, hours summed | cut, tail pushed after |
+ * | PINNED (weekend, the Friday buffer, a margin, or locked) | the day's FIXED rows | merged, hours summed | cut, tail pushed after |
  * | RE-RANKED (Mon-Thu inside the periods, unlocked) | the day's MOVABLE rows | nothing — the reflow lays them out contiguously and auto-merge joins them | cut, but only a row that STARTS BEFORE the drop |
  *
  * FRIDAY IS ON THE PINNED SIDE because a drop there PADLOCKS the row, which takes it out
@@ -30,15 +30,18 @@
  *
  * - "DOES THE ROW KEEP THE MINUTE?" is `dropPins`, the mirror of `pinsTheRow` in
  *   src/lib/operations/blocks.ts. The Friday buffer, the weekend, a locked unit — and, on
- *   EVERY day including Monday, a footprint that reaches a visual margin or the lunch band.
+ *   EVERY day including Monday, a footprint that reaches a VISUAL MARGIN. The lunch band is
+ *   not one of them: a drop aimed there is stored from 15:30 (*A Minute With No Working Time*),
+ *   so it asks for no manual-only minutes at all, and the question is asked of the rows that
+ *   will REALLY be stored.
  * - "MAY THE DROP BE REFUSED FOR A COLLISION?" is `dayReflowsOn`, the mirror of `dayReflows`
  *   in src/lib/composition.ts. Only where the engine does NOT lay the day out: the weekend,
  *   a closed day, the frozen past — plus a locked unit on any day.
  *
  * Read off one predicate, a Friday drop onto a gap was previewed as a refusal the server
- * now accepts, and a Monday drop into the lunch band over a gap was previewed as a harmless
- * re-rank while the server slid it forward past the gap. `resolveDropPreview` asks both, in
- * the server's own order, and applies the server's own slide.
+ * now accepts, and a drop into a MARGIN over a gap was previewed as a harmless re-rank while
+ * the server slid it forward past the gap. `resolveDropPreview` asks both, in the server's own
+ * order, and applies the server's own slide.
  *
  * THE DROP'S FOOTPRINT IS ITS SEGMENTS, not the rectangle the pointer draws. A drop is
  * stored cut at the break between two working periods (CLAUDE.md, *A Drop Is Stored In
@@ -46,7 +49,9 @@
  * lunch band between them. That rule is `segmentDroppedRow` in src/lib/dropSegments.ts,
  * imported rather than restated: the engine and this file must give the same answer, and
  * a row sitting inside the lunch band would otherwise be announced as cut by a drop that
- * never touches it.
+ * never touches it. `segmentDroppedRow` also settles the START — a release with no working
+ * time under it begins at the next minute that has some — so every question below is asked
+ * about 15:30 for a drop aimed at the comida, exactly as the write path will store it.
  *
  * TWO APPROXIMATIONS, both deliberate and both safe in the same direction — they can
  * only make the preview silent, never make it promise something that will not happen:
@@ -164,9 +169,11 @@ export interface DropEffect {
  *
  * - PINNED: a locked unit, or a day the engine does not lay out (`role !== 'auto'`: the
  *   Friday colchón and the weekend), or a footprint that asks for MANUAL-ONLY TIME — a
- *   visual margin or the lunch band — on ANY day, Monday included, because the engine's
- *   index space has no margin minutes in it and an unpinned margin row is pulled straight
- *   back inside the periods.
+ *   VISUAL MARGIN — on ANY day, Monday included, because the engine's index space has no
+ *   margin minutes in it and an unpinned margin row is pulled straight back inside the
+ *   periods. The lunch band is NOT manual-only time to this question: `segmentDroppedRow`
+ *   lays a drop aimed there out from 15:30, so the segments it measures sit inside a period
+ *   and ask for nothing.
  * - RE-RANKED otherwise: the drop writes a place in the queue and the reflow decides the
  *   clock, so the ghost's minutes are an AIM rather than a promise.
  *
@@ -460,7 +467,7 @@ export function dropFootprint(input: {
  * the ordinary case, not the exotic one: the drag unit is the whole run, so an 18 h run
  * released at 07:00 came back as one segment of 1080 minutes and the ghost drew ONE
  * rectangle from the top of the axis to the bottom of it — straight through the compressed
- * lunch band, over the hatch that exists to say nothing lives there.
+ * lunch band, over the grey that exists to say nothing lives there.
  *
  * CLAUDE.md is explicit that this is not allowed (*Calendar View -> Drag-drop*): "the ghost
  * is drawn in segments, one rectangle per row the gesture will be stored as, because one
@@ -490,9 +497,10 @@ export function footprintWithinDay(input: {
     input.startMinutes,
     dayEndMinutes(input.manualWindows),
   );
-  // A start inside a hole (the lunch band, or past the last window) has no working minutes
-  // ahead of it on this measure, and its own latitude not to be cut. Left to
-  // `dropFootprint`, which draws it as the one rectangle it will really be stored as.
+  // Past the last window there are no working minutes ahead at all, and the release keeps its
+  // own latitude not to be cut. Left to `dropFootprint`, which draws it as the one rectangle it
+  // will really be stored as. A start inside the BREAK is not one of these: it has the whole
+  // afternoon ahead of it, and `dropFootprint` reads it as starting at 15:30.
   if (holds <= 0 || input.durationMinutes <= holds) return dropFootprint(input);
   return dropFootprint({ ...input, durationMinutes: holds });
 }
