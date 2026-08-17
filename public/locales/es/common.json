@@ -116,8 +116,12 @@
     "dropSlid": "Ahí hay algo que no se mueve: el bloque bajará a las {{time}}.",
     "dropNextDay": "Más abajo no cabe en ese día: pasa al {{day}}.",
     "dropNoLower": "Más abajo no cabe: {{hours}} h no pueden empezar después de las {{time}}.",
+    "dropStartsAt": "Empieza a las {{time}}",
+    "dropLongerThanDay": "{{hours}} h no caben en un solo día: el día da para {{dayHours}} h como mucho, así que este tramo no termina hoy.",
     "placingHint": "Pulsa el día y la hora donde quieres dejar la parte separada. Pulsa Esc para dejarlo como estaba.",
-    "gapOpensHint": "Los huecos no se arrastran: pulsa para abrir su ficha y cambiar el día o la hora."
+    "gapOpensHint": "Los huecos no se arrastran: pulsa para abrir su ficha y cambiar el día o la hora.",
+    "edgePrevious": "Mantén el bloque aquí para ir a la semana anterior · {{range}}",
+    "edgeNext": "Mantén el bloque aquí para ir a la semana siguiente · {{range}}"
   },
   "block": {
     "continuesBelow": "{{hours}} h · sigue…",
@@ -298,6 +302,8 @@
     "dropSettles": "El bloque toma el puesto donde lo has soltado y se recoloca justo detrás del anterior. Si quieres que se quede en la hora exacta, ponle el candado antes de moverlo.",
     "dropPinned": "«{{name}}» se queda donde lo has soltado, el {{day}}, y le hemos puesto el candado: ahí el motor no lo mueve. Quítaselo cuando quieras devolvérselo.",
     "dropLeftWeek": "«{{name}}» ya no cabía en esta semana: sus horas continúan el {{date}}.",
+    "dropPulledBack": "«{{name}}» se ha colocado el {{date}}, antes de la semana que estás viendo: de lunes a jueves soltar cambia el puesto en la cola, no la semana, y el bloque se recoloca donde había sitio. Para llevarlo a una semana concreta, ponle el candado antes de moverlo, o suéltalo en viernes o en fin de semana.",
+    "dropMovedWeek": "«{{name}}» se queda el {{date}}, en la semana del {{week}}, que es la que tienes ahora en pantalla. Pulsa «Hoy» para volver a la semana de hoy.",
     "dropUnchanged": "La cola ha devuelto «{{name}}» a donde estaba: de lunes a jueves soltar cambia el puesto, no la hora. Para dejarlo donde lo has soltado, ponle primero el candado y muévelo después.",
     "dropAbsorbed": "Esas horas se han unido al bloque del mismo trabajo que había al lado. No se ha perdido ninguna hora.",
     "dropRefusedPast": "Ahí no se puede soltar: el pasado está congelado y el motor no escribe en él. Corrige ese día desde la ficha del trabajo.",

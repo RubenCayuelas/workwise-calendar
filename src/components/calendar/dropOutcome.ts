@@ -14,7 +14,7 @@
  * is the job's rows as they stand after the recomposition, so the answer is available
  * the moment the request resolves and cannot race the refetch.
  *
- * Pure, so the five branches can be pinned by a test rather than by dragging blocks
+ * Pure, so the seven branches can be pinned by a test rather than by dragging blocks
  * around a browser.
  */
 
@@ -42,7 +42,12 @@ export interface DropOutcomeInput {
    * mark is new state the owner did not press for.
    */
   wasLocked: boolean;
-  /** The seven dates the week on screen is showing. */
+  /**
+   * The seven dates the week on screen is showing — the week the block was RELEASED in,
+   * which since edge paging is not necessarily the week it was picked up in. That is why
+   * this alone can tell both stories: `landed` outside it is a row that left the week,
+   * and `from` outside it is a drag that crossed into this one.
+   */
   visibleDates: readonly string[];
 }
 
@@ -55,8 +60,33 @@ export type DropOutcomeKind =
   | 'pinned'
   /** The reflow put it somewhere else on this week. The grid slides it; this says why. */
   | 'settled'
-  /** It no longer fits this week: the hours carry on in another one. */
+  /** It no longer fits this week: the hours carry on in a LATER one. */
   | 'leftWeek'
+  /**
+   * THE QUEUE PUT IT BEFORE THE WEEK ON SCREEN. The same fact as `leftWeek` in the other
+   * direction, and it needs its own sentence because the reason is the opposite one:
+   * nothing overflowed, the drop simply took a rank whose contiguous place is earlier.
+   *
+   * It is what a drag into a LATER week means on Monday-Thursday, and the answer surprises
+   * everyone the first time: a drop there is a rank, so the row settles behind whatever
+   * precedes it in the queue — which, on a calendar with nothing in between, is back where
+   * the work already is. Reachable before edge paging (page with the header buttons, then
+   * drag), and reachable all the time now, so it says the route: padlock first, or drop on
+   * a day that keeps the minute.
+   */
+  | 'pulledBack'
+  /**
+   * THE DRAG CROSSED INTO THIS WEEK. The block was picked up in a week that is no longer
+   * on screen — the pointer held at an edge and the calendar paged under it — so the row
+   * has landed somewhere the owner has never seen it before, on a screen that changed
+   * while their eyes were on the block.
+   *
+   * The other four all describe what became of the row; this one describes what became of
+   * the VIEW, and it is the only one whose sentence has to name the week. Nothing else
+   * would: the row is exactly where it was released, so `settled` stays silent and
+   * `unchanged` cannot fire (the block did not come back to a day this week holds).
+   */
+  | 'movedWeek'
   /** It came back to where it started. The drag really did change nothing visible. */
   | 'unchanged'
   /** Its id is gone: a row of the same job took the hours. */
@@ -96,7 +126,23 @@ export function describeDrop(input: DropOutcomeInput): DropOutcome | null {
   // where it was released, which is what the owner asked for and already knew.
   if (landed.locked && !input.wasLocked) return { kind: 'pinned', date: landed.date };
 
-  if (!input.visibleDates.includes(landed.date)) return { kind: 'leftWeek', date: landed.date };
+  if (!input.visibleDates.includes(landed.date)) {
+    // Which SIDE of the week it went out of. `leftWeek`'s sentence says the hours carried
+    // on, which is only true forwards; a row the queue laid out earlier than the week on
+    // screen has not overflowed anywhere and needs the other explanation.
+    const first = input.visibleDates[0];
+    return first !== undefined && landed.date < first
+      ? { kind: 'pulledBack', date: landed.date }
+      : { kind: 'leftWeek', date: landed.date };
+  }
+
+  /*
+   * The row is on the week on screen and the block came from a week that is NOT — the drag
+   * paged. Below `pinned`, which already names the day it fixed the row to and says more;
+   * above everything else, because "you are looking at a different week now" outranks any
+   * statement about where in it the row settled.
+   */
+  if (!input.visibleDates.includes(from.date)) return { kind: 'movedWeek', date: landed.date };
 
   if (landed.date === from.date && landed.startMinutes === from.startMinutes) {
     // The drag asked for something and the calendar answered with what it already had.

@@ -50,6 +50,20 @@
  * ORIGIN error, and there was none; against a changed SCALE it re-anchors the error to
  * the press DEPTH, which a Friday or weekend drop — where the exact minute is kept rather
  * than re-flowed — stored as a quarter of an hour out.
+ *
+ * HOLDING THE BLOCK AT AN EDGE PAGES THE WEEK, and the same rule survives it: the axis is
+ * VERTICAL and the week is a set of COLUMNS, so a page turn changes what is under the
+ * pointer horizontally and nothing at all about the mapping the gesture was fixed to.
+ * `CalendarScreen` holds the painted axis for as long as a block is in the air, so the new
+ * week is drawn on the axis the press captured, and the two stay the same ruler.
+ *
+ * Everything else about the drop is re-read at the moment it is released — the day under
+ * the pointer, the rows to aim against, the starts already taken — because all of it comes
+ * from `live.current`, which is the CURRENT week. So a drop is always resolved against the
+ * week it was released in, and never against the week it was picked up in. The two places
+ * that could have remembered the old week are named where they are fixed: `previewMove`'s
+ * fallback date, and the ghost, which is re-resolved from the last pointer position the
+ * moment the columns change (`weekKey`) rather than waiting for the hand to move.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -60,11 +74,13 @@ import {
   rankFor,
   slotAt,
   snapTo,
+  type ColumnBox,
   type GridMetrics,
   type Timeline,
 } from './geometry';
 import { dropPins } from './dropEffect';
 import { aimAtThirds, resolveDropDay, type AimRow } from './dropAim';
+import { edgeDelayFor, edgeSideAt, type EdgeHold, type EdgeSide } from './edgePaging';
 import type { WeekDay } from '../../lib/api-client';
 
 /** Pixels of travel before a press becomes a drag rather than a click. */
@@ -233,6 +249,25 @@ export interface BlockDragOptions {
    * of queueing a second write against a calendar already being rewritten.
    */
   writable: () => boolean;
+  /**
+   * THE WEEK ON SCREEN, as one value that changes when the columns do (its Monday).
+   *
+   * Everything else about the week is read through a callback at the moment the pointer
+   * fires, which is deliberately not reactive. This one has to be: a page turn changes the
+   * columns while the hand is still down, and the ghost has to move to the new week THEN,
+   * not on the next pointer event — a hand that holds still at the edge would otherwise
+   * watch the block disappear, because no column carries the date it remembers any more.
+   */
+  weekKey: string;
+  /**
+   * PAGE THE CALENDAR WITH THE BLOCK STILL IN HAND. Called when the pointer has dwelt in
+   * an edge zone, and again for each accelerating repeat; also by the arrow keys, which
+   * are the same gesture without the wait.
+   *
+   * It is a GET and writes nothing (`useWeek`), so it cannot interfere with the drop that
+   * follows it.
+   */
+  onPageWeek: (side: EdgeSide) => void;
   onMove: (target: DragTarget, drop: { date: string; startMinutes: number }) => void;
   onResize: (target: DragTarget, durationMinutes: number) => void;
   /**
@@ -296,6 +331,12 @@ export interface DragController {
    */
   liftedBlockIds: readonly string[];
   kind: DragKind | null;
+  /**
+   * The hold in progress at one edge of the grid, or `null` when the pointer is anywhere
+   * else. The grid draws the rails from it — which side is counting down, how long the
+   * count is, and whether it is waiting for the week it just asked for.
+   */
+  edge: EdgeHold | null;
   beginMove: (event: React.PointerEvent, target: DragTarget, options?: BeginOptions) => void;
   /**
    * The bottom edge. It takes the same options as a move because it needs the same
@@ -342,19 +383,40 @@ export interface DragSession {
   grabOffsetMinutes: number;
   moved: boolean;
   preview: DragPreview | null;
+  /**
+   * WHERE THE POINTER LAST WAS, so the ghost can be re-resolved without a pointer event.
+   * A page turn arrives while the hand is deliberately holding still; the columns under it
+   * change, and the answer to "where would this land" changes with them.
+   */
+  point: { clientX: number; clientY: number } | null;
+  /**
+   * The edge zone has been LEFT at least once, so it may now arm.
+   *
+   * The right-hand zone overlaps the last 40 px of Sunday — there is no gutter on that
+   * side — so a block grabbed there and dragged straight up its own column would sit in
+   * the zone for the whole gesture and page the week out from under itself. Requiring the
+   * pointer to leave the zone once makes paging something the owner goes TO. The left zone
+   * needs no such protection (it is the time-axis gutter, where nothing can be grabbed),
+   * but the rule is one rule for both sides.
+   */
+  edgeArmed: boolean;
+  /** The hold at one edge, with the timer that will fire the next turn. */
+  edge: (EdgeHold & { timer: number | null }) | null;
 }
 
 export function useBlockDrag(options: BlockDragOptions): DragController {
-  // Only `enabled` is read during render. Everything else is read through `live` at the
+  // Only these two are read during render. Everything else is read through `live` at the
   // moment the pointer fires, which is what keeps a drag started three renders ago from
-  // committing against a stale week.
-  const { enabled } = options;
+  // committing against a stale week. `weekKey` is the one fact that MUST be reactive —
+  // see the option's own note.
+  const { enabled, weekKey } = options;
 
   const [preview, setPreview] = useState<DragPreview | null>(null);
   const [kind, setKind] = useState<DragKind | null>(null);
   // Published only once the press has become a drag, so it always arrives and leaves
   // with `preview` and the grid never sees one without the other.
   const [target, setTarget] = useState<DragTarget | null>(null);
+  const [edge, setEdge] = useState<EdgeHold | null>(null);
   const session = useRef<DragSession | null>(null);
   const teardown = useRef<(() => void) | null>(null);
 
@@ -363,16 +425,115 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
   const live = useRef(options);
   live.current = options;
 
+  /** The hold, as the grid needs it. Called only at the transitions, never per move. */
+  const publishEdge = useCallback((): void => {
+    const held = session.current?.edge ?? null;
+    setEdge(
+      held === null
+        ? null
+        : { side: held.side, turns: held.turns, delayMs: held.delayMs, waiting: held.waiting },
+    );
+  }, []);
+
+  /** Cancel any countdown. Safe to call when there is none, and it always publishes. */
+  const stopEdge = useCallback((): void => {
+    const current = session.current;
+    if (current === null || current.edge === null) return;
+    if (current.edge.timer !== null) window.clearTimeout(current.edge.timer);
+    current.edge = null;
+    publishEdge();
+  }, [publishEdge]);
+
+  /**
+   * Start the countdown on one side. `turns` is how many page turns this hold has already
+   * made, which is what makes the repeats accelerate.
+   *
+   * The turn itself does NOT schedule the next one. It marks the hold `waiting` and asks
+   * for the week; the effect below re-arms when that week arrives. So the repeat can never
+   * outrun the calendar it is paging, and a week that fails to load simply stops the
+   * gesture rather than hammering the endpoint behind an error banner.
+   */
+  const armEdge = useCallback(
+    (side: EdgeSide, turns: number): void => {
+      const current = session.current;
+      if (current === null) return;
+      const delayMs = edgeDelayFor(turns);
+      const timer = window.setTimeout(() => {
+        const running = session.current;
+        if (running === null || running.edge === null) return;
+        running.edge = { ...running.edge, timer: null, waiting: true };
+        publishEdge();
+        live.current.onPageWeek(running.edge.side);
+      }, delayMs);
+      current.edge = { side, turns, delayMs, waiting: false, timer };
+      publishEdge();
+    },
+    [publishEdge],
+  );
+
+  /** Where the pointer is, horizontally, in the vocabulary of the two edge zones. */
+  const trackEdge = useCallback(
+    (x: number, metrics: GridMetrics): void => {
+      const current = session.current;
+      if (current === null || current.kind !== 'move' || current.inert !== undefined) return;
+
+      const side = edgeSideAt(x, metrics.frame);
+      if (side === null) {
+        // Out of both zones: the gesture has proved it can be somewhere else, so the zones
+        // may now arm — and whatever was counting down is abandoned.
+        current.edgeArmed = true;
+        stopEdge();
+        return;
+      }
+      if (!current.edgeArmed) return;
+      // Already counting down (or waiting for a week) on this side: leave it running, or
+      // every pointer event inside the zone would restart the wait and it would never fire.
+      if (current.edge?.side === side) return;
+      stopEdge();
+      armEdge(side, 0);
+    },
+    [armEdge, stopEdge],
+  );
+
   const finish = useCallback(() => {
+    stopEdge();
     teardown.current?.();
     teardown.current = null;
     session.current = null;
     setPreview(null);
     setKind(null);
     setTarget(null);
-  }, []);
+    setEdge(null);
+  }, [stopEdge]);
 
   useEffect(() => finish, [finish]);
+
+  /**
+   * THE COLUMNS CHANGED UNDER THE POINTER — a page turn landed while the block is still in
+   * hand. Two things follow, and neither can wait for the hand to move:
+   *
+   * - the ghost is re-resolved from the last pointer position, against the week that has
+   *   just arrived. Without this the preview keeps a date no column carries any more, so
+   *   the block vanishes from the hand until the mouse is jiggled;
+   * - the hold, if it was waiting for this week, arms its next countdown.
+   */
+  useEffect(() => {
+    const current = session.current;
+    if (current === null || !current.moved || current.kind !== 'move' || current.point === null) {
+      return;
+    }
+    const metrics = live.current.measure();
+    if (metrics === null) return;
+
+    const next = previewMove(current.point, current, metrics, live.current);
+    current.preview = next;
+    setPreview(next);
+
+    const held = current.edge;
+    if (held === null || !held.waiting) return;
+    armEdge(held.side, held.turns + 1);
+    // Only the week matters here: `armEdge` is stable and the session is a ref.
+  }, [weekKey, armEdge]);
 
   const begin = useCallback(
     (event: React.PointerEvent, target: DragTarget, dragKind: DragKind, options: BeginOptions = {}): void => {
@@ -406,6 +567,11 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         moved: false,
         travelled: 0,
         preview: null,
+        point: null,
+        // A press that GOES DOWN inside an edge zone has not asked for anything yet; see
+        // `DragSession.edgeArmed`. The first pointer event outside the zones arms it.
+        edgeArmed: edgeSideAt(event.clientX, metrics.frame) === null,
+        edge: null,
       };
 
       const onPointerMove = (moveEvent: PointerEvent): void => {
@@ -439,6 +605,10 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         const nextMetrics = live.current.measure();
         if (nextMetrics === null) return;
 
+        // Kept for the one thing that happens without a pointer event: the week changing
+        // under a hand that is deliberately holding still at an edge.
+        current.point = { clientX: moveEvent.clientX, clientY: moveEvent.clientY };
+
         const next =
           current.kind === 'move'
             ? previewMove(moveEvent, current, nextMetrics, live.current)
@@ -446,16 +616,24 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
 
         current.preview = next;
         setPreview(next);
+
+        // After the preview, so a page turn never fires before the ghost it is about to
+        // move has been drawn at least once.
+        trackEdge(moveEvent.clientX, nextMetrics);
       };
 
       const onPointerUp = (): void => {
         const current = session.current;
+        // Before the session is dropped: the teardown is what clears a countdown still
+        // running at an edge, and a timer that outlived its gesture would page the week
+        // with nothing in hand.
         teardown.current?.();
         teardown.current = null;
         session.current = null;
         setPreview(null);
         setKind(null);
         setTarget(null);
+        setEdge(null);
         if (current === null) return;
 
         // A press that never travelled is a click: open the job. On the action bar it is the
@@ -522,9 +700,33 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
       };
 
       const onKeyDown = (keyEvent: KeyboardEvent): void => {
-        if (keyEvent.key !== 'Escape') return;
+        if (keyEvent.key === 'Escape') {
+          keyEvent.stopPropagation();
+          finish();
+          return;
+        }
+
+        /*
+         * THE ARROWS PAGE THE WEEK WITH THE BLOCK IN HAND — the same thing the edge does,
+         * without the wait, for an owner who already knows where they are going.
+         *
+         * It also closes a hole rather than only adding a shortcut: the screen binds the
+         * arrows to the pager at the window, and it did so DURING a drag too, so pressing
+         * one paged the calendar while a gesture was in flight and nothing re-resolved the
+         * ghost. Handled here, in the capture phase, the screen's own listener never sees
+         * the key — and the week change goes through the one path that answers for it.
+         */
+        const current = session.current;
+        if (current === null || !current.moved || current.kind !== 'move') return;
+        if (current.inert !== undefined) return;
+        if (keyEvent.key !== 'ArrowLeft' && keyEvent.key !== 'ArrowRight') return;
+        if (keyEvent.metaKey || keyEvent.ctrlKey || keyEvent.altKey || keyEvent.shiftKey) return;
+        keyEvent.preventDefault();
         keyEvent.stopPropagation();
-        finish();
+        // The hold and the key are two ways to ask for the same thing; letting a countdown
+        // survive a keypress would page twice for one intent.
+        stopEdge();
+        live.current.onPageWeek(keyEvent.key === 'ArrowLeft' ? 'previous' : 'next');
       };
 
       window.addEventListener('pointermove', onPointerMove);
@@ -533,13 +735,14 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
       window.addEventListener('keydown', onKeyDown, true);
 
       teardown.current = () => {
+        stopEdge();
         window.removeEventListener('pointermove', onPointerMove);
         window.removeEventListener('pointerup', onPointerUp);
         window.removeEventListener('pointercancel', onPointerUp);
         window.removeEventListener('keydown', onKeyDown, true);
       };
     },
-    [enabled, finish],
+    [enabled, finish, stopEdge, trackEdge],
   );
 
   const beginMove = useCallback(
@@ -559,6 +762,7 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
     target,
     liftedBlockIds: preview === null ? EMPTY_IDS : target?.blockIds ?? EMPTY_IDS,
     kind,
+    edge,
     beginMove,
     beginResize,
   };
@@ -685,9 +889,23 @@ export function previewMove(
   const { timeline } = current;
   const { dayAt, days, rowsOn } = options;
   const hit = slotAt({ x: event.clientX, y: event.clientY }, metrics, timeline);
-  // Leaving the grid sideways keeps the last column rather than snapping home: the
-  // owner is usually on their way to the next one.
-  const aimedDate = hit?.date ?? current.preview?.date ?? current.target.date;
+  /*
+   * The pointer is off the columns — over the time axis, or past the last one. Leaving the
+   * grid sideways keeps the last column rather than snapping home: the owner is usually on
+   * their way to the next one.
+   *
+   * UNLESS THAT COLUMN IS NOT THERE ANY MORE. Holding the block at an edge pages the week,
+   * and the left-hand zone is the axis gutter — where `dateAtX` answers nothing — so the
+   * date the drag remembers is a day of the week that has just left the screen. Kept, the
+   * ghost would be drawn on no column at all and the drop would be resolved against a day
+   * `dayAt` cannot find. The nearest column is what the pointer is really over.
+   */
+  const remembered = current.preview?.date ?? current.target.date;
+  const aimedDate =
+    hit?.date ??
+    (metrics.columns.some((column) => column.date === remembered)
+      ? remembered
+      : nearestColumnDate(event.clientX, metrics.columns, remembered));
 
   const exact = timeline.minutesAt(event.clientY - metrics.top) - current.grabOffsetMinutes;
   // The rows of the run itself are not obstacles to it: they are what is being moved.
@@ -747,6 +965,29 @@ export function previewMove(
     // editable by hand from the job panel, which is where CLAUDE.md puts that.
     allowed: day !== undefined && !day.isPast,
   };
+}
+
+/**
+ * The column the pointer is closest to, for the two places it is over none of them: the
+ * time-axis gutter and the space past the last column. `fallback` covers the week having
+ * no columns at all, which only happens before the first measurement.
+ */
+function nearestColumnDate(
+  x: number,
+  columns: readonly ColumnBox[],
+  fallback: string,
+): string {
+  let best = fallback;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const column of columns) {
+    const right = column.left + column.width;
+    const distance = x < column.left ? column.left - x : x > right ? x - right : 0;
+    if (distance < bestDistance) {
+      best = column.date;
+      bestDistance = distance;
+    }
+  }
+  return best;
 }
 
 /**

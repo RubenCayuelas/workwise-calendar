@@ -163,8 +163,15 @@ export function CalendarBlock({
   const format = useFormat();
   const { block, group, isFirst, isLast, seamAbove, seamBelow } = segment;
 
-  const height = timeline.heightOf(block.durationMinutes);
   const endMinutes = block.startMinutes + block.durationMinutes;
+  /*
+   * THE RECTANGLE IS THE CLOCK INTERVAL THE ROW OCCUPIES, top and bottom read off the same
+   * axis. No row straddles a break (CLAUDE.md, invariant 3), so this is `durationMinutes`
+   * at the working scale to the pixel — the bottom edge, which is the resize handle, lands
+   * exactly on the minute the row ends at even though the axis compresses the lunch band
+   * somewhere else in the column.
+   */
+  const height = timeline.heightBetween(block.startMinutes, endMinutes);
 
   /*
    * A ROW WITH NO SURFACE LEFT OF ITS OWN, and what is done about it. TWO WAYS TO GET
@@ -348,7 +355,7 @@ export function CalendarBlock({
         <span
           className={styles.cutSeam}
           aria-hidden="true"
-          style={{ top: `${timeline.heightOf(cutAtMinutes - block.startMinutes)}px` }}
+          style={{ top: `${timeline.heightBetween(block.startMinutes, cutAtMinutes)}px` }}
         />
       )}
 

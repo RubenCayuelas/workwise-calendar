@@ -108,38 +108,120 @@ export const DEFAULT_PIXELS_PER_HOUR = 72;
  * Bounds for the fitted scale. The whole day should be visible without scrolling —
  * "see how long the workshop is booked" is the point of the screen — but not at the
  * price of a block too short to read or a day stretched over two screens.
+ *
+ * They bound the scale of WORKING time only; the break between two periods is drawn at
+ * `BREAK_BAND_HEIGHT` whatever the scale. See `createTimeline`.
  */
 export const MIN_PIXELS_PER_HOUR = 42;
 export const MAX_PIXELS_PER_HOUR = 96;
 
+/**
+ * THE HEIGHT OF THE BREAK BETWEEN TWO WORKING PERIODS — the lunch band — in pixels,
+ * whatever the scale the rest of the axis is drawn at.
+ *
+ * The owner's own words, 2026-08-17: *«Haz el hueco del medio para la comida pequeño, para
+ * indicar que hay un hueco pero es despreciable ya que no podemos trabajar ahí.»* At the
+ * fitted scale the documented 14:00-15:30 break took 82 px of a 742 px column — a ninth of
+ * the screen spent on time nobody can work, and the reason the axis had room to label only
+ * 07:00, 08:00, 11:00, 14:00… while an owner reading "how long is the shop booked" was
+ * counting three-hour jumps in their head.
+ *
+ * 28 px is the smallest band that still holds its own two labels: the axis prints the times
+ * on BOTH edges (14:00 and 15:30), each an 18 px line box centred on its rule, so anything
+ * under ~26 px has them touching. It reads as a seam rather than as a stretch of day, and
+ * the 54 px it gives back is what pays for a label on every hour (`axisTicks`) — on that
+ * same column the working hour goes from 55.0 px to 59.5 px.
+ *
+ * WHAT A POINTER INSIDE THE BAND MEANS IS UNCHANGED, and it is deliberate:
+ *
+ * - the mapping stays an exact inverse in there — `minutesAt(yOf(m)) === m` for every minute
+ *   of the band — because the drag layer rests on that everywhere, not merely where work can
+ *   sit (*One Axis Per Gesture*). The band is simply drawn at its own scale: ~3.2 minutes to
+ *   the pixel instead of ~1, so one `SNAP_MINUTES` step is ~4.7 px;
+ * - a RESIZE released in there is a DEAD ZONE by arithmetic, not by paint: `durationTo`
+ *   counts NET working minutes, so 14:00, 15:00 and 15:29 have always committed the same
+ *   duration. Compressing the band shrinks a zone in which the pointer already did nothing;
+ * - a DROP released in there still lands on the minute it was released on and padlocks the
+ *   row (manual-only time — CLAUDE.md, *The Padlock Is the Only Pin*; how the row is then
+ *   segmented is Open Decision 5 and is untouched). It is now a 28 px target that has to be
+ *   aimed at on purpose, which is the wanted direction: nobody works there.
+ */
+export const BREAK_BAND_HEIGHT = 28;
+
+/**
+ * One axis label's own line box, in pixels: `--ww-text-sm` (12 px) at the page's line
+ * height, measured at 18 px on the running app. Labels are what compete for room on the
+ * axis, so the room is measured in labels.
+ */
+const TICK_LABEL_HEIGHT = 18;
+
+/** The clear space two labels must leave between them to read as two labels. */
+const MIN_TICK_CLEARANCE = 2;
+
 const MINUTES_PER_HOUR = 60;
 const MINUTES_PER_DAY = 1440;
-
-/** The largest stretch of clock the axis labels without an interior tick. */
-const MAX_UNLABELLED_HOURS = 3;
 
 // ---------------------------------------------------------------------------
 // The timeline
 // ---------------------------------------------------------------------------
 
-/** The vertical scale of the grid: one shared mapping for all seven columns. */
+/**
+ * The vertical scale of the grid: one shared mapping for all seven columns.
+ *
+ * IT IS PIECEWISE (since 2026-08-17): working time is drawn at `pixelsPerMinute`, and the
+ * break between two periods is squeezed into `BREAK_BAND_HEIGHT` whatever that scale is. So
+ * there is no such thing as "how tall is 90 minutes" without saying WHERE — which is why the
+ * only two questions this interface answers are `heightBetween`, over two times on the clock,
+ * and `yOf`, from the top of the column.
+ */
 export interface Timeline {
   /** Top of the axis, in minutes from midnight. */
   readonly startMinutes: number;
   /** Bottom of the axis. */
   readonly endMinutes: number;
+  /** The axis's span on the CLOCK, compressed break included. */
   readonly spanMinutes: number;
+  /**
+   * The scale of WORKING time — the one every block is drawn at. A compressed break is
+   * NOT on this scale, so this may not be used to convert a span that contains one.
+   */
   readonly pixelsPerMinute: number;
   /** The height a day column must have, in pixels. */
   readonly height: number;
-  /** Offset of a time from the top of a column. */
+  /** Offset of a time from the top of a column. Monotonic, and clamped to the axis. */
   yOf(minutes: number): number;
-  /** A duration as a height. Never returns less than 1px, so nothing is invisible. */
-  heightOf(durationMinutes: number): number;
+  /**
+   * The pixels between two times on the clock, a compressed break included: the height of
+   * anything drawn from `fromMinutes` to `toMinutes`. Never less than 1px, so nothing is
+   * invisible.
+   *
+   * For everything a stored row can be it equals `duration * pixelsPerMinute` exactly — no
+   * block straddles a break (CLAUDE.md, invariant 3), so no block contains a compressed
+   * segment. It is the gap covering the afternoon and the ghost of a drop released inside
+   * the band that need the other answer.
+   */
+  heightBetween(fromMinutes: number, toMinutes: number): number;
   /** The time at an offset from the top of a column. Clamped to the axis. */
   minutesAt(y: number): number;
   /** Keeps a start time on the axis, leaving room for `durationMinutes`. */
   clampStart(minutes: number, durationMinutes?: number): number;
+}
+
+/**
+ * One stretch of the axis drawn at a single scale: the runs of working time at
+ * `pixelsPerMinute`, and one compressed segment per break between two periods.
+ *
+ * Held as an array rather than as a formula because both directions have to agree exactly.
+ * `yOf` picks the LAST segment that starts at or before the time asked for, and `minutesAt`
+ * the last that starts at or before the pixel asked for — so a time on a seam is converted
+ * with a zero offset into the segment BELOW it, and both functions return the stored
+ * `startY` / `startMinutes` there literally, where a rounding error would otherwise live.
+ */
+interface AxisSegment {
+  startMinutes: number;
+  endMinutes: number;
+  startY: number;
+  pixelsPerMinute: number;
 }
 
 export interface TimelineOptions {
@@ -161,6 +243,16 @@ export interface TimelineOptions {
 /**
  * The axis for a week, from `DayShape` (which already resolved the visual margins)
  * widened to cover anything the week actually holds.
+ *
+ * THE SCALE IS FITTED OVER WORKING MINUTES ONLY. Each break between two periods costs a
+ * flat `BREAK_BAND_HEIGHT`, that cost comes off the height there is to fill, and what is
+ * left is spread over the minutes the shop can actually use. On the documented shift and
+ * the shop's own window that is 12 h in 714 px instead of 13.5 h in 742 px — every working
+ * hour is ~8% taller than it was, which is where the room for an hourly label comes from.
+ *
+ * THE MARGINS ARE NEVER COMPRESSED. They are outside the periods, not between two of them,
+ * and the owner puts real work in them by hand — an hour of margin has to be as tall as an
+ * hour of the morning or the block sitting in it would lie about its length.
  */
 export function createTimeline(shape: DayShape, options: TimelineOptions = {}): Timeline {
   let startMinutes = clamp(shape.timelineStartMinutes, 0, MINUTES_PER_DAY);
@@ -176,29 +268,131 @@ export function createTimeline(shape: DayShape, options: TimelineOptions = {}): 
   if (endMinutes <= startMinutes) endMinutes = Math.min(startMinutes + MINUTES_PER_HOUR, MINUTES_PER_DAY);
 
   const spanMinutes = endMinutes - startMinutes;
+  const breaks = breaksBetween(shape.periods, startMinutes, endMinutes);
+  const breakMinutes = breaks.reduce((total, hole) => total + hole.endMinutes - hole.startMinutes, 0);
+  // What the fitted scale is spread over, and what the bands take off the top before it is.
+  const workingMinutes = Math.max(1, spanMinutes - breakMinutes);
+  const bandBudget = breaks.length * BREAK_BAND_HEIGHT;
+
   const pixelsPerHour =
     options.fitHeight !== undefined && options.fitHeight > 0
       ? clamp(
-          (options.fitHeight / spanMinutes) * MINUTES_PER_HOUR,
+          ((options.fitHeight - bandBudget) / workingMinutes) * MINUTES_PER_HOUR,
           MIN_PIXELS_PER_HOUR,
           MAX_PIXELS_PER_HOUR,
         )
       : (options.pixelsPerHour ?? DEFAULT_PIXELS_PER_HOUR);
   const pixelsPerMinute = pixelsPerHour / MINUTES_PER_HOUR;
-  const height = Math.round(spanMinutes * pixelsPerMinute);
+
+  const segments = buildSegments(startMinutes, endMinutes, breaks, pixelsPerMinute);
+  const last = segments[segments.length - 1];
+  const exactHeight = last.startY + (last.endMinutes - last.startMinutes) * last.pixelsPerMinute;
+
+  const yOf = (minutes: number): number => {
+    const clamped = clamp(minutes, startMinutes, endMinutes);
+    const segment = segmentOf(segments, (candidate) => candidate.startMinutes <= clamped);
+    return segment.startY + (clamped - segment.startMinutes) * segment.pixelsPerMinute;
+  };
+
+  const minutesAt = (y: number): number => {
+    const clamped = clamp(y, 0, exactHeight);
+    const segment = segmentOf(segments, (candidate) => candidate.startY <= clamped);
+    return clamp(
+      Math.round(segment.startMinutes + (clamped - segment.startY) / segment.pixelsPerMinute),
+      startMinutes,
+      endMinutes,
+    );
+  };
 
   return {
     startMinutes,
     endMinutes,
     spanMinutes,
     pixelsPerMinute,
-    height,
-    yOf: (minutes) => (clamp(minutes, startMinutes, endMinutes) - startMinutes) * pixelsPerMinute,
-    heightOf: (durationMinutes) => Math.max(1, durationMinutes * pixelsPerMinute),
-    minutesAt: (y) => clamp(Math.round(startMinutes + y / pixelsPerMinute), startMinutes, endMinutes),
+    height: Math.round(exactHeight),
+    yOf,
+    heightBetween: (fromMinutes, toMinutes) => Math.max(1, yOf(toMinutes) - yOf(fromMinutes)),
+    minutesAt,
     clampStart: (minutes, durationMinutes = 0) =>
       clamp(minutes, startMinutes, Math.max(startMinutes, endMinutes - durationMinutes)),
   };
+}
+
+/**
+ * The holes BETWEEN two working periods, clipped to the axis: what the axis compresses.
+ *
+ * Not the same set as `nonWorkingBands`, and the difference is the whole rule: this one
+ * starts at the first period and stops at the last, so the visual margins — the non-working
+ * time OUTSIDE the periods, which is hand time and holds real work — are never in it.
+ */
+function breaksBetween(
+  periods: readonly WorkPeriod[],
+  startMinutes: number,
+  endMinutes: number,
+): WorkPeriod[] {
+  const sorted = [...periods].sort((a, b) => a.startMinutes - b.startMinutes);
+  const holes: WorkPeriod[] = [];
+  let cursor: number | undefined;
+
+  for (const period of sorted) {
+    if (cursor !== undefined && period.startMinutes > cursor) {
+      const from = clamp(cursor, startMinutes, endMinutes);
+      const to = clamp(period.startMinutes, startMinutes, endMinutes);
+      if (to > from) holes.push({ startMinutes: from, endMinutes: to });
+    }
+    cursor = cursor === undefined ? period.endMinutes : Math.max(cursor, period.endMinutes);
+  }
+
+  return holes;
+}
+
+/**
+ * The axis cut into runs of one scale each, top to bottom and contiguous in both minutes
+ * and pixels.
+ *
+ * A break is drawn at `min(what it would have been, BREAK_BAND_HEIGHT)`: compressing is
+ * only ever allowed to make the hole SMALLER, so a shop with a ten-minute break does not
+ * find it stretched into a band three times its size.
+ */
+function buildSegments(
+  startMinutes: number,
+  endMinutes: number,
+  breaks: readonly WorkPeriod[],
+  pixelsPerMinute: number,
+): AxisSegment[] {
+  const segments: AxisSegment[] = [];
+  let cursor = startMinutes;
+  let y = 0;
+
+  const push = (from: number, to: number, scale: number): void => {
+    segments.push({ startMinutes: from, endMinutes: to, startY: y, pixelsPerMinute: scale });
+    y += (to - from) * scale;
+  };
+
+  for (const hole of breaks) {
+    if (hole.startMinutes > cursor) push(cursor, hole.startMinutes, pixelsPerMinute);
+    const holeMinutes = hole.endMinutes - hole.startMinutes;
+    push(
+      hole.startMinutes,
+      hole.endMinutes,
+      Math.min(holeMinutes * pixelsPerMinute, BREAK_BAND_HEIGHT) / holeMinutes,
+    );
+    cursor = hole.endMinutes;
+  }
+
+  if (cursor < endMinutes || segments.length === 0) push(cursor, endMinutes, pixelsPerMinute);
+  return segments;
+}
+
+/** The last segment the predicate holds for; the first when it holds for none. */
+function segmentOf(
+  segments: readonly AxisSegment[],
+  holds: (segment: AxisSegment) => boolean,
+): AxisSegment {
+  for (let index = segments.length - 1; index > 0; index -= 1) {
+    if (holds(segments[index])) return segments[index];
+  }
+  return segments[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -290,37 +484,112 @@ export interface AxisTick {
 }
 
 /**
- * The times the axis labels: every edge of the day plus enough interior ticks that
- * no stretch of clock runs more than three hours without one.
+ * The times the axis labels: every edge of the day, and then EVERY HOUR.
  *
- * That rule is what reproduces the wireframe exactly — a 6h morning gets 11:00 and a
- * 4h afternoon gets 17:30 — while still behaving on a 12h single period.
+ * The owner, 2026-08-17: *«En la división de horas de 8 a 11 es un salto muy grande, coloca
+ * todas las horas.»* The axis used to label the edges plus one interior tick per three hours
+ * of period, which on the documented shift printed 08:00 and then 11:00 — so reading how far
+ * down the morning a block sat meant measuring a three-hour box by eye. The room for the
+ * hourly labels is what compressing the break gave back; the two requests were one.
+ *
+ * AN HOUR IS DROPPED WHERE IT WOULD COLLIDE, never a period edge: the edges are the times
+ * the whole screen is stated over. That is what keeps 15:00 out of a 28 px lunch band and
+ * what protects a shift whose period starts at 15:50 from printing 15:50 over 16:00.
  */
 export function axisTicks(periods: readonly WorkPeriod[], timeline: Timeline): AxisTick[] {
   const ticks = new Map<number, AxisTick>();
+  /*
+   * Measured as BOXES IN PIXELS, because that is the real question — two labels overlap or
+   * they do not. Minutes cannot answer it: on a piecewise axis the same two minutes are not
+   * always the same gap, and the two labels at the ends of the axis are anchored
+   * differently from the rest (`.tickFirst` / `.tickLast` in WeekGrid.module.css hang them
+   * inside the frame instead of centring them on their rule), so they reach a whole label
+   * further into the column than a centred one does. That last detail is not a nicety: at
+   * the shop's own window 20:00 and 20:30 are 26 px apart, which passes any centre-to-centre
+   * test and still printed one over the other.
+   */
+  const boxes: { top: number; bottom: number }[] = [];
+
+  /** Keeps a tick unless a label already placed is standing in its box. */
   const add = (minutes: number, boundary: boolean): void => {
     if (minutes < timeline.startMinutes || minutes > timeline.endMinutes) return;
     const existing = ticks.get(minutes);
-    if (existing === undefined) ticks.set(minutes, { minutes, boundary });
-    else if (boundary) existing.boundary = true;
+    if (existing !== undefined) {
+      if (boundary) existing.boundary = true;
+      return;
+    }
+    const box = labelBox(minutes, timeline);
+    if (boxes.some((other) => overlaps(box, other))) return;
+    ticks.set(minutes, { minutes, boundary });
+    boxes.push(box);
   };
+
+  /*
+   * IN PRECEDENCE ORDER, MOST MEANINGFUL FIRST, because a label box can only belong to one
+   * of them and something has to give when two are closer than a line of type.
+   *
+   * 1. EVERY PERIOD EDGE, earliest first: the times the working day starts and stops. These
+   *    are the times the shop is actually run by.
+   * 2. THE TWO ENDS OF THE AXIS. They state the range, but each is only the outer lip of a
+   *    visual margin — grey, hand-only time — so an edge outranks them.
+   * 3. EVERY HOUR, which is what the owner asked for («coloca todas las horas») and what
+   *    gives way first: an hour can be counted from its neighbours, an edge cannot.
+   *
+   * BOTH DEMOTIONS ARE REAL CONFIGURATIONS, not hypotheticals, and both were measured on the
+   * running app on 2026-08-17:
+   *
+   * - AN EDGE AGAINST AN EDGE. A shift of `08:00-14:00` then `14:10-18:10` — which Settings
+   *   accepts, and whose 10-minute break the band deliberately draws at its own 9 px rather
+   *   than stretching to `BREAK_BAND_HEIGHT` — puts two edge labels ten minutes apart, and
+   *   18 px of type does not fit in 9 px of axis. `14:00` and `14:10` printed one through the
+   *   other, an unreadable smudge down the side of the calendar. The earlier survives: it is
+   *   when work STOPS, and the boundary is not lost with its label, because the compressed
+   *   band draws a solid rule on each of its own edges (`.bandBreak`).
+   * - AN AXIS END AGAINST AN EDGE. The margins step in half hours (`HOUR_STEP`), so a 0.5 h
+   *   margin is two clicks away, and at `MIN_PIXELS_PER_HOUR` half an hour is 21 px — less
+   *   than one label. Ordered the other way this dropped `08:00`, the single most useful
+   *   label on the axis, to keep the top lip of a grey band.
+   *
+   * The axis ends are NOT forced, which they were for one iteration. Forcing them coupled
+   * this function to `.tickFirst` / `.tickLast` being applied by INDEX in WeekGrid: drop the
+   * first tick and index 0 becomes a label the stylesheet hangs below its rule while
+   * `labelBox` had modelled it as centred — the model and the paint disagreeing, which is
+   * the exact defect class the piecewise axis was rewritten to remove. WeekGrid now keys
+   * those two classes on the MINUTE (`tick.minutes === timeline.startMinutes`), matching
+   * `labelBox`'s own test, so either end can be dropped safely.
+   */
+  for (const period of [...periods].sort((a, b) => a.startMinutes - b.startMinutes)) {
+    add(period.startMinutes, true);
+    add(period.endMinutes, true);
+  }
 
   add(timeline.startMinutes, true);
   add(timeline.endMinutes, true);
 
-  for (const period of periods) {
-    add(period.startMinutes, true);
-    add(period.endMinutes, true);
-
-    const span = period.endMinutes - period.startMinutes;
-    const segments = Math.max(1, Math.ceil(span / (MAX_UNLABELLED_HOURS * MINUTES_PER_HOUR)));
-    for (let index = 1; index < segments; index += 1) {
-      // Snapped to the half hour: an axis reading 10:24 would look like a bug.
-      add(roundTo(period.startMinutes + (span * index) / segments, 30), false);
-    }
+  for (
+    let minutes = ceilTo(timeline.startMinutes + 1, MINUTES_PER_HOUR);
+    minutes < timeline.endMinutes;
+    minutes += MINUTES_PER_HOUR
+  ) {
+    add(minutes, false);
   }
 
   return [...ticks.values()].sort((a, b) => a.minutes - b.minutes);
+}
+
+/** The pixels a label printed at `minutes` covers, as the stylesheet anchors it. */
+function labelBox(minutes: number, timeline: Timeline): { top: number; bottom: number } {
+  const y = timeline.yOf(minutes);
+  if (minutes <= timeline.startMinutes) return { top: y, bottom: y + TICK_LABEL_HEIGHT };
+  if (minutes >= timeline.endMinutes) return { top: y - TICK_LABEL_HEIGHT, bottom: y };
+  return { top: y - TICK_LABEL_HEIGHT / 2, bottom: y + TICK_LABEL_HEIGHT / 2 };
+}
+
+function overlaps(
+  one: { top: number; bottom: number },
+  other: { top: number; bottom: number },
+): boolean {
+  return one.top - MIN_TICK_CLEARANCE < other.bottom && other.top - MIN_TICK_CLEARANCE < one.bottom;
 }
 
 // ---------------------------------------------------------------------------
@@ -339,6 +608,22 @@ export interface GridMetrics {
   /** Client Y of the top of the timeline — the same for all seven columns. */
   top: number;
   columns: ColumnBox[];
+  /**
+   * The VISIBLE grid box and the width of the hot strip at each end of it — everything
+   * `edgeSideAt` needs to say whether the pointer is asking for another week.
+   *
+   * The box is deliberately not derived from `columns`: on a window too narrow for the
+   * whole week the columns scroll sideways inside it, so a zone pinned to Monday's left
+   * edge would sit where no pointer can reach. The frame is what the owner sees, which is
+   * what "near the edge" means. The two widths are measured here for the same reason —
+   * the left one is the time-axis gutter, and only the grid knows how wide that is.
+   */
+  frame: {
+    left: number;
+    right: number;
+    leftZone: number;
+    rightZone: number;
+  };
 }
 
 /** The column under `x`, or `undefined` when the pointer is outside the grid. */
@@ -589,8 +874,4 @@ function floorTo(value: number, step: number): number {
 
 function ceilTo(value: number, step: number): number {
   return Math.ceil(value / step) * step;
-}
-
-function roundTo(value: number, step: number): number {
-  return Math.round(value / step) * step;
 }

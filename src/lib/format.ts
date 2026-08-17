@@ -71,21 +71,34 @@ export const INVALID_TIME = '--:--';
  * owner an "Application error" with no way back to the calendar. The row it could not
  * draw was the very row they needed to reach in order to fix it.
  *
- * `assertRowInsideDay` now makes that row unstorable, so this should never fire again
- * from a fresh write — but a database written BEFORE the guard existed still holds one,
- * and a shop PC's `data/calendar.db` is not something a fix can retroactively repair. The
- * app has to be able to display the mistake in order to let the owner correct it.
+ * THERE ARE TWO WAYS TO GET HERE AND THIS FUNCTION CANNOT TELL THEM APART, which is why
+ * the complaint no longer picks one:
+ *
+ *  - A ROW STORED OUT OF RANGE. `assertRowInsideDay` makes that unstorable now, but a
+ *    database written BEFORE the guard existed still holds one, and a shop PC's
+ *    `data/calendar.db` is not something a fix can retroactively repair. The app has to be
+ *    able to display the mistake in order to let the owner correct it.
+ *  - A VALUE THAT WAS NEVER A TIME OF DAY. `duration` is NET WORKING MINUTES, so
+ *    `start + duration` is only a clock reading when those minutes all fit inside the day
+ *    from that start. The drag ghost added a whole RUN's minutes — 18 h across two days —
+ *    to a 07:00 start and formatted 1500 as an end-of-day, once per pointer move. The old
+ *    wording, "a stored row is out of range", sent that investigation to the database, and
+ *    the database was clean the whole time.
  *
  * It does not hide a real bug, which was the argument for leaving it throwing:
  *  - `minutesToHHmm` is untouched, so the engine, the repositories, the API and every
  *    test still throw on such a value — the loud path stays loud where it can act;
  *  - the placeholder is VISIBLE on screen, which is louder than a clamp that would have
  *    quietly drawn 25:00 as 01:00;
- *  - and it complains to the console with the offending value.
+ *  - and it complains to the console with the offending value and both suspects.
  */
 export function formatTime(minutes: number): string {
   if (!Number.isFinite(minutes) || minutes < 0 || minutes > MINUTES_PER_DAY) {
-    console.error(`formatTime: ${minutes} is not a time of day; a stored row is out of range`);
+    console.error(
+      `formatTime: ${minutes} is not a minute of the day (0-${MINUTES_PER_DAY}). ` +
+        'Either a row is stored out of range, or a DURATION was added to a start and the ' +
+        'sum formatted as a clock time — net working minutes are not a time of day.',
+    );
     return INVALID_TIME;
   }
   return minutesToHHmm(minutes);

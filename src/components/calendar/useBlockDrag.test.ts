@@ -55,6 +55,10 @@ const METRICS: GridMetrics = {
     { date: '2026-08-13', left: 200, width: 180 },
     { date: '2026-08-15', left: 380, width: 180 },
   ],
+  // The visible box the edge zones are measured from, and the strips at its two ends: the
+  // time-axis gutter on the left, the minimum on the right. These cases press at x=260 and
+  // never go near either strip, so no page turn is ever in play here.
+  frame: { left: 142, right: 560, leftZone: 58, rightZone: 40 },
 };
 
 const THURSDAY: WeekDay = day('2026-08-13', { role: 'auto' });
@@ -130,6 +134,11 @@ function press(
     // Past the click slop: these cases are all real drags, never a shaky click.
     travelled: 40,
     preview: null,
+    // The edge state of a drag that has never been near an edge: nothing remembered, the
+    // zones armed (the press was in the middle of the grid), nothing counting down.
+    point: null,
+    edgeArmed: true,
+    edge: null,
   };
 }
 
@@ -152,10 +161,19 @@ describe('previewResize', () => {
     const preview = previewResize({ clientY: yOf(17 * 60 + 30) }, session, METRICS, OPTIONS);
 
     expect(preview.durationMinutes).toBe(360);
-    // The re-fitted axis would have read that same pixel as 17:22 and answered 5,75 h —
-    // one SNAP_MINUTES short. This is the number the owner was shown before the fix.
+    // The re-fitted axis still reads that pixel as an earlier minute — the whole defect.
     expect(REFITTED_AXIS.minutesAt(yOf(17 * 60 + 30) - TOP)).toBeLessThan(17 * 60 + 30);
-    expect(previewResize({ clientY: yOf(17 * 60 + 30) }, press('resize', 14 * 60, REFITTED_AXIS), METRICS, OPTIONS).durationMinutes).toBe(360 - SNAP_MINUTES);
+    /*
+     * AND FARTHER DOWN THE COLUMN THE DRIFT IS STILL WORTH A WHOLE QUARTER OF AN HOUR.
+     * The release point moved here on 2026-08-17, when the axis began compressing the
+     * lunch band: the drift accumulates over WORKING pixels, so at 17:30 it is now 6.7
+     * minutes and snaps back onto its own quarter, while at 19:30 it is 8 and does not.
+     * The defect is the same one and so is its shape — a pixel converted at a scale that
+     * did not exist when the owner pressed — only the depth at which it bites has moved.
+     * 19:30 reads as 19:22 and commits 7,75 h for a gesture that drew 8 h.
+     */
+    expect(REFITTED_AXIS.minutesAt(yOf(19 * 60 + 30) - TOP)).toBe(19 * 60 + 22);
+    expect(previewResize({ clientY: yOf(19 * 60 + 30) }, press('resize', 14 * 60, REFITTED_AXIS), METRICS, OPTIONS).durationMinutes).toBe(480 - SNAP_MINUTES);
   });
 
   /**
@@ -470,5 +488,88 @@ describe('previewMove — the aim and the day', () => {
     expect(releaseOn(9 * 60 + 45, 120, [alfa]).startMinutes).toBe(9 * 60);
     // Its lower third means "after it".
     expect(releaseOn(12 * 60 + 30, 120, [alfa]).startMinutes).toBe(13 * 60);
+  });
+});
+
+/**
+ * THE WEEK CHANGED UNDER THE POINTER — the block was held at an edge, the calendar paged,
+ * and the columns the drag is resolved against are now another week's.
+ *
+ * The gesture is fixed to the axis it pressed on and that must not change; everything
+ * HORIZONTAL must. The one thing that could have remembered the old week is the date the
+ * preview falls back to when the pointer is over no column at all, which is exactly where
+ * the left-hand edge zone is: the time-axis gutter.
+ */
+describe('previewMove after the week has paged', () => {
+  const NEXT_WEEK_THURSDAY: WeekDay = day('2026-08-20', { role: 'auto' });
+  const NEXT_WEEK_SATURDAY: WeekDay = day('2026-08-22', { role: 'manual', isWeekend: true });
+  const PAGED = [NEXT_WEEK_THURSDAY, NEXT_WEEK_SATURDAY];
+
+  /** The same grid, one week on: same boxes, new dates. Paging changes only the labels. */
+  const PAGED_METRICS: GridMetrics = {
+    ...METRICS,
+    columns: [
+      { date: '2026-08-20', left: 200, width: 180 },
+      { date: '2026-08-22', left: 380, width: 180 },
+    ],
+  };
+
+  const pagedOptions = {
+    dayAt: (date: string): WeekDay | undefined => PAGED.find((candidate) => candidate.date === date),
+    days: (): readonly WeekDay[] => PAGED,
+    rowsOn: (): readonly AimRow[] => [],
+  };
+
+  /** A drag that began on last week's Thursday and has a preview from that week. */
+  function paging(): DragSession {
+    const session = press('move', 10 * 60);
+    session.grabOffsetMinutes = 0;
+    session.preview = {
+      kind: 'move',
+      groupId: 'reja',
+      color: '#1D9E75',
+      date: '2026-08-13',
+      startMinutes: 10 * 60,
+      durationMinutes: 240,
+      allowed: true,
+    };
+    return session;
+  }
+
+  it('lands on the new week when the pointer is over a column', () => {
+    const preview = previewMove(
+      { clientX: 260, clientY: yOf(10 * 60) },
+      paging(),
+      PAGED_METRICS,
+      pagedOptions,
+    );
+    expect(preview.date).toBe('2026-08-20');
+    expect(preview.allowed).toBe(true);
+  });
+
+  it('falls back to the nearest column, not to the day it remembers from last week', () => {
+    // x = 60 is the time-axis gutter — the left edge zone, where the pointer sits while it
+    // is paging. Kept, `2026-08-13` would be a date no column carries: the ghost would be
+    // drawn nowhere and the drop resolved against a day `dayAt` cannot find.
+    const preview = previewMove(
+      { clientX: 60, clientY: yOf(10 * 60) },
+      paging(),
+      PAGED_METRICS,
+      pagedOptions,
+    );
+    expect(preview.date).toBe('2026-08-20');
+    expect(preview.allowed).toBe(true);
+  });
+
+  it('keeps the remembered column while it is still on screen', () => {
+    // The behaviour that was there before paging existed, and the reason the fallback is
+    // not simply "nearest": leaving the grid sideways keeps the column the drag was over.
+    const preview = previewMove(
+      { clientX: 60, clientY: yOf(10 * 60) },
+      paging(),
+      METRICS,
+      OPTIONS,
+    );
+    expect(preview.date).toBe('2026-08-13');
   });
 });

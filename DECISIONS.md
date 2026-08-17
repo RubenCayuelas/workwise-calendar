@@ -526,6 +526,203 @@ is KEPT rather than re-flowed (Friday, the weekend and the margins, all of which
 The invariant underneath is `minutesAt(yOf(m)) === m` for every minute of the axis, margins and
 lunch band included.
 
+**Paging the week mid-drag does not touch it** (2026-08-17). The axis is VERTICAL and a week is a
+set of COLUMNS, so a page turn changes what the pointer is over horizontally and nothing about the
+mapping the gesture fixed at press. The screen already holds the painted axis for as long as a block
+is in the air, so the new week is drawn on the press's own axis and the two stay one ruler; the axis
+re-fits on release, like any other late re-fit. The one visible cost is a week whose rows fall
+outside the held axis — a row in a margin the previous week had none of — which is drawn clamped to
+the axis end until the hand comes off. Widening the axis mid-drag would be the SCALE change this
+whole decision exists to forbid.
+
+---
+
+## Dragging To The Edge Changes Week
+
+**Decided 2026-08-14, built 2026-08-17**, after the owner tried to use it: *«lo de arrastrar a la
+siguiente semana no sé cómo funciona o no lo he conseguido hacer funcionar»*. There was nothing to
+find — the decision had never been implemented — and that is the first thing this build had to
+answer: a gesture with no visible affordance is indistinguishable from a gesture that does not
+exist. Hence the rails, which are not decoration but the feature's discoverability.
+
+**The three numbers, and why they are those numbers.**
+
+- **The strip: 40 px at the frame's ends, and the whole 58 px gutter on the left.** Measured from
+  the FRAME rather than from the columns because on a narrow window the columns scroll INSIDE the
+  frame, and a strip pinned to Monday's left edge would then sit where no pointer can reach. That
+  choice pays twice: the left strip lands in the time-axis gutter, which belongs to no day, so
+  nothing is taken from anything. It was 40 px there for one afternoon and left the hour labels
+  sliced down the middle (`08:00` reading as `0`), so it became the gutter's own width — and the
+  rail draws itself over `max(--ww-edge-zone, --ww-axis-width)`, the same number the grid's column
+  template is built from, so the trigger and the paint cannot drift apart.
+- **The wait: 500 ms, then 320, 240, 200.** Long enough that no drag merely PASSING through the
+  strip ever fires, short enough not to feel stuck — the owner asked for *«fluido y ligero»*. The
+  repeats shorten because the first turn has already proved the intent, and they stop at 200 ms
+  because a week that goes past faster than that cannot be read on the way. Measured on the running
+  app: a continuous hold walked 34 → 39 in about 1.5 s, and each week's dates were legible on the
+  rail as it went.
+- **The rail's fill lasts exactly the wait that is running** — `EdgeHold.delayMs` is published by
+  the drag layer rather than re-derived in CSS, because a progress bar that finishes before or after
+  the thing it measures is worse than none.
+
+**Sunday is the cost, and the dwell is what pays it.** There is no gutter on the right, so the strip
+lies over the last 40 px of Sunday's 134. Two things keep that honest: a RELEASE there is still a
+drop on Sunday (the rail is `pointer-events: none`; only HOLDING pages), and a strip the pointer
+STARTED in does not arm until it has been left once — otherwise a block grabbed at Sunday's right
+edge and dragged up its own column would page the week out from under itself.
+
+**The arrow keys were already a hole.** The screen binds them to the pager at the window, and it did
+so during a drag too: pressing one paged the calendar with a block in hand and nothing re-resolved
+the ghost. They are now handled by the gesture itself, in the capture phase, so the screen's listener
+never sees them — the shortcut and the fix are the same three lines.
+
+**What "the drop resolves against the week it is released in" cost.** Almost nothing, because every
+fact a release needs is read at the release from `viewRef` — the day, its windows, the rows to aim
+at, the starts already taken. Three seams needed work:
+
+1. **The remembered column.** `previewMove` falls back to the last column it was over when the
+   pointer is on none — which is exactly where the left strip is. After a page turn that date names
+   a day no longer on screen, so the ghost would be drawn nowhere and the drop resolved against a day
+   `dayAt` cannot find. It now keeps the remembered date only while it is still a column, and
+   otherwise takes the nearest one.
+2. **The ghost without a pointer event.** A hand holding still at an edge sends no events, so the
+   preview is re-resolved from the last pointer position the moment the columns change (`weekKey`).
+   Without it the block vanishes from the hand until the mouse is jiggled.
+3. **The release that beats the fetch.** Verified with 700 ms of injected latency: the turn fires,
+   the block is released before the new week arrives, and the drop belongs to the week that was on
+   screen — so the pending page turn is cancelled (`showWeekOf`), or the owner would be left looking
+   at a week their block is not in. The repeat is also gated on the week ARRIVING, which is what
+   stops a hold outrunning the calendar.
+
+**The two new outcomes are the honest part.** Dragging into a later week and releasing on a
+Monday-Thursday day does NOT leave the block there: a drop on an auto day is a rank, so the reflow
+lays it out where the queue reaches — measured, a 10 h run dragged from Monday 17 August into the
+week of 7 September came back on **Wednesday 19 August**. That is the documented rule working, and
+the ghost said so before the release («Entra en la cola por aquí», hollow, no clock range). But the
+toast said *«ya no cabía en esta semana: sus horas continúan…»*, which describes the opposite
+journey, so `leftWeek` was split by direction and `pulledBack` says what really happened and how to
+get the other behaviour (padlock first, or drop on a day that keeps the minute). `movedWeek` covers
+the case where the row DID stay: it names the day, the week, and the way back to today's.
+
+**Verified in a real browser, 2026-08-17** (scratch DB, 1646×963): rails drawn on both ends the
+moment a block leaves the ground, naming `10–16 ago 2026` and `24–30 ago 2026`; a hold at the right
+edge pages after ~500 ms and repeats accelerating; the ghost follows onto the new week's column
+without the pointer moving; the arrow keys page both ways mid-drag; a padlocked run dropped on
+Wednesday 26 August landed exactly there with the `movedWeek` sentence; a 10 h run released on
+Saturday 29 August landed on the two ghost rectangles **to the pixel** (`top 257 h 261` and
+`top 546 h 261`, stored `09:00 +5 h` and `15:30 +5 h`, padlocked).
+
+---
+
+## The Lunch Break Is a Seam, and Every Hour Is Labelled
+
+**Decided with the owner, 2026-08-17, as two requests that turned out to be one:**
+
+> *«Haz el hueco del medio para la comida pequeño, para indicar que hay un hueco pero es
+> despreciable ya que no podemos trabajar ahí.»*
+>
+> *«En la división de horas de 8 a 11 es un salto muy grande, coloca todas las horas.»*
+
+The second is paid for by the first. Measured at a 876 px window the axis was 655 px for
+07:00-20:30 and the comida took 73 of them; the labels the axis could carry were the period edges
+plus one interior tick per three hours, so the morning read `08:00 … 11:00 … 14:00` and judging
+where a block sat inside a three-hour box was done by eye. Compressing the break to a flat 28 px
+gives back 45 px and raises the working hour from 48.5 px to 52.25 px — which is the room an hourly
+label needs.
+
+**Why 28 px, and why a flat number rather than a fraction.** The band carries its own two labels
+(14:00 and 15:30, both period edges, both times the whole screen is stated over) and a 12 px label's
+line box is 18 px, so under ~26 px they touch. A flat height rather than "a third of what it was"
+because the point is that the break is NEGLIGIBLE: it should not grow when the window does.
+
+**Only the hole BETWEEN two periods is compressed. The margins are the day.** They are non-working
+time too, and the temptation is to treat them the same — but the owner PUTS REAL WORK in a margin by
+hand, and an hour of margin drawn shorter than an hour of the morning would make the block sitting
+in it lie about its length. `breaksBetween` therefore starts at the first period and stops at the
+last, which is a different set from `nonWorkingBands`'.
+
+**What a pointer inside the seam means — asked deliberately rather than left implied.** It is
+unchanged, and that is the answer:
+
+- the mapping stays an exact inverse in there. It would have been easy to clamp the band to a single
+  minute and call it a dead zone, and that would have broken *One Axis Per Gesture* at the one place
+  the ghost and the server would never disagree loudly enough to be noticed;
+- a RESIZE released in the band was already a dead zone by ARITHMETIC — `durationTo` counts net
+  working minutes, so 14:00, 15:00 and 15:29 have always committed the same duration. Compressing
+  the band shrinks a zone in which the pointer already did nothing, which is the right direction;
+- a DROP released in there still lands on its minute and padlocks the row (Open Decision 5 is about
+  how that row is then segmented, and is untouched). It is now a 28 px target — ~3.2 minutes to the
+  pixel, a `SNAP_MINUTES` step every ~4.7 px — so it has to be aimed at on purpose. Nobody works
+  there, so a harder target is a feature.
+
+**The dangerous part was never the paint, it was the arithmetic.** A piecewise axis has no single
+"pixels per minute", and the drag layer rests on the mapping being an exact inverse BOTH ways; the
+last scale defect here cost a round (*One Axis Per Gesture*, a 1.2% drift that made a resize commit
+5,75 h for a gesture that drew 6). So the axis is held as explicit segments with `yOf` and
+`minutesAt` reading the SAME table from the same side — a time on a seam is converted with a zero
+offset into the segment below it, so both functions return the stored number there and cannot
+disagree by a rounding error. The round trip is asserted minute by minute over the whole axis at six
+fitted scales, and monotonicity beside it.
+
+**`heightOf(duration)` was REMOVED from `Timeline`, not fixed.** "How tall is 90 minutes" has no
+answer on a piecewise axis without saying where, and the two callers that asked it were wrong in
+opposite directions: a gap running 12:00-19:30 (its duration is CLOCK minutes — *stop the day here*
+makes one across the comida) drew 50 px past the end of the day. `heightBetween(from, to)` cannot be
+called without the answer being well posed, and for every row the invariants permit it is
+`duration * pixelsPerMinute` to the pixel, because no stored row straddles a break.
+
+**A label is dropped only where it would print over one already placed.** Measured in label BOXES
+rather than in minutes or in centre-to-centre pixels, because the two labels at the ends of the axis
+are anchored differently (`.tickFirst` / `.tickLast` hang them inside the frame): at the shop's
+window 20:00 sits 26 px above 20:30 — far apart by any centre test — and printed straight through it.
+
+**"AND NEVER A PERIOD EDGE" WAS TOO STRONG A PROMISE, and it was found by driving the settings rather
+than the calendar (integration pass, 2026-08-17).** Settings accepts a shift with a very short break —
+`08:00-14:00` then `14:10-18:10` — and the seam deliberately draws that 10-minute hole at its own
+9 px, because *compressing may only ever make a hole smaller*. Two 18 px labels do not fit in 9 px of
+axis, so `14:00` and `14:10` printed one through the other: an unreadable smudge down the side of the
+calendar, in a configuration the test suite already exercised for its band height. The rule protected
+edges from HOURS and never asked what protects an edge from another EDGE.
+
+So the guarantee is now a PRECEDENCE instead of an exemption — period edges, then the two ends of the
+axis, then the hours — and every rank is checked against the boxes already taken:
+
+- **an hour yields to everything**, because it can be counted from its neighbours;
+- **an axis end yields to a period edge.** The margins step in half hours (`HOUR_STEP`), so a 0.5 h
+  margin is two clicks away, and at `MIN_PIXELS_PER_HOUR` half an hour is 21 px — less than one label.
+  An axis end is only the outer lip of a grey band nobody works in; `08:00` is when work starts. The
+  first attempt at this fix forced the axis ends and dropped `08:00`, which is the wrong way round;
+- **an edge yields only to an earlier edge**, because the earlier one is when work STOPS, and the
+  boundary is not lost with its label — the seam draws a solid rule on each of its own edges.
+
+**Forcing the axis ends also coupled the arithmetic to the stylesheet, which is why it was abandoned
+rather than kept as a special case.** `.tickFirst` / `.tickLast` were applied by INDEX in WeekGrid: drop
+the first tick and index 0 becomes a label the CSS hangs below its rule while `labelBox` had measured
+it as centred — the collision model and the paint disagreeing by a whole label, which is precisely the
+defect class this axis was rebuilt to remove. Both classes are now keyed on the MINUTE, matching
+`labelBox`'s own test, so either end can be dropped safely.
+
+**The property is now the assertion, not the examples.** "Nothing left on the axis overlaps anything
+else" is checked over five shifts × four margin widths × seven fitted heights, because the cases that
+bite are the ones nobody thought to write down — a 10-minute break was one, and it had been sitting in
+the suite as a band-height test for a day.
+
+**Re-measured on the running app, 2026-08-17 (integration pass)** across six shift configurations at
+two window heights each: the documented shift, the 10-minute break, half-hour margins, the afternoon
+switched off, no margins at all, and a long `06:30-21:00` split shift. No two labels overlap in any of
+them. The afternoon-off axis is LINEAR (uniform 84.875 px per hour, no seam at all), the 10-minute
+seam is 9.04 px at 1440x900 and 7 px at 1280x560 — never stretched to 28 — and the half-hour-margin
+axis at the clamped scale drops BOTH axis ends and keeps every period edge and every hour.
+
+**Measured on the running app, 2026-08-17**, at two window heights (876 px and 1093 px), against a
+week holding a unit cut at the comida, a 15-minute row, a padlocked Saturday row and a gap spanning
+the break. The axis was rebuilt from the ticks the PAGE printed and every rectangle held against the
+minutes the API stored: all of them match to under 0.05 px, the band is 28 px at both heights, and
+the margins are a full hour each. Then the two gestures that cross the seam: a Saturday unit pressed
+on 09:00 and released on 17:00 stored `16:00` exactly (a pinned drop keeps its minute, so an axis
+error there is stored), and a resize of the Monday morning row released on the 19:00 label stored
+`08:00-14:00` + `15:30-19:00` — 9,5 h.
+
 ---
 
 ## Deleting a Job Leaves Its Past Intact
@@ -671,6 +868,45 @@ waste the answer.
   answering the sliver: the minutes are real, `SUM(blocks.duration) == total_hours` must hold, and
   refusing the delete would leave the owner unable to remove the very row the app should not have
   created.
+
+**Open Decisions 13 and 14 came out of the integration pass on 2026-08-17**, driving the three
+parallel changes (the piecewise axis, the ghost's labels, edge paging) against each other on the
+running app. Both are questions about what a gesture MEANS, which is why only the part that violated
+an already-written rule was fixed.
+
+**13 — a run longer than the day.** The drag unit is the whole RUN (§ *The Unit of a Drag Is the
+RUN*), so its duration is a total across days, and every consumer downstream is handed a number that
+is not a length on one day's clock. The label half of this was fixed earlier the same day
+(`footprintEnd`, which stopped `420 + 1080 = 1500` being printed as a time and stopped the console
+filling with `formatTime` complaints, forty per drag). The integration pass measured what is left:
+
+- **the DRAWN rectangle, which WAS fixed** because CLAUDE.md already forbade the shape: "one
+  rectangle straight through the grey band promises a shape that will never exist". `dropFootprint`
+  returns a stretch UNCUT when its tail would pass midnight — deliberate, so the server can refuse
+  the drop as it was made — and for a multi-day run that is the ORDINARY path. An 18 h run picked up
+  on Tuesday drew a single translucent rectangle over the whole 679 px column, hatched comida
+  included, on every one of the seven days the pointer crossed. `footprintWithinDay` caps the drawing
+  at the net minutes the day can still hold, so it is two rectangles with the seam left clear, which
+  is what the label beside it already said in words. Storage is untouched — only the rectangle;
+- **the OUTCOME, which was not.** Released, the drop is refused: `moveBlock` folds the run into one
+  row of 1080 minutes and `assertFitsInDay` compares it to MIDNIGHT, giving 400 `out-of-range`
+  {startMinutes: 420, durationMinutes: 1080, endOfDayMinutes: 1440}. The owner reads *«Esa hora no
+  cabe en el día»* — a sentence about an hour, for a gesture about a length — while the ghost had
+  just said *«este tramo no termina hoy»*, which reads as a promise that it will be placed and carry
+  on. **The line is midnight, not the end of the day**, so this is not a clean predicate the preview
+  could simply mirror: a 13 h run at 07:00 is ACCEPTED (1200 ≤ 1440) and the reflow just puts it back
+  where it started. Answering "should an over-long run be cut across days on drop?" decides the other
+  three at once, which is why they are left alone: the collision test, the pin decision and the clamp
+  all read the same run total and all three would change meaning.
+
+**14 — a resize ghost's tail on an occupied day.** Measured both ways on 2026-08-17. With Wednesday
+afternoon FREE, growing the 6 h Wednesday row to 8 h previewed two rectangles — `08:00-14:00`
+(325.5 px) and `15:30-17:30` (108.5 px) — and stored exactly `2026-08-19 480+360` and `930+120`. With
+Wednesday afternoon held by another job the same gesture previewed the same shape and stored
+`Wed 480+360` + `Thu 480+120`: the hours are right, the estimate went 6 h → 8 h, every invariant
+holds, and the rectangle and the `17:30` are wrong. The ghost has no reflow to consult, which is the
+whole difficulty — a resize is documented as the one gesture whose range is literal, and that was
+true while its tail stayed on its own day.
 
 ### Closed, and how
 
@@ -1167,6 +1403,7 @@ marked HTTP, and the stored rows were read back from `/api/week`:
 
 *Still open and unverified by this round:* the Ctrl+Z undo, dragging to the edge to change week, and
 *añadir otra parte* were decided in earlier rounds and are **not built**. See CLAUDE.md,
-*Open Decisions*.
+*Open Decisions*. (Dragging to the edge was built on 2026-08-17 — see § *Dragging To The Edge
+Changes Week*.)
 
 ---

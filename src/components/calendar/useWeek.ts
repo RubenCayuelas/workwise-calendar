@@ -11,7 +11,10 @@
  * return only the touched entity plus the summary".
  *
  * Paging is a GET. Nothing here can trigger a recomposition, which is what makes
- * moving through the weeks safe to hold an arrow key down on.
+ * moving through the weeks safe to hold an arrow key down on — and what makes it safe
+ * to do WITH A BLOCK IN HAND, which is what holding the block at the edge of the grid
+ * does (`useBlockDrag`). The week under the pointer changes; nothing is written until
+ * the release, and the release is resolved against whatever week is then on screen.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -46,6 +49,20 @@ export interface WeekController {
   goToday: () => void;
   goPrevious: () => void;
   goNext: () => void;
+  /**
+   * SHOW THE WEEK THIS DATE IS IN, cancelling a page turn that has not landed yet.
+   *
+   * It exists for one moment, and it is the only half state edge paging can produce: the
+   * pointer holds at the edge, the turn fires, and the owner releases the block BEFORE the
+   * new week has arrived. The drop is resolved against the week that is on screen — which
+   * is right, it is the one they were looking at — but `reference` is already pointing at
+   * the next one, so the refetch every mutation ends with would land the owner on a week
+   * their block is not in.
+   *
+   * A no-op whenever the week asked for is the one already being shown or fetched, so the
+   * ordinary drop does not pay a second GET for a correction it does not need.
+   */
+  showWeekOf: (date: string) => void;
   /**
    * Runs one mutation, then refetches the week — on success AND on failure, because a
    * refusal means the server's state is the one to trust. Resolves to `undefined` when
@@ -139,6 +156,19 @@ export function useWeek(): WeekController {
     setReference(today === null ? null : startOfWeek(today));
   }, [today]);
 
+  const showWeekOf = useCallback(
+    (date: string) => {
+      const monday = startOfWeek(date);
+      // Already the week in flight, or the week on screen while nothing is in flight.
+      // Setting `reference` for the first time would otherwise pin a screen that had
+      // deliberately left it null, and cost a GET to say what it already said.
+      if (monday === reference) return;
+      if (reference === null && monday === startDate) return;
+      setReference(monday);
+    },
+    [reference, startDate],
+  );
+
   const clearActionError = useCallback(() => setActionError(null), []);
 
   return useMemo(
@@ -154,6 +184,7 @@ export function useWeek(): WeekController {
       goToday,
       goPrevious,
       goNext,
+      showWeekOf,
       mutate,
     }),
     [
@@ -167,6 +198,7 @@ export function useWeek(): WeekController {
       goToday,
       goPrevious,
       goNext,
+      showWeekOf,
       mutate,
     ],
   );

@@ -67,6 +67,26 @@ describe('formatTime', () => {
     expect(complaints).toHaveLength(3);
   });
 
+  it('does not blame a stored row for a value that was never a time of day', () => {
+    // The message used to end "a stored row is out of range", and it was wrong the one
+    // time it mattered: the drag ghost was adding a RUN's net minutes (18 h, across two
+    // days) to a 07:00 start and formatting 1500. That sentence sent the whole
+    // investigation to the database, and the database was clean. It now names what it can
+    // actually know — the value, the range, and BOTH suspects.
+    const complaints: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => complaints.push(String(args[0]));
+    try {
+      formatTime(1500);
+    } finally {
+      console.error = original;
+    }
+    expect(complaints[0]).toContain('1500');
+    expect(complaints[0]).toContain('0-1440');
+    expect(complaints[0]).toContain('stored out of range');
+    expect(complaints[0]).toContain('net working minutes are not a time of day');
+  });
+
   it('does NOT soften the domain: the engine and every write still throw on it', () => {
     // The guard is a rendering guard only. Softening `minutesToHHmm` would hide a real
     // engine defect behind a placeholder on screen, which is the opposite of the point.

@@ -66,7 +66,18 @@ export function WeekHeader({
         />
         {/* Polite: the week label is the one thing that changes on every page. */}
         <span className={styles.weekLabel} aria-live="polite">
-          {weekLabel}
+          {/*
+           * KEYED ON THE LABEL, so React replaces the node on every page turn and the
+           * change animation runs again. It is a separate element from the live region on
+           * purpose: remounting the region itself is what makes an announcement unreliable.
+           *
+           * It earns its keep with the drag: holding a block at the edge of the grid pages
+           * the calendar while the owner's eyes are on the BLOCK, so the one thing on
+           * screen that says which week they are now in has to move to be noticed.
+           */}
+          <span key={weekLabel} className={styles.weekLabelText}>
+            {weekLabel}
+          </span>
         </span>
         <IconButton
           icon={<IconChevronRight size={18} stroke={1.75} />}

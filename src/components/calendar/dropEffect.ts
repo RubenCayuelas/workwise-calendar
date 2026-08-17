@@ -59,7 +59,12 @@
 
 import { overlapsSegments, segmentDroppedRow, type DropSegment } from '../../lib/dropSegments';
 import { firstClearStart } from '../../lib/dropSlide';
-import { usesManualOnlyTime } from '../../lib/manualWindow';
+import {
+  dayEndMinutes,
+  netMinutesBetween,
+  netMinutesOf,
+  usesManualOnlyTime,
+} from '../../lib/manualWindow';
 import type { DayRole } from '../../lib/composition';
 import type { WorkPeriod } from '../../types';
 
@@ -442,4 +447,101 @@ export function dropFootprint(input: {
     startMinutes: input.startMinutes,
     durationMinutes: input.durationMinutes,
   });
+}
+
+/**
+ * THE FOOTPRINT AS IT IS DRAWN: the same segments, with anything the day cannot hold left
+ * off the end.
+ *
+ * `dropFootprint` is the STORAGE answer and it has one documented latitude that a drawing
+ * may not have — a stretch whose tail would pass midnight is returned UNCUT
+ * (`segmentDroppedRow`, and CLAUDE.md *A Drop Is Stored In Segments*), so the server can
+ * refuse the drop as it was made rather than store half of it. For a multi-day RUN that is
+ * the ordinary case, not the exotic one: the drag unit is the whole run, so an 18 h run
+ * released at 07:00 came back as one segment of 1080 minutes and the ghost drew ONE
+ * rectangle from the top of the axis to the bottom of it — straight through the compressed
+ * lunch band, over the hatch that exists to say nothing lives there.
+ *
+ * CLAUDE.md is explicit that this is not allowed (*Calendar View -> Drag-drop*): "the ghost
+ * is drawn in segments, one rectangle per row the gesture will be stored as, because one
+ * rectangle straight through the grey band promises a shape that will never exist". So the
+ * drawing is capped at the NET MINUTES THIS DAY CAN STILL HOLD from that start, which puts
+ * the shape back inside the rules: cut at the break, ending no later than the day does.
+ *
+ * It changes nothing for a gesture that fits — nearly all of them — because then the cap is
+ * above the duration and this is `dropFootprint` exactly. What the owner sees for a run that
+ * does not fit is the day filled from the release point with the band left clear, which is
+ * what the label beside it already says in words (`grid.dropLongerThanDay`): this much
+ * today, and it does not end today.
+ *
+ * IT IS DELIBERATELY NOT USED FOR THE COLLISION TEST. `dropEffectOf` measures overlaps
+ * against the uncut footprint, and narrowing that would change which cut, merge or refusal
+ * the ghost announces — a behavioural question about what dragging an over-long run should
+ * DO, not a question about what shape to draw. It is recorded as an open question in
+ * DECISIONS.md rather than answered here.
+ */
+export function footprintWithinDay(input: {
+  manualWindows: readonly WorkPeriod[];
+  startMinutes: number;
+  durationMinutes: number;
+}): DropSegment[] {
+  const holds = netMinutesBetween(
+    input.manualWindows,
+    input.startMinutes,
+    dayEndMinutes(input.manualWindows),
+  );
+  // A start inside a hole (the lunch band, or past the last window) has no working minutes
+  // ahead of it on this measure, and its own latitude not to be cut. Left to
+  // `dropFootprint`, which draws it as the one rectangle it will really be stored as.
+  if (holds <= 0 || input.durationMinutes <= holds) return dropFootprint(input);
+  return dropFootprint({ ...input, durationMinutes: holds });
+}
+
+/**
+ * THE CLOCK MINUTE THE GESTURE ENDS AT — or `null` when it does not end on this day at all.
+ *
+ * `durationMinutes` is NET WORKING MINUTES, and net minutes are not a span on the clock:
+ * `start + duration` is an end-of-day reading ONLY while every one of those minutes fits
+ * inside the day from that start. Where they do not, there is no end time to print, and
+ * inventing one is a category error rather than an off-by-something:
+ *
+ * - THE DRAG UNIT IS THE RUN (CLAUDE.md, *The Unit of a Drag Is the RUN*), so a ghost's
+ *   duration is the run's total ACROSS DAYS. An 18 h run released at 07:00 gave
+ *   `420 + 1080 = 1500` — 25:00 — which `formatTime` refused, printed as `--:--`, and
+ *   complained about once per pointer move. A run does not end at a time of day; it ends
+ *   on a later DAY.
+ * - Short of that, a stretch that merely OVERRUNS the day reads as a plausible hour and is
+ *   worse for it: 13 h at 07:00 comes out as 21:30 on the documented shift, an hour past
+ *   every rule the grid draws, and nothing on screen says so.
+ *
+ * THE LINE IS `dayEndMinutes` — the end of the day's last manual window, the same line no
+ * stored row may cross (CLAUDE.md, *The End of the Day Is a Line No Write May Cross*). A
+ * caller that gets `null` has to say something other than a time; see the ghost's label in
+ * WeekGrid, which falls back to naming the START and the hours, both of which are true.
+ */
+export function footprintEnd(input: {
+  manualWindows: readonly WorkPeriod[];
+  startMinutes: number;
+  durationMinutes: number;
+}): number | null {
+  const segments = dropFootprint(input);
+  const last = segments[segments.length - 1];
+  const end = last.startMinutes + last.durationMinutes;
+  return end > dayEndMinutes(input.manualWindows) ? null : end;
+}
+
+/**
+ * Can this day hold `durationMinutes` of work from ANY start? Its whole manual window —
+ * the periods plus the margins — against the gesture's net minutes.
+ *
+ * The question the drag layer's clamp cannot answer for itself: `latestStartFor` falls back
+ * to the first window's start when nothing fits, so a clamp reports "the latest start" for
+ * a run no start could hold, and the ghost then reads «18 h no pueden empezar después de
+ * las 07:00» — which says 07:00 would work. It would not.
+ */
+export function dayHoldsMinutes(
+  manualWindows: readonly WorkPeriod[],
+  durationMinutes: number,
+): boolean {
+  return durationMinutes <= netMinutesOf(manualWindows);
 }

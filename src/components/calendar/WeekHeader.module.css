@@ -7,12 +7,36 @@
 }
 
 .weekLabel {
+  display: block;
   min-width: 15rem;
   font-size: var(--ww-text-xl);
   font-weight: var(--ww-weight-medium);
   font-variant-numeric: tabular-nums;
   text-align: center;
   white-space: nowrap;
+}
+
+/*
+ * THE WEEK CHANGED. The label is the only thing on screen that says which week is being
+ * looked at, and paging can now happen while the owner's attention is on a block they are
+ * dragging — so the change has to be visible without being read. One short amber flash,
+ * from the side the calendar came from; the node is keyed on the label, so this runs once
+ * per page turn and never on any other render.
+ */
+.weekLabelText {
+  display: inline-block;
+  animation: weekChanged 360ms ease-out;
+}
+
+@keyframes weekChanged {
+  from {
+    color: var(--ww-warning);
+    transform: translateY(-2px);
+  }
+
+  to {
+    transform: translateY(0);
+  }
 }
 
 .menu {

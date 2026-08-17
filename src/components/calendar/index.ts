@@ -39,6 +39,18 @@ export {
 } from './useBlockDrag';
 
 export {
+  EDGE_FIRST_DELAY_MS,
+  EDGE_REPEAT_DELAYS_MS,
+  EDGE_ZONE_PX,
+  edgeDelayFor,
+  edgeSideAt,
+  type EdgeBounds,
+  type EdgeHold,
+  type EdgeSide,
+} from './edgePaging';
+
+export {
+  BREAK_BAND_HEIGHT,
   DEFAULT_PIXELS_PER_HOUR,
   MIN_LABEL_HEIGHT,
   SNAP_MINUTES,
@@ -75,10 +87,13 @@ export {
 } from './grouping';
 
 export {
+  dayHoldsMinutes,
   dayReflowsOn,
   dropEffectOf,
   dropFootprint,
   dropPins,
+  footprintEnd,
+  footprintWithinDay,
   resolveDropPreview,
   type DropEffect,
   type DropEffectInput,

@@ -266,6 +266,19 @@ export function CalendarScreen({
    */
   const onMove = useCallback(
     (target: DragTarget, drop: { date: string; startMinutes: number }): void => {
+      /*
+       * THE WEEK THE BLOCK WAS RELEASED IN IS THE WEEK LEFT ON SCREEN.
+       *
+       * Everything about the drop is already resolved against it — the columns, the day,
+       * the rows it was aimed at — because all of that is read at the moment of the
+       * release. The one thing that is not is which week the NEXT fetch will ask for, and
+       * edge paging opens a window where the two disagree: the hold fires, the reference
+       * moves on, and the block is released before the new week has arrived. The refetch
+       * that every mutation ends with would then land the owner on a week the block they
+       * just dropped is not in. A no-op in every other case.
+       */
+      week.showWeekOf(drop.date);
+
       setSettle({
         blockId: target.blockIds[0],
         date: drop.date,
@@ -313,11 +326,18 @@ export function CalendarScreen({
             name: target.name,
             day: format.dayHeader(outcome.date),
             date: format.longDate(outcome.date),
+            // Only `movedWeek` reads it, and it is the whole point of that sentence: the
+            // screen changed while the owner was looking at the block, so the answer has
+            // to name the week they are now in as well as the day the row is on.
+            week:
+              viewRef.current === null
+                ? ''
+                : format.weekRange(viewRef.current.week.startDate, viewRef.current.week.endDate),
           }),
         );
       });
     },
-    [format, mutate, report, t, toast],
+    [format, mutate, report, t, toast, week],
   );
 
   /**
@@ -457,6 +477,13 @@ export function CalendarScreen({
     // Read at press, in the same tick: `busy` is state and arrives a render late, and that
     // frame is exactly where a fast second press lands.
     writable: () => !week.mutating.current && !loading,
+    // The only fact about the week the drag layer needs REACTIVELY: when the columns are
+    // replaced under a hand that is holding still at an edge, the ghost has to move with
+    // them. `''` until the first week arrives, when gestures are disabled anyway.
+    weekKey: view?.week.startDate ?? '',
+    // Holding a block at either edge of the grid pages the calendar. It is a GET, so
+    // nothing in flight can be disturbed by it.
+    onPageWeek: (side) => (side === 'previous' ? week.goPrevious() : week.goNext()),
     onMove,
     onResize,
     onRejected,
@@ -604,13 +631,18 @@ export function CalendarScreen({
       // A dialog, a panel or a pending placement owns the keyboard while it is open.
       if (placing !== null || splitSource !== null || deleteTarget !== null) return;
       if (openJobId !== null || newJobOpen || gapTarget !== null) return;
+      // A GESTURE IN THE AIR OWNS IT TOO. A move handles the arrows itself, in the capture
+      // phase, so it can page and re-resolve its own ghost in one step and this listener
+      // never sees the key; a RESIZE has no use for another week at all — its edge belongs
+      // to one row on one day — so for it the arrows simply do nothing.
+      if (drag.kind !== null) return;
       event.preventDefault();
       if (event.key === 'ArrowLeft') week.goPrevious();
       else week.goNext();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [week, placing, splitSource, deleteTarget, openJobId, newJobOpen, gapTarget]);
+  }, [week, placing, splitSource, deleteTarget, openJobId, newJobOpen, gapTarget, drag.kind]);
 
   // Escape abandons a pending placement.
   useEffect(() => {
@@ -913,6 +945,8 @@ const DROP_OUTCOME_KEYS: Record<DropOutcomeKind, string> = {
   pinned: 'notices.dropPinned',
   settled: 'notices.dropSettles',
   leftWeek: 'notices.dropLeftWeek',
+  pulledBack: 'notices.dropPulledBack',
+  movedWeek: 'notices.dropMovedWeek',
   unchanged: 'notices.dropUnchanged',
   absorbed: 'notices.dropAbsorbed',
 };

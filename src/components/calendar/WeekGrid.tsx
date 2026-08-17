@@ -7,8 +7,13 @@
  * Three things this component is the only owner of:
  *
  * - MEASUREMENT. The drag layer cannot read the DOM, so the grid publishes a `measure()`
- *   through `metricsRef`: the client Y of the timeline's top plus every column's box.
- *   Measured live rather than cached, so scrolling mid-drag cannot offset the pointer.
+ *   through `metricsRef`: the client Y of the timeline's top, every column's box, and the
+ *   visible frame the edge zones are measured from. Measured live rather than cached, so
+ *   scrolling mid-drag cannot offset the pointer.
+ * - THE EDGE RAILS. Holding a block near either end of the grid pages the week; the rails
+ *   are how that is discovered before it is triggered, and how the wait is made legible
+ *   while it runs. The rule itself lives in `edgePaging.ts` and the timing in
+ *   `useBlockDrag`; this draws it.
  * - THE SETTLE. A drop writes a queue rank, so a row lands where the reflow put it. The
  *   grid knows both the released position and the settled one, so it is where the row
  *   is animated from one to the other.
@@ -18,7 +23,10 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import { useFormat } from '../../lib/useFormat';
+import { addDays } from '../../lib/dates';
+import { netMinutesOf } from '../../lib/manualWindow';
 import { planCloseDay, type CloseDayInput, type CloseDayRequest } from '../../lib/closeDay';
 import type { Gap } from '../../types';
 import type { WeekBlock, WeekDay, WeekView } from '../../lib/api-client';
@@ -34,15 +42,18 @@ import {
 } from './geometry';
 import {
   buildDropQueue,
+  dayHoldsMinutes,
   dayReflowsOn,
-  dropFootprint,
   dropPredecessor,
+  footprintEnd,
+  footprintWithinDay,
   resolveDropPreview,
   type DropEffect,
   type DropResolution,
   type QueueRow,
 } from './dropEffect';
 import { buildRuns, groupBlocks, packDay, segmentsOf, type BlockGroup, type BlockRun } from './grouping';
+import { EDGE_ZONE_PX, type EdgeHold, type EdgeSide } from './edgePaging';
 import { usePressHint, type DragController, type DragTarget, type InertReason } from './useBlockDrag';
 import styles from './WeekGrid.module.css';
 
@@ -135,6 +146,10 @@ export function WeekGrid({
   const { t } = useTranslation();
   const format = useFormat();
   const gridRef = useRef<HTMLDivElement | null>(null);
+  // The visible box: the grid can be WIDER than this and scroll inside it on a narrow
+  // window, which is exactly why the edge zones are measured from the frame and not from
+  // the first and last columns. See `GridMetrics.frame`.
+  const frameRef = useRef<HTMLDivElement | null>(null);
   // Two hints for the one thing on the grid that is not a block. Which one a gap arms
   // depends on why it cannot be dragged right now; both are the same promise as a block's.
   const onPressGap = usePressHint(() => onPressHint('gap'));
@@ -152,7 +167,25 @@ export function WeekGrid({
       const box = cell.getBoundingClientRect();
       return { date: cell.dataset.dayColumn ?? '', left: box.left, width: box.width };
     });
-    return { top: cells[0].getBoundingClientRect().top, columns };
+    const frameBox = frameRef.current?.getBoundingClientRect();
+    const last = columns[columns.length - 1];
+    // The frame if it has been measured; the columns' own span before that, which is the
+    // same number whenever the week fits without scrolling.
+    const left = frameBox === undefined ? columns[0].left : frameBox.left;
+    const right = frameBox === undefined ? last.left + last.width : frameBox.right;
+    return {
+      top: cells[0].getBoundingClientRect().top,
+      columns,
+      frame: {
+        left,
+        right,
+        // The time-axis gutter, which belongs to no day — so the strip may as well be all
+        // of it, and has to be: a narrower one leaves the hour labels sliced down the
+        // middle for the whole drag. `.edgePrevious` draws itself over the same width.
+        leftZone: Math.max(EDGE_ZONE_PX, columns[0].left - left),
+        rightZone: EDGE_ZONE_PX,
+      },
+    };
   }, []);
 
   useEffect(() => {
@@ -212,7 +245,25 @@ export function WeekGrid({
   );
 
   return (
-    <div className={styles.frame}>
+    <div className={styles.frame} ref={frameRef}>
+      {/*
+       * THE TWO EDGE RAILS, drawn for as long as a block is in the air and never otherwise.
+       *
+       * This is the whole answer to "how does anyone find out the gesture exists": the
+       * first time the owner picks a block up, both ends of the calendar name the week
+       * they lead to. Nothing has to be triggered by accident first, and nothing is on
+       * screen when there is nothing to drag.
+       *
+       * Not drawn for a RESIZE: its edge belongs to one row on one day, and another week
+       * has nothing to offer it.
+       */}
+      {drag.kind !== 'move' ? null : (
+        <>
+          <EdgeRail side="previous" week={view.week} hold={drag.edge} />
+          <EdgeRail side="next" week={view.week} hold={drag.edge} />
+        </>
+      )}
+
       <div className={styles.scroll}>
         <div
           ref={gridRef}
@@ -242,14 +293,23 @@ export function WeekGrid({
           ))}
 
           <div className={styles.axis} aria-hidden="true">
-            {ticks.map((tick, index) => (
+            {ticks.map((tick) => (
               <span
                 key={tick.minutes}
+                /*
+                 * The two hanging classes are keyed on the MINUTE, not on the tick's index in
+                 * the list. `axisTicks` may now drop either end of the axis when a period
+                 * edge is too close to it to share the room (see its precedence note), and
+                 * by index the label that inherited position 0 would be hung below its rule
+                 * while `labelBox` had measured it as centred — the collision arithmetic and
+                 * the paint disagreeing by a whole label. `labelBox` tests the minute
+                 * against the axis bounds, so this tests exactly the same thing.
+                 */
                 className={[
                   styles.tick,
                   tick.boundary ? styles.tickBoundary : '',
-                  index === 0 ? styles.tickFirst : '',
-                  index === ticks.length - 1 ? styles.tickLast : '',
+                  tick.minutes <= timeline.startMinutes ? styles.tickFirst : '',
+                  tick.minutes >= timeline.endMinutes ? styles.tickLast : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
@@ -290,6 +350,88 @@ export function WeekGrid({
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The edge rails
+// ---------------------------------------------------------------------------
+
+/**
+ * ONE END OF THE CALENDAR, while a block is in hand: the strip that pages the week when
+ * the block is held over it.
+ *
+ * It does three jobs, and the gesture is unusable without any of them:
+ *
+ * - IT SAYS THE AFFORDANCE EXISTS, before it is triggered and without a legend. The owner
+ *   reported the gesture as missing («no sé cómo funciona o no lo he conseguido hacer
+ *   funcionar») when it had never been built — but a hot zone with nothing drawn over it
+ *   is indistinguishable from that, because it can only be discovered by falling into it.
+ * - IT NAMES THE DESTINATION. Not "next week" but the dates themselves, so the owner reads
+ *   where they are going before they commit and again while the calendar pages under them.
+ * - IT MAKES THE WAIT LEGIBLE. The fill takes exactly as long as the countdown running in
+ *   the drag layer (`EdgeHold.delayMs`, published rather than re-derived here), so half a
+ *   second of holding still reads as progress instead of as an app that has stopped
+ *   listening. It restarts on every turn because the element is keyed on the turn count.
+ *
+ * It is `pointer-events: none`, and it is exactly as wide as the zone it draws — the
+ * minimum on the right, the time-axis gutter on the left, the same two numbers `measure()`
+ * hands the drag layer. The rail must cover its own trigger and nothing else, and it must
+ * never take the pointer: a release on the rail is still a drop on the column under it.
+ */
+function EdgeRail({
+  side,
+  week,
+  hold,
+}: {
+  side: EdgeSide;
+  week: WeekView['week'];
+  hold: EdgeHold | null;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const format = useFormat();
+
+  const offset = side === 'previous' ? -7 : 7;
+  const range = format.weekRange(addDays(week.startDate, offset), addDays(week.endDate, offset));
+  const active = hold !== null && hold.side === side;
+
+  return (
+    <div
+      className={[
+        styles.edge,
+        side === 'previous' ? styles.edgePrevious : styles.edgeNext,
+        active ? styles.edgeActive : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      // The width the zone really has: the minimum on the right, and on the left whatever
+      // the time-axis gutter is (`.edgePrevious` takes the max, from the same variable the
+      // grid's own column template uses). The rail must cover its trigger exactly.
+      style={{ '--ww-edge-zone': `${EDGE_ZONE_PX}px` } as React.CSSProperties}
+      // The paging it offers is also on two named buttons in the header, so nothing is
+      // lost by keeping a decorative strip out of the accessibility tree.
+      aria-hidden="true"
+    >
+      {!active ? null : (
+        <span
+          // Keyed on the turn, so the fill restarts from empty for each page turn of a
+          // long hold instead of freezing full after the first.
+          key={`${hold.turns}-${hold.waiting}`}
+          className={[styles.edgeFill, hold.waiting ? styles.edgeWaiting : ''].filter(Boolean).join(' ')}
+          style={hold.waiting ? undefined : { animationDuration: `${hold.delayMs}ms` }}
+        />
+      )}
+      <span className={styles.edgeGlyph}>
+        {side === 'previous' ? (
+          <IconChevronLeft size={16} stroke={2} />
+        ) : (
+          <IconChevronRight size={16} stroke={2} />
+        )}
+      </span>
+      <span className={styles.edgeLabel}>
+        {t(side === 'previous' ? 'grid.edgePrevious' : 'grid.edgeNext', { range })}
+      </span>
     </div>
   );
 }
@@ -519,12 +661,18 @@ function DayColumn({
    * so both gestures are drawn through the same segmentation, and a resize past the break
    * shows the two rectangles with the lunch band left clear rather than one tall block
    * swallowing it.
+   *
+   * `footprintWithinDay` rather than `dropFootprint`: a RUN longer than the day has no
+   * storable footprint here, and the storage answer for that case is one UNCUT segment —
+   * which drew a single rectangle over the whole column, hatched lunch band included, for
+   * every multi-day run the owner picked up. Capped at what the day holds, the shape is a
+   * shape that can exist again.
    */
   const ghostRows = useMemo(
     () =>
       preview === null
         ? []
-        : dropFootprint({
+        : footprintWithinDay({
             manualWindows: day.manualWindows,
             // The SLID minute, not the released one: on a reflowing day a pinned drop over
             // a gap or a lock is moved forward by the server, and a ghost that stayed under
@@ -535,12 +683,39 @@ function DayColumn({
     [preview, day.manualWindows, ghostStartMinutes],
   );
 
-  /** Where the whole drop ends on the clock — its last segment's end, lunch included. */
+  /**
+   * Where the whole gesture ends on the clock — its last segment's end, lunch included —
+   * or `null` when it does not end on this day at all.
+   *
+   * A MOVE'S `durationMinutes` IS THE WHOLE RUN'S, ACROSS DAYS (`DragTarget`,
+   * `BlockRun.totalMinutes`), and a run does not end at a time of day: it ends on a later
+   * DAY. Adding it to a start and printing the sum as an end-of-day produced `420 + 1080 =
+   * 1500` for an 18 h run released at 07:00 — 25:00 — which `formatTime` rendered `--:--`
+   * and complained about once per pointer move, forty times in one drag. Shorter overruns
+   * were worse for being quiet: 13 h at 07:00 read as `21:30`, an hour past every rule the
+   * grid draws.
+   *
+   * `footprintEnd` is the one place the question is answered, against the same line no
+   * stored row may cross. A resize is unaffected — its duration is one stretch's, on this
+   * day, already capped at the day's end — so the range it prints is as literal as before.
+   */
   const ghostEndMinutes =
-    ghostRows.length === 0
-      ? 0
-      : ghostRows[ghostRows.length - 1].startMinutes +
-        ghostRows[ghostRows.length - 1].durationMinutes;
+    preview === null
+      ? null
+      : footprintEnd({
+          manualWindows: day.manualWindows,
+          startMinutes: ghostStartMinutes,
+          durationMinutes: preview.durationMinutes,
+        });
+
+  /**
+   * NO START ON THIS DAY COULD HOLD THE GESTURE — its net minutes are more than the day's
+   * own. Only a multi-day run gets here, and it is why the clamp has nothing true to say:
+   * `latestStartFor` falls back to the first window's start when nothing fits, so the
+   * ghost's «no pueden empezar después de las 07:00» claimed 07:00 would do.
+   */
+  const longerThanTheDay =
+    preview !== null && !dayHoldsMinutes(day.manualWindows, preview.durationMinutes);
 
   /**
    * The day as the "stop the day here" planner reads it, or `null` where the action makes
@@ -588,10 +763,20 @@ function DayColumn({
       {bands.map((band) => (
         <div
           key={`${band.kind}-${band.startMinutes}`}
-          className={styles.band}
+          /*
+           * The break between two periods is drawn COMPRESSED — a hatched seam a few pixels
+           * tall — while the margins keep the axis's ordinary scale, because the owner puts
+           * real work in a margin by hand and none in the comida. The two therefore have to
+           * read as different things, not as the same grey at two heights.
+           */
+          className={[styles.band, band.kind === 'lunch' ? styles.bandBreak : '']
+            .filter(Boolean)
+            .join(' ')}
           style={{
             top: `${timeline.yOf(band.startMinutes)}px`,
-            height: `${timeline.heightOf(band.endMinutes - band.startMinutes)}px`,
+            // Between two CLOCK times, so the band covers exactly the compressed segment
+            // the axis gave it.
+            height: `${timeline.heightBetween(band.startMinutes, band.endMinutes)}px`,
           }}
           title={band.kind === 'lunch' ? t('grid.lunchBand') : t('grid.marginBand')}
         />
@@ -624,7 +809,11 @@ function DayColumn({
         const style = {
           '--ww-gap-color': gapColor,
           top: `${timeline.yOf(gap.startMinutes)}px`,
-          height: `${timeline.heightOf(gap.durationMinutes)}px`,
+          // A GAP'S DURATION IS CLOCK MINUTES, not net working ones — "stop the day here"
+          // runs one from a moment to the end of the last period, straight across the
+          // lunch break — so it is the one occupancy on the grid that can contain the
+          // compressed band, and it has to be measured between two times to cover it.
+          height: `${timeline.heightBetween(gap.startMinutes, gap.startMinutes + gap.durationMinutes)}px`,
           left: `calc(${(lane.lane / lane.lanes) * 100}% + 2px)`,
           width: `calc(${100 / lane.lanes}% - 4px)`,
         } as React.CSSProperties;
@@ -767,10 +956,10 @@ function DayColumn({
               style={{
                 '--ww-block-color': preview.color,
                 top: `${timeline.yOf(row.startMinutes)}px`,
-                // Both edges through `yOf`, which clamps to the axis: a long unit dropped
-                // late in the day genuinely runs past the last period once the lunch break
-                // is added back, and the ghost must not escape the grid to say so.
-                height: `${Math.max(1, timeline.yOf(row.startMinutes + row.durationMinutes) - timeline.yOf(row.startMinutes))}px`,
+                // Both edges through the axis, which clamps: a long unit dropped late in the
+                // day genuinely runs past the last period once the lunch break is added
+                // back, and the ghost must not escape the grid to say so.
+                height: `${timeline.heightBetween(row.startMinutes, row.startMinutes + row.durationMinutes)}px`,
               } as React.CSSProperties}
             >
               {/*
@@ -792,10 +981,17 @@ function DayColumn({
                    * and a resize. On a re-ranked drop the hours are the only true number,
                    * and what takes the range's place is the rank itself: the row this will
                    * fall in behind, which is what the drop actually writes.
+                   *
+                   * AND ONLY WHERE THERE IS AN END TO PRINT. A run's minutes can be more
+                   * than the day holds, and then it has no end on this day's clock
+                   * (`ghostEndMinutes === null`); the START is still exactly where the row
+                   * begins, so that is what is said, with the hours on the line below.
                    */}
                   {ranked ? null : (
                     <span className={styles.ghostMeta}>
-                      {format.timeRange(ghostStartMinutes, ghostEndMinutes)}
+                      {ghostEndMinutes === null
+                        ? t('grid.dropStartsAt', { time: format.time(ghostStartMinutes) })
+                        : format.timeRange(ghostStartMinutes, ghostEndMinutes)}
                     </span>
                   )}
                   <span className={styles.ghostMeta}>{format.hours(preview.durationMinutes)}</span>
@@ -826,7 +1022,22 @@ function DayColumn({
                       {t('grid.dropNextDay', { day: format.dayHeader(day.date) })}
                     </span>
                   )}
-                  {preview.clamped !== true ? null : (
+                  {/*
+                   * A RUN NO DAY CAN HOLD SAYS THAT INSTEAD, and says it whether or not the
+                   * clamp fired: at the very top of the axis nothing was pulled up, so
+                   * `clamped` is false and the ghost would otherwise explain nothing at all
+                   * about why it has no end time. The day's own hours are named because
+                   * that is the number the owner has to act on — the run has to be split
+                   * with another job, or shortened, before it can be dragged anywhere.
+                   */}
+                  {longerThanTheDay ? (
+                    <span className={styles.ghostClamped}>
+                      {t('grid.dropLongerThanDay', {
+                        hours: format.hourNumber(preview.durationMinutes),
+                        dayHours: format.hourNumber(netMinutesOf(day.manualWindows)),
+                      })}
+                    </span>
+                  ) : preview.clamped !== true ? null : (
                     <span className={styles.ghostClamped}>
                       {t('grid.dropNoLower', {
                         hours: format.hourNumber(preview.durationMinutes),
@@ -860,7 +1071,7 @@ function DayColumn({
           stored as two rows exactly as a dragged one is. */}
       {placing === null || placingSlot === null || placingSlot.date !== day.date
         ? null
-        : dropFootprint({
+        : footprintWithinDay({
             manualWindows: day.manualWindows,
             startMinutes: placingSlot.startMinutes,
             durationMinutes: placing.durationMinutes,
@@ -877,7 +1088,7 @@ function DayColumn({
               style={{
                 '--ww-block-color': placing.color,
                 top: `${timeline.yOf(row.startMinutes)}px`,
-                height: `${Math.max(1, timeline.yOf(row.startMinutes + row.durationMinutes) - timeline.yOf(row.startMinutes))}px`,
+                height: `${timeline.heightBetween(row.startMinutes, row.startMinutes + row.durationMinutes)}px`,
               } as React.CSSProperties}
             >
               {index === 0 ? (

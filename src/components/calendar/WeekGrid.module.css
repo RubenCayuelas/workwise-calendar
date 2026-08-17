@@ -11,7 +11,11 @@
  * geometry.ts. Everything inside a day column is absolutely positioned against it.
  */
 
+/* `position: relative` for the edge rails alone: they hang off the frame rather than off
+   the grid, because the frame is the box the owner can see and the grid can be wider than
+   it. Nothing else is positioned against it. */
 .frame {
+  position: relative;
   display: flex;
   min-height: 0;
   flex: 1 1 auto;
@@ -19,6 +23,147 @@
   border-radius: var(--ww-radius-lg);
   background: var(--ww-surface);
   overflow: hidden;
+}
+
+/* --------------------------------------------------------------------------
+   The edge rails: hold a block here and the week pages
+   -------------------------------------------------------------------------- */
+
+/*
+ * ONLY EVER ON SCREEN WHILE A BLOCK IS IN HAND, and then on BOTH ends at once — that is
+ * what makes the gesture discoverable rather than something to be fallen into.
+ *
+ * THE RAIL AND ITS TRIGGER ARE ONE SHAPE. `--ww-edge-zone` comes in from `EDGE_ZONE_PX`,
+ * and the left rail widens to the axis gutter exactly as `measure()` widens the zone: a
+ * strip drawn wider than the zone promises a turn where nothing happens, and one drawn
+ * narrower hides the part of the zone that works.
+ *
+ * `pointer-events: none` is not a detail. The right-hand rail lies over the last 40 px of
+ * Sunday, and a drop released there must still be a drop on Sunday — only HOLDING there
+ * pages. Above the sticky day headers (z-index 3) and the ghost (4), because it is the one
+ * thing on screen that is about the calendar rather than about the block.
+ */
+.edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 6;
+  display: flex;
+  width: var(--ww-edge-zone);
+  overflow: hidden;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ww-space-2);
+  border: var(--ww-hairline) dashed var(--ww-accent-border);
+  /*
+   * SOLID, not a tint over the grid. The left rail lies across the time axis, and a
+   * translucent strip put its own sentence on top of the hour labels — two lines of type
+   * in the same 40 px, neither readable, and the numbers left looking half-erased. The
+   * rail is a surface of its own for the few seconds it exists: the hours it covers are
+   * back the moment the block is put down, and the ghost carries the clock meanwhile.
+   *
+   * What it costs on the other side is the last 40 px of Sunday's column. The ghost is
+   * drawn across the rest of it, so the drop is still visible while the rail is showing
+   * what holding there would do instead.
+   */
+  background: color-mix(in srgb, var(--ww-amber) 9%, var(--ww-surface));
+  color: var(--ww-text-muted);
+  pointer-events: none;
+}
+
+/* The whole time-axis gutter when that is the wider of the two — the same `--ww-axis-width`
+   the grid's column template is built from, so the strip the pointer triggers on and the
+   strip it can see are one shape. `measure()` computes the same number from the DOM. */
+.edgePrevious {
+  left: 0;
+  width: max(var(--ww-edge-zone), var(--ww-axis-width, 58px));
+  border-width: 0 var(--ww-hairline) 0 0;
+}
+
+.edgeNext {
+  right: 0;
+  border-width: 0 0 0 var(--ww-hairline);
+}
+
+/* The pointer is inside the zone and the countdown is running. */
+.edgeActive {
+  border-style: solid;
+  background: color-mix(in srgb, var(--ww-amber) 18%, var(--ww-surface));
+  color: var(--ww-warning);
+}
+
+/*
+ * THE COUNTDOWN, DRAWN. It grows from the bottom over exactly `EdgeHold.delayMs` — the
+ * same number the timer in the drag layer is running on, published rather than guessed at
+ * — so the moment it reaches the top is the moment the week changes. Half a second of
+ * holding still is otherwise indistinguishable from an app that has stopped listening,
+ * which is the report this whole feature came out of.
+ */
+.edgeFill {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 100%;
+  background: color-mix(in srgb, var(--ww-amber) 34%, transparent);
+  transform: scaleY(0);
+  transform-origin: bottom;
+  animation-name: edgeFill;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes edgeFill {
+  from {
+    transform: scaleY(0);
+  }
+
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/*
+ * The turn has been asked for and the week has not arrived. The bar stays full and
+ * breathes: a filled bar over a calendar that has not moved would otherwise read as the
+ * gesture having failed, in the one moment it is simply waiting for a fetch.
+ */
+.edgeWaiting {
+  transform: scaleY(1);
+  animation: edgeWaiting 600ms ease-in-out infinite;
+}
+
+@keyframes edgeWaiting {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.edgeGlyph {
+  z-index: 1;
+  display: flex;
+}
+
+/*
+ * The destination in words, turned on its side because the rail is 40 px wide and 600 tall.
+ * It names the DATES rather than "next week": the owner reads where they are going before
+ * they commit to going there, and reads it again on every turn of a long hold, since the
+ * label follows the week on screen.
+ */
+.edgeLabel {
+  z-index: 1;
+  max-height: 70%;
+  overflow: hidden;
+  font-size: var(--ww-text-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  writing-mode: vertical-rl;
 }
 
 /* The scroll container the sticky day headers stick to. */
@@ -179,6 +324,30 @@
   left: 0;
   background: var(--ww-margin-fill);
   pointer-events: none;
+}
+
+/*
+ * THE BREAK BETWEEN TWO PERIODS, COMPRESSED (2026-08-17, the owner's own words: «haz el
+ * hueco del medio para la comida pequeño, para indicar que hay un hueco pero es
+ * despreciable ya que no podemos trabajar ahí»).
+ *
+ * The axis gives it a flat 28 px however tall an hour is drawn (`BREAK_BAND_HEIGHT` in
+ * geometry.ts), so at that height a plain grey fill would read as a very short BLOCK. The
+ * hatch and the two rules say "nothing lives here" at a glance, and they say it across all
+ * seven columns at once, which is what makes the strip read as one seam through the week
+ * rather than as seven little boxes.
+ *
+ * A visual margin keeps the plain fill and the axis's ordinary scale: the owner puts real
+ * work in a margin by hand, and only the comida is negligible.
+ */
+.bandBreak {
+  border-top: var(--ww-hairline) solid var(--ww-border-strong);
+  border-bottom: var(--ww-hairline) solid var(--ww-border-strong);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--ww-margin-fill) 0 4px,
+    var(--ww-surface) 4px 8px
+  );
 }
 
 .line {

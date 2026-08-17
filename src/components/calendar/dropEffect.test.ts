@@ -12,11 +12,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildDropQueue,
+  dayHoldsMinutes,
   dayReflowsOn,
   dropEffectOf,
   dropFootprint,
   dropPins,
   dropPredecessor,
+  footprintEnd,
+  footprintWithinDay,
   resolveDropPreview,
   type DropEffectInput,
   type DropRow,
@@ -384,6 +387,112 @@ describe('dropFootprint — what the ghost draws', () => {
       { startMinutes: 10 * 60, durationMinutes: 4 * 60 },
       { startMinutes: 15 * 60 + 30, durationMinutes: 2 * 60 },
     ]);
+  });
+
+  /**
+   * THE ONE SHAPE THE GHOST MAY NEVER DRAW — one rectangle through the grey band.
+   *
+   * CLAUDE.md, *Calendar View -> Drag-drop*: "the ghost is drawn in segments, one rectangle
+   * per row the gesture will be stored as, because one rectangle straight through the grey
+   * band promises a shape that will never exist". `dropFootprint` breaks that for a run
+   * longer than the day ON PURPOSE — a tail past midnight is returned uncut so the server
+   * can refuse the drop as it was made — and since the drag unit is the whole RUN, that is
+   * the ORDINARY case rather than a corner: measured on the running app, 2026-08-17, an 18 h
+   * run picked up on Tuesday drew a single translucent rectangle over the entire column,
+   * hatched comida included, on every day the pointer crossed.
+   */
+  it('draws an over-long run as the day it can fill, band left clear', () => {
+    const run = { manualWindows: MANUAL_WINDOWS, startMinutes: 7 * 60, durationMinutes: 18 * 60 };
+
+    // The storage answer: one uncut segment, 07:00 + 18 h, which reaches 01:00 tomorrow.
+    expect(dropFootprint(run)).toEqual([{ startMinutes: 7 * 60, durationMinutes: 18 * 60 }]);
+
+    // The drawn answer: the day's own 12 h, cut at the break like every other drop.
+    expect(footprintWithinDay(run)).toEqual([
+      { startMinutes: 7 * 60, durationMinutes: 7 * 60 },
+      { startMinutes: 15 * 60 + 30, durationMinutes: 5 * 60 },
+    ]);
+  });
+
+  it('is dropFootprint exactly whenever the gesture does fit', () => {
+    for (const startMinutes of [7 * 60, 8 * 60, 10 * 60, 13 * 60, 15 * 60 + 30, 19 * 60]) {
+      for (const durationMinutes of [15, 60, 4 * 60, 6 * 60]) {
+        const input = { manualWindows: MANUAL_WINDOWS, startMinutes, durationMinutes };
+        if (footprintEnd(input) === null) continue;
+        expect(footprintWithinDay(input), `${startMinutes} + ${durationMinutes}`).toEqual(
+          dropFootprint(input),
+        );
+      }
+    }
+  });
+
+  /**
+   * A start inside the comida keeps its own latitude: there is no boundary inside such a row
+   * to cut it at (`segmentDroppedRow`), so it stays the one rectangle it will really be
+   * stored as. Open Decision 5 owns what that drop should mean; this only fixes the drawing
+   * of a run, and must not quietly re-answer it.
+   */
+  it('leaves a drop released inside the band alone', () => {
+    const inBand = { manualWindows: MANUAL_WINDOWS, startMinutes: 14 * 60 + 30, durationMinutes: 60 };
+    expect(footprintWithinDay(inBand)).toEqual(dropFootprint(inBand));
+  });
+});
+
+/**
+ * A RUN DOES NOT END AT A TIME OF DAY — it ends on a later DAY.
+ *
+ * The drag unit is the run (CLAUDE.md, *The Unit of a Drag Is the RUN*), so the ghost's
+ * `durationMinutes` is a total ACROSS DAYS. Adding it to a start and calling the sum an
+ * end-of-day is a category error, and it was a visible one: an 18 h run released at 07:00
+ * gave `420 + 1080 = 1500`, which `formatTime` printed as `--:--` and complained about
+ * once per pointer move — forty times in a single drag. The quiet half was worse: 13 h at
+ * 07:00 gave `21:30`, a perfectly plausible hour an hour past the end of the day.
+ */
+describe('footprintEnd — the clock end, or nothing at all', () => {
+  it('is the end of the last stored row when the day holds every minute', () => {
+    expect(
+      footprintEnd({ manualWindows: MANUAL_WINDOWS, startMinutes: 10 * 60, durationMinutes: 2 * 60 }),
+    ).toBe(12 * 60);
+  });
+
+  it('skips the lunch break, because duration is NET working minutes', () => {
+    // 6 h from 10:00 is 10:00-14:00 plus 15:30-17:30, not 10:00-16:00.
+    expect(
+      footprintEnd({ manualWindows: MANUAL_WINDOWS, startMinutes: 10 * 60, durationMinutes: 6 * 60 }),
+    ).toBe(17 * 60 + 30);
+  });
+
+  it('accepts a stretch that ends exactly on the day’s last minute', () => {
+    // 12 h from 07:00 is the whole manual window: 7 h before lunch, 5 h after.
+    expect(
+      footprintEnd({ manualWindows: MANUAL_WINDOWS, startMinutes: 7 * 60, durationMinutes: 12 * 60 }),
+    ).toBe(20 * 60 + 30);
+  });
+
+  it('is null for the 18 h run that produced 25:00', () => {
+    expect(
+      footprintEnd({ manualWindows: MANUAL_WINDOWS, startMinutes: 7 * 60, durationMinutes: 18 * 60 }),
+    ).toBeNull();
+  });
+
+  it('is null for the quiet overrun too, not only the one past midnight', () => {
+    expect(
+      footprintEnd({ manualWindows: MANUAL_WINDOWS, startMinutes: 7 * 60, durationMinutes: 13 * 60 }),
+    ).toBeNull();
+  });
+});
+
+describe('dayHoldsMinutes — is there any start on this day that would work?', () => {
+  it('holds a stretch up to the whole manual window, margins included', () => {
+    expect(dayHoldsMinutes(MANUAL_WINDOWS, 12 * 60)).toBe(true);
+    // The periods alone are 10 h; the two margins are what make the other 2 h reachable.
+    expect(dayHoldsMinutes(PERIODS, 12 * 60)).toBe(false);
+  });
+
+  it('says no to a run longer than the day, which is what the clamp cannot say', () => {
+    // `latestStartFor` answers 07:00 here — its "nothing fits" fallback — so the ghost
+    // used to read «18 h no pueden empezar después de las 07:00», which claims 07:00 works.
+    expect(dayHoldsMinutes(MANUAL_WINDOWS, 18 * 60)).toBe(false);
   });
 });
 

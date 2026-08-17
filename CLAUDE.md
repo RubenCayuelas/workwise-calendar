@@ -742,6 +742,35 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   narrow and de-emphasised, so dragging to the weekend works with no extra state and no setting.
 - **Time axis**: vertical, from the top visual margin to the bottom visual margin. Grey bands mark
   the margins and the lunch break, labelled "solo arrastre manual".
+- **The axis is PIECEWISE, and only the break between two periods is compressed.** Working time and
+  the visual margins share one scale; the break is drawn as a fixed **28 px hatched seam**
+  (`BREAK_BAND_HEIGHT` in `geometry.ts`) however tall an hour is — "hay un hueco pero es
+  despreciable". A margin is never compressed: the owner puts real work in one by hand.
+  - The fitted scale is spread over WORKING minutes only, each seam costing its flat height first.
+  - **Both directions stay exact everywhere, seam and margins included** — see *One Axis Per Gesture*.
+    A pixel inside the seam is worth ~3 minutes instead of ~1; **what a pointer in there MEANS is
+    unchanged**: a resize counts net working minutes, so the seam is the same dead zone it always was
+    (14:00, 15:00 and 15:29 commit the same duration), and a drop still lands on the minute it was
+    released on and padlocks.
+  - **A rectangle is the clock interval it occupies** (`Timeline.heightBetween`). No row straddles a
+    break, so a block's height is its own minutes exactly; a GAP may span one and covers the seam.
+- **Every hour is labelled**, plus both edges of every period. A label is dropped only where it would
+  print over one already placed — 15:00 inside the seam, 20:00 under a cramped 20:30. It replaces "an
+  interior tick every three hours", which labelled 08:00 and then 11:00.
+  - **What gives way is decided by a precedence, most meaningful first** (`axisTicks`): every PERIOD
+    EDGE, then the two ENDS OF THE AXIS, then the HOURS. An hour can be counted from its neighbours;
+    an edge cannot. An axis end is only the outer lip of a grey margin, so an edge outranks it.
+  - **Both demotions are real configurations, not hypotheticals.** Settings accepts a 10-minute break
+    (`08:00-14:00` then `14:10-18:10`), which the seam deliberately draws at its own 9 px rather than
+    stretching to 28 — and two 18 px labels do not fit in 9 px, so `14:00` and `14:10` printed one
+    through the other. The margins step in half hours, so at `MIN_PIXELS_PER_HOUR` a 0.5 h margin puts
+    the axis end 21 px from `08:00`. **The earlier of two edges survives** (it is when work stops), and
+    the boundary is not lost with its label: the seam draws a solid rule on both of its own edges.
+  - **Nothing left on the axis ever overlaps anything else** — asserted as a property over every shift
+    Settings can produce at every scale the window can ask for, not just the cases above.
+  - The two hanging classes (`.tickFirst` / `.tickLast`) are keyed on the MINUTE, never on the tick's
+    index: either end can now be dropped, and by index the label that inherited position 0 would be
+    hung below its rule while the collision arithmetic had measured it as centred.
 - **Day headers** carry their state: `Lun 10 · congelado`, `Mar 11 [hoy]`, `Vie 14 · buffer`.
 - **Summary strip** above the grid, amber-tinted:
   `Taller ocupado hasta el jueves 27 de agosto · 96 h en cola · viernes libre`. This is the stated
@@ -774,6 +803,22 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   whether it will padlock. The ghost is drawn **in segments**, one rectangle per row the gesture will
   be stored as, because one rectangle straight through the grey band promises a shape that will never
   exist. **A RESIZE past the break is drawn the same way.**
+  - **And the drawn footprint never leaves the day** (`footprintWithinDay`). `segmentDroppedRow` returns
+    a stretch UNCUT when its tail would pass midnight, so the server can refuse the drop as it was
+    made — and since the drag unit is the whole RUN, that is the ORDINARY case, not a corner: an 18 h
+    run drew a single rectangle over the entire column, hatched seam included, on every day the
+    pointer crossed. The drawing is capped at the net minutes the day can still hold, so the shape is
+    one that can exist; the label beside it already says the rest does not fit today. Storage is
+    untouched — only the rectangle is.
+- **The week is reachable without putting the block down.** While a move is in the air both ends of
+  the grid carry a rail naming the neighbouring week; holding the block on one pages the calendar —
+  see *Dragging To The Edge Changes Week*.
+- **The ghost never invents a clock time.** A drag's duration is the whole RUN's net working minutes,
+  across days, so `start + duration` is an end-of-day reading only while the day can hold every one
+  of them (`footprintEnd`, `src/components/calendar/dropEffect.ts`). Where it cannot, the ghost names
+  the START and the hours — both true — and says the run is longer than the day holds
+  (`grid.dropLongerThanDay`) instead of the clamp's «no pueden empezar después de…», which claims a
+  start that would work.
 
 ### A Drop Always Answers For Itself
 > **Every drop reports what became of it. The only drop that may say nothing is one whose row is
@@ -784,9 +829,15 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
 |---|---|---|
 | `pinned` | the drop PADLOCKED the row and it did not have one before | it stays there, and names the padlock as the way out. A row that was already padlocked says nothing |
 | `settled` | the reflow put it well away from the drop point | a drop is a rank; lock it to pin it |
-| `leftWeek` | it no longer fits this week | names the date its hours carry on from |
+| `leftWeek` | it landed AFTER the week on screen | names the date its hours carry on from |
+| `pulledBack` | it landed BEFORE the week on screen | the queue laid it out where there was room; **padlock first, or drop on a day that keeps the minute** |
+| `movedWeek` | it is on the week on screen, and the drag STARTED in another one | names the day and the week, and how to get back to today's |
 | `unchanged` | the reflow put it back exactly where it started | admits the drag changed nothing, and **teaches the route in order: padlock first, then move** |
 | `absorbed` | its id is gone — a row of the same job took the hours | no hour was lost |
+
+The last two of those are what *Dragging To The Edge Changes Week* made ordinary: a drag that
+crosses weeks either keeps the minute (and lands where it was released) or takes a rank (and is laid
+out where the queue reaches), and only the row itself can say which happened.
 
 The same order — padlock, then move — is used by `notices.dropSettles` and `grid.dropRankHint`, so
 the three agree.
@@ -796,6 +847,40 @@ Two rules keep it honest. The outcome is read from **what the server stored**
 is not one of these**: nothing was written, the request threw, and the error banner carries the
 server's own reason. `describeDrop` in `src/components/calendar/dropOutcome.ts`, pure, with a test
 per branch.
+
+### Dragging To The Edge Changes Week
+> **Holding a dragged block at either end of the grid pages the calendar, with the block still in
+> hand. The block is never put down and nothing is written: paging is a GET.**
+
+- **Where.** The strip at each end of the visible grid FRAME, not of the columns — on a narrow
+  window the columns scroll inside it. On the left it is the whole **time-axis gutter** (58 px),
+  which belongs to no day; on the right, where there is no gutter, the last **40 px of Sunday**
+  (`EDGE_ZONE_PX`). Past the frame counts as inside the strip.
+- **How long.** **500 ms** for the first turn, then **320, 240, 200** for the repeats
+  (`edgeDelayFor`). A repeat is only scheduled once the week the last one asked for has ARRIVED, so
+  the gesture can never outrun the calendar, and a week that fails to load stops the hold instead of
+  hammering the endpoint.
+- **What it looks like.** Both rails are drawn for as long as a MOVE is in the air and never
+  otherwise — that is how the gesture is discovered rather than fallen into. Each names the week it
+  leads to by its dates. The one the pointer is in fills over exactly the wait that is running, so
+  holding still reads as progress; while it waits for the week it pulses instead.
+- **It must be gone to.** A hold that BEGINS inside a strip does not arm until the pointer has left
+  it once (`DragSession.edgeArmed`) — otherwise a block grabbed at Sunday's right edge would page the
+  week out from under itself.
+- **The arrow keys do the same thing without the wait**, handled by the drag itself in the capture
+  phase so the screen's own pager never sees the key. A RESIZE ignores them: its edge belongs to one
+  row on one day.
+- **The axis is untouched.** Paging changes the COLUMNS; *One Axis Per Gesture* is about the vertical
+  mapping, which the screen holds still for as long as a block is in the air.
+- **The drop is resolved against the week it is released in**, because the day, the rows and the
+  taken starts are all read at the release. Two consequences are wired for it: the preview falls back
+  to the NEAREST column when the date it remembers has left the screen, and the ghost is
+  re-resolved from the last pointer position the moment the columns change, without waiting for the
+  hand to move.
+- **Released before the new week has arrived**, the drop belongs to the week that was on screen and
+  the pending page turn is cancelled (`showWeekOf`), so the owner is never left looking at a week
+  their block is not in.
+- **Escape still cancels the drag**; the week paged to stays, since nothing was written.
 
 ### Block Gestures
 - **Drag the body**: move the whole RUN — this reorders the queue and triggers a reflow.
@@ -838,7 +923,10 @@ ends somewhere the owner never chose.
 Three things hold it: `useBlockDrag` fixes the axis in the session at press; the screen HOLDS the
 painted axis for as long as a block is in the air; and the legend reserves its two lines, which
 removes the trigger at the source. The invariant underneath is `minutesAt(yOf(m)) === m` for every
-minute of the axis, margins and lunch band included.
+minute of the axis, margins and lunch band included. **Since the axis became piecewise (the
+compressed break) that is a stronger claim, not a formality**: the two directions have to agree
+segment by segment and on every seam between two segments, so it is asserted over the whole axis,
+minute by minute, at several fitted scales — never at sample points.
 
 ### Job Panel (side panel)
 - Colour dot + job name + close.
@@ -960,11 +1048,34 @@ The reproductions are in DECISIONS.md § *Reproductions behind the Open Decision
     top ~28 px covered. The drag is safe there; a CLICK still lands on a button. Moving the bar
     outside on narrow columns too puts it over the neighbouring day.
 
+13. **A RUN LONGER THAN A DAY CANNOT BE DRAGGED ANYWHERE, and the refusal reads as a technical
+    error.** The drag unit is the whole run, so an 18 h run arrives at the server as ONE row of
+    1080 minutes; `assertFitsInDay` measures it against MIDNIGHT and answers 400 `out-of-range`,
+    which the owner sees as *«Esa hora no cabe en el día»* — a sentence about an hour, for a gesture
+    about a length. The ghost meanwhile says *«este tramo no termina hoy»*, which reads as a promise
+    that it WILL be placed and carry on. Note the line is midnight and not the end of the day, so a
+    13 h run IS accepted and simply reflows back where it came from. Candidates: cut the run across
+    days on drop; or refuse it in the PREVIEW (draw the ghost denied) and say so before the mouse is
+    released; or leave the behaviour and reword the refusal to name the length. Three things that
+    feed on the same over-long number and are deliberately untouched until this is answered — the
+    collision test (`dropEffectOf` measures overlaps against the uncut footprint, so a long run can
+    announce a cut against rows its real first-day footprint never touches), the pin decision
+    (`usesManualOnlyTime` counts minutes past the end of the day as manual-only, scoring 480 for an
+    18 h run at 07:00), and the clamp (`latestStartFor` returns a start it knows nothing fits at).
+    Only the DRAWN rectangle was fixed, because CLAUDE.md already forbade that shape.
+14. **A resize ghost draws its post-break tail on THIS day even when that slot is taken and the
+    engine will put the tail on another one.** Measured 2026-08-17: a 6 h Wednesday row grown to 8 h
+    with Wednesday afternoon already held by another job previewed `08:00–17:30` as
+    `08:00-14:00` + `15:30-17:30`, and stored `Wed 08:00-14:00` + `Thu 08:00-10:00`. The HOURS are
+    right and the invariants hold; the rectangle and the end time are not. With the slot free the
+    same gesture is exact, so this is only the occupied case. Candidates: draw the tail where the
+    reflow will really put it (needs the reflow simulated in the preview); or print no end time for a
+    resize whose tail crosses into occupied time, the way the ghost already refuses to invent one for
+    a run.
+
 **Decided but NOT BUILT** — do not treat these as done:
 - **One-level undo, Ctrl+Z** (decided 2026-08-14). Every mutation already runs in a single
   transaction, so remembering the previous state is enough.
-- **Dragging to the edge changes week** (decided 2026-08-14): hold a block near the left or right
-  edge and the calendar pages with the block still in hand.
 - ***Añadir otra parte*** on the job panel (decided 2026-08-14): creates a second job entry with the
   name and colour pre-filled. See DECISIONS.md § Two Parts of One Job.
 
@@ -983,7 +1094,7 @@ property harnesses over placement, editing, drops and shrinking), `next lint` cl
 clean.
 
 Everything in *Composition Engine Business Rules* and *UI/UX Behavior* above is implemented and was
-verified by driving the running app, except the three items marked **Decided but NOT BUILT** in
+verified by driving the running app, except the items marked **Decided but NOT BUILT** in
 *Open Decisions*.
 
 **The full release history — what each round built, what it measured, and what the measuring found —

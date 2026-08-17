@@ -1,5 +1,5 @@
 /**
- * The five ways a drop can end, and the one way it is allowed to say nothing.
+ * The seven ways a drop can end, and the one way it is allowed to say nothing.
  *
  * The rule these pin down is the owner's complaint, generalised: a drag that produces no
  * visible change must never be indistinguishable from a drag the app ignored. Friday was
@@ -74,6 +74,35 @@ describe('describeDrop', () => {
     ).toEqual({ kind: 'leftWeek', date: '2026-08-24' });
   });
 
+  /*
+   * THE OTHER SIDE OF THE SAME WEEK, and not the same sentence. Measured in the browser
+   * on 2026-08-17: a 10 h run dragged from Monday 17 August into the week of 7 September
+   * and released on the Wednesday came back on Wednesday 19 AUGUST — the drop is a rank,
+   * and its contiguous place is behind the work that is already there. `leftWeek`'s words
+   * ("no longer fitted this week: its hours carry on") describe the opposite journey.
+   */
+  it('tells a row the queue laid out EARLIER apart from one that overflowed', () => {
+    expect(
+      describeDrop(
+        input({
+          // The drag started on 17 August and paged: the week on screen is September's.
+          from: { date: '2026-08-17', startMinutes: 8 * 60 },
+          to: { date: '2026-09-09', startMinutes: 10 * 60 },
+          landed: { date: '2026-08-19', startMinutes: 8 * 60, locked: false },
+          visibleDates: [
+            '2026-09-07',
+            '2026-09-08',
+            '2026-09-09',
+            '2026-09-10',
+            '2026-09-11',
+            '2026-09-12',
+            '2026-09-13',
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'pulledBack', date: '2026-08-19' });
+  });
+
   it('admits it when the reflow put the row back where it started', () => {
     // The silent no-op in its general form: the rank changed, the layout did not.
     expect(
@@ -97,6 +126,49 @@ describe('describeDrop', () => {
         input({ landed: { date: '2026-08-13', startMinutes: 10 * 60 + 45, locked: false } }),
       ),
     ).toBeNull();
+  });
+
+  /*
+   * EDGE PAGING: the block was picked up in one week and released in another, so the week
+   * on screen is not the week the drag started in. The row is exactly where it was
+   * released — every other branch would therefore be silent — and the thing the owner
+   * cannot see for themselves is which week they are now looking at.
+   */
+  it('names the week when the drag paged into it', () => {
+    expect(
+      describeDrop(
+        input({
+          from: { date: '2026-08-05', startMinutes: 8 * 60 },
+          to: { date: '2026-08-13', startMinutes: 10 * 60 },
+          landed: { date: '2026-08-13', startMinutes: 10 * 60, locked: false },
+        }),
+      ),
+    ).toEqual({ kind: 'movedWeek', date: '2026-08-13' });
+  });
+
+  it('still leads with the padlock when a paged drop landed on the weekend', () => {
+    // Two true things; the padlock is the one that is new STATE, and its sentence names
+    // the day it fixed the row to, which says the week as plainly as the other would.
+    expect(
+      describeDrop(
+        input({
+          from: { date: '2026-08-05', startMinutes: 8 * 60 },
+          to: { date: '2026-08-15', startMinutes: 10 * 60 },
+          landed: { date: '2026-08-15', startMinutes: 10 * 60, locked: true },
+        }),
+      ),
+    ).toEqual({ kind: 'pinned', date: '2026-08-15' });
+  });
+
+  it('still reports hours that left the week even when the drag paged into it', () => {
+    expect(
+      describeDrop(
+        input({
+          from: { date: '2026-08-05', startMinutes: 8 * 60 },
+          landed: { date: '2026-08-24', startMinutes: 8 * 60, locked: false },
+        }),
+      ),
+    ).toEqual({ kind: 'leftWeek', date: '2026-08-24' });
   });
 
   it('says the hours were absorbed when the row id is gone', () => {
