@@ -17,10 +17,17 @@
  * row is one the engine has stopped re-laying out, so it can sit weeks away holding a
  * day open.
  *
- * TWO MARKS REACH THIS LIST, and *back to automatic* clears both in one call: a hand-set
- * LENGTH (`manualDuration`, the ruler) and a hand-placed DAY (`handPlaced`, the hand).
- * Keying the action off the length alone — which is what it did — left a row pinned to
- * Friday with a perfectly automatic length showing a mark and no way back.
+ * TWO MARKS REACH THIS LIST and each has its own undo: a hand-set LENGTH
+ * (`manualDuration`, the ruler) released by *back to automatic*, and the PADLOCK
+ * (`locked`), pressed off with the padlock button beside it. A drop onto the buffer, the
+ * weekend or a margin sets the padlock, so this list is where a row weeks away can be
+ * handed back to the engine.
+ *
+ * A PAST ROW IS DIMMED AND SHOWS BOTH MARKS, BUT ONLY THE RULER'S UNDO. The past is
+ * read-only to the block gestures, so the padlock and the scissors are refused there and
+ * are not drawn — the padlock as a plain state icon instead. Nothing is stranded by that:
+ * a padlock on a past row changes nothing the engine reads, since `isMovable` asks the
+ * date before it asks the flag.
  *
  * The list is display + two toggles. The requests belong to the panel, which owns the
  * refetch and the error banner.
@@ -28,7 +35,6 @@
 
 import { useTranslation } from 'react-i18next';
 import {
-  IconHandFinger,
   IconLock,
   IconLockOpen,
   IconRestore,
@@ -47,16 +53,22 @@ export interface BlockRowsProps {
   blocks: readonly Block[];
   /** The shop's local today, from `WeekView.today`. Dims the frozen past. */
   today?: string;
-  /** Toggles the padlock. Omit to render the state read-only. */
+  /**
+   * Toggles the padlock. Omit to render the state read-only — as a PAST row always is,
+   * whatever is passed, because the gesture is refused there.
+   */
   onToggleLock?: (block: Block) => void;
   /**
-   * "Back to automatic" on a row carrying either hand mark — a length set by hand, a day
-   * chosen by hand, or both. Omit to render the marks without their undo; the marks
-   * themselves are always shown, since a row that has stopped reflowing must never be a
-   * silent state.
+   * "Back to automatic" on a row whose LENGTH was set by hand. One mark, one undo: the
+   * padlock is the other mark and it is undone by pressing the padlock. Omit to render the
+   * ruler without its undo; the mark itself is always shown, since a row that has stopped
+   * reflowing must never be a silent state.
    */
   onReleaseDuration?: (block: Block) => void;
-  /** Adds the scissors to each row. The panel is the only way to reach another week's rows. */
+  /**
+   * Adds the scissors to each row. The panel is the only way to reach another week's rows.
+   * Never drawn on a past row: the past is read-only to the block gestures.
+   */
   onSplit?: (block: Block) => void;
   /** The row with a request in flight: its buttons lock. */
   busyBlockId?: string | null;
@@ -109,9 +121,9 @@ export function BlockRows({
                 {tag === undefined ? null : <span className={styles.blockTag}>{t(tag)}</span>}
 
                 {/*
-                 * The marks the owner put there, each naming what it fixes: the ruler
-                 * the row's LENGTH, the hand the row's DAY. Always shown — the whole
-                 * point of a mark is that the row's stillness has a visible reason.
+                 * The ruler: this row's LENGTH is the owner's. Always shown — the whole
+                 * point of a mark is that the row's stillness has a visible reason. The
+                 * padlock, the other mark, is the toggle further along the row.
                  */}
                 {!block.manualDuration ? null : (
                   <span
@@ -123,23 +135,12 @@ export function BlockRows({
                   </span>
                 )}
 
-                {!block.handPlaced ? null : (
-                  <span
-                    className={styles.blockTag}
-                    aria-label={t('block.handPlaced')}
-                    title={t('block.markHandPlaced')}
-                  >
-                    <IconHandFinger size={15} stroke={1.75} />
-                  </span>
-                )}
-
                 {/*
-                 * One undo for both marks, offered whenever either is set. It is a
-                 * separate control from the marks now rather than a toggled version of
-                 * the ruler: a row can carry two marks and there is still only one way
-                 * back, and a ruler-off glyph would name half of what it does.
+                 * The undo for the ruler, offered exactly when it is set. A separate
+                 * control rather than a toggled version of the mark: a struck-through
+                 * ruler reads as a state, and this is a button.
                  */}
-                {onReleaseDuration === undefined || !(block.manualDuration || block.handPlaced) ? null : (
+                {onReleaseDuration === undefined || !block.manualDuration ? null : (
                   <IconButton
                     size="sm"
                     variant="ghost"
@@ -151,7 +152,20 @@ export function BlockRows({
                   />
                 )}
 
-                {onSplit === undefined ? null : (
+                {/*
+                 * THE SCISSORS AND THE PADLOCK ARE ABSENT ON A PAST ROW, not disabled: the
+                 * past is read-only to the block gestures (decided 2026-08-13), so both are
+                 * refused by the server — `split-on-past-day` and a padlock that would
+                 * change nothing, since `isMovable` asks the date before it asks the flag.
+                 * A control that is only ever answered with a refusal is worse than no
+                 * control, and a row already carries its state in the read-only padlock
+                 * below.
+                 *
+                 * The ruler's undo above IS still offered here, deliberately: it only
+                 * clears `manualDuration`, which the engine no longer consults on a past
+                 * day, and removing it would strand the mark with no way to take it off.
+                 */}
+                {onSplit === undefined || isPast ? null : (
                   <IconButton
                     size="sm"
                     variant="ghost"
@@ -162,7 +176,7 @@ export function BlockRows({
                   />
                 )}
 
-                {onToggleLock === undefined ? (
+                {onToggleLock === undefined || isPast ? (
                   <span
                     className={styles.blockTag}
                     aria-label={t(block.locked ? 'block.locked' : 'block.unlocked')}

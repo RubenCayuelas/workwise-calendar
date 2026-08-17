@@ -42,7 +42,7 @@ import {
   type DropResolution,
   type QueueRow,
 } from './dropEffect';
-import { groupBlocks, packDay, segmentsOf, type BlockGroup } from './grouping';
+import { buildRuns, groupBlocks, packDay, segmentsOf, type BlockGroup, type BlockRun } from './grouping';
 import { usePressHint, type DragController, type DragTarget, type InertReason } from './useBlockDrag';
 import styles from './WeekGrid.module.css';
 
@@ -85,9 +85,9 @@ export interface WeekGridProps {
   onOpenGap?: (gap: Gap) => void;
   onToggleLock: (block: WeekBlock) => void;
   /**
-   * "Back to automatic" for a whole unit: every row the engine stopped laying out
-   * because a human said so — a hand-set length, a hand-placed day, or both. One
-   * action clears both marks, so one list covers them.
+   * "Back to automatic" for a whole unit: every row whose LENGTH the owner drew. The
+   * padlock is not part of it — that mark is visible on the row and comes off with the
+   * padlock.
    */
   onReleaseDuration: (blockIds: readonly string[]) => void;
   /**
@@ -161,6 +161,8 @@ export function WeekGrid({
       metricsRef.current = null;
     };
   }, [measure, metricsRef]);
+
+  const columnWidths = useColumnWidths(gridRef, measure, view.week.dates.join());
 
   // One pass over the week: the rows of each day, grouped into units and packed into
   // lanes so hand-made overlaps (allowed on the weekend and in the past) stay visible.
@@ -265,6 +267,8 @@ export function WeekGrid({
               groups={layout.groups.get(day.date) ?? []}
               gaps={layout.gaps.get(day.date) ?? []}
               lanes={layout.lanes.get(day.date) ?? new Map()}
+              runs={layout.runs}
+              columnWidth={columnWidths.get(day.date) ?? null}
               ticks={ticks}
               timeline={timeline}
               gapColor={view.settings.gapColor}
@@ -363,6 +367,13 @@ interface DayColumnProps {
   groups: BlockGroup[];
   gaps: Gap[];
   lanes: Map<string, { lane: number; lanes: number }>;
+  /** The whole week's runs, keyed by group id: what a drag of a unit picks up. */
+  runs: Map<string, BlockRun>;
+  /**
+   * This column's measured width in pixels, or `null` before the first measurement. Only
+   * the hover action bar reads it — see `CalendarBlockProps.blockWidth`.
+   */
+  columnWidth: number | null;
   ticks: { minutes: number; boundary: boolean }[];
   timeline: Timeline;
   gapColor: string;
@@ -398,6 +409,8 @@ function DayColumn({
   groups,
   gaps,
   lanes,
+  runs,
+  columnWidth,
   ticks,
   timeline,
   gapColor,
@@ -655,8 +668,9 @@ function DayColumn({
 
       {/* The same view the grouping was read over, so a unit and its seam agree. */}
       {segmentsOf(groups, day.manualWindows).map((segment) => {
-        const target = targetFor(segment.group, day);
+        const target = targetFor(segment.group, day, runFor(runs, segment.group));
         const closeDay = closeDayAfter(closeDayInput, segment.block);
+        const lane = lanes.get(segment.group.id) ?? SINGLE_LANE;
         /*
          * WHY THIS PRESS CANNOT WRITE, when it cannot — and the press is still tracked, so
          * a CLICK still opens the job. `undefined` is the ordinary row.
@@ -673,10 +687,13 @@ function DayColumn({
             key={segment.block.id}
             segment={segment}
             timeline={timeline}
-            lane={lanes.get(segment.group.id) ?? SINGLE_LANE}
+            lane={lane}
+            // The block's own width, not the column's: `.block` is inset 2 px on each side
+            // of its lane's share (see its inline `left`/`width`).
+            blockWidth={columnWidth === null ? null : columnWidth / lane.lanes - 4}
             overflow={isOverflow(segment.group, day)}
             frozen={day.isPast}
-            lifted={drag.activeGroupId === segment.group.id}
+            lifted={drag.liftedBlockIds.includes(segment.block.id)}
             cutAtMinutes={
               dropEffect?.kind === 'cut' && dropEffect.blockId === segment.block.id
                 ? dropEffect.cutMinutes
@@ -711,15 +728,13 @@ function DayColumn({
             }
             onOpen={() => onOpenJob(segment.block.projectId)}
             onToggleLock={() => onToggleLock(segment.block)}
-            // One release for the whole unit, covering BOTH marks: a hand-set stretch
-            // cut at the lunch break is two marked rows, and giving the engine back only
-            // half of it would leave the other half holding the day open for no visible
-            // reason. `releasableBlockIds` is what makes a row pinned to Friday with an
-            // automatic length offer the action at all.
+            // One release for the whole unit: a hand-set stretch cut at the lunch break
+            // is two marked rows, and giving the engine back only half of it would leave
+            // the other half holding the day open for no visible reason.
             onReleaseDuration={
-              segment.group.releasableBlockIds.length === 0
+              segment.group.manualBlockIds.length === 0
                 ? undefined
-                : () => onReleaseDuration(segment.group.releasableBlockIds)
+                : () => onReleaseDuration(segment.group.manualBlockIds)
             }
             onCloseDay={
               closeDay === null || onCloseDay === undefined
@@ -799,6 +814,18 @@ function DayColumn({
                    * the ghost sitting still while the pointer keeps going. The rule is
                    * real; the silence was the defect.
                    */}
+                  {/*
+                   * THE DROP MOVED TO THIS DAY because the one the pointer is over cannot
+                   * hold the run from where the hand is — which is what aiming past the
+                   * bottom of a column means in any calendar. The ghost is already HERE, so
+                   * this only names the reason; without it the jump to the next column is
+                   * the app appearing to lose the drag.
+                   */}
+                  {preview.rolled !== true ? null : (
+                    <span className={styles.ghostClamped}>
+                      {t('grid.dropNextDay', { day: format.dayHeader(day.date) })}
+                    </span>
+                  )}
                   {preview.clamped !== true ? null : (
                     <span className={styles.ghostClamped}>
                       {t('grid.dropNoLower', {
@@ -883,6 +910,11 @@ interface WeekLayout {
   groups: Map<string, BlockGroup[]>;
   gaps: Map<string, Gap[]>;
   lanes: Map<string, Map<string, { lane: number; lanes: number }>>;
+  /**
+   * The RUN each unit belongs to, keyed by group id — what a drag of it moves. Built for
+   * the whole week at once because a run's other half is usually on another day.
+   */
+  runs: Map<string, BlockRun>;
 }
 
 function buildLayout(view: WeekView): WeekLayout {
@@ -913,7 +945,22 @@ function buildLayout(view: WeekView): WeekLayout {
     lanes.set(day.date, packDay(dayGroups, gapsByDate.get(day.date) ?? []));
   }
 
-  return { groups, gaps: gapsByDate, lanes };
+  /*
+   * THE MOVABLE POOL, as this side of the app can see it — the mirror of `isMovable` in
+   * src/lib/composition.ts: unlocked, not in the past, not on a weekend. It is what tells
+   * a run where to stop, because work the engine never moves is an obstacle it flows
+   * around rather than a division the owner made.
+   */
+  const dayByDate = new Map(view.days.map((day) => [day.date, day]));
+  const runs = buildRuns(
+    view.days.flatMap((day) => groups.get(day.date) ?? []),
+    (block) => {
+      const day = dayByDate.get(block.date);
+      return !block.locked && day !== undefined && !day.isPast && !day.isWeekend;
+    },
+  );
+
+  return { groups, gaps: gapsByDate, lanes, runs };
 }
 
 /**
@@ -933,8 +980,15 @@ function closeDayAfter(input: CloseDayInput | null, block: WeekBlock): CloseDayR
   return { input, fromMinutes };
 }
 
-/** Every row of the unit, in queue order — a group moves as a whole. */
-function targetFor(group: BlockGroup, day: WeekDay): DragTarget {
+/**
+ * WHAT A PRESS ON THIS UNIT PICKS UP: the whole RUN it belongs to, in queue order.
+ *
+ * The unit on screen is where the gesture STARTS — its date and start are what "the drag
+ * came to nothing" and the outcome sentence are measured against — but what MOVES is the
+ * run: every consecutive unit of this job with no other job's work between them, across
+ * days. That is the owner's own rule and the engine's own `QueueItem`; see `BlockRun`.
+ */
+function targetFor(group: BlockGroup, day: WeekDay, run: BlockRun): DragTarget {
   const first = group.blocks[0];
   const last = group.blocks[group.blocks.length - 1];
   return {
@@ -944,11 +998,23 @@ function targetFor(group: BlockGroup, day: WeekDay): DragTarget {
     color: first.project.color,
     date: day.date,
     startMinutes: group.startMinutes,
-    durationMinutes: group.totalMinutes,
-    blockIds: group.blocks.map((block) => block.id),
+    durationMinutes: run.totalMinutes,
+    blockIds: run.blockIds,
     blockId: last.id,
     locked: group.locked,
   };
+}
+
+/** The run a unit belongs to, or the unit alone before the layout has caught up. */
+function runFor(runs: ReadonlyMap<string, BlockRun>, group: BlockGroup): BlockRun {
+  return (
+    runs.get(group.id) ?? {
+      blockIds: group.blocks.map((block) => block.id),
+      totalMinutes: group.totalMinutes,
+      date: group.date,
+      startMinutes: group.startMinutes,
+    }
+  );
 }
 
 /**
@@ -956,18 +1022,73 @@ function targetFor(group: BlockGroup, day: WeekDay): DragTarget {
  *
  * Derived from the buffer rule itself — the colchón "receives only overflow generated by
  * the growth of already-placed work", so anything the engine could have put there IS
- * overflow. Everything the engine could NOT have put there is excluded, and that is now
- * three things rather than two: a locked row was parked there on purpose, a past Friday
- * is a record, and a HAND-PLACED row is the owner saying "do this on Friday".
+ * overflow. Everything the engine could NOT have put there is excluded, and that is two
+ * things: a past Friday, which is a record, and a PADLOCK, which is the owner saying "do
+ * this on Friday" — whether they pressed it or a drop onto the buffer put it there for
+ * them.
  *
- * The last one is the point of `hand_placed`, and it has to read differently from
- * `desborde 2 h` on the very same column (CLAUDE.md): one means the week overran, the
- * other means the owner planned it. `some` rather than `every`, because a unit with any
- * hand-placed row in it is not something the engine decided.
+ * That distinction has to read differently from `desborde 2 h` on the very same column
+ * (CLAUDE.md): one means the week overran, the other means the owner planned it. `some`
+ * rather than `every`, because a unit with any padlocked row in it is not something the
+ * engine decided.
  */
 function isOverflow(group: BlockGroup, day: WeekDay): boolean {
-  if (day.role !== 'buffer' || day.isPast || group.locked) return false;
-  return !group.blocks.some((block) => block.handPlaced);
+  if (day.role !== 'buffer' || day.isPast) return false;
+  return !group.blocks.some((block) => block.locked);
+}
+
+// ---------------------------------------------------------------------------
+// Column widths
+// ---------------------------------------------------------------------------
+
+/**
+ * EVERY COLUMN'S WIDTH IN PIXELS, kept current.
+ *
+ * Needed for exactly one decision, and it is a decision no stylesheet can take: whether the
+ * hover action bar — a fixed number of 24 px buttons — still leaves any of a block to press
+ * (`blockHoldsActions`). Percentages cannot compare themselves to pixels, and a container
+ * query on the block would make it a containment context, which creates a stacking context
+ * and would trap the bar that hangs OUTSIDE a narrow block behind the row next to it.
+ *
+ * Measured from the same `measure()` the drag layer uses, so there is one answer about where
+ * the columns are, and re-read on resize only — never during a drag, which reads `measure()`
+ * itself on every pointer event.
+ */
+function useColumnWidths(
+  gridRef: React.MutableRefObject<HTMLDivElement | null>,
+  measure: () => GridMetrics | null,
+  /** The week's dates, joined. Paging keeps the widths and changes every key. */
+  dates: string,
+): Map<string, number> {
+  const [widths, setWidths] = useState<Map<string, number>>(() => new Map());
+
+  useEffect(() => {
+    const root = gridRef.current;
+    if (root === null) return;
+
+    const read = (): void => {
+      const columns = measure()?.columns;
+      if (columns === undefined) return;
+      setWidths((current) => {
+        // Rounded, and only replaced when something really changed: a ResizeObserver fires
+        // on sub-pixel jitter, and a new Map every time would re-render the whole week.
+        const next = new Map(columns.map((column) => [column.date, Math.round(column.width)]));
+        if (next.size === current.size && [...next].every(([date, width]) => current.get(date) === width)) {
+          return current;
+        }
+        return next;
+      });
+    };
+
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(root);
+    return () => observer.disconnect();
+    // `dates` is a dependency because paging the week changes the keys without changing
+    // any size, so the observer alone would never fire and every column would read `null`.
+  }, [gridRef, measure, dates]);
+
+  return widths;
 }
 
 // ---------------------------------------------------------------------------

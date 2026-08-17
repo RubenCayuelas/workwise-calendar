@@ -9,7 +9,7 @@
  */
 
 import { getDb, type Db } from '../db';
-import { todayLocal } from '../dates';
+import { compareDates, todayLocal } from '../dates';
 import { changeProjectMinutes, type EditSuccess } from '../composition';
 import type { ScheduleSummary } from '../composition';
 import {
@@ -23,6 +23,8 @@ import { conflict, notFound, ERROR_MESSAGE_KEYS } from '../errors';
 import { newId } from '../ids';
 import { nowTimestamp } from '../timestamps';
 import { composeInputOf, readSnapshot, recompose, readSummary, runTransaction } from '../scheduler';
+import { deletedJobGapReason } from '../text';
+import { insertGap } from '../repositories/gaps';
 import { listBlocks, listBlocksByProject } from '../repositories/blocks';
 import {
   deleteProject as deleteProjectRow,
@@ -44,8 +46,9 @@ export interface CreationOutcome {
   mode: CreationMode;
   /** Every row of the job was locked: the date is beyond the last occupied day. */
   autoLock: boolean;
-  /** The rows on that day carry the hand-placed mark (the buffer, or the weekend). */
-  handPlaced: boolean;
+  /** The rows on that day were padlocked, because the engine would never use it (the
+   * buffer, or the weekend). */
+  dayLock: boolean;
   /** The floor was not binding, so the job starts later than the day chosen. */
   deferred: boolean;
   startsOn: string | null;
@@ -154,7 +157,7 @@ export function createProject(input: CreateProjectInput, db: Db = getDb()): Proj
           day: plan.decision.day,
           mode: plan.decision.mode,
           autoLock: plan.decision.autoLock,
-          handPlaced: plan.decision.handPlaced,
+          dayLock: plan.decision.dayLock,
           deferred: plan.deferred,
           startsOn: plan.startsOn,
           endsOn: plan.endsOn,
@@ -197,8 +200,8 @@ export interface CreationPreviewRow {
   date: string;
   startMinutes: number;
   durationMinutes: number;
+  /** Padlocked: either every row (`autoLock`) or this one because of its day (`dayLock`). */
   locked: boolean;
-  handPlaced: boolean;
 }
 
 /** Work in the way, with its job's name so the form can say which job it is. */
@@ -219,8 +222,8 @@ export interface CreationPreview {
   mode: CreationMode;
   /** Every row of the job would be locked. Mechanical — see `src/lib/creation.ts`. */
   autoLock: boolean;
-  /** The rows on that day would carry the hand-placed mark. */
-  handPlaced: boolean;
+  /** The rows on that day would be padlocked, because the engine would never use it. */
+  dayLock: boolean;
   /** The buffer and the weekend are honoured only after the owner confirms. */
   needsDayConfirmation: boolean;
   /** The job would start later than the day chosen: the floor is not binding. */
@@ -285,7 +288,7 @@ export function previewProjectCreation(
     day: plan.decision.day,
     mode: plan.decision.mode,
     autoLock: plan.decision.autoLock,
-    handPlaced: plan.decision.handPlaced,
+    dayLock: plan.decision.dayLock,
     needsDayConfirmation: plan.decision.needsDayConfirmation,
     deferred: plan.deferred,
     canForce: plan.canForce,
@@ -296,7 +299,6 @@ export function previewProjectCreation(
       startMinutes: row.startMinutes,
       durationMinutes: row.durationMinutes,
       locked: row.locked,
-      handPlaced: row.handPlaced,
     })),
     span: plan.span,
     collisions: plan.collisions.map((collision) => ({
@@ -394,27 +396,82 @@ export function patchProject(projectId: string, input: PatchProjectInput, db: Db
   });
 }
 
+export interface DeleteProjectOptions {
+  today?: string;
+  /**
+   * The language the owner is reading the app in. It decides the wording of the gaps the
+   * job's past rows leave behind, and only that — those sentences become stored user data
+   * and cannot be re-translated later. Spanish when it is not given.
+   */
+  language?: string;
+}
+
+export interface ProjectDeletion {
+  summary: ScheduleSummary;
+  /**
+   * The gaps that took the place of the job's PAST rows, one per row. Tell the owner:
+   * the days they are on keep their shape, and the gaps are editable like any other.
+   */
+  preservedGapIds: string[];
+}
+
 /**
- * Deletes a job. Its blocks go with it through `ON DELETE CASCADE`, then the
- * calendar closes the hole they left.
+ * Deletes a job. Its FUTURE blocks go with it through `ON DELETE CASCADE` and the calendar
+ * closes the hole they left; its PAST rows are turned into gaps first, so nothing moves
+ * there at all.
  *
- * No intent is passed: freeing space is not growth, so the reflow pulls work back
- * into Mon-Thu — including off Friday, which is the "self-cleaning buffer" half of
+ * THE PAST IS A RECORD, AND DELETING A JOB MUST NOT REWRITE IT (decided with the owner,
+ * 2026-08-13). Cascading the whole job away would free hours the shop actually worked, and
+ * the reflow — which may not write to the past, but which fills forward from today —
+ * would leave those days looking emptier than they were. A gap holds the time exactly
+ * where the work was: same date, same start, same duration, and the same fixed occupancy a
+ * padlocked row had.
+ *
+ * EACH GAP NAMES THE JOB IT REPLACED — `Trabajo «Barandilla» eliminado` — and the sentence
+ * is COMPOSED HERE, before the row is deleted. There is nowhere to look the name up
+ * afterwards: the project row is gone and its blocks went with it. See src/lib/text.ts for
+ * what that costs (the wording is frozen in one language) and why it is the right trade.
+ *
+ * No intent is passed to `recompose`: freeing space is not growth, so the reflow pulls work
+ * back into Mon-Thu — including off Friday, which is the "self-cleaning buffer" half of
  * the rule — but never pushes anything new onto the colchón.
  */
 export function deleteProject(
   projectId: string,
-  options: { today?: string } = {},
+  options: DeleteProjectOptions = {},
   db: Db = getDb(),
-): { summary: ScheduleSummary } {
+): ProjectDeletion {
   const today = options.today ?? todayLocal();
 
   return runTransaction(db, () => {
+    const project = findProject(projectId, db);
+    if (project === undefined) {
+      throw notFound('project-not-found', ERROR_MESSAGE_KEYS.projectNotFound, { details: { projectId } });
+    }
+
+    // Composed while the job still exists, and stored as the gap's own reason.
+    const reason = deletedJobGapReason(project.name, options.language);
+    const preservedGapIds: string[] = [];
+    for (const row of listBlocksByProject(projectId, db)) {
+      if (compareDates(row.date, today) >= 0) continue;
+      const gap = insertGap(
+        {
+          id: newId(),
+          date: row.date,
+          startMinutes: row.startMinutes,
+          durationMinutes: row.durationMinutes,
+          reason,
+        },
+        db,
+      );
+      preservedGapIds.push(gap.id);
+    }
+
     if (!deleteProjectRow(projectId, db)) {
       throw notFound('project-not-found', ERROR_MESSAGE_KEYS.projectNotFound, { details: { projectId } });
     }
     const report = recompose(db, { today });
-    return { summary: report.summary };
+    return { summary: report.summary, preservedGapIds };
   });
 }
 

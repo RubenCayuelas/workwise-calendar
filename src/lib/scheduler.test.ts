@@ -88,6 +88,16 @@ function calendar(): string[] {
   return render(listBlocks(db), names);
 }
 
+/** The gaps as calendar lines, so a day's shape can be read next to its blocks. */
+function gapLines(): string[] {
+  return listGaps(db).map(
+    (gap) =>
+      `${gap.date} ${minutesToHHmm(gap.startMinutes)}-${minutesToHHmm(
+        gap.startMinutes + gap.durationMinutes,
+      )} ${gap.reason ?? ''}`.trimEnd(),
+  );
+}
+
 function job(name: string, hours: number, color: string = BLUE, today = MON) {
   return createProject({ name, color, totalMinutes: hours * 60, today }, db);
 }
@@ -213,7 +223,7 @@ describe('creating a job with a start date', () => {
     ]);
     expect(created.placement).toMatchObject({ mode: 'forced', deferred: false });
     // Nothing was pinned: forcing writes a queue rank, exactly like a drag.
-    expect(listBlocks(db).every((block) => !block.locked && !block.handPlaced)).toBe(true);
+    expect(listBlocks(db).every((block) => !block.locked)).toBe(true);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
@@ -238,17 +248,16 @@ describe('creating a job with a start date', () => {
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
-  it('honours a Friday by hand, marking it hand-placed rather than locked', () => {
+  it('honours a Friday chosen by hand, padlocking the rows that land on it', () => {
     // 44 h fills Monday to Thursday and spills onto NEXT Monday (a new job skips the
-    // colchón), so the queue already runs past this Friday: nothing needs a padlock,
-    // and the hand mark is what keeps the buffer from self-cleaning the row away.
+    // colchón), so the queue already runs past this Friday: `autoLock` does not fire, and
+    // the padlock the DAY earns is what keeps the buffer from self-cleaning the row away.
     job('Puerta', 44);
     const created = dated('Barandilla', 4, FRI);
     const row = listBlocks(db).find((block) => block.date === FRI);
 
-    expect(row).toMatchObject({ startMinutes: 8 * 60, durationMinutes: 240, handPlaced: true });
-    expect(row?.locked).toBe(false);
-    expect(created.placement).toMatchObject({ day: 'buffer', handPlaced: true, autoLock: false });
+    expect(row).toMatchObject({ startMinutes: 8 * 60, durationMinutes: 240, locked: true });
+    expect(created.placement).toMatchObject({ day: 'buffer', dayLock: true, autoLock: false });
 
     // And it survives the create-then-reflow churn that used to undo a Friday drop.
     job('Reja', 2);
@@ -261,12 +270,11 @@ describe('creating a job with a start date', () => {
     dated('Barandilla', 4, SAT);
     const row = listBlocks(db).find((block) => block.date === SAT);
 
-    // Beyond the work planned, so it carries BOTH marks: the hand says the owner chose
-    // the day, the padlock is what stops the reflow claiming the hours back.
+    // Beyond the work planned AND on a day the engine never uses, so both reasons for a
+    // padlock apply and the row carries the one padlock they both mean.
     expect(row).toMatchObject({
       startMinutes: 8 * 60,
       durationMinutes: 240,
-      handPlaced: true,
       locked: true,
     });
     expect(() => assertProjectHours(db)).not.toThrow();
@@ -325,7 +333,6 @@ describe('creating a job with a start date', () => {
           startMinutes: block.startMinutes,
           durationMinutes: block.durationMinutes,
           locked: block.locked,
-          handPlaced: block.handPlaced,
         })),
         `preview drifted for ${startDate}`,
       ).toEqual(preview.rows);
@@ -410,8 +417,8 @@ describe('a drop onto the Friday colchon', () => {
 
     const result = moveBlock(puerta.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: MON }, db);
 
-    expect(calendar()).toEqual([`${FRI} 10:00-14:00 Puerta`]);
-    expect(result.block?.handPlaced).toBe(true);
+    expect(calendar()).toEqual([`${FRI} 10:00-14:00 Puerta [locked]`]);
+    expect(result.block?.locked).toBe(true);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
@@ -420,20 +427,26 @@ describe('a drop onto the Friday colchon', () => {
     moveBlock(puerta.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: MON }, db);
 
     const barandilla = job('Barandilla', 4, GREEN);
-    expect(calendar()).toEqual([`${MON} 08:00-12:00 Barandilla`, `${FRI} 10:00-14:00 Puerta`]);
+    expect(calendar()).toEqual([`${MON} 08:00-12:00 Barandilla`, `${FRI} 10:00-14:00 Puerta [locked]`]);
 
     deleteProject(barandilla.project.id, { today: MON }, db);
-    expect(calendar()).toEqual([`${FRI} 10:00-14:00 Puerta`]);
+    expect(calendar()).toEqual([`${FRI} 10:00-14:00 Puerta [locked]`]);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
-  it('comes home when the row is put back to automatic', () => {
+  it('comes home when the padlock comes off, and only then', () => {
     const puerta = job('Puerta', 4);
     moveBlock(puerta.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: MON }, db);
 
+    // *Back to automatic* is about the LENGTH now: it leaves the buffer row where the
+    // owner put it, because the padlock is what is holding it there and the padlock is
+    // visible on the row.
     const released = releaseBlock(puerta.blocks[0].id, { today: MON }, db);
+    expect(released.block?.locked).toBe(true);
+    expect(calendar()).toEqual([`${FRI} 10:00-14:00 Puerta [locked]`]);
 
-    expect(released.block?.handPlaced).toBe(false);
+    const unlocked = setBlockLock(puerta.blocks[0].id, false, { today: MON }, db);
+    expect(unlocked.block?.locked).toBe(false);
     expect(calendar()).toEqual([`${MON} 08:00-12:00 Puerta`]);
   });
 
@@ -447,56 +460,67 @@ describe('a drop onto the Friday colchon', () => {
     // why the pin needs at least a quarter of an hour of it — see MIN_MANUAL_ONLY_MINUTES.
     const result = moveBlock(barandilla.blocks[0].id, { date: MON, startMinutes: 8 * 60 - 1, today: MON }, db);
 
-    expect(result.block?.handPlaced).toBe(false);
+    expect(result.block?.locked).toBe(false);
     expect(calendar()).toEqual([`${MON} 08:00-10:00 Barandilla`, `${MON} 10:00-14:00 Puerta`]);
   });
 
-  it('pins a drop into a visual margin, because the engine would pull it straight back', () => {
+  it('padlocks a drop into a visual margin, because the engine would pull it straight back', () => {
     // The owner's report C: "yo debo poder extender y colocar tareas en esas franjas si
-    // yo quiero, de forma manual." An unmarked margin row is reflowed into the periods on
-    // the very same save, so the margins were configurable and unusable. The mark is the
-    // one the buffer and the weekend already use, and *back to automatic* releases it.
+    // yo quiero, de forma manual." An unpadlocked margin row is reflowed into the periods
+    // on the very same save, so the margins were configurable and unusable. The padlock is
+    // the mark the buffer and the weekend already use, and pressing it is the way back.
     job('Puerta', 4);
     const barandilla = job('Barandilla', 2, GREEN);
 
     const result = moveBlock(barandilla.blocks[0].id, { date: MON, startMinutes: 7 * 60, today: MON }, db);
 
-    expect(result.block?.handPlaced).toBe(true);
+    expect(result.block?.locked).toBe(true);
     expect(calendar()).toEqual([
       // Half in the margin, half in the morning, exactly where it was dropped — and the
       // hour it holds inside the period is an obstacle Puerta flows around.
-      `${MON} 07:00-09:00 Barandilla`,
+      `${MON} 07:00-09:00 Barandilla [locked]`,
       `${MON} 09:00-13:00 Puerta`,
     ]);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
-  it('gives a margin row back to the engine on release', () => {
+  it('gives a margin row back to the engine when the padlock comes off', () => {
     const barandilla = job('Barandilla', 2, GREEN);
     moveBlock(barandilla.blocks[0].id, { date: MON, startMinutes: 7 * 60, today: MON }, db);
-    expect(calendar()).toEqual([`${MON} 07:00-09:00 Barandilla`]);
+    expect(calendar()).toEqual([`${MON} 07:00-09:00 Barandilla [locked]`]);
 
+    // *Back to automatic* is about the LENGTH and leaves the row in the margin, which is
+    // where the owner put it. The padlock is the way back, and it is on the row.
     releaseBlock(barandilla.blocks[0].id, { today: MON }, db);
+    expect(calendar()).toEqual([`${MON} 07:00-09:00 Barandilla [locked]`]);
 
+    setBlockLock(barandilla.blocks[0].id, false, { today: MON }, db);
     expect(calendar()).toEqual([`${MON} 08:00-10:00 Barandilla`]);
   });
 
-  it('marks a weekend drop too, where the engine already kept its hands off', () => {
+  it('padlocks a weekend drop too, where the engine already kept its hands off', () => {
     const puerta = job('Puerta', 4);
 
     const result = moveBlock(puerta.blocks[0].id, { date: SAT, startMinutes: 9 * 60, today: MON }, db);
 
-    expect(result.block?.handPlaced).toBe(true);
-    expect(calendar()).toEqual([`${SAT} 09:00-13:00 Puerta`]);
+    expect(result.block?.locked).toBe(true);
+    expect(calendar()).toEqual([`${SAT} 09:00-13:00 Puerta [locked]`]);
   });
 
-  it('clears the mark when the row is dragged back into the auto-fill week', () => {
+  it('KEEPS the padlock when the row is dragged back into the auto-fill week', () => {
+    // A drop adds the padlock and never takes it away. Dragging the row back to Tuesday
+    // moves it there and leaves it fixed, because a gesture that silently unlocked work
+    // the owner had pinned would make the padlock mean two things at once. The way back is
+    // the padlock itself.
     const puerta = job('Puerta', 4);
     moveBlock(puerta.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: MON }, db);
 
     const result = moveBlock(puerta.blocks[0].id, { date: TUE, startMinutes: 10 * 60, today: MON }, db);
 
-    expect(result.block?.handPlaced).toBe(false);
+    expect(result.block?.locked).toBe(true);
+    expect(calendar()).toEqual([`${TUE} 10:00-14:00 Puerta [locked]`]);
+
+    setBlockLock(puerta.blocks[0].id, false, { today: MON }, db);
     // Back under the engine, which settles it at the top of the week.
     expect(calendar()).toEqual([`${MON} 08:00-12:00 Puerta`]);
   });
@@ -508,7 +532,7 @@ describe('a drop onto the Friday colchon', () => {
 
     expect(calendar()).toEqual([
       `${MON} 08:00-14:00 Puerta`,
-      `${FRI} 09:00-11:00 Puerta`,
+      `${FRI} 09:00-11:00 Puerta [locked]`,
     ]);
     expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
@@ -545,16 +569,53 @@ describe('block gestures', () => {
     ]);
   });
 
-  it('refuses to shrink a job\'s last block and writes nothing', () => {
+  it("asks what to do with the hours a job's last block frees, and writes nothing yet", () => {
     const puerta = job('Puerta', 8);
     const before = calendar();
     const last = puerta.blocks[puerta.blocks.length - 1];
 
     const error = refusal(() => resizeBlock(last.id, { durationMinutes: 60, today: MON }, db));
 
-    expect(error.code).toBe('shrink-last-block');
-    expect(error.messageKey).toBe('errors.shrinkLastBlock');
+    expect(error.status).toBe(409);
+    expect(error.code).toBe('shrink-needs-choice');
+    expect(error.messageKey).toBe('errors.shrinkNeedsChoice');
+    // Everything the dialog needs, in ONE round trip: the hours it is about, and the ways
+    // out that really exist — in minutes, like everything else the API speaks.
+    expect(error.details).toMatchObject({
+      blockId: last.id,
+      projectId: puerta.project.id,
+      freedMinutes: 60,
+      choices: ['reduce-total', 'new-block'],
+    });
     expect(calendar()).toEqual(before);
+  });
+
+  it('takes the freed hours off the job when the owner answers `reduce-total`', () => {
+    const puerta = job('Puerta', 8);
+    const last = puerta.blocks[puerta.blocks.length - 1];
+
+    resizeBlock(last.id, { durationMinutes: 60, freedHours: 'reduce-total', today: MON }, db);
+
+    expect(calendar()).toEqual([`${MON} 08:00-14:00 Puerta`, `${MON} 15:30-16:30 Puerta`]);
+    expect(listProjects(db)[0].totalMinutes).toBe(7 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('leaves the freed hours as a block of their own when the owner answers `new-block`', () => {
+    const puerta = job('Puerta', 8);
+    const last = puerta.blocks[puerta.blocks.length - 1];
+
+    resizeBlock(last.id, { durationMinutes: 60, freedHours: 'new-block', today: MON }, db);
+
+    // The job still has its 8 h: 6 + 1 where the owner drew them, and the freed hour on
+    // the next day the engine fills — a loose block for them to place.
+    expect(calendar()).toEqual([
+      `${MON} 08:00-14:00 Puerta`,
+      `${MON} 15:30-16:30 Puerta`,
+      `${TUE} 08:00-09:00 Puerta`,
+    ]);
+    expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
   });
 
   it('raises the estimate when the last block is enlarged', () => {
@@ -644,9 +705,9 @@ describe('block gestures', () => {
     // screen offers and no gesture could reach.
     const result = resizeBlock(puerta.blocks[0].id, { durationMinutes: 5 * 60, today: MON }, db);
 
-    expect(result.block?.handPlaced).toBe(true);
+    expect(result.block?.locked).toBe(true);
     expect(result.block?.manualDuration).toBe(true);
-    expect(calendar()).toEqual([`${MON} 08:00-14:00 Porton`, `${MON} 15:30-20:30 Puerta`]);
+    expect(calendar()).toEqual([`${MON} 08:00-14:00 Porton`, `${MON} 15:30-20:30 Puerta [locked]`]);
     // Nothing farther in the job to draw from, so this is the one case that grows the
     // estimate — 2 h to 5 h — and the hours invariant still holds.
     expect(listProjects(db).find((project) => project.name === 'Puerta')?.totalMinutes).toBe(5 * 60);
@@ -656,7 +717,7 @@ describe('block gestures', () => {
     job('Reja', 2);
     expect(calendar()).toEqual([
       `${MON} 08:00-14:00 Porton`,
-      `${MON} 15:30-20:30 Puerta`,
+      `${MON} 15:30-20:30 Puerta [locked]`,
       `${TUE} 08:00-10:00 Reja`,
     ]);
 
@@ -733,9 +794,11 @@ describe('block gestures', () => {
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
-  it('refuses to shrink the last block with a 409 rather than doing nothing', () => {
+  it('answers a shrink that has nowhere to put the hours with a question, never a no-op', () => {
     // The other half of the same fix: where the transfer is genuinely impossible the
-    // caller gets a refusal with an i18n key, never a 200 with the row unchanged.
+    // caller gets a 409 with an i18n key, never a 200 with the row unchanged — and now
+    // that 409 is a question rather than a wall. Nothing is written until it is answered,
+    // marks included.
     const puerta = job('Puerta', 8);
     const before = calendar();
 
@@ -744,8 +807,8 @@ describe('block gestures', () => {
     );
 
     expect(error.status).toBe(409);
-    expect(error.code).toBe('shrink-last-block');
-    expect(error.messageKey).toBe('errors.shrinkLastBlock');
+    expect(error.code).toBe('shrink-needs-choice');
+    expect(error.messageKey).toBe('errors.shrinkNeedsChoice');
     expect(calendar()).toEqual(before);
     expect(listBlocks(db).every((row) => !row.manualDuration)).toBe(true);
   });
@@ -801,11 +864,11 @@ describe('block gestures', () => {
     // cannot happen.
     const puerta = job('Puerta', 6);
 
-    moveBlock(puerta.blocks[0].id, { date: LAST_FRI, startMinutes: 10 * 60, today: MON }, db);
+    moveBlock(puerta.blocks[0].id, { date: SAT, startMinutes: 10 * 60, today: MON }, db);
 
     expect(calendar()).toEqual([
-      `${LAST_FRI} 10:00-14:00 Puerta`,
-      `${LAST_FRI} 15:30-17:30 Puerta`,
+      `${SAT} 10:00-14:00 Puerta [locked]`,
+      `${SAT} 15:30-17:30 Puerta [locked]`,
     ]);
     expect(listProjects(db)[0].totalMinutes).toBe(6 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
@@ -871,12 +934,31 @@ describe('block gestures', () => {
 // store a row running past the end of its day whatever produced it.
 
 describe('raising the hours of a job whose only row is in the frozen past', () => {
-  /** A 2 h job whose single row sits on yesterday at 12:00, today being Wednesday. */
+  /**
+   * A 2 h job whose single row sits on yesterday at 12:00, today being Wednesday.
+   *
+   * Written straight onto the row rather than dragged there: no gesture can reach a past
+   * day any more (see *the past is read-only to the block gestures*), and what these tests
+   * are about is what the app does with a record that is ALREADY there — the row was
+   * ordinary work on Tuesday until Wednesday came round.
+   */
   function yesterdaysWork() {
     const puerta = job('Puerta', 2, BLUE, WED);
-    moveBlock(puerta.blocks[0].id, { date: TUE, startMinutes: 12 * 60, today: WED }, db);
+    const blockId = listBlocks(db)[0].id;
+    updateBlock(
+      {
+        id: blockId,
+        projectId: puerta.project.id,
+        date: TUE,
+        startMinutes: 12 * 60,
+        durationMinutes: 2 * 60,
+        locked: false,
+        manualDuration: false,
+      },
+      db,
+    );
     expect(calendar()).toEqual([`${TUE} 12:00-14:00 Puerta`]);
-    return { project: puerta.project, blockId: listBlocks(db)[0].id };
+    return { project: puerta.project, blockId };
   }
 
   it('gives the added hours their own row instead of inflating yesterday', () => {
@@ -925,19 +1007,131 @@ describe('raising the hours of a job whose only row is in the frozen past', () =
   });
 });
 
+describe('the past is read-only to the block gestures', () => {
+  // Decided with the owner on 2026-08-13, and the cost was named: it removes "correcting
+  // yesterday", which is the case *Block Resize* was designed for. The past is the record
+  // of what the shop did, and a gesture on it edits a day no schedule can still change.
+
+  /** Yesterday's row: ordinary Tuesday work, until Wednesday came round. */
+  function yesterday() {
+    const puerta = job('Puerta', 4, BLUE, TUE);
+    const blockId = listBlocks(db)[0].id;
+    expect(calendar()).toEqual([`${TUE} 08:00-12:00 Puerta`]);
+    return { project: puerta.project, blockId };
+  }
+
+  it('refuses every gesture on a past row, and writes nothing', () => {
+    const { blockId } = yesterday();
+    const before = calendar();
+
+    const gestures: Array<[string, () => unknown]> = [
+      ['move', () => moveBlock(blockId, { date: WED, startMinutes: 8 * 60, today: WED }, db)],
+      ['resize', () => resizeBlock(blockId, { durationMinutes: 5 * 60, today: WED }, db)],
+      ['split', () => splitBlock(blockId, { durationMinutes: 60, date: WED, startMinutes: 8 * 60, today: WED }, db)],
+      ['lock', () => setBlockLock(blockId, true, { today: WED }, db)],
+      ['delete', () => deleteBlock(blockId, { today: WED }, db)],
+    ];
+
+    for (const [name, gesture] of gestures) {
+      const error = refusal(gesture);
+      expect(error.status, name).toBe(409);
+      expect(error.code, name).toBe('past-block-frozen');
+      expect(error.messageKey, name).toBe('errors.pastBlockFrozen');
+      expect(calendar(), name).toEqual(before);
+    }
+    expect(listProjects(db)[0].totalMinutes).toBe(4 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('still lets the job be edited in its form, where the hours land on a future day', () => {
+    // The way out the owner kept. Yesterday's 4 h are the record; the 2 h added now are
+    // work still to do, so they get a row of their own on a day that can still change.
+    const { project, blockId } = yesterday();
+
+    patchProject(project.id, { totalMinutes: 6 * 60, today: WED }, db);
+
+    expect(calendar()).toEqual([`${TUE} 08:00-12:00 Puerta`, `${WED} 08:00-10:00 Puerta`]);
+    expect(listBlocks(db).find((row) => row.id === blockId)?.durationMinutes).toBe(4 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('still lets a stale ruler be handed back, since that moves nothing', () => {
+    // *Back to automatic* only clears a mark the engine no longer consults on a past day.
+    // Refusing it would strand the mark in the job panel with no undo beside it.
+    const puerta = job('Puerta', 4, BLUE, TUE);
+    resizeBlock(puerta.blocks[0].id, { durationMinutes: 3 * 60, freedHours: 'reduce-total', today: TUE }, db);
+    expect(listBlocks(db)[0].manualDuration).toBe(true);
+
+    releaseBlock(listBlocks(db)[0].id, { today: WED }, db);
+
+    expect(listBlocks(db)[0].manualDuration).toBe(false);
+    expect(calendar()).toEqual([`${TUE} 08:00-11:00 Puerta`]);
+  });
+});
+
+describe('a drop onto another row\'s start goes BEFORE it', () => {
+  it('lets the drop win the tie, instead of the older row keeping its place', () => {
+    // A rank that TIES is decided by `created_at`, so a drop released exactly on an
+    // existing start silently lost to the older row and the drag looked ignored. Landing
+    // on a start means "put me before this one": the row underneath stays whole and
+    // follows. Nothing is cut, so no sliver row is created either.
+    const alfa = job('Alfa', 2, BLUE, MON);
+    const beta = job('Beta', 2, GREEN, MON);
+    expect(calendar()).toEqual([`${MON} 08:00-10:00 Alfa`, `${MON} 10:00-12:00 Beta`]);
+    // `created_at` has one-second resolution, so two jobs created in the same tick tie on
+    // it as well and the order falls to a random UUID. Alfa is made the older row on
+    // purpose: it is the one that used to win the tie and swallow the drop.
+    db.prepare('UPDATE blocks SET created_at = ? WHERE id = ?').run(
+      '2026-08-01 08:00:00',
+      alfa.blocks[0].id,
+    );
+
+    moveBlock(beta.blocks[0].id, { date: MON, startMinutes: 8 * 60, today: MON }, db);
+
+    expect(calendar()).toEqual([`${MON} 08:00-10:00 Beta`, `${MON} 10:00-12:00 Alfa`]);
+    expect(listBlocks(db)).toHaveLength(2);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('still cuts a row the drop lands INSIDE, which is how a cut is asked for', () => {
+    job('Alfa', 4, BLUE, MON);
+    const beta = job('Beta', 2, GREEN, MON);
+
+    moveBlock(beta.blocks[0].id, { date: MON, startMinutes: 10 * 60, today: MON }, db);
+
+    expect(calendar()).toEqual([
+      `${MON} 08:00-10:00 Alfa`,
+      `${MON} 10:00-12:00 Beta`,
+      `${MON} 12:00-14:00 Alfa`,
+    ]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+});
+
 describe('no transaction may store a row that runs past the end of its day', () => {
   // The belt to the LIFO fix's braces. A rendering crash from bad stored data must be
   // impossible, not merely unreachable through the paths that were fixed — so the guard
   // sits on the write itself, where every row goes through regardless of what produced it.
 
-  it('refuses a resize that would push a past row past the day, and writes nothing', () => {
-    // Reachable by hand: *Block Resize* is deliberately offered on past rows so
-    // yesterday can be corrected, and over HTTP the duration is not capped by the
-    // drag layer's own limit. The END OF THE DAY now catches this one first — 25:00 is
-    // past midnight and 20:30 comes long before it — so the refusal is the same 409
-    // with the better sentence, and the midnight guard below is the backstop.
+  it('refuses a resize on a past row before the day-end guard is even reached', () => {
+    // This used to be the reachable-by-hand case: *Block Resize* was offered on past rows
+    // so yesterday could be corrected, and over HTTP the duration is not capped by the
+    // drag layer. The gesture is now refused for being on the past at all, which is a
+    // strictly earlier line than the end of the day; the guard below is what keeps the
+    // shape unstorable whatever produces it.
     const puerta = job('Puerta', 2, BLUE, WED);
-    moveBlock(puerta.blocks[0].id, { date: TUE, startMinutes: 12 * 60, today: WED }, db);
+    updateBlock(
+      {
+        id: puerta.blocks[0].id,
+        projectId: puerta.project.id,
+        date: TUE,
+        startMinutes: 12 * 60,
+        durationMinutes: 2 * 60,
+        locked: false,
+        manualDuration: false,
+      },
+      db,
+    );
     const before = calendar();
 
     const error = refusal(() =>
@@ -945,9 +1139,9 @@ describe('no transaction may store a row that runs past the end of its day', () 
     );
 
     expect(error.status).toBe(409);
-    expect(error.code).toBe('row-past-day-end');
-    expect(error.messageKey).toBe('errors.rowPastDayEnd');
-    expect(error.details).toMatchObject({ date: TUE, startTime: '12:00', dayEndTime: '20:30' });
+    expect(error.code).toBe('past-block-frozen');
+    expect(error.messageKey).toBe('errors.pastBlockFrozen');
+    expect(error.details).toMatchObject({ date: TUE, today: WED });
     expect(calendar()).toEqual(before);
     expect(listProjects(db)[0].totalMinutes).toBe(2 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
@@ -964,7 +1158,6 @@ describe('no transaction may store a row that runs past the end of its day', () 
       durationMinutes: 2 * 60,
       locked: false,
       manualDuration: false,
-      handPlaced: false,
     };
 
     const inserted = refusal(() => insertBlock(overrunning, db));
@@ -993,7 +1186,6 @@ describe('no transaction may store a row that runs past the end of its day', () 
           durationMinutes: 2 * 60,
           locked: true,
           manualDuration: false,
-          handPlaced: false,
         },
         db,
       ),
@@ -1037,35 +1229,55 @@ describe('the end of the day is a line no write may cross', () => {
 
     resizeBlock(listBlocks(db)[0].id, { durationMinutes: 11 * 60, today: THU }, db);
 
-    expect(calendar()).toEqual([`${THU} 08:00-14:00 Uno`, `${THU} 15:30-20:30 Uno`]);
+    // The stretch reaches the bottom margin, so both of its rows come back padlocked.
+    expect(calendar()).toEqual([`${THU} 08:00-14:00 Uno [locked]`, `${THU} 15:30-20:30 Uno [locked]`]);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
-  it('refuses a split whose fragment would run past the end of the day', () => {
+  it('sends a split whose fragment would run past the end of the day to the next day', () => {
     // The scissors' second click goes through `rankFor`, which was not clamped at all:
     // 60 min at 19:45 stored `19:45-20:45`, and 210 min at 19:30 stored `19:30-23:00`.
+    // Both were then refused; aiming past the end of a day now means the day after, so
+    // the fragment lands on Friday's morning — and, being a Friday, keeps its padlock.
     job('Uno', 10, BLUE, THU);
     const afternoon = listBlocks(db)[1];
-    const before = calendar();
 
-    for (const attempt of [
-      { durationMinutes: 60, startMinutes: 19 * 60 + 45 },
-      { durationMinutes: 210, startMinutes: 19 * 60 + 30 },
-    ]) {
-      const error = refusal(() => splitBlock(afternoon.id, { ...attempt, date: THU, today: THU }, db));
-      expect(error.code, `${attempt.durationMinutes} at ${attempt.startMinutes}`).toBe('row-past-day-end');
-      expect(calendar()).toEqual(before);
-    }
+    splitBlock(afternoon.id, { durationMinutes: 60, startMinutes: 19 * 60 + 45, date: THU, today: THU }, db);
+
+    expect(calendar()).toEqual([
+      `${THU} 08:00-14:00 Uno`,
+      `${THU} 15:30-18:30 Uno`,
+      `${FRI} 08:00-09:00 Uno [locked]`,
+    ]);
+    expect(listProjects(db)[0].totalMinutes).toBe(10 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
-  it('refuses a drop whose row would run past the end of the day, on a day that pins', () => {
-    // 6 h released at 13:15 on the buffer: `13:15-14:00` + `15:30-20:45`.
+  it('sends a drop aimed below what the day holds to the next day, instead of refusing', () => {
+    // 6 h released at 13:15 needs `13:15-14:00` + `15:30-20:45`, a quarter of an hour
+    // past the end of the day. The owner, on being shown the refusal: «Que se rechaza, de
+    // qué friki. Pasa al siguiente día. ¿Sabes cómo funciona un calendario?»
+    //
+    // Thursday's next day is the Friday colchón, and landing there padlocks the row like
+    // any other Friday drop — so the roll is visible in what is stored, at the top of
+    // Friday's periods rather than in its top margin.
+    job('Uno', 6, BLUE, THU);
+
+    const result = moveBlock(listBlocks(db)[0].id, { date: THU, startMinutes: 13 * 60 + 15, today: THU }, db);
+
+    expect(calendar()).toEqual([`${FRI} 08:00-14:00 Uno [locked]`]);
+    expect(result.block?.date).toBe(FRI);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('does NOT roll a drop off a day the engine does not lay out', () => {
+    // The weekend is a day the owner named on purpose and the exact minute is the whole
+    // promise there, so the same aim keeps its day and meets the end-of-day refusal.
     job('Uno', 6, BLUE, THU);
     const before = calendar();
 
     const error = refusal(() =>
-      moveBlock(listBlocks(db)[0].id, { date: FRI, startMinutes: 13 * 60 + 15, today: THU }, db),
+      moveBlock(listBlocks(db)[0].id, { date: SAT, startMinutes: 13 * 60 + 15, today: THU }, db),
     );
 
     expect(error.code).toBe('row-past-day-end');
@@ -1077,7 +1289,7 @@ describe('the end of the day is a line no write may cross', () => {
 
     moveBlock(listBlocks(db)[0].id, { date: FRI, startMinutes: 13 * 60, today: THU }, db);
 
-    expect(calendar()).toEqual([`${FRI} 13:00-14:00 Uno`, `${FRI} 15:30-20:30 Uno`]);
+    expect(calendar()).toEqual([`${FRI} 13:00-14:00 Uno [locked]`, `${FRI} 15:30-20:30 Uno [locked]`]);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
@@ -1101,28 +1313,32 @@ describe('the end of the day is a line no write may cross', () => {
   });
 
   it('still lets a row that a settings change stranded outside the windows be saved', () => {
-    // CLAUDE.md: setting the bottom margin to 0 under a hand-placed row keeps the hours
+    // CLAUDE.md: setting the bottom margin to 0 under a padlocked row keeps the hours
     // already in it. So the guard refuses a gesture that makes the overrun WORSE, and
     // never one that leaves it alone or moves the row somewhere legal.
     const uno = job('Uno', 1, BLUE, THU);
     moveBlock(uno.blocks[0].id, { date: THU, startMinutes: 19 * 60 + 30, today: THU }, db);
     updateSettings({ visualMarginBottom: 0 }, { today: THU }, db);
-    expect(calendar()).toEqual([`${THU} 19:30-20:30 Uno`]);
+    expect(calendar()).toEqual([`${THU} 19:30-20:30 Uno [locked]`]);
 
     // The same length again: accepted, marks and all.
     resizeBlock(listBlocks(db)[0].id, { durationMinutes: 60, today: THU }, db);
-    expect(calendar()).toEqual([`${THU} 19:30-20:30 Uno`]);
+    expect(calendar()).toEqual([`${THU} 19:30-20:30 Uno [locked]`]);
 
     // Longer: refused, because that is new time outside every window.
     const error = refusal(() =>
       resizeBlock(listBlocks(db)[0].id, { durationMinutes: 90, today: THU }, db),
     );
     expect(error.code).toBe('row-past-day-end');
-    expect(calendar()).toEqual([`${THU} 19:30-20:30 Uno`]);
+    expect(calendar()).toEqual([`${THU} 19:30-20:30 Uno [locked]`]);
 
-    // And it can still be dragged back inside the day, where a Mon-Thu drop is a RANK: the
-    // row rejoins the pool and the reflow settles it at the top of the day.
+    // And it can still be dragged back inside the day. It keeps the padlock the margin
+    // drop gave it — a drop never takes one off — so it lands on the exact minute rather
+    // than taking a rank, and pressing the padlock is what hands it back to the engine.
     moveBlock(listBlocks(db)[0].id, { date: THU, startMinutes: 10 * 60, today: THU }, db);
+    expect(calendar()).toEqual([`${THU} 10:00-11:00 Uno [locked]`]);
+
+    setBlockLock(listBlocks(db)[0].id, false, { today: THU }, db);
     expect(calendar()).toEqual([`${THU} 08:00-09:00 Uno`]);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
@@ -1149,7 +1365,7 @@ describe('a drop names the whole unit, so a unit moves in ONE transaction', () =
       db,
     );
 
-    expect(calendar()).toEqual([`${THU} 08:00-13:00 Uno`, `${SAT} 08:00-11:00 Dos`]);
+    expect(calendar()).toEqual([`${THU} 08:00-13:00 Uno`, `${SAT} 08:00-11:00 Dos [locked]`]);
     expect(result.blocks.map((row) => row.durationMinutes)).toEqual([3 * 60]);
     expect(
       listProjects(db).map((project) => `${project.name} ${project.totalMinutes}`).sort(),
@@ -1169,7 +1385,7 @@ describe('a drop names the whole unit, so a unit moves in ONE transaction', () =
       db,
     );
 
-    expect(calendar()).toEqual([`${SAT} 10:00-14:00 Uno`, `${SAT} 15:30-19:30 Uno`]);
+    expect(calendar()).toEqual([`${SAT} 10:00-14:00 Uno [locked]`, `${SAT} 15:30-19:30 Uno [locked]`]);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
@@ -1189,7 +1405,7 @@ describe('a drop names the whole unit, so a unit moves in ONE transaction', () =
       db,
     );
 
-    expect(calendar()).toEqual([`${FRI} 10:00-14:00 Uno`, `${FRI} 15:30-19:30 Uno`]);
+    expect(calendar()).toEqual([`${FRI} 10:00-14:00 Uno [locked]`, `${FRI} 15:30-19:30 Uno [locked]`]);
     expect(result.blocks.reduce((total, row) => total + row.durationMinutes, 0)).toBe(8 * 60);
     expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
@@ -1207,7 +1423,118 @@ describe('a drop names the whole unit, so a unit moves in ONE transaction', () =
     );
 
     // Uno stayed where it was: it is another job, whatever the request claimed.
-    expect(calendar()).toEqual([`${THU} 08:00-12:00 Uno`, `${SAT} 09:00-11:00 Dos`]);
+    expect(calendar()).toEqual([`${THU} 08:00-12:00 Uno`, `${SAT} 09:00-11:00 Dos [locked]`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('moves a run that SPANS DAYS whole, grabbed by its last day', () => {
+    // The defect the drag layer measured on the running app: the ghost drew the whole
+    // run and the drop delivered only the day the grabbed row sat on, because the unit
+    // was computed inside one date. A run crosses midnight exactly as `buildQueue`
+    // does — nothing workable of another job between the pieces — so the day boundary
+    // is not a separator and never was.
+    job('Ventanas', 11, BLUE, WED);
+    const run = listBlocks(db);
+    expect(calendar()).toEqual([
+      `${WED} 08:00-14:00 Ventanas`,
+      `${WED} 15:30-19:30 Ventanas`,
+      `${THU} 08:00-09:00 Ventanas`,
+    ]);
+
+    // Grab the Thursday hour — the LAST row of the run, the one the report used.
+    const result = moveBlock(
+      run[2].id,
+      { date: SAT, startMinutes: 8 * 60, today: WED, unitBlockIds: run.map((row) => row.id) },
+      db,
+    );
+
+    expect(calendar()).toEqual([
+      `${SAT} 08:00-14:00 Ventanas [locked]`,
+      `${SAT} 15:30-20:30 Ventanas [locked]`,
+    ]);
+    expect(result.blocks.reduce((total, row) => total + row.durationMinutes, 0)).toBe(11 * 60);
+    expect(listProjects(db)[0].totalMinutes).toBe(11 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('stops the run at the job the owner put between the pieces', () => {
+    // The owner's own rule: a separation is a division they made on purpose, so the drag
+    // respects it and stops there. Dos is dropped into the middle of Wednesday, cutting
+    // Uno in two; grabbing Uno's first piece must move that piece and nothing after Dos,
+    // however much the request claims.
+    job('Uno', 11, BLUE, WED);
+    const dos = job('Dos', 1, GREEN, WED);
+    moveBlock(dos.blocks[0].id, { date: WED, startMinutes: 10 * 60, today: WED }, db);
+    expect(calendar()).toEqual([
+      `${WED} 08:00-10:00 Uno`,
+      `${WED} 10:00-11:00 Dos`,
+      `${WED} 11:00-14:00 Uno`,
+      `${WED} 15:30-19:30 Uno`,
+      `${THU} 08:00-10:00 Uno`,
+    ]);
+
+    const all = listBlocks(db);
+    const head = all[0];
+    moveBlock(
+      head.id,
+      {
+        date: SAT,
+        startMinutes: 8 * 60,
+        today: WED,
+        // Every row of the job, including the four on the far side of Dos.
+        unitBlockIds: all.filter((row) => row.projectId === head.projectId).map((row) => row.id),
+      },
+      db,
+    );
+
+    // Only the 2 h before Dos travelled. The rest is still Uno's, still on the week, and
+    // the reflow closed the hole the head left behind.
+    expect(calendar()).toEqual([
+      `${WED} 08:00-09:00 Dos`,
+      `${WED} 09:00-14:00 Uno`,
+      `${WED} 15:30-19:30 Uno`,
+      `${SAT} 08:00-10:00 Uno [locked]`,
+    ]);
+    expect(listProjects(db).map((project) => project.totalMinutes).sort()).toEqual([60, 660]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('treats a padlocked row as an obstacle inside a run, not as a separator', () => {
+    // `buildQueue` skips fixed work without closing the run, so the drag must too — the
+    // reflow flows around it either way, and a drag that stopped there would disagree
+    // with the layout it is about to produce.
+    job('Uno', 11, BLUE, WED);
+    const dos = job('Dos', 1, GREEN, WED);
+    moveBlock(dos.blocks[0].id, { date: WED, startMinutes: 10 * 60, today: WED }, db);
+    const separator = listBlocks(db).find((row) => row.projectId === dos.project.id)!;
+    setBlockLock(separator.id, true, { today: WED }, db);
+    expect(calendar()).toEqual([
+      `${WED} 08:00-10:00 Uno`,
+      `${WED} 10:00-11:00 Dos [locked]`,
+      `${WED} 11:00-14:00 Uno`,
+      `${WED} 15:30-19:30 Uno`,
+      `${THU} 08:00-10:00 Uno`,
+    ]);
+
+    const all = listBlocks(db);
+    const head = all[0];
+    moveBlock(
+      head.id,
+      {
+        date: SAT,
+        startMinutes: 8 * 60,
+        today: WED,
+        unitBlockIds: all.filter((row) => row.projectId === head.projectId).map((row) => row.id),
+      },
+      db,
+    );
+
+    // All 11 h travelled, across the padlock and across the night. Dos did not move.
+    expect(calendar()).toEqual([
+      `${WED} 10:00-11:00 Dos [locked]`,
+      `${SAT} 08:00-14:00 Uno [locked]`,
+      `${SAT} 15:30-20:30 Uno [locked]`,
+    ]);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 });
@@ -1239,7 +1566,7 @@ describe('the scissors keep the calendar on the quarter hour', () => {
 
     splitBlock(row.id, { durationMinutes: 15, date: SAT, startMinutes: 9 * 60, today: THU }, db);
 
-    expect(calendar()).toEqual([`${THU} 08:00-08:15 Tiny`, `${SAT} 09:00-09:15 Tiny`]);
+    expect(calendar()).toEqual([`${THU} 08:00-08:15 Tiny`, `${SAT} 09:00-09:15 Tiny [locked]`]);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 });
@@ -1256,9 +1583,10 @@ describe('a drop onto a gap', () => {
 
     const result = moveBlock(dos.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: THU }, db);
 
-    expect(calendar()).toEqual([`${THU} 08:00-10:00 Uno`, `${FRI} 11:00-12:00 Dos`]);
-    // Still the owner's Friday: the slide keeps the pin, so the engine never takes it back.
-    expect(result.block?.handPlaced).toBe(true);
+    expect(calendar()).toEqual([`${THU} 08:00-10:00 Uno`, `${FRI} 11:00-12:00 Dos [locked]`]);
+    // Still the owner's Friday: the slide keeps the padlock, so the engine never takes it
+    // back — and the padlock is on the row for the owner to press when they want it back.
+    expect(result.block?.locked).toBe(true);
     expect(listGaps(db)).toHaveLength(1);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
@@ -1291,7 +1619,7 @@ describe('a drop onto a gap', () => {
 
     moveBlock(dos.blocks[0].id, { date: FRI, startMinutes: 11 * 60, today: THU }, db);
 
-    expect(calendar()).toEqual([`${THU} 08:00-10:00 Uno`, `${FRI} 11:00-12:00 Dos`]);
+    expect(calendar()).toEqual([`${THU} 08:00-10:00 Uno`, `${FRI} 11:00-12:00 Dos [locked]`]);
   });
 
   it('leaves a Monday-Thursday drop alone: the reflow keeps auto work off the gap', () => {
@@ -1358,16 +1686,16 @@ describe('a drop onto a day that is full at the moment it is released', () => {
     expect(calendar()).toEqual([
       `${MON} 08:00-14:00 Uno`,
       `${MON} 15:30-19:30 Tres`,
-      `${TUE} 08:00-12:00 Dos`,
+      `${TUE} 08:00-12:00 Dos [locked]`,
       `${TUE} 12:00-14:00 Cuatro`,
       `${TUE} 15:30-19:30 Cuatro`,
     ]);
     // The gap kept its minutes and the drop kept its day: it gave up the hour it could
-    // not have and landed at the first one it could. The slot was asked for by hand, so
-    // it stays hand-placed — *back to automatic* is the way out.
+    // not have and landed at the first one it could. The slot was asked for by hand, so it
+    // comes back padlocked — pressing the padlock is the way out.
     expect(result.block?.date).toBe(TUE);
     expect(result.block?.startMinutes).toBe(8 * 60);
-    expect(result.block?.handPlaced).toBe(true);
+    expect(result.block?.locked).toBe(true);
     expect(
       listProjects(db).map((project) => `${project.name} ${project.totalMinutes}`).sort(),
     ).toEqual(['Cuatro 360', 'Dos 240', 'Tres 240', 'Uno 360']);
@@ -1375,29 +1703,24 @@ describe('a drop onto a day that is full at the moment it is released', () => {
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
-  it('gives up the exact slot rather than the day when the day has no clear one', () => {
+  it('refuses, naming the gap, when the day has no clear slot for a padlocking drop', () => {
     // The same drop at the other end: 16:30 is the latest a 4 h row may start and still
     // end inside the day, so it is where the ghost sits when the owner aims at the bottom
     // of a full Tuesday — and it reaches into a margin the gap covers to the last minute.
-    // There is nowhere on Tuesday to slide to, so the drop gives up its PIN instead of the
-    // day: an ordinary queue rank, which is what a Monday-Thursday drop always was.
+    // The margin is what padlocks the drop, and a padlocked drop lands literally: there is
+    // nowhere on Tuesday to slide to, so the answer is the gap's name. It used to give up
+    // the pin and settle as a queue rank; it may not now, because giving up the pin means
+    // taking off a padlock the owner would see on the row.
     const dos = fullWeek({ startMinutes: 19 * 60 + 30, reason: 'Cierre' });
+    const before = calendar();
 
-    const result = moveBlock(dos.blocks[0].id, { date: TUE, startMinutes: 16 * 60 + 30, today: MON }, db);
+    const error = refusal(() =>
+      moveBlock(dos.blocks[0].id, { date: TUE, startMinutes: 16 * 60 + 30, today: MON }, db),
+    );
 
-    // Dos took the rank it was dropped at, inside Cuatro's afternoon row, so Cuatro was
-    // cut and continues behind it (*A Drop That Overlaps*) — with its 6 h intact.
-    expect(calendar()).toEqual([
-      `${MON} 08:00-14:00 Uno`,
-      `${MON} 15:30-19:30 Tres`,
-      `${TUE} 08:00-11:00 Cuatro`,
-      `${TUE} 11:00-14:00 Dos`,
-      `${TUE} 15:30-16:30 Dos`,
-      `${TUE} 16:30-19:30 Cuatro`,
-    ]);
-    expect(result.block?.date).toBe(TUE);
-    expect(result.block?.handPlaced).toBe(false);
-    expect(result.displacedProjectIds).toHaveLength(1);
+    expect(error.code).toBe('overlaps-gap');
+    expect(error.details).toMatchObject({ date: TUE, reason: 'Cierre' });
+    expect(calendar()).toEqual(before);
     expect(
       listProjects(db).map((project) => `${project.name} ${project.totalMinutes}`).sort(),
     ).toEqual(['Cuatro 360', 'Dos 240', 'Tres 240', 'Uno 360']);
@@ -1436,7 +1759,9 @@ describe('a resize that rewrites a LOCKED row says so', () => {
     const result = resizeBlock(listBlocks(db)[0].id, { durationMinutes: 11 * 60, today: THU }, db);
 
     expect(result.touchedLockedBlockIds).toEqual([afternoon.id]);
-    expect(calendar()).toEqual([`${THU} 08:00-14:00 U`, `${THU} 15:30-20:30 U [locked]`]);
+    // Both rows padlocked: the afternoon one already was, and the stretch reached the
+    // bottom margin, which padlocks what it writes.
+    expect(calendar()).toEqual([`${THU} 08:00-14:00 U [locked]`, `${THU} 15:30-20:30 U [locked]`]);
     expect(listProjects(db)[0].totalMinutes).toBe(11 * 60);
     expect(unit.project.id).toBe(listProjects(db)[0].id);
     expect(() => assertProjectHours(db)).not.toThrow();
@@ -1453,20 +1778,82 @@ describe('a resize that rewrites a LOCKED row says so', () => {
 // onto a Saturday the job already occupied. `manualPlacementBlockId` closes it inside
 // the same transaction, so the invariant is asserted over the resolved calendar too.
 
+// ---------------------------------------------------------------------------
+// The margin collision, which the third mark used to hide
+// ---------------------------------------------------------------------------
+//
+// Reproduced by dragging, 2026-08-14, at both widths. `Corto 1 h` sat in Tuesday's
+// bottom margin and `Alfa 2 h` was dropped onto the same margin. Alfa was pinned at
+// `18:30-20:30` and Corto was silently evicted to Monday 08:00 WITH ITS MARK CLEARED —
+// the engine deciding, on its own, that the hours a human had parked in the margin now
+// belonged at the front of the week. Three sentences of *A Hand-Placed Row* said that
+// could not happen.
+//
+// It cannot happen now, and not because a rule was added: a row in a margin carries a
+// PADLOCK, and a drop that lands on a padlocked row of another job has always been
+// refused with the row named. The defect went away with the concept.
+
+describe('the margin collision the third mark used to hide', () => {
+  it('refuses a drop onto a padlocked margin row, names it, and writes nothing', () => {
+    const corto = job('Corto', 1, GREEN);
+    // 19:30-20:30 — the whole of Tuesday's bottom margin, so the drop padlocks it.
+    moveBlock(corto.blocks[0].id, { date: TUE, startMinutes: 19 * 60 + 30, today: MON }, db);
+    const alfa = job('Alfa', 2);
+    const before = calendar();
+    expect(before).toContain(`${TUE} 19:30-20:30 Corto [locked]`);
+
+    // 18:30-20:30: an hour of the afternoon and the whole margin, straight over Corto.
+    const error = refusal(() =>
+      moveBlock(alfa.blocks[0].id, { date: TUE, startMinutes: 18 * 60 + 30, today: MON }, db),
+    );
+
+    expect(error.status).toBe(409);
+    expect(error.code).toBe('overlaps-locked-block');
+    expect(error.details).toMatchObject({
+      projectName: 'Corto',
+      date: TUE,
+      startTime: '19:30',
+      endTime: '20:30',
+    });
+    // Nothing at all: Corto did not move to Monday, Alfa did not take the margin, and no
+    // mark was cleared anywhere.
+    expect(calendar()).toEqual(before);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('takes the same drop in the margin at the other end, where nothing is in the way', () => {
+    // The other half of the answer: the refusal is about the row in the way, not about the
+    // margins, which are exactly where the owner is allowed to work by hand.
+    const corto = job('Corto', 1, GREEN);
+    moveBlock(corto.blocks[0].id, { date: TUE, startMinutes: 19 * 60 + 30, today: MON }, db);
+    const alfa = job('Alfa', 2);
+
+    const result = moveBlock(alfa.blocks[0].id, { date: TUE, startMinutes: 7 * 60, today: MON }, db);
+
+    expect(result.block?.locked).toBe(true);
+    expect(calendar()).toEqual([
+      `${TUE} 07:00-09:00 Alfa [locked]`,
+      `${TUE} 19:30-20:30 Corto [locked]`,
+    ]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+});
+
 describe('a drop onto the weekend, where the engine may not reflow', () => {
   it('merges two rows of the SAME job into one, summing the hours', () => {
     const puerta = job('Puerta', 8);
     splitBlock(puerta.blocks[0].id, { durationMinutes: 2 * 60, date: SAT, startMinutes: 9 * 60, today: MON }, db);
-    expect(calendar()).toEqual([`${MON} 08:00-14:00 Puerta`, `${SAT} 09:00-11:00 Puerta`]);
+    expect(calendar()).toEqual([`${MON} 08:00-14:00 Puerta`, `${SAT} 09:00-11:00 Puerta [locked]`]);
 
-    // The second 2 h land ON the first fragment. Sum, not union: 09:00-13:00 is 4 h.
+    // The second 2 h land ON the first fragment. Sum, not union: 09:00-13:00 is 4 h — and
+    // the padlock both fragments carry survives the fold rather than refusing it.
     const result = splitBlock(
       listBlocks(db)[0].id,
       { durationMinutes: 2 * 60, date: SAT, startMinutes: 10 * 60, today: MON },
       db,
     );
 
-    expect(calendar()).toEqual([`${MON} 08:00-12:00 Puerta`, `${SAT} 09:00-13:00 Puerta`]);
+    expect(calendar()).toEqual([`${MON} 08:00-12:00 Puerta`, `${SAT} 09:00-13:00 Puerta [locked]`]);
     expect(result.mergedBlockIds).toHaveLength(1);
     expect(result.displacedProjectIds).toEqual([]);
     // Four hours on Saturday plus four on Monday: the estimate never moved.
@@ -1477,13 +1864,17 @@ describe('a drop onto the weekend, where the engine may not reflow', () => {
   it('cuts ANOTHER job and pushes its tail after the drop, keeping its hours', () => {
     const barandilla = job('Barandilla', 2, GREEN);
     moveBlock(barandilla.blocks[0].id, { date: SAT, startMinutes: 9 * 60, today: MON }, db);
+    // Unpadlocked afterwards: the drop that put it on Saturday padlocked it, and a
+    // padlocked row is never cut — that is the refusal two tests below. What is being
+    // tested here is the OTHER weekend row, held there by the day alone.
+    setBlockLock(listBlocks(db)[0].id, false, { today: MON }, db);
     const puerta = job('Puerta', 1);
 
     const result = moveBlock(puerta.blocks[0].id, { date: SAT, startMinutes: 10 * 60, today: MON }, db);
 
     expect(calendar()).toEqual([
       `${SAT} 09:00-10:00 Barandilla`,
-      `${SAT} 10:00-11:00 Puerta`,
+      `${SAT} 10:00-11:00 Puerta [locked]`,
       `${SAT} 11:00-12:00 Barandilla`,
     ]);
     expect(result.displacedProjectIds).toEqual([barandilla.project.id]);
@@ -1494,12 +1885,13 @@ describe('a drop onto the weekend, where the engine may not reflow', () => {
   it('carries a Saturday tail that no longer fits onto Sunday, never into the week', () => {
     const barandilla = job('Barandilla', 1, GREEN);
     moveBlock(barandilla.blocks[0].id, { date: SAT, startMinutes: 18 * 60 + 30, today: MON }, db);
+    setBlockLock(listBlocks(db)[0].id, false, { today: MON }, db);
     const puerta = job('Puerta', 1);
 
     moveBlock(puerta.blocks[0].id, { date: SAT, startMinutes: 18 * 60 + 30, today: MON }, db);
 
     expect(calendar()).toEqual([
-      `${SAT} 18:30-19:30 Puerta`,
+      `${SAT} 18:30-19:30 Puerta [locked]`,
       `${SUN} 08:00-09:00 Barandilla`,
     ]);
     expect(() => assertProjectHours(db)).not.toThrow();
@@ -1530,20 +1922,20 @@ describe('a drop onto the weekend, where the engine may not reflow', () => {
     expect(calendar()).toEqual(before);
   });
 
-  it('leaves the past alone but resolves a drop INTO it, since the past is frozen too', () => {
-    // The owner may edit the past by hand at any time; the engine may not. So a drop
-    // there is resolved the same way, and the displaced hours chain forward out of the
-    // frozen day into the movable pool, where the reflow takes them.
-    const historial = job('Historial', 1, GREEN);
-    moveBlock(historial.blocks[0].id, { date: LAST_FRI, startMinutes: 18 * 60 + 30, today: MON }, db);
+  it('refuses a drop INTO the past and writes nothing', () => {
+    // The past stopped being a drop target on 2026-08-13: it is the record of what the
+    // shop did, and a gesture that writes there edits a day no schedule can change.
     const puerta = job('Puerta', 1);
+    const before = calendar();
 
-    moveBlock(puerta.blocks[0].id, { date: LAST_FRI, startMinutes: 18 * 60 + 30, today: MON }, db);
+    const error = refusal(() =>
+      moveBlock(puerta.blocks[0].id, { date: LAST_FRI, startMinutes: 18 * 60 + 30, today: MON }, db),
+    );
 
-    expect(calendar()).toEqual([
-      `${LAST_FRI} 18:30-19:30 Puerta`,
-      `${MON} 08:00-09:00 Historial`,
-    ]);
+    expect(error.status).toBe(409);
+    expect(error.code).toBe('drop-onto-past-day');
+    expect(error.messageKey).toBe('errors.dropOntoPastDay');
+    expect(calendar()).toEqual(before);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
@@ -1556,7 +1948,7 @@ describe('a drop onto the weekend, where the engine may not reflow', () => {
     // fragment survives with the summed hours and the moved id is gone.
     const result = moveBlock(monday!.id, { date: SAT, startMinutes: 9 * 60 + 30, today: MON }, db);
 
-    expect(calendar()).toEqual([`${SAT} 09:00-13:00 Puerta`]);
+    expect(calendar()).toEqual([`${SAT} 09:00-13:00 Puerta [locked]`]);
     expect(result.block).toBeNull();
     expect(result.mergedBlockIds).toEqual([monday!.id]);
     expect(result.blocks).toHaveLength(1);
@@ -1664,6 +2056,65 @@ describe('deleting a job', () => {
     expect(calendar()).toEqual([`${MON} 08:00-12:00 Barandilla`]);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
+
+  it('leaves its PAST rows behind as gaps, so nothing on those days moves', () => {
+    // The owner's requirement, 2026-08-13: deleting a job must not rewrite what the shop
+    // actually did, nor pull later work backwards into the hole. Monday and Tuesday are
+    // behind us; Wednesday is today.
+    const puerta = pastAndFuture();
+    job('Barandilla', 4, GREEN, WED);
+
+    const result = deleteProject(puerta.project.id, { today: WED }, db);
+
+    // The two worked days keep their shape — the hours are still occupied, as gaps — and
+    // only Wednesday's row disappears, which is what lets Barandilla move up into it.
+    expect(calendar()).toEqual([`${WED} 08:00-12:00 Barandilla`]);
+    expect(gapLines()).toEqual([
+      `${MON} 08:00-12:00 Trabajo «Puerta» eliminado`,
+      `${TUE} 08:00-12:00 Trabajo «Puerta» eliminado`,
+    ]);
+    expect(result.preservedGapIds).toHaveLength(2);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('writes the job name into the gap, in the language the owner was reading', () => {
+    // The name has to be COMPOSED AT DELETION TIME: the project row is gone a moment
+    // later and its blocks went with it, so there is nothing left to look it up in. The
+    // sentence is therefore frozen in one language — a gap's reason is user data, the
+    // same field that holds "Avería torno", and it stays editable like any other.
+    const puerta = pastAndFuture();
+
+    deleteProject(puerta.project.id, { today: WED, language: 'en' }, db);
+
+    expect(listGaps(db).map((gap) => gap.reason)).toEqual([
+      'Job «Puerta» deleted',
+      'Job «Puerta» deleted',
+    ]);
+  });
+
+  it('leaves nothing behind for a job that had not started yet', () => {
+    const puerta = job('Puerta', 4, BLUE, WED);
+
+    const result = deleteProject(puerta.project.id, { today: WED }, db);
+
+    expect(result.preservedGapIds).toEqual([]);
+    expect(listGaps(db)).toEqual([]);
+  });
+
+  /**
+   * A 12 h job worked on Monday and Tuesday and still running today, Wednesday — one row
+   * a day, which is what the 4 h stop line is for.
+   */
+  function pastAndFuture() {
+    updateSettings({ defaultDayCapacity: 4 }, { today: MON }, db);
+    const puerta = job('Puerta', 12, BLUE, MON);
+    expect(calendar()).toEqual([
+      `${MON} 08:00-12:00 Puerta`,
+      `${TUE} 08:00-12:00 Puerta`,
+      `${WED} 08:00-12:00 Puerta`,
+    ]);
+    return puerta;
+  }
 });
 
 describe('the views the screens read', () => {

@@ -26,13 +26,13 @@ function preview(overrides: Partial<CreationPreview> = {}): CreationPreview {
     day: 'auto',
     mode: 'born',
     autoLock: false,
-    handPlaced: false,
+    dayLock: false,
     needsDayConfirmation: false,
     deferred: false,
     canForce: false,
     startsOn: NEXT_MON,
     endsOn: NEXT_MON,
-    rows: [{ date: NEXT_MON, startMinutes: 480, durationMinutes: 240, locked: false, handPlaced: false }],
+    rows: [{ date: NEXT_MON, startMinutes: 480, durationMinutes: 240, locked: false }],
     span: { startDate: NEXT_MON, endDate: NEXT_MON },
     collisions: [],
     freeDates: [NEXT_MON, THU],
@@ -57,7 +57,7 @@ describe('summarizing a start-date preview', () => {
 
   it('leads with the day itself, then the deferral, then the lock', () => {
     const summary = summarizeStartDate(
-      preview({ day: 'buffer', handPlaced: true, autoLock: true, deferred: true, startsOn: SAT }),
+      preview({ day: 'buffer', dayLock: true, autoLock: true, deferred: true, startsOn: SAT }),
     );
 
     expect(summary.notes).toEqual(['buffer', 'deferred', 'autoLock', 'clear', 'freeDays']);
@@ -124,7 +124,6 @@ describe('summarizing a start-date preview', () => {
       startMinutes: 480 + index * 30,
       durationMinutes: 30,
       locked: false,
-      handPlaced: false,
     }));
     const collisions = Array.from({ length: 8 }, (unused, index) =>
       collision(NEXT_MON, `Job ${index}`, 60),

@@ -25,6 +25,7 @@ import { manualWindowsOf } from '../../lib/manualWindow';
 import type { DayShape, WorkPeriod } from '../../types';
 import type { WeekDay } from '../../lib/api-client';
 import { SNAP_MINUTES, createTimeline, type GridMetrics, type Timeline } from './geometry';
+import type { AimRow } from './dropAim';
 import { previewMove, previewResize, type DragSession, type DragTarget } from './useBlockDrag';
 
 const MORNING: WorkPeriod = { startMinutes: 8 * 60, endMinutes: 14 * 60 };
@@ -81,6 +82,18 @@ function day(date: string, over: Partial<WeekDay>): WeekDay {
 const dayAt = (date: string): WeekDay | undefined =>
   [THURSDAY, SATURDAY].find((candidate) => candidate.date === date);
 
+/**
+ * What the two previews need of the week: the day under the pointer, the week in order
+ * (a release below the end of a day resolves to another column), and the rows a drop is
+ * aimed against. These cases are about the AXIS, so the calendar under them is empty and
+ * the aim is left exactly where the pointer put it — thirds have their own file.
+ */
+const OPTIONS = {
+  dayAt,
+  days: (): readonly WeekDay[] => [THURSDAY, SATURDAY],
+  rowsOn: (): readonly AimRow[] => [],
+};
+
 /** `Reja`, the 4 h row of the report: Thursday 10:00-14:00. */
 function target(over: Partial<DragTarget> = {}): DragTarget {
   return {
@@ -116,7 +129,6 @@ function press(
     moved: true,
     // Past the click slop: these cases are all real drags, never a shaky click.
     travelled: 40,
-    exactMinutes: pressMinutes,
     preview: null,
   };
 }
@@ -127,7 +139,7 @@ const yOf = (minutes: number, axis: Timeline = PRESS_AXIS): number => TOP + axis
 describe('previewResize', () => {
   it("commits the owner's worked example: 10:00 released on 17:30 is 6 h", () => {
     const session = press('resize', 14 * 60);
-    const preview = previewResize({ clientY: yOf(17 * 60 + 30) }, session, METRICS, { dayAt });
+    const preview = previewResize({ clientY: yOf(17 * 60 + 30) }, session, METRICS, OPTIONS);
 
     // 10:00-14:00 plus 15:30-17:30; the lunch break costs nothing.
     expect(preview.durationMinutes).toBe(360);
@@ -137,13 +149,13 @@ describe('previewResize', () => {
     // Exactly the legend's collapse: the gesture published a preview, the grid grew by
     // 9 px, and every later pointer event arrives with the new scale in `options`.
     const session = press('resize', 14 * 60, PRESS_AXIS);
-    const preview = previewResize({ clientY: yOf(17 * 60 + 30) }, session, METRICS, { dayAt });
+    const preview = previewResize({ clientY: yOf(17 * 60 + 30) }, session, METRICS, OPTIONS);
 
     expect(preview.durationMinutes).toBe(360);
     // The re-fitted axis would have read that same pixel as 17:22 and answered 5,75 h —
     // one SNAP_MINUTES short. This is the number the owner was shown before the fix.
     expect(REFITTED_AXIS.minutesAt(yOf(17 * 60 + 30) - TOP)).toBeLessThan(17 * 60 + 30);
-    expect(previewResize({ clientY: yOf(17 * 60 + 30) }, press('resize', 14 * 60, REFITTED_AXIS), METRICS, { dayAt }).durationMinutes).toBe(360 - SNAP_MINUTES);
+    expect(previewResize({ clientY: yOf(17 * 60 + 30) }, press('resize', 14 * 60, REFITTED_AXIS), METRICS, OPTIONS).durationMinutes).toBe(360 - SNAP_MINUTES);
   });
 
   /**
@@ -166,7 +178,7 @@ describe('previewResize', () => {
     { release: 20 * 60 + 15, requested: 525 }, // into the bottom margin, which is hand time
   ])('released on $release commits $requested minutes', ({ release, requested }) => {
     const session = press('resize', 14 * 60);
-    expect(previewResize({ clientY: yOf(release) }, session, METRICS, { dayAt }).durationMinutes).toBe(
+    expect(previewResize({ clientY: yOf(release) }, session, METRICS, OPTIONS).durationMinutes).toBe(
       requested,
     );
   });
@@ -201,12 +213,13 @@ describe('previewResize past the end of the day', () => {
       durationMinutes: 240,
     });
     // Released below the last rule the grid draws: 20:30 is the answer, twice over.
-    expect(previewResize({ clientY: yOf(22 * 60) }, session, METRICS, { dayAt }).durationMinutes).toBe(300);
-    expect(previewResize({ clientY: yOf(20 * 60 + 30) }, session, METRICS, { dayAt }).durationMinutes).toBe(300);
+    expect(previewResize({ clientY: yOf(22 * 60) }, session, METRICS, OPTIONS).durationMinutes).toBe(300);
+    expect(previewResize({ clientY: yOf(20 * 60 + 30) }, session, METRICS, OPTIONS).durationMinutes).toBe(300);
   });
 
   it('will not grow a row that already sits outside the windows, and keeps its length', () => {
     const strandedAt = (date: string): WeekDay | undefined => (date === '2026-08-13' ? STRANDED : undefined);
+    const stranded = { ...OPTIONS, dayAt: strandedAt, days: () => [STRANDED] };
     const session = press('resize', 20 * 60 + 30, WIDENED, {
       startMinutes: 19 * 60 + 30,
       durationMinutes: 60,
@@ -215,11 +228,11 @@ describe('previewResize past the end of the day', () => {
 
     // Dragged to the bottom of the widened axis: the row stays the hour it is.
     expect(
-      previewResize({ clientY: releaseY(21 * 60) }, session, METRICS, { dayAt: strandedAt }).durationMinutes,
+      previewResize({ clientY: releaseY(21 * 60) }, session, METRICS, stranded).durationMinutes,
     ).toBe(60);
     // And it can still be shortened, which is the way back inside the day.
     expect(
-      previewResize({ clientY: releaseY(20 * 60) }, session, METRICS, { dayAt: strandedAt }).durationMinutes,
+      previewResize({ clientY: releaseY(20 * 60) }, session, METRICS, stranded).durationMinutes,
     ).toBe(30);
   });
 });
@@ -244,7 +257,7 @@ describe('previewMove', () => {
       durationMinutes: 360,
     });
     session.grabOffsetMinutes = 0;
-    const preview = previewMove({ clientX: 460, clientY: yOf(release) }, session, METRICS, { dayAt });
+    const preview = previewMove({ clientX: 460, clientY: yOf(release) }, session, METRICS, OPTIONS);
     expect(preview.startMinutes).toBe(start);
   });
 
@@ -257,7 +270,7 @@ describe('previewMove', () => {
     session.grabOffsetMinutes = 0;
     for (const release of [10 * 60, 12 * 60, 13 * 60, 19 * 60]) {
       expect(
-        previewMove({ clientX: 460, clientY: yOf(release) }, session, METRICS, { dayAt }).startMinutes,
+        previewMove({ clientX: 460, clientY: yOf(release) }, session, METRICS, OPTIONS).startMinutes,
         `released at ${release}`,
       ).toBe(9 * 60);
     }
@@ -274,7 +287,7 @@ describe('previewMove', () => {
     session.grabOffsetMinutes = 0;
     for (const release of [14 * 60, 14 * 60 + 15, 14 * 60 + 30]) {
       expect(
-        previewMove({ clientX: 460, clientY: yOf(release) }, session, METRICS, { dayAt }).startMinutes,
+        previewMove({ clientX: 460, clientY: yOf(release) }, session, METRICS, OPTIONS).startMinutes,
         `released at ${release}`,
       ).toBe(release);
     }
@@ -288,7 +301,7 @@ describe('previewMove', () => {
     // drift was STORED as a quarter of an hour.
     const grab = 19 * 60 + 10;
     const session = press('move', grab, PRESS_AXIS, { startMinutes: 15 * 60 + 30, durationMinutes: 240 });
-    const preview = previewMove({ clientX: 460, clientY: yOf(grab) }, session, METRICS, { dayAt });
+    const preview = previewMove({ clientX: 460, clientY: yOf(grab) }, session, METRICS, OPTIONS);
 
     expect(preview.date).toBe('2026-08-15');
     expect(preview.startMinutes).toBe(15 * 60 + 30);
@@ -301,7 +314,7 @@ describe('previewMove', () => {
       startMinutes: 9 * 60,
       durationMinutes: 120,
     });
-    const preview = previewMove({ clientX: 260, clientY: yOf(12 * 60 + 20) }, session, METRICS, { dayAt });
+    const preview = previewMove({ clientX: 260, clientY: yOf(12 * 60 + 20) }, session, METRICS, OPTIONS);
 
     expect(preview.date).toBe('2026-08-13');
     expect(preview.startMinutes).toBe(11 * 60 + 45);
@@ -316,7 +329,7 @@ describe('previewMove', () => {
    * released on every day, Monday included (`pinsTheRow`, src/lib/operations/blocks.ts) —
    * the engine's index space has no margin minutes in it. Read off the day alone, the ghost
    * drew those as an insertion point and the hint promised a re-flow, while the server was
-   * storing them hand-placed.
+   * storing them padlocked.
    */
   describe('pinned', () => {
     const moveTo = (date: string, release: number, over: Partial<DragTarget> = {}) => {
@@ -326,7 +339,7 @@ describe('previewMove', () => {
         { clientX: date === '2026-08-13' ? 260 : 460, clientY: yOf(release) },
         session,
         METRICS,
-        { dayAt },
+        OPTIONS,
       );
     };
 
@@ -367,7 +380,7 @@ describe('previewMove', () => {
         durationMinutes,
       });
       session.grabOffsetMinutes = 0;
-      return previewMove({ clientX: 260, clientY: yOf(release) }, session, METRICS, { dayAt });
+      return previewMove({ clientX: 260, clientY: yOf(release) }, session, METRICS, OPTIONS);
     };
 
     it('is not set while the ghost is still under the pointer', () => {
@@ -395,12 +408,67 @@ describe('previewMove', () => {
       durationMinutes: 120,
     });
     const scrolled: GridMetrics = { ...METRICS, top: TOP - PRESS_AXIS.yOf(10 * 60) + PRESS_AXIS.yOf(9 * 60) };
-    const preview = previewMove({ clientX: 260, clientY: yOf(9 * 60 + 30) }, session, METRICS, { dayAt });
-    const afterScroll = previewMove({ clientX: 260, clientY: yOf(9 * 60 + 30) }, session, scrolled, {
-      dayAt,
-    });
+    const preview = previewMove({ clientX: 260, clientY: yOf(9 * 60 + 30) }, session, METRICS, OPTIONS);
+    const afterScroll = previewMove({ clientX: 260, clientY: yOf(9 * 60 + 30) }, session, scrolled, OPTIONS);
 
     expect(preview.startMinutes).toBe(9 * 60);
     expect(afterScroll.startMinutes).toBe(10 * 60);
+  });
+});
+
+/**
+ * THE TWO RULES THAT DECIDE WHERE A RELEASE REALLY GOES, seen through the preview the
+ * owner watches while the pointer is still down. Their own arithmetic is pinned in
+ * dropAim.test.ts; what these cases add is that the GESTURE asks them, and in what order.
+ */
+describe('previewMove — the aim and the day', () => {
+  /** Friday, the colchón: the next day the engine would use after Thursday. */
+  const FRIDAY: WeekDay = day('2026-08-14', { role: 'buffer', weekday: 5 });
+  const WEEK = [THURSDAY, FRIDAY, SATURDAY];
+
+  const optionsWith = (rows: readonly AimRow[]) => ({
+    dayAt: (date: string): WeekDay | undefined => WEEK.find((candidate) => candidate.date === date),
+    days: (): readonly WeekDay[] => WEEK,
+    rowsOn: (): readonly AimRow[] => rows,
+  });
+
+  const releaseOn = (release: number, durationMinutes: number, rows: readonly AimRow[] = []) => {
+    const session = press('move', 8 * 60, PRESS_AXIS, {
+      date: '2026-08-13',
+      startMinutes: 8 * 60,
+      durationMinutes,
+    });
+    session.grabOffsetMinutes = 0;
+    return previewMove({ clientX: 260, clientY: yOf(release) }, session, METRICS, optionsWith(rows));
+  };
+
+  it('moves a release the day cannot hold to the next day, at its first period', () => {
+    // 6 h aimed at 18:00 on Thursday: the day ends at 20:30. The owner on the old answer
+    // (refuse it, freeze the ghost): «Pasa al siguiente día. ¿Sabes cómo funciona un
+    // calendario?»
+    const preview = releaseOn(18 * 60, 360);
+    expect(preview.date).toBe('2026-08-14');
+    expect(preview.startMinutes).toBe(8 * 60);
+    expect(preview.rolled).toBe(true);
+    expect(preview.clamped).toBe(false);
+  });
+
+  it('stays on the day while what is aimed at still fits it', () => {
+    const preview = releaseOn(18 * 60, 60);
+    expect(preview.date).toBe('2026-08-13');
+    expect(preview.startMinutes).toBe(18 * 60);
+    expect(preview.rolled).toBe(false);
+  });
+
+  it('quantises the aim against the row under it before asking about the day', () => {
+    // `Alfa` 09:00-13:00: the middle third of it means "cut it", at its own midpoint,
+    // whichever quarter of an hour inside that third the hand happens to be over.
+    const alfa: AimRow = { id: 'alfa', startMinutes: 9 * 60, durationMinutes: 240 };
+    expect(releaseOn(10 * 60 + 30, 120, [alfa]).startMinutes).toBe(11 * 60);
+    expect(releaseOn(11 * 60 + 30, 120, [alfa]).startMinutes).toBe(11 * 60);
+    // Its upper third means "before it", so the aim is the row's own start.
+    expect(releaseOn(9 * 60 + 45, 120, [alfa]).startMinutes).toBe(9 * 60);
+    // Its lower third means "after it".
+    expect(releaseOn(12 * 60 + 30, 120, [alfa]).startMinutes).toBe(13 * 60);
   });
 });

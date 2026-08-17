@@ -14,6 +14,8 @@ import es from '../../public/locales/es/common.json';
 import en from '../../public/locales/en/common.json';
 import { EDIT_MESSAGE_KEYS, HORIZON_EXCEEDED_KEY, MANUAL_PLACEMENT_MESSAGE_KEYS } from './composition';
 import { ERROR_MESSAGE_KEYS } from './errors';
+import { SUPPORTED_LANGUAGES } from './i18n';
+import { deletedJobGapReason, textLanguages } from './text';
 
 type Json = { [key: string]: string | Json };
 
@@ -105,6 +107,23 @@ describe('locale files', () => {
         );
       }
     }
+  });
+
+  /**
+   * src/lib/text.ts holds the one sentence the SERVER composes, out of these same files.
+   * It cannot import `SUPPORTED_LANGUAGES` (that module initialises i18next, and with it
+   * React, which the data layer must stay clear of), so the two lists are held together
+   * here instead.
+   */
+  it('offers the server the same languages the app does', () => {
+    expect([...textLanguages()].sort()).toEqual([...SUPPORTED_LANGUAGES].sort());
+  });
+
+  it('composes the deleted job gap reason in each of them, and falls back to Spanish', () => {
+    expect(deletedJobGapReason('Barandilla', 'es')).toBe('Trabajo «Barandilla» eliminado');
+    expect(deletedJobGapReason('Barandilla', 'en')).toBe('Job «Barandilla» deleted');
+    expect(deletedJobGapReason('Barandilla', 'kl')).toBe('Trabajo «Barandilla» eliminado');
+    expect(deletedJobGapReason('Barandilla')).toBe('Trabajo «Barandilla» eliminado');
   });
 
   it('words the wireframe strings exactly', () => {

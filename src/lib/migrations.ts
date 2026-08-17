@@ -14,6 +14,11 @@ import { DEFAULT_SETTINGS, serializeSettings } from './settings';
  * idempotent `ALTER TABLE ... ADD COLUMN`. Both paths end at the same schema,
  * whether the file is brand new or already holds a season of work.
  *
+ * A column REMOVED after that first run needs the same treatment in reverse, and it
+ * needs one thing more: what the column meant has to survive. `REMOVED_COLUMNS`
+ * carries the statement that carries the meaning over, run once, before the column
+ * goes — see `hand_placed` there.
+ *
  * Two conventions worth knowing:
  *
  * - `date` / `start_time` are LOCAL shop values (`YYYY-MM-DD`, `HH:mm`) produced
@@ -25,6 +30,7 @@ import { DEFAULT_SETTINGS, serializeSettings } from './settings';
 export function runMigrations(db: Db): void {
   db.exec(SCHEMA);
   addMissingColumns(db);
+  dropRemovedColumns(db);
   seedDefaultSettings(db);
 }
 
@@ -43,14 +49,13 @@ CREATE TABLE IF NOT EXISTS projects (
 
 -- A slice of a project sitting on the calendar. One project has many blocks.
 -- A block never straddles a non-working interval: work across lunch is two rows.
--- 'locked' is the only exemption from auto-move; there is no manually_placed flag.
+-- 'locked' is the ONLY exemption from auto-move, and the only thing that fixes a
+-- row's position: the padlock the owner sets, and the padlock a drop onto a place
+-- the engine would never choose by itself (a visual margin, the Friday buffer, the
+-- weekend) sets for them. There is no manually_placed and no hand_placed flag.
 -- 'manual_duration' marks a row whose length the owner set by hand (the
 -- bottom-edge drag). The engine then keeps that length instead of re-deriving the
 -- job's segmentation from its total, and the job's run ENDS at that row.
--- 'hand_placed' marks a row a human dropped where the engine would otherwise have
--- recovered it — the Friday buffer or the weekend. The engine then treats it as a
--- fixed obstacle, which is what tells "the owner said Friday" apart from "the engine
--- parked overflow on Friday".
 CREATE TABLE IF NOT EXISTS blocks (
   id              TEXT PRIMARY KEY,
   project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -59,7 +64,6 @@ CREATE TABLE IF NOT EXISTS blocks (
   duration        REAL NOT NULL CHECK (duration > 0),
   locked          INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
   manual_duration INTEGER NOT NULL DEFAULT 0 CHECK (manual_duration IN (0, 1)),
-  hand_placed     INTEGER NOT NULL DEFAULT 0 CHECK (hand_placed IN (0, 1)),
   created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -152,19 +156,54 @@ const ADDED_COLUMNS: ReadonlyArray<{ table: string; column: string; definition: 
     column: 'manual_duration',
     definition: 'INTEGER NOT NULL DEFAULT 0 CHECK (manual_duration IN (0, 1))',
   },
-  {
-    table: 'blocks',
-    column: 'hand_placed',
-    definition: 'INTEGER NOT NULL DEFAULT 0 CHECK (hand_placed IN (0, 1))',
-  },
 ];
 
 function addMissingColumns(db: Db): void {
   for (const { table, column, definition } of ADDED_COLUMNS) {
-    const existing = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-    if (existing.some((row) => row.name === column)) continue;
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    if (!hasColumn(db, table, column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
   }
+}
+
+/**
+ * Columns that were released into `data/calendar.db` and have since been RETIRED.
+ *
+ * `carryOver` runs while the column is still there and is what keeps the shop's data
+ * true across the change; the column is dropped immediately afterwards, in the same
+ * transaction, so a file either has the old column with its meaning intact or the new
+ * shape with the meaning moved. Both are idempotent — the second run sees no column and
+ * does nothing at all — which is the same property `ADDED_COLUMNS` has.
+ *
+ * `hand_placed` marked a row a human had put on the Friday buffer or the weekend, so the
+ * engine would leave it there. It has been replaced by the padlock, which says the same
+ * thing in the one vocabulary the owner already has ("padlock = fixed, no padlock =
+ * free"). Every row that carried it was PINNED BY THE OWNER, so it must come out of this
+ * migration pinned: `locked = 1`. Freeing them instead would let the next recomposition
+ * quietly move work the owner had placed by hand — on a file where that is exactly the
+ * work that matters most.
+ */
+const REMOVED_COLUMNS: ReadonlyArray<{ table: string; column: string; carryOver: string }> = [
+  {
+    table: 'blocks',
+    column: 'hand_placed',
+    carryOver: 'UPDATE blocks SET locked = 1 WHERE hand_placed = 1 AND locked = 0',
+  },
+];
+
+function dropRemovedColumns(db: Db): void {
+  for (const { table, column, carryOver } of REMOVED_COLUMNS) {
+    if (!hasColumn(db, table, column)) continue;
+    db.transaction(() => {
+      db.exec(carryOver);
+      db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+    })();
+  }
+}
+
+function hasColumn(db: Db, table: string, column: string): boolean {
+  const existing = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return existing.some((row) => row.name === column);
 }
 
 /**

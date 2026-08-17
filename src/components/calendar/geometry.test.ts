@@ -17,6 +17,7 @@ import {
   MIN_PIXELS_PER_HOUR,
   SNAP_MINUTES,
   axisTicks,
+  blockHoldsActions,
   createTimeline,
   clampDropStart,
   dateAtX,
@@ -208,18 +209,17 @@ describe('drop targets', () => {
     expect(hit).toEqual({ date: '2026-08-11', exactMinutes: 487, snappedMinutes: 480 });
   });
 
-  it('breaks a rank tie BEFORE the row it landed on, whichever way the hand wandered', () => {
+  it('breaks a rank tie BEFORE the row it landed on', () => {
     const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
     // The clamp is the caller's, so the nudge obeys whatever keeps the row inside the day.
     const onAxis = (minutes: number): number => timeline.clampStart(minutes);
     // No tie: the snapped value stands.
-    expect(rankFor(480, 483, [600], onAxis, false)).toBe(480);
-    // Landing on a start means "put me before this one" (owner, 2026-08-13) — and it means
-    // that from either side of the minute, because the owner cannot aim at a hair.
-    expect(rankFor(480, 477, [480], onAxis, false)).toBe(479);
-    expect(rankFor(480, 484, [480], onAxis, false)).toBe(479);
+    expect(rankFor(480, [600], onAxis, false)).toBe(480);
+    // Landing on a start means "put me before this one" (owner, 2026-08-13) — and since
+    // thirds it is the ORDINARY way to say it: the upper third of a row aims at its start.
+    expect(rankFor(480, [480], onAxis, false)).toBe(479);
     // A tie on the very first minute of the axis can only go the other way.
-    expect(rankFor(420, 418, [420], onAxis, false)).toBe(421);
+    expect(rankFor(420, [420], onAxis, false)).toBe(421);
   });
 
   it('never nudges a PINNED placement, whose minute is the clock and not a rank', () => {
@@ -228,8 +228,7 @@ describe('drop targets', () => {
     // one kind of day whose whole promise is that what they drew is what they get.
     const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });
     const onAxis = (minutes: number): number => timeline.clampStart(minutes);
-    expect(rankFor(600, 597, [600], onAxis, true)).toBe(600);
-    expect(rankFor(600, 604, [600], onAxis, true)).toBe(600);
+    expect(rankFor(600, [600], onAxis, true)).toBe(600);
   });
 });
 
@@ -367,7 +366,6 @@ function block(partial: Partial<WeekBlock> & { startMinutes: number; durationMin
     durationMinutes: partial.durationMinutes,
     locked: partial.locked ?? false,
     manualDuration: partial.manualDuration ?? false,
-    handPlaced: partial.handPlaced ?? false,
     createdAt: partial.createdAt ?? `2026-08-11 08:00:0${sequence}`,
     updatedAt: partial.updatedAt ?? '2026-08-11 08:00:00',
     project: partial.project ?? { id: projectId, name: projectId, color: '#185FA5' },
@@ -502,5 +500,29 @@ describe('lanes', () => {
     const placements = packDay(groups, [gap]);
     expect(placements.get(groups[0].id)?.lanes).toBe(2);
     expect(placements.get('gap-1')?.lanes).toBe(2);
+  });
+});
+
+/**
+ * THE OTHER AXIS OF THE SAME DEFECT `MIN_ACTIONS_HEIGHT` closes: a block tall enough to
+ * keep its bar inside it, and too narrow for the bar to leave anything of it to press.
+ * Measured on the running app — a weekend column is 116 px at its floor, so a block in it
+ * is 112 px, and a five-button bar is 130 px of that.
+ */
+describe('blockHoldsActions', () => {
+  it('keeps the bar inside a block with room left for its own name', () => {
+    expect(blockHoldsActions(260, 5)).toBe(true);
+    expect(blockHoldsActions(180, 3)).toBe(true);
+  });
+
+  it('hands the bar out when it would take the whole top of the block', () => {
+    // A weekend column at its 116 px floor, showing every action.
+    expect(blockHoldsActions(112, 5)).toBe(false);
+    // And a weekday block once two lanes share the column.
+    expect(blockHoldsActions(130, 4)).toBe(false);
+  });
+
+  it('leaves the bar where the wireframe puts it until the grid has been measured', () => {
+    expect(blockHoldsActions(null, 5)).toBe(true);
   });
 });

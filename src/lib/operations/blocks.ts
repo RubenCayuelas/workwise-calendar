@@ -3,10 +3,18 @@
  *
  * | gesture                  | what it means                                        |
  * |--------------------------|------------------------------------------------------|
- * | drag the body            | reorder the queue (or pin the day), then reflow       |
+ * | drag the body            | reorder the queue (or padlock the slot), then reflow  |
  * | drag the bottom edge     | a transfer of hours inside the job                    |
  * | padlock                  | toggle the only exemption from auto-move              |
  * | scissors                 | move a portion of the job out of this row             |
+ *
+ * NONE OF THEM REACHES A PAST DAY (decided with the owner, 2026-08-13). The past is the
+ * record of what the shop did, so every gesture above is refused on a row dated before
+ * today, and so is a drop AIMED at such a day — see `assertNotPast`. What is still
+ * allowed is the job's own form: renaming it, changing its hours, deleting it. None of
+ * those rewrites a past day, because hours added to a job whose last row is past already
+ * get a row of their own on a future day (`lastAutomatic`), and deleting a job leaves its
+ * past rows behind as gaps (`deleteProject`).
  *
  * The one thing to hold on to while reading: on the days the engine auto-fills, a drag
  * DOES NOT PIN a block. CLAUDE.md is explicit — "Dragging a block reorders the queue —
@@ -15,33 +23,42 @@
  * after the preceding block." So a move writes the drop point as the row's QUEUE RANK
  * and lets the reflow settle it. To nail a row to a time, lock it.
  *
- * The exception is the one place a rank means nothing: the Friday buffer and the
- * weekend, where the reflow's only possible answer to a hand drop is to undo it. There
- * the drop pins (`handPlaced`) — see `moveBlock`.
+ * The exception is the one place a rank means nothing: the Friday buffer, the weekend and
+ * the visual margins, where the reflow's only possible answer to a hand drop is to undo
+ * it. There the drop PADLOCKS the row — see `moveBlock` and `pinsTheRow`.
  */
 
 import { getDb, type Db } from '../db';
 import { MIN_ROW_MINUTES, assertFitsInDay } from '../validation';
-import { todayLocal } from '../dates';
+import { compareDates, todayLocal } from '../dates';
 import { segmentDroppedRow } from '../dropSegments';
+import { dropLanding, type DropDay } from '../dropSlide';
 import { usesManualOnlyTime } from '../manualWindow';
 import {
+  dayReflows,
   releaseBlock as releaseBlockMarks,
   resizeBlock as resizeBlockHours,
   unitOf,
+  type DayConfig,
   type EditSuccess,
+  type FreedHoursChoice,
   type ScheduleSummary,
 } from '../composition';
 import { conflict, notFound, ERROR_MESSAGE_KEYS } from '../errors';
 import { newId } from '../ids';
 import { nowTimestamp } from '../timestamps';
-import { getDayConfig, recompose, runTransaction, type RecomposeReport } from '../scheduler';
+import {
+  dayConfigResolver,
+  getDayConfig,
+  recompose,
+  runTransaction,
+  type RecomposeReport,
+} from '../scheduler';
 import {
   findBlock,
   listBlocks,
   listBlocksByProject,
   setBlockLocked,
-  updateBlock,
 } from '../repositories/blocks';
 import { findProject, updateProject } from '../repositories/projects';
 import type { Block } from '../../types';
@@ -107,65 +124,85 @@ export interface MoveBlockInput {
  * after whatever precedes it, and to nail it to a time the owner locks it. That is a
  * decision the owner made deliberately, and it is unchanged.
  *
- * ON THE FRIDAY BUFFER OR THE WEEKEND it PINS, via `handPlaced` — because there the
- * reflow's only possible answer is to undo it. Friday is in the movable pool so the
- * engine can park growth overflow there and take it back when Mon-Thu frees up; the
- * cost was that a hand drop onto Friday was pulled straight back and the request
- * answered 200 with nothing changed. The mark is what tells the two apart, and the
- * weekend gets it too so "a human put this here" means one thing on every day the
- * engine would otherwise have recovered from.
+ * ON THE FRIDAY BUFFER, THE WEEKEND OR A VISUAL MARGIN it PADLOCKS the row — because
+ * there the reflow's only possible answer is to undo the gesture. Friday is in the movable
+ * pool so the engine can park growth overflow there and take it back when Mon-Thu frees
+ * up; the cost was that a hand drop onto Friday was pulled straight back and the request
+ * answered 200 with nothing changed. The padlock is what tells the two apart — engine-
+ * placed overflow has none and stays reclaimable, work the owner dropped there has one and
+ * stays — and the weekend and the margins get it too, so "this is fixed" means one thing
+ * on every day and in every band the engine would otherwise have recovered from.
  *
- * Dropping the row back onto Mon-Thu CLEARS the mark: the same gesture that sets it
- * takes it away, and *back to automatic* is the one-click alternative.
- *
- * A DROP INTO A VISUAL MARGIN (or into the lunch band) PINS TOO, on any day — see
- * `pinsTheRow`. It used to be accepted and then quietly pulled back into the working
- * periods by this very recomposition, so a margin drop only stuck if the row happened to
- * be locked, and CLAUDE.md's promise that the margins "accept manual drag-drop" was not
- * true of any gesture the owner could make. The margins are hand time; the engine cannot
- * represent them; so the row stays where it was dropped and the reflow flows around it.
+ * THE PADLOCK IS ONLY EVER ADDED HERE, never removed: dropping the row back onto Mon-Thu
+ * leaves it padlocked, and the way to hand it back to the engine is to press the padlock,
+ * which is on the row and says exactly what it does. A gesture that silently unlocked work
+ * the owner had fixed would make "padlock = fixed, no padlock = free" a lie in the one
+ * direction that loses work.
  *
  * `manualPlacementBlockId` is what stops the drop leaving a silent overlap where the
- * reflow cannot reach — the weekend, the frozen past, and now a hand-placed Friday row.
+ * reflow cannot reach — the weekend, the frozen past, and a padlocked row anywhere.
  * Same job: one row, hours summed. Another job: cut, tail pushed after the drop. And the
  * drop is stored in segments, never across the lunch break.
  *
- * ON A DAY THE ENGINE REFLOWS IT CANNOT BE REFUSED for a collision. A gap or a lock in
- * the way slides the drop forward on the day the owner named, and if the day has no clear
- * slot the drop gives up its PIN and settles as an ordinary queue rank —
- * `resolveManualPlacement` owns both, and the note above `ManualPlacementErrorCode` says
- * why "does it fit here right now" is the wrong question there. A refusal comes back only
- * from a drop that lands literally: the weekend, a closed day, the frozen past, or a
- * LOCKED row being dragged.
+ * A DROP THE ENGINE STILL OWNS CANNOT BE REFUSED for a collision: it is a re-ranking of
+ * the queue and the reflow is what finds the room — see the note above
+ * `ManualPlacementErrorCode` on why "does it fit here right now" is the wrong question
+ * there. A PADLOCKED drop lands literally, so a gap or another lock in the way slides it
+ * forward on the day the owner named, and a day with no clear slot is refused naming what
+ * is in the way. `resolveManualPlacement` owns both.
+ *
+ * AND A DROP AIMED BELOW WHAT THE DAY HOLDS MOVES TO THE NEXT DAY THE ENGINE WOULD USE
+ * (2026-08-14), rather than being refused for running past the end of it. `dropLanding` is
+ * the rule: the whole unit's duration is what it is measured with, only a day the engine
+ * lays out is left or landed on, and the landing is decided BEFORE the padlock — so a drop
+ * that rolls onto a Friday is padlocked for being on the buffer like any other Friday
+ * drop.
  */
 export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb()): BlockMutation {
   const today = input.today ?? todayLocal();
 
   return runTransaction(db, () => {
     const block = requireBlock(blockId, db);
+    assertNotPast(block.date, today, { blockId });
+    assertNotPastTarget(input.date, today);
+
+    const dayOf = dayConfigResolver(db);
     const stored = listBlocks(db);
     // The unit the owner grabbed, as the GRID groups it, intersected with what the request
     // claims: the whole thing moves, once, in this transaction. Anything else is one row.
     const named = new Set(input.unitBlockIds ?? []);
-    const unit = unitOf(stored, block, getDayConfig(block.date, db).manualWindows).filter(
+    const unit = unitOf(stored, block, (date) => dayOf(date).manualWindows, today).filter(
       (row) => row.id === blockId || named.has(row.id),
     );
     const durationMinutes = unit.reduce((total, row) => total + row.durationMinutes, 0);
     const absorbed = unit.filter((row) => row.id !== blockId).map((row) => row.id);
 
+    // Aimed below what the day can hold, the drop goes to the next day the engine would
+    // use — the plainest thing a calendar does. Everything below reads the LANDING.
+    const landing = dropLanding({
+      date: input.date,
+      startMinutes: input.startMinutes,
+      durationMinutes,
+      dayOf: (date) => landingDay(date, dayOf, today),
+    });
+
     // The row keeps the unit's duration, so the drop point has to leave room for it: a
     // block is a solid rectangle inside one day and cannot run past midnight.
-    assertFitsInDay(input.startMinutes, durationMinutes);
+    assertFitsInDay(landing.startMinutes, durationMinutes);
     const blocks = stored
       .filter((row) => !absorbed.includes(row.id))
       .map((row) =>
         row.id === blockId
           ? {
               ...row,
-              date: input.date,
-              startMinutes: input.startMinutes,
+              date: landing.date,
+              startMinutes: landing.startMinutes,
               durationMinutes,
-              handPlaced: pinsTheRow(input.date, input.startMinutes, durationMinutes, db),
+              // Added, never taken away: the padlock is the owner's mark, and a drop is
+              // not the gesture that removes it.
+              locked:
+                row.locked ||
+                pinsTheRow(landing.date, landing.startMinutes, durationMinutes, dayOf),
             }
           : row,
       );
@@ -184,10 +221,10 @@ export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb
 }
 
 /**
- * Whether a drop pins the row where it landed.
+ * Whether a drop PADLOCKS the row where it landed.
  *
- * The policy the engine's `handPlaced` flag is the mechanism for, in one place. Two
- * reasons, and both are "the reflow's only possible answer here would be to undo the
+ * The whole policy in one place — which places earn a padlock the owner did not press for.
+ * Two reasons, and both are "the reflow's only possible answer here would be to undo the
  * drop":
  *
  * - THE DAY. The Friday buffer and the weekend are the days whose whole point is that the
@@ -200,19 +237,22 @@ export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb
  *   drop is cut over the manual windows first, so the test is asked of the rows that will
  *   really be stored.
  *
- * It is the drop's INTENT, not the last word: on a day the engine reflows,
- * `resolveManualPlacement` may slide the pinned row forward to the first slot clear of a
- * gap or a lock, or hand it back to the engine as a plain rank when the day has none.
- * The alternative was refusing the gesture, and a refusal on a day the reflow is about to
- * rearrange is an answer to a question nobody asked.
+ * It decides the SLOT, and `resolveManualPlacement` may still move it: on a day the engine
+ * reflows a padlocked drop slides forward to the first slot clear of a gap or a lock. What
+ * it may not do is come back off — a padlock the owner can see is one they can press.
+ *
+ * This is not "padlock everything the user drags", which was considered and rejected on
+ * 2026-08-12 because it covered Mon-Thu drops, the majority, and would have frozen the
+ * working week. It covers only days and bands where the engine never places anything
+ * anyway, so it freezes nothing.
  */
 function pinsTheRow(
   date: string,
   startMinutes: number,
   durationMinutes: number,
-  db: Db,
+  dayOf: (date: string) => ReturnType<typeof getDayConfig>,
 ): boolean {
-  const config = getDayConfig(date, db);
+  const config = dayOf(date);
   if (config.role !== 'auto') return true;
   return usesManualOnlyTime(
     config.periods,
@@ -223,6 +263,12 @@ function pinsTheRow(
 export interface ResizeBlockInput {
   /** The row's new net working minutes. */
   durationMinutes: number;
+  /**
+   * The owner's answer to "these freed hours have nowhere to go". Send it only after a
+   * 409 `shrink-needs-choice` said the question had to be asked, and only with one of the
+   * `choices` that refusal listed. Leaving it out asks the question.
+   */
+  freedHours?: FreedHoursChoice;
   today?: string;
 }
 
@@ -237,13 +283,18 @@ export interface ResizeBlockInput {
  * project in `grownProjectIds`: a pure transfer takes hours OFF the job's furthest
  * row, which relieves pressure on the week instead of adding to it.
  *
- * IT WORKS ON EVERY ROW, and it did not use to. The transfer was applied and then
+ * IT WORKS ON EVERY FUTURE ROW, and it did not use to. The transfer was applied and then
  * quietly undone by the recomposition that follows it, because `compose` re-derives
  * a job's segmentation from its total — so on an unlocked weekday row the request
  * answered 200 with the block unchanged. The engine now stores the intent
  * (`manualDuration`), keeps the length through the reflow, and ends the job's run
- * there. The refusals stay refusals: shrinking a job's last (or only) row is a 409
- * carrying `errors.shrinkLastBlock`, never a silent no-op.
+ * there. On a PAST row the gesture is refused outright: correcting yesterday was what the
+ * resize was designed for, and the owner gave it up when the past became read-only.
+ *
+ * SHRINKING ASKS INSTEAD OF REFUSING. The freed hours go to the job's last row the engine
+ * still lays out, skipping the locked ones; when no row can take them the request is
+ * answered with 409 `shrink-needs-choice`, carrying the hours and the answers, and the
+ * caller sends one back as `freedHours`. It is never a silent no-op.
  *
  * `durationMinutes` is NET working minutes over the day's MANUAL WINDOWS, counted from the
  * row's own start — so the drag crosses the lunch break and may reach into the visual
@@ -255,6 +306,7 @@ export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = g
 
   return runTransaction(db, () => {
     const block = requireBlock(blockId, db);
+    assertNotPast(block.date, today, { blockId });
     const edit = requireEdit(
       resizeBlockHours(listBlocks(db), {
         blockId,
@@ -263,10 +315,7 @@ export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = g
         // Both views of the row's day: the stretch is measured and cut over the manual
         // windows, and the margins are what tell it to pin the row.
         day: getDayConfig(block.date, db),
-        // And any other day, for the counterparty: a transfer's receiver may sit on a
-        // Saturday or in the frozen past, where its hours have to be laid out rather than
-        // written raw onto the clock.
-        dayOf: (date) => getDayConfig(date, db),
+        freedHours: input.freedHours,
         newBlockId: newId,
         now: nowTimestamp(),
       }),
@@ -294,18 +343,20 @@ export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = g
 }
 
 /**
- * "Back to automatic": the row gives the engine back its LENGTH and its DAY — both
- * marks a hand gesture can leave on it (`manualDuration`, `handPlaced`).
+ * "Back to automatic": the row gives the engine back its LENGTH (`manualDuration`).
  *
- * The counterpart of the resize and of a drop onto the buffer, and not a nicety. Both
- * marks are decisions the engine then obeys for ever, and the only way either one shows
- * is that the row stops reflowing — so without a one-click release the owner cannot
- * undo them and they accumulate until the engine manages nothing. One action for both,
- * because pressing the wrong one of two would leave a row that still would not move.
+ * The counterpart of the resize, and not a nicety. A hand-set length is a decision the
+ * engine then obeys for ever, and the only way it shows is that the row stops being
+ * re-derived from the job's total — so without a one-click release the owner cannot undo
+ * it and marks accumulate until the engine manages nothing.
+ *
+ * IT DOES NOT TOUCH THE PADLOCK. That mark is drawn on the row and its undo is the
+ * padlock itself; releasing it from here would mean this button quietly unpinning work the
+ * owner fixed on purpose.
  *
  * Releasing changes no geometry itself; the recomposition that follows is what
- * re-derives the job's segmentation, closes the day a hand-set stretch was holding open,
- * and pulls a released Friday row back into Monday-Thursday.
+ * re-derives the job's segmentation and closes the day a hand-set stretch was holding
+ * open.
  *
  * No intent is passed: giving hours back to the engine is not growth, so it must not
  * spend the Friday colchón.
@@ -330,6 +381,15 @@ export function releaseBlock(
  * the row into or out of the movable pool and the rest of the calendar reflows
  * around the result. Locking never fails: "a locked block can never make placement
  * fail", because overflow always chains forward.
+ *
+ * It is also the only way OFF a row that a drop onto the buffer, the weekend or a margin
+ * padlocked — which is why it is on the row's hover bar and in the job panel's list, and
+ * why nothing else in the app clears the flag.
+ *
+ * ON A PAST ROW IT MEANS NOTHING AND IS REFUSED. The past is frozen for the engine
+ * whatever the padlock says (`isMovable` asks the date first), so toggling it there would
+ * be a mark that changes nothing, on the one part of the calendar that is a record rather
+ * than a plan. A padlock a row carried into the past simply stays on it.
  */
 export function setBlockLock(
   blockId: string,
@@ -341,6 +401,7 @@ export function setBlockLock(
 
   return runTransaction(db, () => {
     const block = requireBlock(blockId, db);
+    assertNotPast(block.date, today, { blockId });
     setBlockLocked(blockId, locked, db);
     // No `manualPlacementBlockId`: the padlock changes no geometry, so it cannot
     // create an overlap. A row that was unlocked was reflowed clear of everything,
@@ -375,14 +436,29 @@ export interface SplitBlockInput {
  *
  * The FRAGMENT is the dropped row, so it is the one whose overlaps are resolved:
  * splitting 2 h onto a Saturday the job already occupies merges the two into one
- * row of the summed hours instead of leaving them stacked.
+ * row of the summed hours instead of leaving them stacked. It follows a drop's other
+ * rules too: aimed below what the day holds, it lands on the next day the calendar would
+ * use.
+ *
+ * Neither end may be a past day: not the row being cut, and not where the portion is
+ * dropped.
  */
 export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = getDb()): BlockMutation {
   const today = input.today ?? todayLocal();
 
   return runTransaction(db, () => {
     const block = requireBlock(blockId, db);
-    assertFitsInDay(input.startMinutes, input.durationMinutes);
+    assertNotPast(block.date, today, { blockId });
+    assertNotPastTarget(input.date, today);
+
+    const dayOf = dayConfigResolver(db);
+    const landing = dropLanding({
+      date: input.date,
+      startMinutes: input.startMinutes,
+      durationMinutes: input.durationMinutes,
+      dayOf: (date) => landingDay(date, dayOf, today),
+    });
+    assertFitsInDay(landing.startMinutes, input.durationMinutes);
     if (input.durationMinutes >= block.durationMinutes) {
       throw conflict('split-exceeds-block', ERROR_MESSAGE_KEYS.splitExceedsBlock, {
         field: 'durationMinutes',
@@ -423,17 +499,18 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
     draft.push({
       id: fragmentId,
       projectId: block.projectId,
-      date: input.date,
-      startMinutes: input.startMinutes,
+      date: landing.date,
+      startMinutes: landing.startMinutes,
       durationMinutes: input.durationMinutes,
-      locked: block.locked,
+      // The fragment IS the drop, so it follows the same rule a move does: padlocked on
+      // the buffer, on the weekend and in manual-only time, an ordinary queue rank
+      // anywhere Monday to Thursday the engine can reach. On top of whatever the source
+      // row already carried, since splitting is not a decision about mobility.
+      locked:
+        block.locked || pinsTheRow(landing.date, landing.startMinutes, input.durationMinutes, dayOf),
       // A fragment's length is the portion the owner chose to MOVE, not a length
       // drawn on the calendar; `locked` is what pins a fragment to a slot.
       manualDuration: false,
-      // The fragment IS the drop, so it follows the same rule a move does: pinned on
-      // the buffer, on the weekend and in manual-only time, an ordinary queue rank
-      // anywhere Monday to Thursday the engine can reach.
-      handPlaced: pinsTheRow(input.date, input.startMinutes, input.durationMinutes, db),
       createdAt: now,
       updatedAt: now,
     });
@@ -451,6 +528,10 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
  * hours off the calendar, so it would either strand a job with an estimate and no
  * rows or silently delete the job; deleting the job is a separate, confirmed action
  * (`DELETE /api/projects/:id`), and this points at it.
+ *
+ * A PAST row is refused too. It takes hours off a day the shop has already worked, which
+ * is the plainest case of the record being rewritten — and the hover bar this gesture
+ * belongs to is not drawn on a past day at all.
  */
 export function deleteBlock(
   blockId: string,
@@ -461,6 +542,7 @@ export function deleteBlock(
 
   return runTransaction(db, () => {
     const block = requireBlock(blockId, db);
+    assertNotPast(block.date, today, { blockId });
     const own = listBlocksByProject(block.projectId, db);
     if (own.length <= 1) {
       throw conflict('delete-last-block', ERROR_MESSAGE_KEYS.deleteLastBlock, {
@@ -502,6 +584,53 @@ function requireBlock(blockId: string, db: Db): Block {
   return block;
 }
 
+/**
+ * THE PAST IS READ-ONLY TO THE BLOCK GESTURES (decided with the owner, 2026-08-13).
+ *
+ * Recomposition exists to close holes, and the engine is already forbidden the past so a
+ * Monday cut short by a breakdown does not get its hole closed with Tuesday's work. This
+ * is the same rule applied to the HAND: a day the shop has already worked is a record,
+ * and a gesture that moves, resizes, cuts, deletes or re-marks a row on it edits that
+ * record for no schedule that can still change.
+ *
+ * The cost was named and accepted: it removes "correcting yesterday", which is the case
+ * *Block Resize* was designed for. The way to change a job whose work is behind it is the
+ * job's form, where the hours go to a row on a future day.
+ */
+function assertNotPast(date: string, today: string, details: Record<string, unknown>): void {
+  if (compareDates(date, today) >= 0) return;
+  throw conflict('past-block-frozen', ERROR_MESSAGE_KEYS.pastBlockFrozen, {
+    details: { ...details, date, today },
+  });
+}
+
+/**
+ * One day as `dropLanding` needs it: the configuration, plus the answer to "does the engine
+ * lay this day out at all". Kept here rather than in the resolver because `dayReflows` is
+ * the ENGINE's predicate and needs `today`, which a day configuration knows nothing about.
+ */
+function landingDay(
+  date: string,
+  dayOf: (date: string) => DayConfig,
+  today: string,
+): DropDay {
+  const config = dayOf(date);
+  return {
+    periods: config.periods,
+    manualWindows: config.manualWindows,
+    reflows: dayReflows(config, date, today),
+  };
+}
+
+/** The other half: a drop may not be AIMED at a past day either. */
+function assertNotPastTarget(date: string, today: string): void {
+  if (compareDates(date, today) >= 0) return;
+  throw conflict('drop-onto-past-day', ERROR_MESSAGE_KEYS.dropOntoPastDay, {
+    field: 'date',
+    details: { date, today },
+  });
+}
+
 /** Re-reads the row the request named, which the reflow may have merged away. */
 function settled(
   blockId: string,
@@ -520,12 +649,24 @@ function settled(
   };
 }
 
+/**
+ * Turns an edit transform's refusal into a 409, carrying everything the caller needs to
+ * act on it — including, for `shrink-needs-choice`, the freed hours and the answers that
+ * exist. That question must be answerable in ONE round trip: the client puts all three
+ * ways out to the owner and sends the one they pick back as `freedHours`.
+ */
 function requireEdit(result: ReturnType<typeof resizeBlockHours>): EditSuccess {
   if (!result.ok) {
     throw conflict(result.error.code, result.error.messageKey, {
       details: {
         ...(result.error.projectId === undefined ? {} : { projectId: result.error.projectId }),
         ...(result.error.blockId === undefined ? {} : { blockId: result.error.blockId }),
+        // Minutes, and only minutes: the sentence does not name a number, and the dialog
+        // formats one the way the owner reads hours everywhere else. Two spellings of the
+        // same quantity in `details` would also collide with the REQUEST's `freedHours`,
+        // which is an answer rather than an amount.
+        ...(result.error.freedMinutes === undefined ? {} : { freedMinutes: result.error.freedMinutes }),
+        ...(result.error.choices === undefined ? {} : { choices: result.error.choices }),
       },
     });
   }

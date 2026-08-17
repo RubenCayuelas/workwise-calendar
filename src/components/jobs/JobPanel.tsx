@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, ColorDot, ConfirmDialog, InlineBanner, SidePanel } from '../ui';
+import { Button, ColorDot, ConfirmDialog, InlineBanner, SidePanel, useToast } from '../ui';
 import {
   apiErrorMessage,
   deleteProject,
@@ -66,7 +66,8 @@ export function JobPanel({
   onSplitBlock,
   today,
 }: JobPanelProps): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const toast = useToast();
   const format = useFormat();
   const reference = today ?? todayLocal();
 
@@ -240,8 +241,27 @@ export function JobPanel({
     setActionError(null);
 
     try {
-      const result = await deleteProject(project.id);
+      /*
+       * THE LANGUAGE IS PART OF THE REQUEST because deleting a job LEAVES ITS PAST
+       * BEHIND: every row dated before today becomes a gap named `Trabajo «X»
+       * eliminado`, so the day the shop actually worked keeps its shape and nothing
+       * later is pulled back into the hole.
+       *
+       * That sentence is composed on the server at deletion time and STORED — the
+       * project row is gone by then, so there is nothing left to look the name up in.
+       * Being stored, it is frozen in whatever language was current when the job was
+       * deleted, and switching to English later will not translate it. That is the right
+       * trade: a gap's `reason` is user data, the same field that holds "Avería torno",
+       * and it stays editable afterwards like any other gap.
+       */
+      const result = await deleteProject(project.id, { language: i18n.language });
       onChanged?.({ kind: 'job-deleted', projectId: project.id, summary: result.summary });
+      // Said only when there IS a past to have kept: on a job entirely in the future the
+      // calendar closing up is the whole story, and a notice about nothing would teach
+      // the owner to stop reading them.
+      if (result.preservedGapIds.length > 0) {
+        toast.info(t('notices.deletedJobPast', { count: result.preservedGapIds.length }));
+      }
       onDeleted?.(project.id);
       setConfirmOpen(false);
       onClose();

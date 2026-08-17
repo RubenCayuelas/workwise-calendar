@@ -46,7 +46,8 @@ export const MIN_LABEL_HEIGHT = 34;
  *
  * 56 px leaves at least 19 px of body between the bar and the handle, which is a target a
  * mouse on a shop PC can actually acquire. Above it the bar stays where the wireframe puts
- * it; below it the bar lifts off the row entirely (`.cramped` in CalendarBlock.module.css).
+ * it; below it the bar lifts off the row entirely (`.detached` in CalendarBlock.module.css)
+ * — the same answer `MIN_BLOCK_GRAB_WIDTH` gives on the other axis.
  */
 export const MIN_ACTIONS_HEIGHT = 56;
 
@@ -57,6 +58,48 @@ export const MIN_ACTIONS_HEIGHT = 56;
  * but under the sticky day header, so it docks below instead.
  */
 export const ACTIONS_BAR_HEIGHT = 27;
+
+/**
+ * One button of the hover action bar: `--ww-control-height-sm` (24 px) plus the 2 px gap
+ * the bar puts between them. The bar is as wide as the buttons it happens to be showing —
+ * three on an ordinary row, five when *back to automatic* and *cerrar el día aquí* are
+ * both offered — so its width is a number the component works out, not a constant.
+ */
+export const ACTIONS_BUTTON_WIDTH = 26;
+
+/**
+ * THE NARROWEST STRIP OF BLOCK THAT IS STILL A TARGET FOR THE MOUSE, once the action bar
+ * has taken its share of the top edge.
+ *
+ * The second half of the same defect `MIN_ACTIONS_HEIGHT` closes, on the other axis and
+ * still open until 2026-08-14: the bar is anchored at the block's right edge and it takes
+ * the WHOLE top of a narrow block, name included — on a weekend column (116 px floor) and
+ * on any weekday column once the window is small enough. The block is tall, so it is not
+ * `cramped` and the bar stayed inside it; a click on the block's own name therefore landed
+ * on a button — *Eliminar* at the right end, *Cerrar el día aquí* down the middle — and a
+ * gesture that quietly does something else is worse than one that does nothing.
+ *
+ * 44 px is about two characters of the job's name plus its padding: enough that the owner
+ * can see there is block left to press, and small enough that the bar is not thrown out of
+ * every column on the shop's own monitor. Below it the bar leaves the block's hit area
+ * altogether and docks against the outside of its top edge, exactly as a cramped row's
+ * does — one behaviour, two reasons to reach it.
+ */
+export const MIN_BLOCK_GRAB_WIDTH = 44;
+
+/**
+ * Does the action bar leave enough of this block to press? `width` is the block's own
+ * width in pixels (a lane's share of the column, not the column), and `buttons` is how
+ * many the bar is showing.
+ *
+ * `null` means "not measured yet", which is answered `true`: the bar stays where the
+ * wireframe puts it until the grid has been measured, and one frame of the old placement
+ * is better than one frame of a bar hanging over the row above.
+ */
+export function blockHoldsActions(width: number | null, buttons: number): boolean {
+  if (width === null) return true;
+  return width - buttons * ACTIONS_BUTTON_WIDTH >= MIN_BLOCK_GRAB_WIDTH;
+}
 
 /** Default vertical scale, used until the grid has been measured. */
 export const DEFAULT_PIXELS_PER_HOUR = 72;
@@ -395,11 +438,15 @@ export function clampDropStart(
  * meant to precede, and the cut lands one minute in — `Beta 08:00-08:01 (0,02 h)`,
  * `Alfa 08:01-10:01`, `Beta 10:01-12:00`. A one-minute row is below `MIN_ROW_MINUTES`,
  * nothing on screen asked for it, and the two halves of a 15-minute snap gave opposite
- * answers for a difference the owner cannot see or aim at. Releasing below the start is
- * still how you cut a row: one snap step is 15 minutes and does not tie at all.
+ * answers for a difference the owner cannot see or aim at.
  *
- * One minute is enough — the rank is an ordering, not a time, and the reflow rewrites
- * the position anyway.
+ * SINCE THIRDS THE AIM CANNOT LAND A HAIR BELOW A START AT ALL (`aimAtThirds` in
+ * dropAim.ts): over a row there are three targets and its own start is one of them, so a
+ * tie is the ORDINARY way to say "before this one" rather than an accident of the pixel.
+ * That is why the unsnapped pointer minute is gone from this function — it was the input
+ * that made the direction unaimable — while the nudge stays, because it is the mechanism
+ * "before" is expressed WITH. One minute is enough: the rank is an ordering, not a time,
+ * and the reflow rewrites the position anyway.
  *
  * WHICH IS WHY A PINNED PLACEMENT IS NEVER NUDGED. Where the row keeps the minute it was
  * released on (`pinsTheRow`: the weekend, the colchón, a visual margin, the lunch band, a
@@ -416,7 +463,6 @@ export function clampDropStart(
  */
 export function rankFor(
   snappedMinutes: number,
-  exactMinutes: number,
   takenStarts: readonly number[],
   clampStart: (minutes: number) => number,
   /** The placement keeps this exact minute, so it is a time and not a rank. */

@@ -3,7 +3,7 @@
  *
  * WHY THIS EXISTS. A drop onto Friday used to answer 200 and change nothing: the row was
  * pulled straight back by the reflow and the calendar looked exactly as it had a second
- * earlier. The engine fix (`handPlaced`) means that particular drop now lands — but the
+ * earlier. The engine fix (the drop padlocks the row) means that particular drop lands — but the
  * shape of the failure was never Friday's alone. A drop writes a QUEUE RANK, so the row
  * lands where the reflow puts it, which may be the same place it started, another week,
  * or nowhere at all if a row of its own job absorbed it. **Every one of those looks
@@ -33,18 +33,24 @@ export interface DropOutcomeInput {
    * The dropped row as the server stored it, or `null` when the id no longer exists:
    * a row of the same job absorbed it, by the overlap merge or by auto-merge.
    */
-  landed: (DropPoint & { handPlaced: boolean }) | null;
+  landed: (DropPoint & { locked: boolean }) | null;
   /** True when the merge was already reported (`BlockMutation.mergedBlockIds`). */
   merged: boolean;
+  /**
+   * The unit already carried a padlock before the drag. A row that was padlocked and
+   * stayed exactly where it was put is not news; a row the DROP padlocked is, because the
+   * mark is new state the owner did not press for.
+   */
+  wasLocked: boolean;
   /** The seven dates the week on screen is showing. */
   visibleDates: readonly string[];
 }
 
 export type DropOutcomeKind =
   /**
-   * The row stayed exactly where it was dropped AND the engine has promised to leave it
-   * there — the buffer and the weekend. The one outcome that is a new state rather than
-   * a movement, so it says how to undo it.
+   * The drop PADLOCKED the row: it stayed exactly where it was released and the engine has
+   * promised to leave it there — the buffer, the weekend, a visual margin. The one outcome
+   * that is a new state rather than a movement, so it says how to undo it.
    */
   | 'pinned'
   /** The reflow put it somewhere else on this week. The grid slides it; this says why. */
@@ -86,7 +92,9 @@ export function describeDrop(input: DropOutcomeInput): DropOutcome | null {
     return input.merged ? null : { kind: 'absorbed', date: to.date };
   }
 
-  if (landed.handPlaced) return { kind: 'pinned', date: landed.date };
+  // Only when the padlock is NEW. Dragging a row that was already padlocked keeps it
+  // where it was released, which is what the owner asked for and already knew.
+  if (landed.locked && !input.wasLocked) return { kind: 'pinned', date: landed.date };
 
   if (!input.visibleDates.includes(landed.date)) return { kind: 'leftWeek', date: landed.date };
 

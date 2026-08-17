@@ -14,7 +14,7 @@
  * |---------------------------------------------|----------|---------------------------------|
  * | the queue already reaches it: appending the job lands on or after that day | `queue`  | today's behaviour exactly: one provisional row after the last block. The floor is not binding, so the job joins the end of the queue — and when that is LATER than the day chosen, the form says so before saving. |
  * | the same, but the owner disagreed            | `forced` | one provisional row ranked at 00:00 of that day, so the job takes that place in the queue and the work behind it moves — the same outcome as creating the job and dragging it there. |
- * | the engine would place it EARLIER (the day is beyond the work planned), or would not place it there at all (a Friday, a weekend, the past) | `born` | the job's real rows, on that day and the days after it, LOCKED wherever a lock is the only thing that would hold them, and marked `handPlaced` on the buffer and the weekend. |
+ * | the engine would place it EARLIER (the day is beyond the work planned), or would not place it there at all (a Friday, a weekend, the past) | `born` | the job's real rows, on that day and the days after it, LOCKED wherever a lock is the only thing that would hold them — every row when the floor binds, and the rows on the chosen day itself when that day is one the engine would never use (a Friday, a weekend). |
  *
  * WHY THE LOCK IS MECHANICAL AND NOT A PREFERENCE. Queue order IS calendar position
  * (`ORDER BY date, start_time`) and the engine fills forward from today to avoid leaving
@@ -101,8 +101,12 @@ export interface StartDateDecision {
   floorBinding: boolean;
   /** Every row created for the job is locked. Mechanical, not a preference. */
   autoLock: boolean;
-  /** Rows born on the chosen day carry `handPlaced`: a human chose that day. */
-  handPlaced: boolean;
+  /**
+   * The rows born ON THE CHOSEN DAY are locked, because it is a day the engine would
+   * never have used — the Friday buffer, the weekend — and the padlock is the only thing
+   * that keeps them there. Not the tail on later days: the engine chose those.
+   */
+  dayLock: boolean;
   /** The Friday buffer and the weekend are honoured only after the owner confirms. */
   needsDayConfirmation: boolean;
   mode: CreationMode;
@@ -169,7 +173,7 @@ export function decideStartDate(question: StartDateQuestion): StartDateDecision 
     beyondQueue,
     floorBinding,
     autoLock: mode === 'born' && (floorBinding || day === 'past'),
-    handPlaced: day === 'buffer' || day === 'weekend',
+    dayLock: day === 'buffer' || day === 'weekend',
     needsDayConfirmation: day === 'buffer' || day === 'weekend',
     mode,
   };
@@ -207,7 +211,7 @@ export interface CreationCollision {
    * block is not a wall.
    */
   locked: boolean;
-  /** The engine cannot move it at all: locked, hand-placed, on a weekend or in the past. */
+  /** The engine cannot move it at all: locked, on a weekend or in the past. */
   fixed: boolean;
 }
 
@@ -467,13 +471,13 @@ function bornRow(
     date: segment.date,
     startMinutes: segment.startMinutes,
     durationMinutes: segment.durationMinutes,
-    // Every row or none: a half-locked job would come apart on the next reflow.
-    locked: decision.autoLock,
+    // Two reasons for one padlock. `autoLock` is every row or none — a half-locked job
+    // would come apart on the next reflow — while `dayLock` stands for the DAY a human
+    // chose, so it goes on the rows that landed on that day and not on the tail, whose
+    // day the engine decided.
+    locked: decision.autoLock || (decision.dayLock && segment.date === decision.startDate),
     // A length nobody drew by hand.
     manualDuration: false,
-    // The mark stands for the DAY a human chose, so it goes on the rows that landed on
-    // that day and not on the tail, whose day the engine decided.
-    handPlaced: decision.handPlaced && segment.date === decision.startDate,
     createdAt: request.now,
     updatedAt: request.now,
   };
@@ -495,7 +499,6 @@ function rankedRow(request: CreationRequest, date: string, minutes: number): Blo
     durationMinutes: minutes,
     locked: false,
     manualDuration: false,
-    handPlaced: false,
     createdAt: request.now,
     updatedAt: request.now,
   };
@@ -663,10 +666,7 @@ function collisionsIn(
     const key = `${block.date}|${block.projectId}`;
     const entry = byKey.get(key);
     const fixed =
-      block.locked ||
-      block.handPlaced ||
-      isWeekend(block.date) ||
-      compareDates(block.date, input.today) < 0;
+      block.locked || isWeekend(block.date) || compareDates(block.date, input.today) < 0;
 
     if (entry === undefined) {
       byKey.set(key, {

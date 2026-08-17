@@ -47,7 +47,13 @@ export interface Block {
   startMinutes: number;
   /** Net working minutes — a block is always a solid rectangle on the clock. */
   durationMinutes: number;
-  /** The only exemption from auto-move. The owner can still move it by hand. */
+  /**
+   * The ONE thing that fixes a row's position: the engine never moves it, and the owner
+   * can still move it by hand. Set by the padlock, and by a drop onto a place the engine
+   * would never choose on its own — a visual margin, the Friday buffer, the weekend —
+   * because there the reflow's only possible answer to the gesture would be to undo it.
+   * Cleared by the padlock, and by nothing else.
+   */
   locked: boolean;
   /**
    * The duration on this row was set BY HAND (the bottom-edge drag), so the engine
@@ -61,18 +67,6 @@ export interface Block {
    * Duration*.
    */
   manualDuration: boolean;
-  /**
-   * A HUMAN put this row on this day, where the engine would otherwise have taken it
-   * back: the Friday buffer or the weekend. The engine then treats it as a fixed
-   * obstacle — it may never move it, exactly as it may never move a weekend row.
-   *
-   * It is what distinguishes "the engine parked overflow on Friday" (recovered as soon
-   * as Mon-Thu frees up, which is what the colchón is for) from "the owner said do this
-   * on Friday" (never recovered). Written by a drop onto a non-auto day and cleared by
-   * a drop back onto Mon-Thu or by *back to automatic* — see CLAUDE.md, *A Hand-Placed
-   * Row*.
-   */
-  handPlaced: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -190,8 +184,6 @@ export interface BlockRow {
   locked: number;
   /** 0/1: the duration was set by hand and the engine may not re-derive it. */
   manual_duration: number;
-  /** 0/1: a human put the row on this day and the engine may not recover it. */
-  hand_placed: number;
   created_at: string;
   updated_at: string;
 }
@@ -243,7 +235,6 @@ export function mapBlockRow(row: BlockRow): Block {
     durationMinutes: hoursToMinutes(row.duration),
     locked: toBoolean(row.locked),
     manualDuration: toBoolean(row.manual_duration),
-    handPlaced: toBoolean(row.hand_placed),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -293,7 +284,6 @@ export function toBlockRow(block: Block): BlockRow {
     duration: minutesToHours(block.durationMinutes),
     locked: block.locked ? 1 : 0,
     manual_duration: block.manualDuration ? 1 : 0,
-    hand_placed: block.handPlaced ? 1 : 0,
     created_at: block.createdAt,
     updated_at: block.updatedAt,
   };

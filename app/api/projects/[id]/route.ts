@@ -4,12 +4,22 @@
  * GET    -> { project, blocks }                     every block of the job, all weeks
  * PATCH     { name?, description?, color?, totalHours? }
  *        -> { project, blocks, summary, touchedLockedBlockIds }
- * DELETE -> { deleted: true, summary }
+ * DELETE ?lang=es -> { deleted: true, summary, preservedGapIds }
  *
  * `description` accepts `null` (or `""`) to clear it. Changing name, description or
  * colour moves nothing on the calendar; changing `totalHours` goes through the LIFO
  * rule — added hours land on the job's last unlocked block, removed hours come off
  * it and delete any row that reaches zero.
+ *
+ * DELETING LEAVES THE JOB'S PAST BEHIND. Its rows on days the shop has already worked
+ * become GAPS — same date, same start, same duration — each one carrying the job's name in
+ * its reason (`Trabajo «Barandilla» eliminado`), so those days keep their shape and the
+ * owner can still tell what was there. `preservedGapIds` lists them, newest week last, and
+ * they are editable and deletable like any other gap.
+ *
+ * `?lang=` is what those sentences are written in. They become stored user data and cannot
+ * be re-translated afterwards, so the language the owner is READING the app in is the one
+ * to send; Spanish is used when it is missing or unknown.
  *
  * Deleting recomposes, so it can fail with `horizon-exceeded` when the remaining
  * backlog no longer fits inside the planning horizon. The whole delete rolls back;
@@ -55,9 +65,12 @@ export async function PATCH(request: NextRequest, context: Context): Promise<Res
   });
 }
 
-export async function DELETE(_request: NextRequest, context: Context): Promise<Response> {
+export async function DELETE(request: NextRequest, context: Context): Promise<Response> {
   return route(async () => {
     const { id } = await context.params;
-    return { deleted: true, ...deleteProject(id) };
+    // The wording of the gaps the job's past leaves behind, and nothing else. An unknown
+    // value is not an error: it falls back to Spanish, the shop's own language.
+    const language = new URL(request.url).searchParams.get('lang') ?? undefined;
+    return { deleted: true, ...deleteProject(id, { language }) };
   });
 }

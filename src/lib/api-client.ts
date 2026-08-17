@@ -24,7 +24,7 @@
  */
 
 import type { Block, DayShape, Gap, Project, Settings } from '../types';
-import type { ScheduleSummary } from './composition';
+import type { FreedHoursChoice, ScheduleSummary } from './composition';
 import type { TranslateFn } from './format';
 import { formatLongDate } from './format';
 import { DEFAULT_LANGUAGE } from './i18n';
@@ -33,7 +33,7 @@ import { DEFAULT_LANGUAGE } from './i18n';
 // type` is erased at compile time, so nothing from the server module (which opens
 // SQLite) reaches the browser bundle.
 export type { WeekBlock, WeekDay, WeekView } from './operations/views';
-export type { ScheduleSummary } from './composition';
+export type { FreedHoursChoice, ScheduleSummary } from './composition';
 export type { Block, DayShape, Gap, Project, Settings, WorkPeriod } from '../types';
 export type {
   CreationOutcome,
@@ -159,9 +159,13 @@ export interface MoveBlockInput {
    * queue and then settles contiguously after whatever precedes it — it does not
    * stay at these minutes. Lock it afterwards to pin it.
    *
-   * A drop exactly on an existing block's start is an ORDER TIE broken by
-   * `created_at`, so the older row wins and the drop looks like it did nothing.
-   * Compute the rank strictly BETWEEN neighbours.
+   * A drop exactly on an existing row's start means BEFORE IT: the row underneath stays
+   * whole and follows, and nothing is cut. The server settles that tie in the drop's
+   * favour, so the rank does not have to be nudged off the minute the owner aimed at; to
+   * cut a row, aim below its start.
+   *
+   * Aimed below what the day can hold, the whole drop moves to the next day the calendar
+   * would use — the response says where it really landed.
    */
   startMinutes: number;
   /**
@@ -475,12 +479,29 @@ export function updateProject(
   );
 }
 
-/** Deletes the job and its rows. Recomposes, so it can fail with `horizon-exceeded`. */
+/**
+ * Deletes the job. Its FUTURE rows go and the calendar closes the hole; its PAST rows stay
+ * as GAPS, one per row, each named `Trabajo «X» eliminado` — the days the shop has already
+ * worked keep their shape, and `preservedGapIds` says how many there were
+ * (`notices.deletedJobPast`, with `count`).
+ *
+ * PASS THE LANGUAGE THE OWNER IS READING. Those gap reasons are stored user data and
+ * cannot be re-translated later, so they are written in the language given here; Spanish
+ * when it is left out. `i18n.language` is the value to send.
+ *
+ * Recomposes, so it can fail with `horizon-exceeded`.
+ */
 export function deleteProject(
   projectId: string,
-  options?: RequestOptions,
-): Promise<{ deleted: true; summary: ScheduleSummary }> {
-  return send('DELETE', `/projects/${encodeURIComponent(projectId)}`, undefined, options);
+  options: RequestOptions & { language?: string } = {},
+): Promise<{ deleted: true; summary: ScheduleSummary; preservedGapIds: string[] }> {
+  const query = options.language === undefined ? '' : `?lang=${encodeURIComponent(options.language)}`;
+  return send(
+    'DELETE',
+    `/projects/${encodeURIComponent(projectId)}${query}`,
+    undefined,
+    options,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -494,23 +515,33 @@ export function deleteProject(
  * reflows; the row settles contiguously after whatever precedes it rather than staying
  * at the minute it was dropped at.
  *
- * On the FRIDAY buffer or the WEEKEND it PINS: the row comes back with
- * `handPlaced: true`, keeps the exact slot, and the engine never recovers it — which is
- * how work stays on the colchón at all. Dropping it back onto Mon-Thu clears the mark,
- * and so does `releaseBlockDuration`.
+ * On the FRIDAY buffer, the WEEKEND or a VISUAL MARGIN it PADLOCKS: the row comes back
+ * with `locked: true`, keeps the exact slot, and the engine never recovers it — which is
+ * how work stays on the colchón at all. The padlock is only ever added by a drop; the way
+ * off is `setBlockLock(id, false)`, never `releaseBlockDuration`.
  *
  * Either way the row is stored in SEGMENTS: a drop crossing the lunch break comes back
  * as two rows of one job, and `block` is the first of them.
  *
- * IT IS NEVER REFUSED FOR A COLLISION on a day the engine reflows — Monday to Thursday
- * and the Friday buffer, from today on. There a drop is a rank and the reflow is what
- * finds the room, so a gap or a locked row in the way slides the drop forward on that day
- * (still pinned, at the nearest slot it can have), and a day with no clear slot takes it
- * as a plain rank (`handPlaced: false`). The 409s — `overlaps-gap`,
- * `overlaps-locked-block`, `merge-exceeds-day`, `displaced-hours-unplaceable` — are left
- * only where the drop lands literally: the weekend, a closed day, the frozen past, and a
- * LOCKED row being dragged. So the caller must expect a landing that is neither the drop
- * point nor a refusal, which is what `describeDrop` is for.
+ * A DROP THE ENGINE STILL OWNS IS NEVER REFUSED FOR A COLLISION — an unlocked row inside
+ * the periods of Monday to Thursday or the Friday buffer, from today on. There a drop is a
+ * rank and the reflow is what finds the room. A drop that PADLOCKS is slid forward past a
+ * gap or a lock in its way, on the day it was aimed at, and refused when the day has no
+ * clear slot. The 409s — `overlaps-gap`, `overlaps-locked-block`, `merge-exceeds-day`,
+ * `displaced-hours-unplaceable` — therefore belong to a drop that lands literally: the
+ * weekend, a closed day, a margin, and a locked row being dragged. So the
+ * caller must expect a landing that is neither the drop point nor a refusal, which is what
+ * `describeDrop` is for.
+ *
+ * TWO MORE LANDINGS THAT ARE NOT THE DROP POINT, and neither is a refusal:
+ *
+ * - aimed BELOW what the day can hold, the drop moves to the next day the ENGINE would use,
+ *   at the top of its working periods — Mon-Thu and the Friday colchón roll forward, while
+ *   the weekend, a closed day and the past keep the day and the end-of-day refusal;
+ * - aimed exactly at another row's start, it goes BEFORE that row, which stays whole.
+ *
+ * A PAST day is the one place a drop is refused outright, at either end: moving a past row
+ * is `past-block-frozen` and aiming at a past day is `drop-onto-past-day`, both 409.
  */
 export function moveBlock(
   blockId: string,
@@ -526,35 +557,48 @@ export function moveBlock(
 }
 
 /**
- * Dragging the bottom edge. A transfer INSIDE the job, with its last row as the
- * counterparty — the total only changes when the row being resized IS the last one.
- * Shrinking the last row is refused (`shrink-last-block`, 409).
+ * Dragging the bottom edge. A transfer INSIDE the job: growing a row takes the hours off
+ * the job's last row (the total only changes when the row being resized IS the last one),
+ * shrinking one hands them to it.
+ *
+ * SHRINKING ASKS WHEN THE HOURS HAVE NOWHERE TO GO — the job's only row, or every other
+ * one locked, on a weekend or in the past. The request answers 409 `shrink-needs-choice`
+ * and writes nothing; `error.details` carries `freedMinutes` and `choices`,
+ * which is everything a dialog needs to offer all three ways out in one go. Send the
+ * owner's answer back through `freedHours`; cancelling is not calling again.
  *
  * The length STICKS on any row, including an unlocked weekday one: the row comes
  * back with `manualDuration: true`, the job's run ends there, its remaining hours
  * start on the next auto-fill day, and the jobs behind it take the hours this day
  * gained. `releaseBlockDuration` is the way back.
+ *
+ * A PAST row is refused (`past-block-frozen`, 409): the past is a record, and the hours of
+ * a job whose work is behind it are changed in the job form.
  */
 export function resizeBlock(
   blockId: string,
   durationMinutes: number,
-  options?: RequestOptions,
+  options: RequestOptions & { freedHours?: FreedHoursChoice } = {},
 ): Promise<BlockMutation> {
   return send<BlockMutation>(
     'PATCH',
     `/blocks/${encodeURIComponent(blockId)}`,
-    { action: 'resize', durationMinutes },
+    {
+      action: 'resize',
+      durationMinutes,
+      ...(options.freedHours === undefined ? {} : { freedHours: options.freedHours }),
+    },
     options,
   );
 }
 
 /**
  * "Back to automatic": gives the engine back the row's hand-set LENGTH
- * (`manualDuration`) and its hand-placed DAY (`handPlaced`) in one action, so it owns
- * the row again. Offer it whenever EITHER mark is set — a row pinned to Friday with an
- * automatic length has no other way back.
+ * (`manualDuration`), so it re-derives the job's segmentation from its total again.
  *
- * The name is the older of the two marks; it releases both.
+ * Offer it exactly when that mark is set. It does NOT release the padlock: that mark is
+ * drawn on the row and comes off with the padlock, which is the gesture the owner already
+ * has.
  */
 export function releaseBlockDuration(
   blockId: string,
@@ -632,9 +676,9 @@ export function listGaps(
  * A gap is time: it consumes the day's plannable hours like locked work does, so
  * saving one pushes the flexible work forward. Refused with `gap-over-fixed-block`
  * when the space is held by a row the engine may not move — `details.reason` is
- * `locked`, `hand-placed`, `past` or `weekend`, and `details` also names the job and
- * the times. The first two are the ones the owner can act on, so they are reported in
- * preference when several rows conflict.
+ * `locked`, `past` or `weekend`, and `details` also names the job and the times. The
+ * first is the one the owner can act on, so it is reported in preference when several
+ * rows conflict.
  */
 export function createGap(
   input: CreateGapInput,

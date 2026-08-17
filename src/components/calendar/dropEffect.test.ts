@@ -41,7 +41,6 @@ function row(overrides: Partial<DropRow> & { id: string }): DropRow {
     startMinutes: 8 * 60,
     durationMinutes: 6 * 60,
     locked: false,
-    handPlaced: false,
     project: { name: 'Barandilla' },
     ...overrides,
   };
@@ -123,7 +122,10 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
     expect(effect).toMatchObject({ kind: 'blocked', blockId: 'pinned' });
   });
 
-  it('refuses a merge whose own row is the locked one', () => {
+  it('still merges into the SAME job when the dragged unit is the padlocked one', () => {
+    // It refused until 2026-08-14, when the padlock became the mark every weekend drop
+    // leaves: the refusal then fired on the ordinary gesture of stacking more of one job
+    // on the Saturday it already sits on. The server merges and keeps the padlock.
     const effect = dropEffectOf(
       input({
         dayIsWeekend: true, pinned: true, dayReflows: false,
@@ -131,7 +133,7 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
         rows: [row({ id: 'saturday', projectId: 'porton' })],
       }),
     );
-    expect(effect).toMatchObject({ kind: 'blocked', blockId: 'saturday' });
+    expect(effect).toMatchObject({ kind: 'merge', blockId: 'saturday' });
   });
 
   it('collides with the locked rows of a weekday when the dragged unit is locked', () => {
@@ -146,13 +148,13 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
     });
   });
 
-  it('puts a Friday drop on the fixed side, because the buffer pins it', () => {
-    // A drop onto the colchón is hand-placed, so it leaves the movable pool and the
+  it('puts a Friday drop on the fixed side, because the buffer padlocks it', () => {
+    // A drop onto the colchón padlocks the row, so it leaves the movable pool and the
     // reflow will never separate it from what it lands on — exactly the weekend's case.
     const mine = row({
       id: 'viernes',
       projectId: 'porton',
-      handPlaced: true,
+      locked: true,
       project: { name: 'Portón' },
     });
     expect(dropEffectOf(input({ pinned: true, rows: [mine] }))).toMatchObject({
@@ -160,18 +162,18 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
       blockId: 'viernes',
     });
     expect(
-      dropEffectOf(input({ pinned: true, rows: [row({ id: 'a-mano', handPlaced: true })] })),
-    ).toMatchObject({ kind: 'cut', blockId: 'a-mano' });
+      dropEffectOf(input({ pinned: true, rows: [row({ id: 'a-mano', locked: true })] })),
+    ).toMatchObject({ kind: 'blocked', blockId: 'a-mano' });
     // ...but only against the rows that are themselves fixed. An engine-placed Friday
     // row is still movable — that is the buffer self-cleaning — so the reflow lays it
     // out around the drop and there is nothing to promise.
     expect(dropEffectOf(input({ pinned: true, rows: [row({ id: 'desborde' })] }))).toBeNull();
   });
 
-  it('treats a hand-placed row as fixed on the reflowed side too, so it is passed by', () => {
-    // A Mon-Thu drop flows around a row a human pinned, exactly as it flows around a
-    // lock: the server ignores fixed rows on that side and cuts nothing.
-    expect(dropEffectOf(input({ rows: [row({ id: 'a-mano', handPlaced: true })] }))).toBeNull();
+  it('passes a padlocked row by on the reflowed side, cutting nothing', () => {
+    // A Mon-Thu drop the engine still owns flows around a padlocked row: the server
+    // ignores fixed rows on that side, whichever gesture fixed them.
+    expect(dropEffectOf(input({ rows: [row({ id: 'a-mano', locked: true })] }))).toBeNull();
   });
 
   it('measures the drop by its SEGMENTS, so it never claims the lunch band', () => {
@@ -288,9 +290,10 @@ describe('a gap or a lock under the drop — refused, or slid past?', () => {
     expect(resolved.effect).toBeNull();
   });
 
-  it('gives up the PIN when the day has no clear slot, rather than refusing', () => {
+  it('shows the refusal when the day has no clear slot: the pin cannot be given up', () => {
     // Gaps over every minute the unit could still start on: `firstClearStart` answers
-    // null, the server re-ranks, and the ghost has to become an insertion point.
+    // null, and the server refuses rather than dropping the padlock it is about to put on
+    // the row. So the ghost stays where the pointer is and names the gap.
     const resolved = resolveDropPreview(
       input({
         pinned: true,
@@ -299,14 +302,32 @@ describe('a gap or a lock under the drop — refused, or slid past?', () => {
         gaps: [{ startMinutes: 10 * 60, durationMinutes: 4 * 60 }, { startMinutes: 15 * 60 + 30, durationMinutes: 5 * 60 }],
       }),
     );
-    expect(resolved).toMatchObject({ startMinutes: 10 * 60, pinned: false, slid: false });
-    expect(resolved.effect).toBeNull();
+    expect(resolved).toMatchObject({ startMinutes: 10 * 60, pinned: true, slid: false });
+    expect(resolved.effect).toMatchObject({ kind: 'gap' });
   });
 
-  it('never slides a LOCKED unit: the padlock means the slot as well as the row', () => {
+  it('slides a LOCKED unit too, on a day the engine lays out', () => {
+    // The padlock keeps the engine off the row; it does not stop the owner aiming it. And
+    // it cannot be treated differently from a drop onto the buffer, because since
+    // 2026-08-14 that drop IS a padlocked one.
     const resolved = resolveDropPreview(
       input({
         locked: true,
+        pinned: true,
+        startMinutes: 10 * 60,
+        durationMinutes: 60,
+        gaps: [{ startMinutes: 10 * 60, durationMinutes: 60 }],
+      }),
+    );
+    expect(resolved).toMatchObject({ startMinutes: 11 * 60, pinned: true, slid: true });
+    expect(resolved.effect).toBeNull();
+  });
+
+  it('does not slide on a day the engine never lays out: the weekend refuses instead', () => {
+    const resolved = resolveDropPreview(
+      input({
+        dayIsWeekend: true,
+        dayReflows: false,
         pinned: true,
         startMinutes: 10 * 60,
         durationMinutes: 60,
@@ -455,7 +476,7 @@ describe('the queue a re-ranked drop is expressed against', () => {
   it('leaves out every row the engine will not lay out', () => {
     const mixed = [
       queueRow({ id: 'locked', date: '2026-08-17', startMinutes: 9 * 60, name: 'A', locked: true }),
-      queueRow({ id: 'hand', date: '2026-08-17', startMinutes: 10 * 60, name: 'B', handPlaced: true }),
+      queueRow({ id: 'hand', date: '2026-08-17', startMinutes: 10 * 60, name: 'B', locked: true }),
       queueRow({ id: 'weekend', date: '2026-08-22', startMinutes: 9 * 60, name: 'C' }),
       queueRow({ id: 'movable', date: '2026-08-17', startMinutes: 11 * 60, name: 'D' }),
     ];
@@ -470,14 +491,12 @@ function queueRow(over: {
   startMinutes: number;
   name: string;
   locked?: boolean;
-  handPlaced?: boolean;
 }): QueueRow {
   return {
     id: over.id,
     date: over.date,
     startMinutes: over.startMinutes,
     locked: over.locked ?? false,
-    handPlaced: over.handPlaced ?? false,
     project: { name: over.name },
   };
 }

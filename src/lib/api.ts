@@ -231,6 +231,20 @@ export function readIdList(body: JsonBody, key: string, max = 64): string[] | un
   });
 }
 
+/**
+ * An OPTIONAL member of a fixed set — an answer the caller may or may not have, such as
+ * `freedHours` on a resize. Absent is `undefined`; present and wrong is a 400, because a
+ * misspelled answer must never be read as "no answer" and quietly asked again.
+ */
+export function readOneOf<T extends string>(
+  body: JsonBody,
+  key: string,
+  allowed: readonly T[],
+): T | undefined {
+  if (!hasField(body, key)) return undefined;
+  return requireOneOf(body, key, allowed);
+}
+
 /** A discriminator such as `action: "move" | "resize" | "lock"`. */
 export function requireOneOf<T extends string>(body: JsonBody, key: string, allowed: readonly T[]): T {
   const value = body[key];

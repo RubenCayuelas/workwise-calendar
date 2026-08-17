@@ -35,6 +35,7 @@ import {
   setBlockLock as apiSetBlockLock,
   splitBlock as apiSplitBlock,
   type BlockMutation,
+  type FreedHoursChoice,
   type ScheduleSummary,
   type WeekBlock,
   type WeekDay,
@@ -51,6 +52,7 @@ import { SummaryStrip } from './SummaryStrip';
 import { WeekHeader } from './WeekHeader';
 import { WeekGrid, type PlacingFragment, type SettleRequest } from './WeekGrid';
 import { MIN_SPLITTABLE_MINUTES, SplitBlockDialog } from './SplitBlockDialog';
+import { ResizeChoiceDialog } from './ResizeChoiceDialog';
 import { useBlockDrag, type DragTarget, type InertReason } from './useBlockDrag';
 import { useWeek } from './useWeek';
 import styles from './CalendarScreen.module.css';
@@ -145,6 +147,17 @@ export function CalendarScreen({
   const [placing, setPlacing] = useState<PlacingFragment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ block: WeekBlock; totalMinutes: number } | null>(null);
   const [settle, setSettle] = useState<SettleRequest | null>(null);
+  /**
+   * A shrink the server is holding open: it wrote nothing and asked what should happen to
+   * the freed hours. The whole gesture is kept, not just the ids, because the answer
+   * re-sends it verbatim and the toast afterwards needs the length the row started at.
+   */
+  const [resizeChoice, setResizeChoice] = useState<{
+    target: DragTarget;
+    durationMinutes: number;
+    freedMinutes: number;
+    choices: FreedHoursChoice[];
+  } | null>(null);
 
   // The axis: from Settings, widened to cover anything already on the calendar (a block
   // hand-dropped into a margin, or left over from a longer working day, must be visible
@@ -170,13 +183,26 @@ export function CalendarScreen({
     [],
   );
 
+  /**
+   * The week's days in calendar order — what a release below the end of a day needs, since
+   * the answer to it is another column (`resolveDropDay`).
+   */
+  const days = useCallback((): readonly WeekDay[] => viewRef.current?.days ?? [], []);
+
+  /** The rows on a date, so the aim can be quantised against the one it is over. */
+  const rowsOn = useCallback(
+    (date: string, exclude: readonly string[]): readonly WeekBlock[] =>
+      (viewRef.current?.blocks ?? []).filter(
+        (block) => block.date === date && !exclude.includes(block.id),
+      ),
+    [],
+  );
+
   /** Starts already taken on a date, so a drop rank never ties with an older row. */
   const takenStartsOn = useCallback(
     (date: string, exclude: readonly string[]): number[] =>
-      (viewRef.current?.blocks ?? [])
-        .filter((block) => block.date === date && !exclude.includes(block.id))
-        .map((block) => block.startMinutes),
-    [],
+      rowsOn(date, exclude).map((block) => block.startMinutes),
+    [rowsOn],
   );
 
   /**
@@ -272,9 +298,12 @@ export function CalendarScreen({
               : {
                   date: landed.date,
                   startMinutes: landed.startMinutes,
-                  handPlaced: landed.handPlaced,
+                  locked: landed.locked,
                 },
           merged: result.mergedBlockIds.length > 0,
+          // The unit as it was BEFORE the drag: a padlock it already had is not what the
+          // drop just did to it.
+          wasLocked: target.locked,
           visibleDates: viewRef.current?.week.dates ?? [],
         });
         if (outcome === null) return;
@@ -331,18 +360,25 @@ export function CalendarScreen({
    *   each sentence ends by saying the length is now fixed. The mark on the row and its
    *   tooltip carry that afterwards; this is what says it the moment it becomes true.
    *
-   * The refusal (`shrink-last-block`, 409) is caught here rather than left to `mutate`'s
-   * banner: it is the one failure with a concrete next step, and a toast lands where the
-   * gesture happened. Everything else is rethrown and reaches the banner as usual.
+   * SHRINKING MAY ASK INSTEAD OF SUCCEEDING (409 `shrink-needs-choice`). That is not a
+   * failure and it must not reach the banner: nothing was written, the server is holding
+   * the gesture open, and `details` carries the hours and exactly the answers that exist.
+   * It is caught here, turned into `ResizeChoiceDialog`, and re-sent verbatim with the
+   * owner's `freedHours`. Everything else is rethrown and reaches the banner as usual.
    */
   const onResize = useCallback(
-    (target: DragTarget, durationMinutes: number): void => {
+    (target: DragTarget, durationMinutes: number, freedHours?: FreedHoursChoice): void => {
       void mutate(async () => {
         try {
-          return await apiResizeBlock(target.blockId, durationMinutes);
+          return await apiResizeBlock(target.blockId, durationMinutes, { freedHours });
         } catch (error) {
-          if (isApiError(error) && error.code === 'shrink-last-block') {
-            toast.error(t('errors.shrinkLastBlock'));
+          if (isApiError(error) && error.code === 'shrink-needs-choice') {
+            setResizeChoice({
+              target,
+              durationMinutes,
+              freedMinutes: Number(error.details.freedMinutes ?? 0),
+              choices: (error.details.choices as FreedHoursChoice[] | undefined) ?? [],
+            });
             return undefined;
           }
           throw error;
@@ -350,6 +386,7 @@ export function CalendarScreen({
       }).then((result) => {
         report(result);
         if (result === undefined) return;
+        setResizeChoice(null);
         /*
          * BOTH THE DIRECTION AND THE HOURS COME FROM THE GESTURE, and they have to: what
          * the owner drew is a STRETCH in net working minutes, and a stretch that crosses
@@ -409,6 +446,8 @@ export function CalendarScreen({
     // real timeline has arrived anyway. Read once per gesture, at press.
     timeline: fittedTimeline ?? FALLBACK_TIMELINE,
     dayAt,
+    days,
+    rowsOn,
     takenStartsOn,
     // WIRED, not WRITABLE. `busy` and `loading` used to be in here, which made every press
     // in the second after a drop do nothing whatsoever; they are now an `inert` press the
@@ -505,7 +544,6 @@ export function CalendarScreen({
           // placement that went through `rankFor` with no cap at all, so a fragment could be
           // stored at 19:45-20:45, or 19:30-23:00 — past the end of the day (invariant 3).
           startMinutes: rankFor(
-            slot.startMinutes,
             slot.startMinutes,
             takenStartsOn(slot.date, [fragment.blockId]),
             (minutes) =>
@@ -714,6 +752,26 @@ export function CalendarScreen({
             durationMinutes,
           });
           setSplitSource(null);
+        }}
+      />
+
+      <ResizeChoiceDialog
+        request={
+          resizeChoice === null
+            ? null
+            : {
+                name: resizeChoice.target.name,
+                freedMinutes: resizeChoice.freedMinutes,
+                choices: resizeChoice.choices,
+              }
+        }
+        busy={busy}
+        // Cancelling is simply not asking again: the 409 wrote nothing, so the row is
+        // already at the length it had before the drag.
+        onCancel={() => setResizeChoice(null)}
+        onChoose={(choice) => {
+          if (resizeChoice === null) return;
+          onResize(resizeChoice.target, resizeChoice.durationMinutes, choice);
         }}
       />
 

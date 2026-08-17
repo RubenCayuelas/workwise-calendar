@@ -7,8 +7,7 @@
  *   `Block.startMinutes` / `Block.durationMinutes` are integers above.
  *   `mapBlockRow` converts, and `toBlockRow`'s halves are inlined into the write
  *   statements because an INSERT lets SQLite fill the timestamps.
- * - `locked`, `manual_duration` and `hand_placed` are 0/1 on disk and real booleans
- *   above.
+ * - `locked` and `manual_duration` are 0/1 on disk and real booleans above.
  *
  * The default order is `ORDER BY date, start_time`, which is not cosmetic: per
  * CLAUDE.md the QUEUE ORDER IS THE VISUAL ORDER, so this ordering is the engine's
@@ -24,7 +23,7 @@ import { mapBlockRow, type Block, type BlockRow } from '../../types';
 import { prepared } from './statements';
 
 const COLUMNS =
-  'id, project_id, date, start_time, duration, locked, manual_duration, hand_placed, created_at, updated_at';
+  'id, project_id, date, start_time, duration, locked, manual_duration, created_at, updated_at';
 const QUEUE_ORDER = 'ORDER BY date, start_time, created_at, id';
 
 /**
@@ -38,11 +37,10 @@ export interface BlockPlacement {
   date: string;
   startMinutes: number;
   durationMinutes: number;
+  /** The engine never moves it — the padlock, whoever's gesture set it. See CLAUDE.md. */
   locked: boolean;
   /** The duration was set by hand, so the engine keeps it. See CLAUDE.md. */
   manualDuration: boolean;
-  /** A human put the row on this day, so the engine never recovers it. See CLAUDE.md. */
-  handPlaced: boolean;
 }
 
 /** The whole calendar in queue order. Small table; the engine wants all of it. */
@@ -76,8 +74,8 @@ export function findBlock(id: string, db: Db = getDb()): Block | undefined {
 export function insertBlock(placement: BlockPlacement, db: Db = getDb()): void {
   prepared(
     db,
-    `INSERT INTO blocks (id, project_id, date, start_time, duration, locked, manual_duration, hand_placed)
-     VALUES (@id, @project_id, @date, @start_time, @duration, @locked, @manual_duration, @hand_placed)`,
+    `INSERT INTO blocks (id, project_id, date, start_time, duration, locked, manual_duration)
+     VALUES (@id, @project_id, @date, @start_time, @duration, @locked, @manual_duration)`,
   ).run(toParams(placement));
 }
 
@@ -91,8 +89,7 @@ export function updateBlock(placement: BlockPlacement, db: Db = getDb()): boolea
             start_time      = @start_time,
             duration        = @duration,
             locked          = @locked,
-            manual_duration = @manual_duration,
-            hand_placed     = @hand_placed
+            manual_duration = @manual_duration
       WHERE id = @id`,
   ).run(toParams(placement));
   return result.changes > 0;
@@ -155,6 +152,5 @@ function toParams(placement: BlockPlacement): Record<string, unknown> {
     duration: minutesToHours(placement.durationMinutes),
     locked: placement.locked ? 1 : 0,
     manual_duration: placement.manualDuration ? 1 : 0,
-    hand_placed: placement.handPlaced ? 1 : 0,
   };
 }

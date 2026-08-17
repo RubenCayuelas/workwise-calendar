@@ -275,12 +275,12 @@ export function manualOnlyMinutes(
  * visual margin, or the lunch band itself. The grid draws exactly that time grey and
  * labels it "solo arrastre manual".
  *
- * It is what decides that a hand action has to PIN its row (`handPlaced`): the engine's
- * index space has no margin minutes in it, so a row the reflow still owns would be pulled
- * straight back into the periods — either moved, or thrown onto the next day when the
- * hours no longer fit there. That is exactly why the margins were configurable and
- * unusable. The mark is the existing answer to "a human put this row where the engine
- * would otherwise have taken it back", and it already has an undo.
+ * It is what decides that a hand action has to PADLOCK its row: the engine's index space
+ * has no margin minutes in it, so a row the reflow still owns would be pulled straight
+ * back into the periods — either moved, or thrown onto the next day when the hours no
+ * longer fit there. That is exactly why the margins were configurable and unusable. The
+ * padlock is the app's one answer to "this does not move", it is drawn on the row, and it
+ * comes off by being pressed.
  */
 export function usesManualOnlyTime(
   periods: readonly WorkPeriod[],

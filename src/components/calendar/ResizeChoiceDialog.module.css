@@ -1,0 +1,88 @@
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--ww-z-dialog);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ww-space-6);
+  background: var(--ww-scrim);
+}
+
+.dialog {
+  width: 100%;
+  max-width: 420px;
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius-lg);
+  background: var(--ww-surface);
+  box-shadow: var(--ww-shadow-panel);
+  padding: var(--ww-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-3);
+}
+
+.title {
+  font-size: var(--ww-text-lg);
+  font-weight: var(--ww-weight-medium);
+}
+
+.description {
+  font-size: var(--ww-text-md);
+  line-height: var(--ww-line);
+  color: var(--ww-text-muted);
+}
+
+/*
+ * The answers are stacked and full width, not a row of buttons: each carries a hint under
+ * its label, and they are alternatives of equal weight rather than a primary and a
+ * secondary. Cancel sits apart, below, so the two that WRITE read as one group.
+ */
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-2);
+  margin-top: var(--ww-space-2);
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-1);
+  width: 100%;
+  text-align: left;
+  padding: var(--ww-space-3);
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius);
+  background: var(--ww-surface);
+  color: var(--ww-text);
+  cursor: pointer;
+}
+
+/* The focus ring is the global `:focus-visible` rule in app/globals.css. */
+.choice:hover:not(:disabled) {
+  background: var(--ww-hover-fill);
+  border-color: var(--ww-border-strong);
+}
+
+.choice:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.choiceLabel {
+  font-size: var(--ww-text-md);
+  font-weight: var(--ww-weight-medium);
+}
+
+.choiceHint {
+  font-size: var(--ww-text-sm);
+  color: var(--ww-text-muted);
+  line-height: var(--ww-line);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--ww-space-2);
+}

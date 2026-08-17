@@ -25,8 +25,9 @@ function input(overrides: Partial<DropOutcomeInput> = {}): DropOutcomeInput {
   return {
     from: { date: '2026-08-12', startMinutes: 8 * 60 },
     to: { date: '2026-08-13', startMinutes: 10 * 60 },
-    landed: { date: '2026-08-13', startMinutes: 10 * 60, handPlaced: false },
+    landed: { date: '2026-08-13', startMinutes: 10 * 60, locked: false },
     merged: false,
+    wasLocked: false,
     visibleDates: WEEK,
     ...overrides,
   };
@@ -38,23 +39,37 @@ describe('describeDrop', () => {
     expect(describeDrop(input())).toBeNull();
   });
 
-  it('announces the pin, which is a new state rather than a movement', () => {
-    // Friday's own defect: the drop now sticks, and the only visible difference is that
-    // the row stopped obeying the engine — so it has to be said, with its undo.
+  it('announces the padlock the drop added, which is a new state rather than a movement', () => {
+    // Friday's own defect: the drop now sticks, and the visible difference is a padlock
+    // the owner did not press — so it has to be said, with its undo.
     expect(
       describeDrop(
         input({
           to: { date: '2026-08-14', startMinutes: 10 * 60 },
-          landed: { date: '2026-08-14', startMinutes: 10 * 60, handPlaced: true },
+          landed: { date: '2026-08-14', startMinutes: 10 * 60, locked: true },
         }),
       ),
     ).toEqual({ kind: 'pinned', date: '2026-08-14' });
   });
 
+  it('says nothing about a padlock the row already had', () => {
+    // Dragging a padlocked row keeps it exactly where it was released, which is what the
+    // owner asked for and already knows. Only a NEW padlock is news.
+    expect(
+      describeDrop(
+        input({
+          to: { date: '2026-08-14', startMinutes: 10 * 60 },
+          landed: { date: '2026-08-14', startMinutes: 10 * 60, locked: true },
+          wasLocked: true,
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it('names the week the hours carried on into', () => {
     expect(
       describeDrop(
-        input({ landed: { date: '2026-08-24', startMinutes: 8 * 60, handPlaced: false } }),
+        input({ landed: { date: '2026-08-24', startMinutes: 8 * 60, locked: false } }),
       ),
     ).toEqual({ kind: 'leftWeek', date: '2026-08-24' });
   });
@@ -63,7 +78,7 @@ describe('describeDrop', () => {
     // The silent no-op in its general form: the rank changed, the layout did not.
     expect(
       describeDrop(
-        input({ landed: { date: '2026-08-12', startMinutes: 8 * 60, handPlaced: false } }),
+        input({ landed: { date: '2026-08-12', startMinutes: 8 * 60, locked: false } }),
       ),
     ).toEqual({ kind: 'unchanged', date: '2026-08-12' });
   });
@@ -71,7 +86,7 @@ describe('describeDrop', () => {
   it('explains a row that settled well away from the drop point', () => {
     expect(
       describeDrop(
-        input({ landed: { date: '2026-08-13', startMinutes: 15 * 60 + 30, handPlaced: false } }),
+        input({ landed: { date: '2026-08-13', startMinutes: 15 * 60 + 30, locked: false } }),
       ),
     ).toEqual({ kind: 'settled', date: '2026-08-13' });
   });
@@ -79,7 +94,7 @@ describe('describeDrop', () => {
   it('lets a short settle pass in silence: a drop is a rank, and the slide shows it', () => {
     expect(
       describeDrop(
-        input({ landed: { date: '2026-08-13', startMinutes: 10 * 60 + 45, handPlaced: false } }),
+        input({ landed: { date: '2026-08-13', startMinutes: 10 * 60 + 45, locked: false } }),
       ),
     ).toBeNull();
   });

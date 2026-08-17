@@ -17,9 +17,9 @@
  * | PINNED (weekend, the Friday buffer, a margin, the lunch band, or locked) | the day's FIXED rows | merged, hours summed | cut, tail pushed after |
  * | RE-RANKED (Mon-Thu inside the periods, unlocked) | the day's MOVABLE rows | nothing — the reflow lays them out contiguously and auto-merge joins them | cut, but only a row that STARTS BEFORE the drop |
  *
- * FRIDAY IS ON THE PINNED SIDE because a drop there is hand-placed (`handPlaced`), which
- * takes it out of the movable pool — that is how work stays on the colchón at all. So is
- * any row already carrying that mark, whatever day it is on.
+ * FRIDAY IS ON THE PINNED SIDE because a drop there PADLOCKS the row, which takes it out
+ * of the movable pool — that is how work stays on the colchón at all. So is any row that
+ * already carries a padlock, whatever day it is on.
  *
  * and a LOCKED row is never overlapped: on the pinned side that is the 409
  * `overlaps-locked-block`, on the re-ranked side the row is simply ignored, because
@@ -69,9 +69,8 @@ export interface DropRow {
   projectId: string;
   startMinutes: number;
   durationMinutes: number;
+  /** The engine will not move it: the padlock, whoever's gesture set it. */
   locked: boolean;
-  /** A human put this row here, so the engine will not move it either. */
-  handPlaced: boolean;
   project: { name: string };
 }
 
@@ -81,7 +80,7 @@ export interface DropEffectInput {
   /**
    * The GAPS on the target day. Gaps and blocks are one occupancy set, and a drop that
    * pins — the buffer, the weekend, a margin, the lunch band — is refused when it lands on
-   * one (409 `overlaps-gap`), exactly as a gap over a hand-placed row is refused. On
+   * one (409 `overlaps-gap`), exactly as a gap over a padlocked row is refused. On
    * Monday-Thursday the reflow keeps auto work off a gap by itself, so nothing is said.
    */
   gaps?: readonly { startMinutes: number; durationMinutes: number }[];
@@ -213,13 +212,12 @@ export function dayReflowsOn(day: { role: DayRole; isClosed: boolean; isPast: bo
   return !day.isClosed && day.role !== 'manual' && !day.isPast;
 }
 
-/** A row as the QUEUE sees it: a job, a rank, and the two flags that take it out. */
+/** A row as the QUEUE sees it: a job, a rank, and the flag that takes it out. */
 export interface QueueRow {
   id: string;
   date: string;
   startMinutes: number;
   locked: boolean;
-  handPlaced: boolean;
   project: { name: string };
 }
 
@@ -259,7 +257,7 @@ export function dropPredecessor(
  * only rows a rank can be expressed against.
  *
  * A row is out of it for exactly the reasons the engine leaves it where it is — a padlock,
- * a hand-placed day, or a day the engine never writes to at all (the past and the weekend).
+ * or a day the engine never writes to at all (the past and the weekend).
  * The Friday colchón is NOT one of those: an engine-placed Friday row is still movable and
  * the reflow can pull it back, which is why the buffer does not appear here even though
  * it decides whether a drop ONTO Friday pins (`dropPins`).
@@ -269,7 +267,7 @@ export function buildDropQueue(
   isReflowingDate: (date: string) => boolean,
 ): QueueRow[] {
   return rows
-    .filter((row) => !row.locked && !row.handPlaced && isReflowingDate(row.date))
+    .filter((row) => !row.locked && isReflowingDate(row.date))
     .sort(
       (a, b) =>
         (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) ||
@@ -288,9 +286,8 @@ export interface DropResolution {
    */
   startMinutes: number;
   /**
-   * The row keeps `startMinutes`. False when the drop was never pinned, and false when it
-   * WAS pinned but the day had no clear slot for it — there the server gives up the pin
-   * rather than refuse, and the drop becomes an ordinary queue rank.
+   * The row keeps `startMinutes` — and, since 2026-08-14, comes back with a padlock on it.
+   * False for a drop the engine still owns, which is a queue rank instead.
    */
   pinned: boolean;
   /**
@@ -306,22 +303,21 @@ export interface DropResolution {
 /**
  * THE WHOLE ANSWER THE GHOST NEEDS, in the server's own order.
  *
- * `resolveManualPlacement` resolves a drop in three steps and the preview has to walk the
- * same three or it will promise something else:
+ * `resolveManualPlacement` resolves a drop in two steps and the preview has to walk the
+ * same two or it will promise something else:
  *
- *  1. is the drop LITERAL — a locked unit, or a day the engine does not lay out? Then the
- *     release point is stored as released and a collision is a real refusal.
- *  2. otherwise, if it PINS, SLIDE it forward on the day the owner named to the first slot
- *     clear of a gap and of a lock (`firstClearStart`, shared with the engine). That is
- *     what makes a Friday drop land on that Friday: a rank there is pulled straight back
- *     into Mon-Thu.
- *  3. if the day has no such slot, the drop GIVES UP ITS PIN and becomes a queue rank —
- *     the side with no failure mode. So on a day the engine reflows, nothing here can
- *     produce `blocked` or `gap`, which is the point.
+ *  1. a drop the engine still owns — not pinned — is a queue RANK. Nothing is refused and
+ *     the minutes are an aim rather than a promise.
+ *  2. a drop that PINS is padlocked, so it lands literally. On a day the engine lays out it
+ *     is SLID forward to the first slot clear of a gap and of a lock (`firstClearStart`,
+ *     shared with the engine) — that is what makes a Friday drop land on that Friday, since
+ *     a rank there would be pulled straight back into Mon-Thu. A day with no such slot
+ *     keeps the release point and the refusal stands: the pin cannot be given up, because
+ *     it IS the padlock. On the weekend, a closed day and the past there is no slide at
+ *     all.
  */
 export function resolveDropPreview(input: DropEffectInput): DropResolution {
-  const literal = input.locked || !input.dayReflows;
-  if (literal || !input.pinned) {
+  if (!input.pinned || !input.dayReflows) {
     return {
       startMinutes: input.startMinutes,
       pinned: input.pinned,
@@ -341,14 +337,13 @@ export function resolveDropPreview(input: DropEffectInput): DropResolution {
   });
 
   if (slid === null) {
-    // The pin is given up at the release point, not at some slid one — the second attempt
-    // in `resolveManualPlacement` starts from the drop as it was made.
-    const asRank = { ...input, pinned: false };
+    // Nowhere on this day to get clear, so the drop stays exactly where it was released
+    // and whatever is in the way is what the hint names — the server refuses it there.
     return {
       startMinutes: input.startMinutes,
-      pinned: false,
+      pinned: true,
       slid: false,
-      effect: dropEffectOf(asRank),
+      effect: dropEffectOf(input),
     };
   }
   const settled = { ...input, startMinutes: slid };
@@ -386,8 +381,8 @@ export function dropEffectOf(input: DropEffectInput): DropEffect | null {
         overlapsSegments(footprint, row.startMinutes, row.durationMinutes) &&
         // Each branch only ever sees its own side. `isMovable` reduces to this here:
         // the day is not past (the drag layer refuses those), so a row is fixed iff the
-        // day is a weekend, or it is locked, or a human placed it.
-        (input.dayIsWeekend || row.locked || row.handPlaced) !== reflowed,
+        // day is a weekend or the row is padlocked.
+        (input.dayIsWeekend || row.locked) !== reflowed,
     )
     .sort((a, b) => a.startMinutes - b.startMinutes || (a.id < b.id ? -1 : 1));
 
@@ -401,17 +396,13 @@ export function dropEffectOf(input: DropEffectInput): DropEffect | null {
     return victim === undefined ? null : effect('cut', victim, input.startMinutes);
   }
 
-  // The fixed side. The two REFUSALS come first, because they are the only outcomes where
-  // nothing at all is saved: a lock in the way (which a merge would move), and a gap under
-  // the drop — gaps and blocks are one occupancy set, and on a day that pins nothing will
-  // ever separate them. Then the same-job merge, then the cut.
+  // The fixed side, in the server's own order. The SAME job folds first, padlocks and all
+  // — the hours are the owner's own and the merged row keeps the padlock. Then the two
+  // REFUSALS, the only outcomes where nothing at all is saved: another job's lock in the
+  // way, and a gap under the drop, since gaps and blocks are one occupancy set and on a day
+  // that pins nothing will ever separate them. Then the cut.
   const sameJob = overlapping.find((row) => row.projectId === input.projectId);
-  if (sameJob !== undefined && (sameJob.locked || input.locked)) {
-    // Refused when EITHER side is locked: merging moves the surviving row's start, so it
-    // would move the lock. The row named is the same job's either way, which is the dragged
-    // unit's own name — the sentence reads the same from both sides.
-    return effect('blocked', sameJob, input.startMinutes);
-  }
+  if (sameJob !== undefined) return effect('merge', sameJob, input.startMinutes);
 
   const locked = overlapping.find((row) => row.locked);
   if (locked !== undefined) return effect('blocked', locked, input.startMinutes);
@@ -420,8 +411,6 @@ export function dropEffectOf(input: DropEffectInput): DropEffect | null {
     overlapsSegments(footprint, candidate.startMinutes, candidate.durationMinutes),
   );
   if (covered !== undefined) return { kind: 'gap', blockId: '', projectName: '', cutMinutes: input.startMinutes };
-
-  if (sameJob !== undefined) return effect('merge', sameJob, input.startMinutes);
 
   const victim = overlapping[0];
   if (victim === undefined) return null;

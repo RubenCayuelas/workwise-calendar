@@ -129,8 +129,11 @@ export const ERROR_MESSAGE_KEYS = {
   splitExceedsBlock: 'errors.splitExceedsBlock',
   splitBelowMinimum: 'errors.splitBelowMinimum',
   deleteLastBlock: 'errors.deleteLastBlock',
+  /** A block gesture on a day the shop has already worked. The past is a record. */
+  pastBlockFrozen: 'errors.pastBlockFrozen',
+  /** The other half: a drop aimed at a past day. */
+  dropOntoPastDay: 'errors.dropOntoPastDay',
   gapOverLockedBlock: 'errors.gapOverLockedBlock',
-  gapOverHandPlacedBlock: 'errors.gapOverHandPlacedBlock',
   gapOverPastBlock: 'errors.gapOverPastBlock',
   gapOverWeekendBlock: 'errors.gapOverWeekendBlock',
   invariantViolated: 'errors.invariantViolated',

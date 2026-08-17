@@ -76,7 +76,6 @@ interface BlockSpec {
   from: string;
   hours: number;
   locked?: boolean;
-  handPlaced?: boolean;
 }
 
 function block(spec: BlockSpec): Block {
@@ -89,7 +88,6 @@ function block(spec: BlockSpec): Block {
     durationMinutes: Math.round(spec.hours * 60),
     locked: spec.locked ?? false,
     manualDuration: false,
-    handPlaced: spec.handPlaced ?? false,
     createdAt: stamp(index),
     updatedAt: stamp(index),
   };
@@ -151,7 +149,7 @@ function rows(result: CreationResult): string[] {
     (row) =>
       `${row.date} ${minutesToHHmm(row.startMinutes)}-${minutesToHHmm(
         row.startMinutes + row.durationMinutes,
-      )}${row.locked ? ' [locked]' : ''}${row.handPlaced ? ' [hand]' : ''}`,
+      )}${row.locked ? ' [locked]' : ''}`,
   );
 }
 
@@ -162,7 +160,7 @@ function lines(result: ComposeResult): string[] {
     (row) =>
       `${row.date} ${minutesToHHmm(row.startMinutes)}-${minutesToHHmm(
         row.startMinutes + row.durationMinutes,
-      )} ${row.projectId}${row.locked ? ' [locked]' : ''}${row.handPlaced ? ' [hand]' : ''}`,
+      )} ${row.projectId}${row.locked ? ' [locked]' : ''}`,
   );
 }
 
@@ -177,7 +175,6 @@ function reload(result: ComposeResult): Block[] {
     durationMinutes: row.durationMinutes,
     locked: row.locked,
     manualDuration: row.manualDuration,
-    handPlaced: row.handPlaced,
     createdAt: stamp(index),
     updatedAt: stamp(index),
   }));
@@ -271,12 +268,12 @@ describe('deciding what a start date means', () => {
     ).toBe(true);
   });
 
-  it('marks the buffer and the weekend hand-placed, and asks for a confirmation', () => {
+  it('padlocks the rows born on the buffer and the weekend, and asks for a confirmation', () => {
     const friday = decideStartDate({ ...question, startDate: FRI, role: 'buffer' });
     const saturday = decideStartDate({ ...question, startDate: SAT, role: 'manual' });
 
     expect([friday.day, saturday.day]).toEqual(['buffer', 'weekend']);
-    expect([friday.handPlaced, saturday.handPlaced]).toEqual([true, true]);
+    expect([friday.dayLock, saturday.dayLock]).toEqual([true, true]);
     expect([friday.needsDayConfirmation, saturday.needsDayConfirmation]).toEqual([true, true]);
     expect([friday.mode, saturday.mode]).toEqual(['born', 'born']);
   });
@@ -357,8 +354,8 @@ describe('a date the queue already runs past', () => {
     expect(expectOk(result).decision.mode).toBe('forced');
     expect(expectOk(result).deferred).toBe(false);
     expect(rows(result)).toEqual([`${WED} 08:00-12:00`]);
-    // Nothing is locked or pinned: it is a queue rank, exactly like a drag.
-    expect(expectOk(result).placed.every((row) => !row.locked && !row.handPlaced)).toBe(true);
+    // Nothing is padlocked: it is a queue rank, exactly like a drag.
+    expect(expectOk(result).placed.every((row) => !row.locked)).toBe(true);
     // And the work that was there is still all there, one day further on.
     expect(minutesOf(result, 'bar')).toBe(16 * 60);
   });
@@ -430,18 +427,21 @@ describe('the buffer, the weekend and the past', () => {
     ],
   });
 
-  it('honours a Friday, marks it hand-placed, and does not lock it inside the span', () => {
+  it('honours a Friday and padlocks the row, though the floor itself does not bind', () => {
     const result = plan(calendar, { startDate: FRI, hours: 4 });
 
     expect(expectOk(result).decision.day).toBe('buffer');
-    expect(rows(result)[0]).toBe(`${FRI} 08:00-12:00 [hand]`);
+    expect(rows(result)[0]).toBe(`${FRI} 08:00-12:00 [locked]`);
+    // `autoLock` is the OTHER reason to padlock — the whole job, when the queue would not
+    // reach the day. Here the queue does; it is the DAY that earns the padlock.
     expect(expectOk(result).decision.autoLock).toBe(false);
+    expect(expectOk(result).decision.dayLock).toBe(true);
   });
 
   it('honours a Saturday, where the engine would place nothing at all', () => {
     const result = plan(calendar, { startDate: SAT, hours: 4 });
 
-    expect(rows(result)[0]).toBe(`${SAT} 08:00-12:00 [hand]`);
+    expect(rows(result)[0]).toBe(`${SAT} 08:00-12:00 [locked]`);
     expect(expectOk(result).decision.needsDayConfirmation).toBe(true);
   });
 
@@ -456,17 +456,17 @@ describe('the buffer, the weekend and the past', () => {
     expect(minutesOf(result, 'bar')).toBe(30 * 60);
   });
 
-  it('marks the chosen day only: the tail is the engine\'s day, not the owner\'s', () => {
+  it('padlocks the chosen day only: the tail is the engine\'s day, not the owner\'s', () => {
     const result = plan(calendar, { startDate: SAT, hours: 14 });
     const placed = expectOk(result).placed;
 
-    // Saturday holds what fits (cut at the lunch break, hand-placed); the rest is the
+    // Saturday holds what fits (cut at the lunch break, padlocked); the rest is the
     // engine's business and lands on a weekday with no mark at all.
-    expect(placed.filter((row) => row.date === SAT).map((row) => row.handPlaced)).toEqual([
+    expect(placed.filter((row) => row.date === SAT).map((row) => row.locked)).toEqual([
       true,
       true,
     ]);
-    expect(placed.filter((row) => row.date !== SAT).every((row) => !row.handPlaced)).toBe(true);
+    expect(placed.filter((row) => row.date !== SAT).every((row) => !row.locked)).toBe(true);
     expect(placed.some((row) => row.date !== SAT)).toBe(true);
     expect(minutesOf(result, 'new')).toBe(14 * 60);
   });
@@ -531,12 +531,12 @@ describe('what the plan hands the caller', () => {
 
   it('never overlaps work already on a chosen weekend day', () => {
     const calendar = input({
-      blocks: [block({ project: 'bar', date: SAT, from: '09:00', hours: 2, handPlaced: true })],
+      blocks: [block({ project: 'bar', date: SAT, from: '09:00', hours: 2, locked: true })],
     });
     const result = plan(calendar, { startDate: SAT, hours: 3 });
 
     // One free run holds it whole (11:00-14:00); the existing row keeps its slot.
-    expect(rows(result)).toEqual([`${SAT} 11:00-14:00 [locked] [hand]`]);
+    expect(rows(result)).toEqual([`${SAT} 11:00-14:00 [locked]`]);
   });
 
   it('starts on the first open day when the chosen one is closed', () => {

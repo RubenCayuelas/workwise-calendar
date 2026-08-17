@@ -12,7 +12,7 @@
  *    thing to drag, not a UI illusion.
  *
  * 2. LANES. The engine never overlaps rows, but the owner can: a weekend or a past day
- *    accepts hand-placed work with no overlap check (deliberately, so a legitimate
+ *    accepts work placed by hand with no overlap check (deliberately, so a legitimate
  *    hand-made state stays savable). Two rows at the same time must not hide each
  *    other, so overlapping items share the column's width.
  */
@@ -37,7 +37,9 @@ export interface BlockGroup {
   /** True only when every row of the group is locked. */
   locked: boolean;
   /**
-   * The rows of the unit whose LENGTH was set by hand, in clock order.
+   * The rows of the unit whose LENGTH was set by hand, in clock order — and therefore
+   * exactly what *back to automatic* sends. Empty means the engine already owns the unit's
+   * length and the action is absent rather than disabled.
    *
    * `locked` above is rolled up into one boolean because its only consumer asks a
    * yes/no question about the whole unit. A hand-set length cannot be, for two
@@ -47,23 +49,12 @@ export interface BlockGroup {
    * hand-set row can sit next to an automatic row of the same job, which is exactly
    * why the engine refuses to join them into one queue item.
    *
-   * So the group carries the ids instead of a flag: empty means the engine owns the
-   * unit's length, non-empty is precisely what the release action must send, and
-   * `length === blocks.length` means the whole unit is the length the owner drew.
+   * There is no second list next to it any more. While the pin was a mark of its own
+   * (`hand_placed`) the release cleared both and had to be offered for either, so the
+   * group carried a wider set; now the pin IS the padlock, undone by pressing the padlock,
+   * and *back to automatic* means one thing again.
    */
   manualBlockIds: string[];
-  /**
-   * Every row of the unit the engine has stopped laying out BECAUSE A HUMAN SAID SO:
-   * a hand-set length (`manualDuration`), a hand-placed day (`handPlaced`), or both.
-   * `manualBlockIds` is a subset of it.
-   *
-   * This — not `manualBlockIds` — is what *back to automatic* sends, because the release
-   * clears both marks in one action (CLAUDE.md, *A Hand-Placed Row*): "neither mark is
-   * visible in the calendar's geometry, and an owner who pressed the wrong of two
-   * buttons would still have a row that would not move". Empty means the engine already
-   * owns the whole unit and the action is absent rather than disabled.
-   */
-  releasableBlockIds: string[];
 }
 
 /** One row, with the group it belongs to and its place in it. */
@@ -84,8 +75,8 @@ export interface BlockSegment {
    * cases than "cut at lunch":
    *
    * - THE ROWS TOUCH, with no hole at all. Reachable whenever auto-merge may not fold
-   *   them: the scissors moving an hour into the top margin leaves `07:00-08:00`
-   *   hand-placed against `08:00-11:00`, one contiguous rectangle, and read off
+   *   them: the scissors moving an hour into the top margin leaves a padlocked
+   *   `07:00-08:00` against `08:00-11:00`, one contiguous rectangle, and read off
    *   `!isFirst`/`!isLast` every mark was drawn straight down the middle of it while the
    *   tooltip announced a lunch break three hours away.
    * - THE HOLE IS A MARGIN THE OWNER HAS SINCE SET TO 0, so those minutes stopped being
@@ -132,7 +123,6 @@ export function groupBlocks(
       open.endMinutes = block.startMinutes + block.durationMinutes;
       open.locked = open.locked && block.locked;
       if (block.manualDuration) open.manualBlockIds.push(block.id);
-      if (isReleasable(block)) open.releasableBlockIds.push(block.id);
       continue;
     }
 
@@ -146,16 +136,10 @@ export function groupBlocks(
       endMinutes: block.startMinutes + block.durationMinutes,
       locked: block.locked,
       manualBlockIds: block.manualDuration ? [block.id] : [],
-      releasableBlockIds: isReleasable(block) ? [block.id] : [],
     });
   }
 
   return groups;
-}
-
-/** A row whose stillness is the owner's decision, and therefore theirs to undo. */
-function isReleasable(block: WeekBlock): boolean {
-  return block.manualDuration || block.handPlaced;
 }
 
 /**
@@ -213,6 +197,109 @@ function isWindowBreak(
     manualWindows.some((window) => window.endMinutes === from) &&
     manualWindows.some((window) => window.startMinutes === to)
   );
+}
+
+// ---------------------------------------------------------------------------
+// Runs: the unit a DRAG moves
+// ---------------------------------------------------------------------------
+
+/**
+ * A RUN — consecutive units of one job with no other job's work between them, across days.
+ *
+ * THE UNIT OF A DRAG IS THIS, not the block and not the job (decided with the owner,
+ * 2026-08-14). Their own words are the rule:
+ *
+ * > «Mueve el trabajo si este no ha sido dividido. Si tengo pedazos de hoy por la mañana,
+ * > hoy por la tarde y pasado por la mañana, todo eso si no lo he dividido yo a mano (no
+ * > hay ninguna tarea en medio) muevo todo hasta la tarea que los separe, indicativo de
+ * > que esa división la he hecho yo.»
+ *
+ * So the lunch break does not break a run (nothing is between the pieces), a night does
+ * not break one either, and ANOTHER JOB does — because that separation is the owner's own
+ * decision and the drag has to respect it and stop there.
+ *
+ * That is exactly the engine's `QueueItem` (src/lib/composition.ts), and this is read the
+ * same way on purpose: the engine will lay the run out as one item however it is dragged,
+ * so a drag that moved anything else would be arguing with the reflow. Two consequences
+ * fall straight out of `buildQueue`:
+ *
+ * - A UNIT THE ENGINE NEVER MOVES IS SKIPPED, not treated as a separator. Fixed work
+ *   (padlocked, weekend, past) is an obstacle the reflow flows around, so it does not end
+ *   the run — and it is its own drag unit, because dragging it is a literal placement.
+ * - A HAND-SET LENGTH ENDS THE RUN. `buildQueue` never joins a hand-set stretch to an
+ *   automatic one, and never joins two of them across days; the drag must not either, or
+ *   it would promise to move hours the engine is about to separate again.
+ */
+export interface BlockRun {
+  /** Every row of the run in queue order, across days. What the request names. */
+  blockIds: string[];
+  /** The run's net working minutes — what the ghost draws. */
+  totalMinutes: number;
+  /** The run's head: the first row's day and start. */
+  date: string;
+  startMinutes: number;
+}
+
+/**
+ * Every group's run, keyed by group id.
+ *
+ * Built for the whole week in one pass rather than per column, because a run's other half
+ * is usually on another day — which is the entire reason this exists.
+ *
+ * `isMovable` is the caller's mirror of the engine's predicate (unlocked, not past, not a
+ * weekend); the grid has the day flags and this file has no business re-deriving them.
+ */
+export function buildRuns(
+  groups: readonly BlockGroup[],
+  isMovable: (block: WeekBlock) => boolean,
+): Map<string, BlockRun> {
+  const ordered = [...groups].sort(
+    (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0) || a.startMinutes - b.startMinutes,
+  );
+
+  const runs = new Map<string, BlockRun>();
+  let open: BlockGroup[] = [];
+
+  const close = (): void => {
+    if (open.length === 0) return;
+    const run = runOf(open);
+    for (const group of open) runs.set(group.id, run);
+    open = [];
+  };
+
+  for (const group of ordered) {
+    // Fixed work is an obstacle, never a separator: the run continues past it, and it
+    // drags on its own.
+    if (!group.blocks.some(isMovable)) {
+      runs.set(group.id, runOf([group]));
+      continue;
+    }
+    // A hand-set stretch is its own queue item wherever it sits, so it is its own run and
+    // it ends whatever run was open.
+    if (group.blocks.some((block) => block.manualDuration)) {
+      close();
+      runs.set(group.id, runOf([group]));
+      continue;
+    }
+    if (open.length > 0 && open[0].projectId === group.projectId) {
+      open.push(group);
+      continue;
+    }
+    close();
+    open = [group];
+  }
+  close();
+
+  return runs;
+}
+
+function runOf(groups: readonly BlockGroup[]): BlockRun {
+  return {
+    blockIds: groups.flatMap((group) => group.blocks.map((block) => block.id)),
+    totalMinutes: groups.reduce((total, group) => total + group.totalMinutes, 0),
+    date: groups[0].date,
+    startMinutes: groups[0].startMinutes,
+  };
 }
 
 /**

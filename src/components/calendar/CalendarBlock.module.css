@@ -162,35 +162,35 @@
 }
 
 /*
- * A hand-placed row: the WHOLE outline drawn solid, because what the owner chose here is
- * the whole rectangle's place — the day and the slot, not one edge of it.
+ * A PADLOCKED row: the WHOLE outline drawn solid, because what is fixed here is the whole
+ * rectangle's place — the day and the slot, not one edge of it.
  *
- * It has to do one more job than the ruler does. On Friday it is the difference between
- * "the week overran and the engine parked hours on the colchón" (`.overflow`, dashed all
- * round) and "the owner said do this on Friday" (solid all round). The two never appear
- * together — `isOverflow` excludes a hand-placed unit — so this is a contrast rather
+ * It does one more job than the ruler does. On Friday it is the difference between "the
+ * week overran and the engine parked hours on the colchón" (`.overflow`, dashed all round)
+ * and "the owner said do this on Friday" (solid all round). The two never appear together
+ * — `isOverflow` excludes any unit with a padlock in it — so this is a contrast rather
  * than a cascade fight.
  *
  * `.continued` still wins on the top edge: the dashed seam is what makes the two halves
- * of a lunch-split unit read as one job, and a hand-placed drop across lunch IS two rows.
+ * of a lunch-split unit read as one job, and a padlocked drop across lunch IS two rows.
  */
-.handPlaced {
+.pinned {
   border-width: 1.5px;
   border-style: solid;
 }
 
 /*
- * The seam wins on the edge it falls on, over BOTH hand marks. Same reason in both
- * directions: the dashed edge is what makes the two halves of a lunch-split unit read as
- * one job, and a hand-set stretch across lunch IS two marked rows. The ruler keeps its
- * extra weight — a 2px dashed rule still reads as "the length is yours".
+ * The seam wins on the edge it falls on, over BOTH marks. Same reason in both directions:
+ * the dashed edge is what makes the two halves of a lunch-split unit read as one job, and
+ * a hand-set stretch across lunch IS two marked rows. The ruler keeps its extra weight —
+ * a 2px dashed rule still reads as "the length is yours".
  */
-.handPlaced.continued {
+.pinned.continued {
   border-top-style: dashed;
 }
 
 .manual.continuesBelow,
-.handPlaced.continuesBelow {
+.pinned.continuesBelow {
   border-bottom-style: dashed;
 }
 
@@ -251,13 +251,18 @@
 }
 
 /*
- * A ROW TOO SHORT TO HOLD THE BAR HANDS IT OUT (see `MIN_ACTIONS_HEIGHT` in geometry.ts).
+ * A ROW WITH NO SURFACE LEFT OF ITS OWN HANDS THE BAR OUT (see `MIN_ACTIONS_HEIGHT` and
+ * `blockHoldsActions` in geometry.ts — one class, two ways to earn it).
  *
- * The bar is 24 px tall and the handle owns the bottom of the row, so on a half-hour row —
- * 24 px at the default scale — the two covered the whole rectangle and there was nothing
- * left to click. The drag survived that (a press on the bar starts the same move), the
- * click did not: it landed on whichever button was under the cursor, which down the middle
- * of that row is *Cerrar el día aquí*.
+ * TOO SHORT: the bar is 24 px tall and the handle owns the bottom of the row, so on a
+ * half-hour row — 24 px at the default scale — the two covered the whole rectangle.
+ * TOO NARROW: the bar is up to five 24 px buttons anchored at the RIGHT edge, so on a
+ * weekend column, and on any column at a small enough window, it covers the whole top of
+ * the block including its own name.
+ *
+ * Either way there was nothing left to click. The drag survived that (a press on the bar
+ * starts the same move), the click did not: it landed on whichever button was under the
+ * cursor, which down the middle of the bar is *Cerrar el día aquí*.
  *
  * Docked FLUSH against the outside of the row's edge — `100%` with a pixel of overlap, no
  * gap — because the pointer has to be able to travel from the row into the bar without
@@ -265,7 +270,7 @@
  * hovered, and it is a DOM child, so hovering the bar keeps the row hovered wherever the
  * bar has been moved to.
  */
-.cramped .actions {
+.detached .actions {
   top: auto;
   bottom: calc(100% - 1px);
 }
@@ -273,15 +278,15 @@
 /* At the very top of the axis there is nothing above the row but the sticky day header, so
    the bar docks under it instead. Chosen in the component, which is what knows the row's
    place on the axis. */
-.cramped .actions.actionsBelow {
+.detached .actions.actionsBelow {
   top: calc(100% - 1px);
   bottom: auto;
 }
 
-/* The marks share the corner the bar takes over — but on a cramped row the bar has left,
-   so there is no longer anything to make room for. Last, so it wins over the rule above. */
-.cramped:hover .marks,
-.cramped:focus-within .marks {
+/* The marks share the corner the bar takes over — but once the bar has left the block
+   there is no longer anything to make room for. Last, so it wins over the rule above. */
+.detached:hover .marks,
+.detached:focus-within .marks {
   display: flex;
 }
 

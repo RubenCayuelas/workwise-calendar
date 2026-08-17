@@ -29,7 +29,6 @@ function block(overrides: Partial<Block> & { id: string }): Block {
     durationMinutes: 120,
     locked: false,
     manualDuration: false,
-    handPlaced: false,
     createdAt: '2026-08-01 09:00:00',
     updatedAt: '2026-08-01 09:00:00',
     ...overrides,

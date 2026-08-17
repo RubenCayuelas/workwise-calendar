@@ -255,7 +255,6 @@ export function recompose(db: Db, options: RecomposeOptions = {}): RecomposeRepo
         durationMinutes: placed.durationMinutes,
         locked: placed.locked,
         manualDuration: placed.manualDuration,
-        handPlaced: placed.handPlaced,
       };
       const current = stored.get(id);
       if (current === undefined) {
@@ -446,11 +445,11 @@ function hasMoved(current: Block, placement: BlockPlacement): boolean {
     current.date !== placement.date ||
     current.startMinutes !== placement.startMinutes ||
     current.durationMinutes !== placement.durationMinutes ||
+    // Both marks can change while the geometry stays exactly as it was — a drop onto a
+    // margin adds the padlock without moving the row a minute — and both must still reach
+    // the table: they are the whole reason the row keeps its place, and its length, on the
+    // next pass.
     current.locked !== placement.locked ||
-    // Setting or releasing either hand mark can leave the geometry untouched, and both
-    // must still reach the table — they are the whole reason the row keeps its length,
-    // and its day, on the next pass.
-    current.manualDuration !== placement.manualDuration ||
-    current.handPlaced !== placement.handPlaced
+    current.manualDuration !== placement.manualDuration
   );
 }

@@ -28,25 +28,22 @@
  *   except that the row stopped reflowing, so without a one-click release the owner
  *   cannot undo it and the marks accumulate until the engine manages nothing.
  *
- * THREE MARKS, NOT TWO (2026-08-12). `hand_placed` — "a human chose this DAY" — is a
- * third independent reason a row has stopped reflowing, and it needed its own glyph
- * rather than a shade of an existing one:
+ * TWO MARKS, NOT THREE (2026-08-14). There used to be a third, `hand_placed`, drawn as a
+ * pointing hand and meaning "a human chose this DAY". It is gone: a drop onto a place the
+ * engine would never choose by itself now sets the PADLOCK, which says the same thing in
+ * the one vocabulary the owner already has — padlock = fixed, no padlock = free.
  *
  * | mark            | what it fixes | how it reads                                    |
  * |-----------------|---------------|-------------------------------------------------|
  * | padlock         | the POSITION  | never auto-moved, wherever it is; survives a drag |
  * | ruler           | the LENGTH    | plus a solid bottom edge — the edge that was dragged |
- * | pointing hand   | the DAY       | plus a solid border — the whole outline the owner drew |
  *
- * They are not combinable. A Friday row can be pinned with a perfectly automatic length,
- * and a Monday row can be hand-sized without anyone choosing Monday; folding the two
- * into one mark would make *back to automatic* ambiguous about what it gives back. What
- * IS folded is the ACTION: one release clears both hand marks, because neither is
- * visible in the geometry and pressing the wrong of two buttons would leave a row that
- * still would not move (CLAUDE.md, *A Hand-Placed Row*).
+ * They are independent: a Friday row can be padlocked with a perfectly automatic length,
+ * and a Monday row can be hand-sized without being fixed anywhere. So they keep separate
+ * undos — the padlock is pressed off, and *back to automatic* gives back the length.
  *
- * The solid border also does the work of separating a hand-placed Friday row from an
- * engine-placed one on the very same column: `desborde 2 h` is drawn dashed.
+ * The padlock is also what separates a Friday row the owner put there from one the engine
+ * parked: `desborde 2 h` is only ever drawn on a unit with no padlock in it.
  *
  * Every visible string comes from public/locales, and every number goes through
  * `useFormat()` so "6 h" and "2,5 h" are spelled the same here as in the job panel.
@@ -55,7 +52,6 @@
 import { useTranslation } from 'react-i18next';
 import {
   IconClockStop,
-  IconHandFinger,
   IconLock,
   IconLockOpen,
   IconRestore,
@@ -65,7 +61,13 @@ import {
 } from '@tabler/icons-react';
 import { IconButton } from '../ui';
 import { useFormat } from '../../lib/useFormat';
-import { ACTIONS_BAR_HEIGHT, MIN_ACTIONS_HEIGHT, MIN_LABEL_HEIGHT, type Timeline } from './geometry';
+import {
+  ACTIONS_BAR_HEIGHT,
+  MIN_ACTIONS_HEIGHT,
+  MIN_LABEL_HEIGHT,
+  blockHoldsActions,
+  type Timeline,
+} from './geometry';
 import type { BlockSegment, LanePlacement } from './grouping';
 import styles from './CalendarBlock.module.css';
 
@@ -74,10 +76,21 @@ export interface CalendarBlockProps {
   timeline: Timeline;
   lane: LanePlacement;
   /**
+   * THIS BLOCK'S OWN WIDTH IN PIXELS — its lane's share of the column — or `null` before
+   * the grid has been measured.
+   *
+   * Read for exactly one decision: whether the hover action bar still leaves any of the
+   * block to press (`blockHoldsActions`). A percentage cannot answer that, because the
+   * bar is a fixed number of 24 px buttons; and the block's own element cannot answer it
+   * either without a container query, which would make the block a containment context and
+   * trap the bar that hangs outside it behind the next row along.
+   */
+  blockWidth: number | null;
+  /**
    * Placed on Friday BY THE ENGINE, i.e. work that grew past its estimate. Derived from
    * the buffer rule rather than stored: the colchón only ever holds overflow, a lock, or
-   * a row a human pinned there — and the last of those carries `handPlaced` and reads as
-   * that instead. See `isOverflow` in WeekGrid.
+   * a row a human pinned there — and both of those carry a padlock and read as that
+   * instead. See `isOverflow` in WeekGrid.
    */
   overflow: boolean;
   /** A past day: the hover bar is withheld, but the row stays editable by hand. */
@@ -111,10 +124,10 @@ export interface CalendarBlockProps {
   onOpen: () => void;
   onToggleLock: () => void;
   /**
-   * "Back to automatic": give the engine back whatever a hand gesture took from it on
-   * this unit — a hand-set LENGTH, a hand-placed DAY, or both. Present exactly when some
-   * row of the unit carries either mark. It never returns the queue POSITION; the row
-   * keeps whatever place the calendar now gives it.
+   * "Back to automatic": give the engine back the LENGTH a bottom-edge drag set on this
+   * unit. Present exactly when some row of it carries that mark. It never returns the
+   * queue POSITION, and it never touches the padlock — the row keeps whatever place the
+   * calendar now gives it.
    */
   onReleaseDuration?: () => void;
   /**
@@ -130,6 +143,7 @@ export function CalendarBlock({
   segment,
   timeline,
   lane,
+  blockWidth,
   overflow,
   frozen,
   lifted,
@@ -153,24 +167,34 @@ export function CalendarBlock({
   const endMinutes = block.startMinutes + block.durationMinutes;
 
   /*
-   * A ROW TOO SHORT TO HOLD ITS OWN ACTION BAR, and what is done about it.
+   * A ROW WITH NO SURFACE LEFT OF ITS OWN, and what is done about it. TWO WAYS TO GET
+   * THERE, one on each axis, and the same answer to both.
    *
-   * The bar is 24 px anchored 3 px inside the top edge and the resize handle owns the
-   * bottom; under `MIN_ACTIONS_HEIGHT` they meet and the row has no surface left of its
-   * own. A half-hour row is 24 px at the default scale, so the bar covered ALL of it: the
-   * drag still started (a press on the bar begins the same move), but a click — the gesture
-   * that opens the job — could only land on a button, and on the middle of that row the
-   * button is *Cerrar el día aquí*. A gesture that quietly does something else is worse
-   * than one that does nothing.
+   * TOO SHORT (`MIN_ACTIONS_HEIGHT`). The bar is 24 px anchored 3 px inside the top edge
+   * and the resize handle owns the bottom; below 56 px they meet. A half-hour row is 24 px
+   * at the default scale, so the bar covered ALL of it.
    *
-   * So on a cramped row the bar leaves the row's hit area altogether and docks against the
-   * outside of its top edge, flush, so the pointer can reach it without crossing a dead
-   * pixel (it stays a DOM child, which is what keeps `:hover` alive out there). It goes
-   * BELOW instead when the row is at the very top of the axis and there is nothing above it
-   * but the sticky day header.
+   * TOO NARROW (`blockHoldsActions`, added 2026-08-14 — the same defect, still open on the
+   * other axis). The bar is as wide as the buttons it is showing, up to five of them, and
+   * it is anchored at the RIGHT edge: on a weekend column, and on any column once the
+   * window is small enough, it covers the whole top of the block INCLUDING ITS NAME, which
+   * is the owner's most natural place to press. The row is tall, so nothing above caught it.
+   *
+   * Either way the drag still started (a press on the bar begins the same move) but the
+   * CLICK — the gesture that opens the job — could only land on a button, and down the
+   * middle of the bar that button is *Cerrar el día aquí*. A gesture that quietly does
+   * something else is worse than one that does nothing.
+   *
+   * So the bar leaves the block's hit area altogether and docks against the outside of its
+   * top edge, flush, so the pointer can reach it without crossing a dead pixel (it stays a
+   * DOM child, which is what keeps `:hover` alive out there). It goes BELOW instead when
+   * the row is at the very top of the axis and there is nothing above it but the sticky day
+   * header.
    */
-  const cramped = height < MIN_ACTIONS_HEIGHT;
-  const barBelow = cramped && timeline.yOf(block.startMinutes) < ACTIONS_BAR_HEIGHT;
+  const buttonCount =
+    3 + (onReleaseDuration === undefined ? 0 : 1) + (onCloseDay === undefined ? 0 : 1);
+  const detached = height < MIN_ACTIONS_HEIGHT || !blockHoldsActions(blockWidth, buttonCount);
+  const barBelow = detached && timeline.yOf(block.startMinutes) < ACTIONS_BAR_HEIGHT;
 
   /*
    * Every row states ITS OWN hours, which is what the wireframe does on both of its
@@ -190,8 +214,8 @@ export function CalendarBlock({
    *
    * IT IS THE HOLE THAT IS MARKED, NOT THE JOIN (fixed 2026-08-13, found by dragging). A
    * unit joins rows with nothing WORKABLE between them, which includes rows that simply
-   * TOUCH — the scissors moving an hour into the top margin leaves `07:00-08:00`
-   * hand-placed against `08:00-11:00`, and auto-merge may not fold a hand-placed row. Read
+   * TOUCH — the scissors moving an hour into the top margin leaves a padlocked
+   * `07:00-08:00` against `08:00-11:00`, and auto-merge never folds a padlocked row. Read
    * off `!isFirst` / `!isLast` the marks then drew a seam straight down the middle of one
    * unbroken rectangle and the tooltip announced a lunch break three hours away. So they
    * are read off `seamAbove` / `seamBelow` — a real gap on the clock — while the rounded
@@ -208,15 +232,12 @@ export function CalendarBlock({
         : format.hours(block.durationMinutes);
 
   /*
-   * ONE LINE PER MARK, each naming the mark and the single thing it fixes. Three marks
-   * is a lot for one small rectangle, so the wording is what has to keep them apart:
-   * "Bloqueado · el motor no lo mueve de aquí", "Duración fija · la longitud la has
-   * puesto tú", "Colocado a mano · tú has elegido este día". Each icon carries its own
-   * line, and the row's tooltip carries all the lines it has.
+   * ONE LINE PER MARK, each naming the mark and the single thing it fixes — "Duración
+   * fija · la longitud la has puesto tú", "Bloqueado · el motor no lo mueve de aquí".
+   * Each icon carries its own line, and the row's tooltip carries all the lines it has.
    */
   const markHints = [
     block.manualDuration ? t('block.markManualDuration') : null,
-    block.handPlaced ? t('block.markHandPlaced') : null,
     block.locked ? t('block.markLocked') : null,
   ].filter((line): line is string => line !== null);
 
@@ -247,9 +268,9 @@ export function CalendarBlock({
     busy && !frozen ? styles.saving : '',
     lifted ? styles.lifted : '',
     block.manualDuration ? styles.manual : '',
-    block.handPlaced ? styles.handPlaced : '',
+    block.locked ? styles.pinned : '',
     cutAtMinutes === undefined ? '' : styles.cutting,
-    cramped ? styles.cramped : '',
+    detached ? styles.detached : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -315,11 +336,6 @@ export function CalendarBlock({
               <IconRuler size={13} stroke={1.9} />
             </span>
           ) : null}
-          {block.handPlaced ? (
-            <span className={styles.softMark} title={t('block.markHandPlaced')}>
-              <IconHandFinger size={13} stroke={1.9} />
-            </span>
-          ) : null}
           {block.locked ? <IconLock size={13} stroke={1.9} /> : null}
         </span>
       )}
@@ -353,10 +369,8 @@ export function CalendarBlock({
             onClick={onToggleLock}
           />
           {onReleaseDuration === undefined ? null : (
-            // NOT the ruler-off glyph it used to be: the action gives back a hand-set
-            // LENGTH and a hand-placed DAY together, so a ruler would name half of it
-            // and would be plainly wrong on a Friday row of automatic length. `restore`
-            // is about the undoing, which is the part both marks share.
+            // `restore` rather than a ruler-off glyph: the action is about the UNDOING,
+            // and a struck-through ruler reads as a state rather than a button.
             <IconButton
               size="sm"
               icon={<IconRestore size={13} stroke={1.9} />}

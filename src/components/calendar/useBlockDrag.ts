@@ -64,10 +64,14 @@ import {
   type Timeline,
 } from './geometry';
 import { dropPins } from './dropEffect';
+import { aimAtThirds, resolveDropDay, type AimRow } from './dropAim';
 import type { WeekDay } from '../../lib/api-client';
 
 /** Pixels of travel before a press becomes a drag rather than a click. */
 const DRAG_THRESHOLD = 4;
+
+/** One array, so a render with nothing in the air never invalidates a memo. */
+const EMPTY_IDS: readonly string[] = [];
 
 /**
  * How far a press may wander and still be read as a click WHEN THE DRAG RESOLVED TO
@@ -119,9 +123,10 @@ export interface DragTarget {
    */
   durationMinutes: number;
   /**
-   * The rows to re-rank, in queue order. A group has to move as a whole: the engine
-   * merges consecutive rows of one job into a single queue item, so re-ranking only
-   * half of a unit would leave the other half behind and split the job.
+   * THE WHOLE RUN, in queue order — every row of this job the engine holds as one queue
+   * item, across days (see `BlockRun` in grouping.ts). A drag moves all of it: re-ranking
+   * part of a run leaves the rest behind at its old rank and splits the job, and the
+   * owner's own rule is that a split is something they do on purpose, with another job.
    */
   blockIds: string[];
   /** The single row a resize applies to: the LAST of the unit. */
@@ -145,7 +150,8 @@ export interface DragPreview {
   allowed: boolean;
   /**
    * THE GHOST HAD TO BE PULLED UP: the pointer is below the last minute this unit can
-   * start on and still end inside the day (`clampDropStart`).
+   * start on and still end inside the day, AND no later day could hold it either
+   * (`resolveDropDay`).
    *
    * It exists so the preview can SAY that rather than simply stopping. A 6 h unit cannot
    * start after 13:00 on the documented shift, so the last 350 px of the column all mean
@@ -153,9 +159,23 @@ export interface DragPreview {
    * distance between them. That is a rule about the day, and a rule the owner cannot see is
    * indistinguishable from a drag the app has stopped listening to.
    *
+   * It is now the LAST RESORT rather than the ordinary answer: aiming below what a day can
+   * hold moves the drop to the next day (`rolled`), and this is only what is left when
+   * there is no next day on screen that can hold the run either.
+   *
    * A resize never sets it: its edge follows the pointer all the way down.
    */
   clamped?: boolean;
+  /**
+   * THE DROP MOVED TO THE NEXT DAY, because the day the pointer is over cannot hold the
+   * run from where it was released. `date` is already that next day, so the ghost is drawn
+   * on its column and the release is never a surprise — this is only what lets the hint
+   * name the reason.
+   *
+   * The owner, on the old behaviour (refuse and freeze): «Que se rechaza, de qué friki.
+   * Pasa al siguiente día. ¿Sabes cómo funciona un calendario?»
+   */
+  rolled?: boolean;
   /**
    * THE ROW WILL KEEP THE MINUTE IT IS RELEASED ON, so the ghost's clock range is a promise
    * and the hint says the owner is in charge here.
@@ -179,6 +199,17 @@ export interface BlockDragOptions {
    */
   timeline: Timeline;
   dayAt: (date: string) => WeekDay | undefined;
+  /**
+   * The week's days IN CALENDAR ORDER. `dayAt` answers "what is this day", this answers
+   * "what comes after it" — which is what a release below the end of a day needs, since
+   * the answer is another column (`resolveDropDay`).
+   */
+  days: () => readonly WeekDay[];
+  /**
+   * The rows already on a date, minus the ones being dragged. The aim is quantised
+   * against them (`aimAtThirds`): over a row the owner is choosing the ROW, not a minute.
+   */
+  rowsOn: (date: string, excludeBlockIds: readonly string[]) => readonly AimRow[];
   /** The starts already taken on a date, so a drop rank never ties. */
   takenStartsOn: (date: string, excludeBlockIds: readonly string[]) => number[];
   /**
@@ -257,7 +288,13 @@ export interface DragController {
    */
   target: DragTarget | null;
   /** The unit currently being dragged, for the "lifted" styling. */
-  activeGroupId: string | null;
+  /**
+   * The ROWS in the air, for the "lifted" styling — every row of the run, not just the
+   * unit the pointer grabbed. It has to be the run: the ghost draws the run's whole
+   * duration, so a Tuesday unit left looking solid while its Wednesday half faded out
+   * would say the drag had picked up two different things.
+   */
+  liftedBlockIds: readonly string[];
   kind: DragKind | null;
   beginMove: (event: React.PointerEvent, target: DragTarget, options?: BeginOptions) => void;
   /**
@@ -294,11 +331,16 @@ export interface DragSession {
   timeline: Timeline;
   originX: number;
   originY: number;
-  /** Pointer minute minus the unit's start, so the unit does not jump to the cursor. */
+  /**
+   * Pointer minute minus the GRABBED UNIT's start, so the run does not jump to the cursor.
+   *
+   * The unit on screen, not the run: a run reaches across days, and a run's head measured
+   * from a unit two days later is not a distance on any clock. The run is one job in one
+   * colour, so what the owner sees is a rectangle of the run's hours whose top edge sits
+   * exactly as far below the pointer as their grab did below the top of what they grabbed.
+   */
   grabOffsetMinutes: number;
   moved: boolean;
-  /** The unsnapped minute under the pointer: it breaks a rank tie's direction. */
-  exactMinutes: number;
   preview: DragPreview | null;
 }
 
@@ -363,7 +405,6 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         grabOffsetMinutes: dragKind === 'move' ? pointerMinutes - target.startMinutes : 0,
         moved: false,
         travelled: 0,
-        exactMinutes: pointerMinutes,
         preview: null,
       };
 
@@ -460,7 +501,6 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
             // The rank, or the clock: `rankFor` leaves a PINNED drop alone. See its note.
             startMinutes: rankFor(
               settled.startMinutes,
-              current.exactMinutes,
               taken,
               // A drop that lands in manual-only time is stored exactly as sent — on EVERY
               // day, the auto-filled ones included — so the nudge may not carry the row past
@@ -517,7 +557,7 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
   return {
     preview,
     target,
-    activeGroupId: preview?.groupId ?? null,
+    liftedBlockIds: preview === null ? EMPTY_IDS : target?.blockIds ?? EMPTY_IDS,
     kind,
     beginMove,
     beginResize,
@@ -574,6 +614,20 @@ export function usePressHint(
     };
     const done = (): void => {
       if (speakOnRelease.current) speak();
+      /*
+       * A PRESS THAT EXPLAINED ITSELF MUST NOT ALSO DO THE OTHER THING (fixed 2026-08-14).
+       *
+       * Dragging a gap said «Los huecos no se arrastran…» AND opened its form in the same
+       * breath: the element is a `<button>`, so the browser delivers its click on release
+       * however far the pointer travelled in between. Two answers to one gesture, one of
+       * them contradicting the other — the owner is told the gesture does nothing and is
+       * then shown a form they did not ask for.
+       *
+       * Swallowed HERE rather than where the sentence is spoken, because the swallow only
+       * survives to the end of the current task: the sentence is said the moment the travel
+       * proves a drag was meant, which can be seconds before the release.
+       */
+      if (spoken) swallowNextClick();
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', done);
       window.removeEventListener('pointercancel', done);
@@ -611,33 +665,44 @@ function swallowNextClick(): void {
 // no browser and no React in the way. `options.timeline` is deliberately NOT read by
 // either: the axis comes from `current`, fixed at press.
 
-/** Where the unit would land. The pointer's minute, less the offset it was grabbed at. */
+/**
+ * WHERE THE RUN WOULD LAND, in the three steps the release really goes through.
+ *
+ * 1. THE POINTER'S MINUTE, less the offset the unit was grabbed at, snapped.
+ * 2. THE ROW UNDER IT has the last word on the minute (`aimAtThirds`): over a row the
+ *    owner is choosing that row — before it, after it, or cut it — not a clock reading.
+ * 3. THE DAY may not be able to hold the run from there, and then the drop is on the NEXT
+ *    day (`resolveDropDay`), which is what a calendar means by aiming past the bottom of a
+ *    column. Only when no later day can hold it either does the ghost stop following the
+ *    hand, and it says so (`clamped`).
+ */
 export function previewMove(
   event: { clientX: number; clientY: number },
   current: DragSession,
   metrics: GridMetrics,
-  options: Pick<BlockDragOptions, 'dayAt'>,
+  options: Pick<BlockDragOptions, 'dayAt' | 'days' | 'rowsOn'>,
 ): DragPreview {
   const { timeline } = current;
-  const { dayAt } = options;
+  const { dayAt, days, rowsOn } = options;
   const hit = slotAt({ x: event.clientX, y: event.clientY }, metrics, timeline);
   // Leaving the grid sideways keeps the last column rather than snapping home: the
   // owner is usually on their way to the next one.
-  const date = hit?.date ?? current.preview?.date ?? current.target.date;
+  const aimedDate = hit?.date ?? current.preview?.date ?? current.target.date;
 
   const exact = timeline.minutesAt(event.clientY - metrics.top) - current.grabOffsetMinutes;
-  current.exactMinutes = exact;
-
-  const day = dayAt(date);
-  // Clamped over the DAY the unit is over, not over the axis: `durationMinutes` is net
-  // working minutes, so only the day's windows can say where a 6 h unit still fits.
-  const snapped = snapTo(exact);
-  const startMinutes = clampDropStart(
-    day?.manualWindows ?? [],
-    snapped,
-    current.target.durationMinutes,
+  // The rows of the run itself are not obstacles to it: they are what is being moved.
+  const aimed = aimAtThirds(snapTo(exact), rowsOn(aimedDate, current.target.blockIds));
+  const settled = resolveDropDay({
+    days: days(),
+    date: aimedDate,
+    startMinutes: aimed,
+    durationMinutes: current.target.durationMinutes,
     timeline,
-  );
+  });
+
+  const date = settled.date;
+  const startMinutes = settled.startMinutes;
+  const day = dayAt(date);
 
   return {
     kind: 'move',
@@ -646,10 +711,13 @@ export function previewMove(
     date,
     startMinutes,
     durationMinutes: current.target.durationMinutes,
-    // Pulled UP from where the hand actually is: the unit is too long to start where the
-    // pointer is and still end inside the day. Only downwards — a release above the top of
-    // the axis is not a rule the owner needs explaining, it is the edge of the screen.
-    clamped: snapped > startMinutes,
+    // The drop is on the day AFTER the one the pointer is over: the run does not fit
+    // below where the hand is. The ghost has already moved there; this names the reason.
+    rolled: settled.rolled,
+    // Pulled UP from where the hand actually is, and only when there was no next day to
+    // go to instead. Downwards only — a release above the top of the axis is not a rule
+    // the owner needs explaining, it is the edge of the screen.
+    clamped: settled.clamped,
     /*
      * WILL THE ROW KEEP THE MINUTE IT IS RELEASED ON? The ghost and the hint under the grid
      * are drawn from this, and it is NOT the same question as "can this drop be refused"

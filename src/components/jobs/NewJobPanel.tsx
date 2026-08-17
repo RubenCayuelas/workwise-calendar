@@ -321,8 +321,8 @@ export function NewJobPanel({
             {created.placement?.autoLock === true ? (
               <p className={styles.hint}>{t('jobForm.createdLocked')}</p>
             ) : null}
-            {created.placement?.handPlaced === true ? (
-              <p className={styles.hint}>{t('jobForm.createdHandPlaced')}</p>
+            {created.placement?.dayLock === true && created.placement.autoLock !== true ? (
+              <p className={styles.hint}>{t('jobForm.createdDayLocked')}</p>
             ) : null}
           </>
         )}
@@ -522,9 +522,6 @@ function StartDatePreview({
                     {format.dayTimeHours(row.date, row.startMinutes, row.durationMinutes)}
                   </span>
                   {row.locked ? <span className={styles.blockTag}>{t('block.locked')}</span> : null}
-                  {row.handPlaced ? (
-                    <span className={styles.blockTag}>{t('block.handPlaced')}</span>
-                  ) : null}
                 </span>
               ))}
               {summary.moreRows > 0 ? (

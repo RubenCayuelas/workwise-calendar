@@ -83,6 +83,65 @@ describe('the migration meets a database that already holds work', () => {
     expect(() => openDatabase(dbPath).close()).not.toThrow();
     db.close();
   });
+
+  it('turns the retired `hand_placed` rows into PADLOCKED ones, and drops the column', () => {
+    // The shop's file holds the third mark this version removes. Every row that carried it
+    // was pinned BY THE OWNER — a Friday, a weekend, a margin — so freeing it would let the
+    // next recomposition move exactly the work they had placed on purpose. It comes out
+    // locked instead, which is what the mark now means everywhere else.
+    const dbPath = path.join(scratch, 'hand-placed', 'calendar.db');
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE projects (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, color TEXT NOT NULL,
+        total_hours REAL NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE blocks (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        date TEXT NOT NULL, start_time TEXT NOT NULL,
+        duration REAL NOT NULL CHECK (duration > 0),
+        locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
+        manual_duration INTEGER NOT NULL DEFAULT 0 CHECK (manual_duration IN (0, 1)),
+        hand_placed INTEGER NOT NULL DEFAULT 0 CHECK (hand_placed IN (0, 1)),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX idx_blocks_date_start_time ON blocks (date, start_time);
+      CREATE TRIGGER trg_blocks_updated_at
+      AFTER UPDATE ON blocks FOR EACH ROW
+      WHEN OLD.updated_at = NEW.updated_at
+      BEGIN
+        UPDATE blocks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+      END;
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Escalera', '#1D9E75', 6);
+      INSERT INTO blocks (id, project_id, date, start_time, duration, locked, manual_duration, hand_placed)
+        VALUES ('viernes',   'p1', '2026-08-14', '10:00', 2, 0, 0, 1),
+               ('bloqueado', 'p1', '2026-08-13', '08:00', 2, 1, 1, 0),
+               ('libre',     'p1', '2026-08-12', '08:00', 2, 0, 0, 0);
+    `);
+    legacy.close();
+
+    const db = openDatabase(dbPath);
+
+    expect(db.prepare('PRAGMA table_info(blocks)').all().map((row) => (row as { name: string }).name)).not.toContain(
+      'hand_placed',
+    );
+    // The pinned row is padlocked; the padlock and the ruler that were already there are
+    // untouched; the free row is still free.
+    expect(db.prepare('SELECT id, locked, manual_duration FROM blocks ORDER BY id').all()).toEqual([
+      { id: 'bloqueado', locked: 1, manual_duration: 1 },
+      { id: 'libre', locked: 0, manual_duration: 0 },
+      { id: 'viernes', locked: 1, manual_duration: 0 },
+    ]);
+    // Idempotent: the column is gone, so the second run has nothing to carry over.
+    expect(() => openDatabase(dbPath).close()).not.toThrow();
+    expect(db.prepare("SELECT locked FROM blocks WHERE id = 'libre'").get()).toEqual({ locked: 0 });
+    db.close();
+  });
 });
 
 describe('openDatabase', () => {
