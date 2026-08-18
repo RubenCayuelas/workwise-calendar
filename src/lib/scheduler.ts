@@ -265,7 +265,6 @@ export function recompose(db: Db, options: RecomposeOptions = {}): RecomposeRepo
         startMinutes: placed.startMinutes,
         durationMinutes: placed.durationMinutes,
         locked: placed.locked,
-        manualDuration: placed.manualDuration,
       };
       const current = stored.get(id);
       if (current === undefined) {
@@ -454,7 +453,7 @@ function sameCalendar(before: readonly Block[], after: readonly Block[]): boolea
     rows
       .map(
         (row) =>
-          `${row.date} ${row.startMinutes} ${row.durationMinutes} ${row.projectId} ${row.locked ? 1 : 0}${row.manualDuration ? 1 : 0}`,
+          `${row.date} ${row.startMinutes} ${row.durationMinutes} ${row.projectId} ${row.locked ? 1 : 0}`,
       )
       .sort()
       .join('|');
@@ -473,11 +472,9 @@ function hasMoved(current: Block, placement: BlockPlacement): boolean {
     current.date !== placement.date ||
     current.startMinutes !== placement.startMinutes ||
     current.durationMinutes !== placement.durationMinutes ||
-    // Both marks can change while the geometry stays exactly as it was — a drop onto a
-    // margin adds the padlock without moving the row a minute — and both must still reach
-    // the table: they are the whole reason the row keeps its place, and its length, on the
-    // next pass.
-    current.locked !== placement.locked ||
-    current.manualDuration !== placement.manualDuration
+    // The padlock can change while the geometry stays exactly as it was — a drop onto a
+    // margin adds it without moving the row a minute — and it must still reach the table:
+    // it is the whole reason the row keeps its place, and its length, on the next pass.
+    current.locked !== placement.locked
   );
 }

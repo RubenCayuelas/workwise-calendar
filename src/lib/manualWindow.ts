@@ -294,53 +294,22 @@ export function adjacentInWindows(
  */
 export const MIN_MANUAL_ONLY_MINUTES = 15;
 
-/** Minutes in `segments` that the day's PERIODS do not cover: margin and lunch time. */
-export function manualOnlyMinutes(
-  periods: readonly WorkPeriod[],
-  segments: readonly { startMinutes: number; durationMinutes: number }[],
-): number {
-  let total = 0;
-  for (const segment of segments) {
-    total +=
-      segment.durationMinutes -
-      netMinutesBetween(periods, segment.startMinutes, segment.startMinutes + segment.durationMinutes);
-  }
-  return total;
-}
-
-/**
- * True when `segments` ask for a real amount of time the day's PERIODS do not cover — in
- * practice a VISUAL MARGIN. The grid draws exactly that time grey and labels it "solo
- * arrastre manual".
- *
- * The lunch band is drawn the same grey but is no longer reachable this way by a drop or a
- * resize: `segmentDroppedRow` lays both out from `firstWorkingMinute`, so their segments start
- * inside a period. What can still score break minutes here is a segment the segmenter returned
- * UNCUT because its tail would pass midnight — an over-long RUN — which is one of the three
- * things CLAUDE.md's Open Decision 13 deliberately leaves feeding on that number.
- *
- * It is what decides that a hand action has to PADLOCK its row: the engine's index space
- * has no margin minutes in it, so a row the reflow still owns would be pulled straight
- * back into the periods — either moved, or thrown onto the next day when the hours no
- * longer fit there. That is exactly why the margins were configurable and unusable. The
- * padlock is the app's one answer to "this does not move", it is drawn on the row, and it
- * comes off by being pressed.
+/*
+ * `manualOnlyMinutes` and `usesManualOnlyTime` — "how much of this footprint is margin
+ * time" — were deleted on 2026-08-18 with `Block.manualDuration`. Their one reader was
+ * the RESIZE, which padlocked a row whose stored length reached into a margin; the resize
+ * now only ever sizes rows that are outside the movable pool already, so there was nothing
+ * left for them to decide. A DROP asks the narrower question below, and always did.
  */
-export function usesManualOnlyTime(
-  periods: readonly WorkPeriod[],
-  segments: readonly { startMinutes: number; durationMinutes: number }[],
-): boolean {
-  return manualOnlyMinutes(periods, segments) >= MIN_MANUAL_ONLY_MINUTES;
-}
 
 /**
  * THE MANUAL-ONLY MINUTES A DROP IS ASKING FOR: the ones it must spend before it reaches
  * working hours, and every minute of it when there are no working hours left at all.
  *
- * A DROP AND A RESIZE ASK DIFFERENT QUESTIONS, and this is the drop's. A resize sets a
- * LENGTH and that length is stored, so a row reaching 20:00 really does occupy margin time
- * and `usesManualOnlyTime` — the whole footprint — is the right question for it. A drop
- * writes a queue RANK: on a day the engine lays out, the rows that will really be stored
+ * A DROP AND A RESIZE ASKED DIFFERENT QUESTIONS, and this is the drop's — the only one
+ * left. A resize sets a LENGTH that is stored, so the whole footprint was the right question
+ * for it; since it may only size rows the engine does not lay out, it needs no answer at all.
+ * A drop writes a queue RANK: on a day the engine lays out, the rows that will really be stored
  * are whatever the reflow decides, and the reflow FILLS WHAT THE DAY HAS LEFT AND CARRIES
  * THE REST TO THE NEXT DAY (see `compose`). So minutes past the end of the working periods
  * are not a request for the margin below them — they are overflow.

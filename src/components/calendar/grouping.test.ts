@@ -1,11 +1,11 @@
 /**
- * The visual unit, and in particular what it carries about a HAND-SET length.
+ * The visual unit: what a run contains, and what the group rolls up.
  *
- * A unit is one gesture on screen but several rows in the database, so the two facts
- * the block draws — the padlock and the hand-set mark — roll up differently and this
- * is where that is pinned down. `locked` answers a yes/no question about the whole
- * unit; `manualBlockIds` has to name the rows, because that list is exactly what
- * *back to automatic* sends and a unit can legitimately be half hand-set.
+ * A unit is one gesture on screen but several rows in the database. There is one fact left
+ * to roll up — the PADLOCK — and it is a yes/no question about the whole unit, so `locked`
+ * is a boolean. It carried a second list until 2026-08-18 (`manualBlockIds`, the rows whose
+ * length the owner had drawn, which was exactly what *back to automatic* sent); that mark is
+ * gone and the padlock is what fixes a length now.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -24,104 +24,12 @@ function block(overrides: Partial<WeekBlock> & { id: string }): WeekBlock {
     startMinutes: 8 * 60,
     durationMinutes: 60,
     locked: false,
-    manualDuration: false,
     createdAt: '2026-08-11T09:00:00.000Z',
     updatedAt: '2026-08-11T09:00:00.000Z',
     project: { id: 'barandilla', name: 'Barandilla', color: '#2F6FEB' },
     ...overrides,
   };
 }
-
-describe('groupBlocks — the hand-set mark', () => {
-  it('leaves the list empty when the engine owns every row', () => {
-    const groups = groupBlocks([block({ id: 'a' })], PERIODS);
-    expect(groups[0].manualBlockIds).toEqual([]);
-  });
-
-  it('keeps both halves of a stretch that had to be cut at the lunch break', () => {
-    // The engine stores a 7 h hand-set stretch as 13:00-14:00 plus 15:30-19:30 and
-    // reads them back as ONE stretch; the unit has to be able to release both.
-    const groups = groupBlocks(
-      [
-        block({ id: 'morning', startMinutes: 13 * 60, durationMinutes: 60, manualDuration: true }),
-        block({
-          id: 'afternoon',
-          startMinutes: 15 * 60 + 30,
-          durationMinutes: 4 * 60,
-          manualDuration: true,
-        }),
-      ],
-      PERIODS,
-    );
-    expect(groups).toHaveLength(1);
-    expect(groups[0].manualBlockIds).toEqual(['morning', 'afternoon']);
-    expect(groups[0].manualBlockIds.length).toBe(groups[0].blocks.length);
-  });
-
-  it('names only the hand-set half of a unit the owner half sized', () => {
-    const groups = groupBlocks(
-      [
-        block({ id: 'drawn', startMinutes: 13 * 60, durationMinutes: 60, manualDuration: true }),
-        block({ id: 'auto', startMinutes: 15 * 60 + 30, durationMinutes: 60 }),
-      ],
-      PERIODS,
-    );
-    expect(groups).toHaveLength(1);
-    expect(groups[0].manualBlockIds).toEqual(['drawn']);
-    // The unit is still one thing to drag, and only part of it is hand-set — which is
-    // why the group cannot answer this with a single boolean.
-    expect(groups[0].manualBlockIds.length).toBeLessThan(groups[0].blocks.length);
-  });
-
-  it('does not leak the mark across two jobs that merely touch', () => {
-    const groups = groupBlocks(
-      [
-        block({ id: 'a', durationMinutes: 60, manualDuration: true }),
-        block({ id: 'b', projectId: 'porton', startMinutes: 9 * 60, durationMinutes: 60 }),
-      ],
-      PERIODS,
-    );
-    expect(groups.map((group) => group.manualBlockIds)).toEqual([['a'], []]);
-  });
-});
-
-describe('groupBlocks — what *back to automatic* releases', () => {
-  it('is empty while the engine owns the unit', () => {
-    expect(groupBlocks([block({ id: 'a' })], PERIODS)[0].manualBlockIds).toEqual([]);
-  });
-
-  it('is empty for a PADLOCKED row whose length is perfectly automatic', () => {
-    // The Friday row: fixed to a day, sized by the engine. Its way back is the padlock,
-    // not this action — since 2026-08-14 there is one list, not two.
-    const groups = groupBlocks([block({ id: 'viernes', locked: true })], PERIODS);
-    expect(groups[0].manualBlockIds).toEqual([]);
-  });
-
-  it('names each row once when a row carries both marks', () => {
-    const groups = groupBlocks(
-      [block({ id: 'ambas', manualDuration: true, locked: true })],
-      PERIODS,
-    );
-    expect(groups[0].manualBlockIds).toEqual(['ambas']);
-  });
-
-  it('gathers both halves of a stretch the owner sized across the lunch break', () => {
-    const groups = groupBlocks(
-      [
-        block({ id: 'morning', startMinutes: 13 * 60, durationMinutes: 60, manualDuration: true }),
-        block({
-          id: 'afternoon',
-          startMinutes: 15 * 60 + 30,
-          durationMinutes: 60,
-          manualDuration: true,
-        }),
-      ],
-      PERIODS,
-    );
-    expect(groups).toHaveLength(1);
-    expect(groups[0].manualBlockIds).toEqual(['morning', 'afternoon']);
-  });
-});
 
 /**
  * Which internal edge of a unit may say "the work carries on over there".
@@ -268,18 +176,18 @@ describe('buildRuns', () => {
     expect(runs.get('pinned')?.blockIds).toEqual(['pinned']);
   });
 
-  it('ends the run at a hand-set length, which is its own queue item', () => {
-    // `buildQueue` never joins a hand-set stretch to an automatic one, and never joins two
-    // of them across days: three days of one job, three runs. A drag that promised to move
-    // all three would be promising hours the reflow is about to separate again.
+  it('joins three days of one job into ONE run, since nothing but another job divides one', () => {
+    // A night does not break a run and neither does anything else: the hand-set length that
+    // used to end one went with `manual_duration` (2026-08-18), so this is `buildQueue`'s
+    // single item and the drag moves all three days.
     const runs = runsOf([
-      block({ id: 'auto', date: '2026-08-12', startMinutes: 8 * 60, durationMinutes: 120 }),
-      block({ id: 'sized', date: '2026-08-13', startMinutes: 8 * 60, durationMinutes: 60, manualDuration: true }),
-      block({ id: 'after', date: '2026-08-14', startMinutes: 8 * 60, durationMinutes: 60 }),
+      block({ id: 'wed', date: '2026-08-12', startMinutes: 8 * 60, durationMinutes: 120 }),
+      block({ id: 'thu', date: '2026-08-13', startMinutes: 8 * 60, durationMinutes: 60 }),
+      block({ id: 'fri', date: '2026-08-14', startMinutes: 8 * 60, durationMinutes: 60 }),
     ]);
-    expect(runs.get('auto')?.blockIds).toEqual(['auto']);
-    expect(runs.get('sized')?.blockIds).toEqual(['sized']);
-    expect(runs.get('after')?.blockIds).toEqual(['after']);
+    expect(runs.get('wed')?.blockIds).toEqual(['wed', 'thu', 'fri']);
+    expect(runs.get('thu')).toBe(runs.get('wed'));
+    expect(runs.get('fri')).toBe(runs.get('wed'));
   });
 
   it('carries the unit on screen whole, padlocked rows in it included', () => {

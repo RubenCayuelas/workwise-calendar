@@ -23,7 +23,6 @@ import {
   deleteProject,
   getProject,
   isAbortError,
-  releaseBlockDuration,
   setBlockLock,
   updateProject,
   type Block,
@@ -206,34 +205,6 @@ export function JobPanel({
     }
   };
 
-  /**
-   * "Back to automatic" for one row: the engine owns its length again.
-   *
-   * No placement notice, for the same reason the padlock has none — releasing lets the
-   * whole calendar reflow, so listing everything that moved would be noise. What the
-   * owner needs to see is that the mark is gone, and the list re-renders without it.
-   */
-  const release = async (block: Block): Promise<void> => {
-    if (lockBusyId !== null) return;
-    setLockBusyId(block.id);
-    setActionError(null);
-
-    try {
-      const result = await releaseBlockDuration(block.id);
-      setBlocks(result.blocks);
-      onChanged?.({
-        kind: 'block-released',
-        projectId: block.projectId,
-        blockId: block.id,
-        summary: result.summary,
-      });
-    } catch (error) {
-      setActionError(error);
-    } finally {
-      setLockBusyId(null);
-    }
-  };
-
   const remove = async (): Promise<void> => {
     const project = loaded;
     if (project === null || deleting) return;
@@ -343,7 +314,6 @@ export function JobPanel({
               blocks={blocks}
               today={reference}
               onToggleLock={toggleLock}
-              onReleaseDuration={release}
               onSplit={onSplitBlock}
               busyBlockId={lockBusyId}
               disabled={busy}

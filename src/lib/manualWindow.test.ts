@@ -9,7 +9,6 @@ import {
   netMinutesBetween,
   netMinutesOf,
   reachableRuns,
-  usesManualOnlyTime,
 } from './manualWindow';
 import { hhmmToMinutes as t } from './dates';
 import type { WorkPeriod } from '../types';
@@ -181,37 +180,6 @@ describe('adjacentInWindows', () => {
     // window exists to close.
     expect(adjacentInWindows(WINDOWS, t('07:30'), t('08:00'))).toBe(false);
     expect(netMinutesBetween(PERIODS, t('07:30'), t('08:00'))).toBe(0);
-  });
-});
-
-describe('usesManualOnlyTime', () => {
-  it('is false for work that sits inside the periods', () => {
-    expect(usesManualOnlyTime(PERIODS, [{ startMinutes: t('10:00'), durationMinutes: 240 }])).toBe(false);
-    expect(
-      usesManualOnlyTime(PERIODS, [
-        { startMinutes: t('10:00'), durationMinutes: 240 },
-        { startMinutes: t('15:30'), durationMinutes: 120 },
-      ]),
-    ).toBe(false);
-  });
-
-  it('is true for a row holding margin minutes, on either side of the day', () => {
-    expect(usesManualOnlyTime(PERIODS, [{ startMinutes: t('07:00'), durationMinutes: 60 }])).toBe(true);
-    expect(usesManualOnlyTime(PERIODS, [{ startMinutes: t('07:30'), durationMinutes: 120 }])).toBe(true);
-    expect(usesManualOnlyTime(PERIODS, [{ startMinutes: t('19:00'), durationMinutes: 90 }])).toBe(true);
-  });
-
-  it('is true for a row sitting in the lunch band', () => {
-    expect(usesManualOnlyTime(PERIODS, [{ startMinutes: t('14:30'), durationMinutes: 60 }])).toBe(true);
-  });
-
-  it('notices when only the CONTINUATION reaches into a margin', () => {
-    expect(
-      usesManualOnlyTime(PERIODS, [
-        { startMinutes: t('12:00'), durationMinutes: 120 },
-        { startMinutes: t('15:30'), durationMinutes: 300 },
-      ]),
-    ).toBe(true);
   });
 });
 

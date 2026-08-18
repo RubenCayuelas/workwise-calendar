@@ -27,14 +27,7 @@ import {
   patchProject,
   previewProjectCreation,
 } from './operations/projects';
-import {
-  deleteBlock,
-  moveBlock,
-  releaseBlock,
-  resizeBlock,
-  setBlockLock,
-  splitBlock,
-} from './operations/blocks';
+import { deleteBlock, moveBlock, resizeBlock, setBlockLock, splitBlock } from './operations/blocks';
 import { createGap, deleteGap } from './operations/gaps';
 import { updateSettings } from './operations/settings';
 import { readWeek } from './operations/views';
@@ -437,15 +430,9 @@ describe('a drop onto the Friday colchon', () => {
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
-  it('comes home when the padlock comes off, and only then', () => {
+  it('comes home when the padlock comes off, which is the only undo there is', () => {
     const puerta = job('Puerta', 4);
     moveBlock(puerta.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: MON }, db);
-
-    // *Back to automatic* is about the LENGTH now: it leaves the buffer row where the
-    // owner put it, because the padlock is what is holding it there and the padlock is
-    // visible on the row.
-    const released = releaseBlock(puerta.blocks[0].id, { today: MON }, db);
-    expect(released.block?.locked).toBe(true);
     expect(calendar()).toEqual([`${FRI} 10:00-14:00 Puerta [locked]`]);
 
     const unlocked = setBlockLock(puerta.blocks[0].id, false, { today: MON }, db);
@@ -490,11 +477,6 @@ describe('a drop onto the Friday colchon', () => {
   it('gives a margin row back to the engine when the padlock comes off', () => {
     const barandilla = job('Barandilla', 2, GREEN);
     moveBlock(barandilla.blocks[0].id, { date: MON, startMinutes: 7 * 60, today: MON }, db);
-    expect(calendar()).toEqual([`${MON} 07:00-09:00 Barandilla [locked]`]);
-
-    // *Back to automatic* is about the LENGTH and leaves the row in the margin, which is
-    // where the owner put it. The padlock is the way back, and it is on the row.
-    releaseBlock(barandilla.blocks[0].id, { today: MON }, db);
     expect(calendar()).toEqual([`${MON} 07:00-09:00 Barandilla [locked]`]);
 
     setBlockLock(barandilla.blocks[0].id, false, { today: MON }, db);
@@ -574,8 +556,11 @@ describe('block gestures', () => {
 
   it("asks what to do with the hours a job's last block frees, and writes nothing yet", () => {
     const puerta = job('Puerta', 8);
-    const before = calendar();
     const last = puerta.blocks[puerta.blocks.length - 1];
+    // The edge only sizes a row the engine does not lay out, so the padlock comes first —
+    // and it is what will hold the length the answer settles on.
+    setBlockLock(last.id, true, { today: MON }, db);
+    const before = calendar();
 
     const error = refusal(() => resizeBlock(last.id, { durationMinutes: 60, today: MON }, db));
 
@@ -596,10 +581,11 @@ describe('block gestures', () => {
   it('takes the freed hours off the job when the owner answers `reduce-total`', () => {
     const puerta = job('Puerta', 8);
     const last = puerta.blocks[puerta.blocks.length - 1];
+    setBlockLock(last.id, true, { today: MON }, db);
 
     resizeBlock(last.id, { durationMinutes: 60, freedHours: 'reduce-total', today: MON }, db);
 
-    expect(calendar()).toEqual([`${MON} 08:00-14:00 Puerta`, `${MON} 15:30-16:30 Puerta`]);
+    expect(calendar()).toEqual([`${MON} 08:00-14:00 Puerta`, `${MON} 15:30-16:30 Puerta [locked]`]);
     expect(listProjects(db)[0].totalMinutes).toBe(7 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
@@ -607,15 +593,16 @@ describe('block gestures', () => {
   it('leaves the freed hours as a block of their own when the owner answers `new-block`', () => {
     const puerta = job('Puerta', 8);
     const last = puerta.blocks[puerta.blocks.length - 1];
+    setBlockLock(last.id, true, { today: MON }, db);
 
     resizeBlock(last.id, { durationMinutes: 60, freedHours: 'new-block', today: MON }, db);
 
-    // The job still has its 8 h: 6 + 1 where the owner drew them, and the freed hour on
-    // the next day the engine fills — a loose block for them to place.
+    // The job still has its 8 h: 6 + 1 where the owner drew them, and the freed hour as a
+    // row of its own, which the engine places on the first hours it can use.
     expect(calendar()).toEqual([
       `${MON} 08:00-14:00 Puerta`,
-      `${MON} 15:30-16:30 Puerta`,
-      `${TUE} 08:00-09:00 Puerta`,
+      `${MON} 15:30-16:30 Puerta [locked]`,
+      `${MON} 16:30-17:30 Puerta`,
     ]);
     expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
@@ -624,6 +611,7 @@ describe('block gestures', () => {
   it('raises the estimate when the last block is enlarged', () => {
     const puerta = job('Puerta', 8);
     const last = puerta.blocks[puerta.blocks.length - 1];
+    setBlockLock(last.id, true, { today: MON }, db);
 
     const result = resizeBlock(last.id, { durationMinutes: 4 * 60, today: MON }, db);
 
@@ -632,23 +620,33 @@ describe('block gestures', () => {
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
-  it('resizes an unlocked future row and the new length is actually stored', () => {
-    // The reproduced defect: `PATCH /api/blocks/:id` with a resize used to answer 200
-    // with the row unchanged, because the recomposition that follows re-derived the
-    // job's segmentation from its total and undid the transfer.
+  it('refuses an unlocked future row, and sizes the very same row once it is padlocked', () => {
+    // The gesture used to be offered here and answer 200 with the row unchanged, because
+    // the recomposition that follows re-derives an automatic row's length from its job's
+    // total. A stored mark papered over that until 2026-08-18; now the app says what the
+    // owner has to do — padlock the row (or make a gap) — and nothing is written meanwhile.
     const puerta = job('Puerta', 8);
     const morning = puerta.blocks[0];
     expect(morning.durationMinutes).toBe(6 * 60);
+    const before = calendar();
 
+    const error = refusal(() => resizeBlock(morning.id, { durationMinutes: 2 * 60, today: MON }, db));
+    expect(error.status).toBe(409);
+    expect(error.code).toBe('resize-needs-padlock');
+    expect(error.messageKey).toBe('errors.resizeNeedsPadlock');
+    expect(calendar()).toEqual(before);
+
+    setBlockLock(morning.id, true, { today: MON }, db);
     const result = resizeBlock(morning.id, { durationMinutes: 2 * 60, today: MON }, db);
 
     expect(result.block?.durationMinutes).toBe(2 * 60);
-    expect(result.block?.manualDuration).toBe(true);
+    expect(result.block?.locked).toBe(true);
     expect(calendar()).toEqual([
-      `${MON} 08:00-10:00 Puerta`,
-      // The 4 h went to the job's LAST block, and the run ends at the hand-set row, so
-      // the remainder starts on the next auto-fill day instead of flowing straight back.
-      `${TUE} 08:00-14:00 Puerta`,
+      `${MON} 08:00-10:00 Puerta [locked]`,
+      // The 4 h went to the job's LAST block, which the engine then lays out from the
+      // padlocked row onwards: the day is not left with a hole in it.
+      `${MON} 10:00-14:00 Puerta`,
+      `${MON} 15:30-17:30 Puerta`,
     ]);
     expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
@@ -667,19 +665,21 @@ describe('block gestures', () => {
       `${TUE} 08:00-14:00 Barandilla`,
     ]);
 
+    setBlockLock(barandilla.blocks[0].id, true, { today: MON }, db);
     const result = resizeBlock(barandilla.blocks[0].id, { durationMinutes: 6 * 60, today: MON }, db);
 
-    // The row the request named holds the first segment; the second is a row of its own.
+    // The row the request named holds the first segment; the second is a row of its own,
+    // carrying the same padlock — that is what holds the stretch the owner drew.
     expect(result.block?.durationMinutes).toBe(4 * 60);
-    expect(result.block?.manualDuration).toBe(true);
+    expect(result.block?.locked).toBe(true);
     expect(calendar()).toEqual([
       `${MON} 08:00-10:00 Porton`,
-      `${MON} 10:00-14:00 Barandilla`,
-      `${MON} 15:30-17:30 Barandilla`,
-      // A transfer, not growth: the 2 h the stretch gave up went to the job's last rows,
-      // and the stretch closes Monday for its job, so they stay on Tuesday.
+      `${MON} 10:00-14:00 Barandilla [locked]`,
+      `${MON} 15:30-17:30 Barandilla [locked]`,
+      // A transfer, not growth: the 2 h the stretch gave up went to the job's last row,
+      // which the engine places from Monday's remaining hours onwards.
+      `${MON} 17:30-19:30 Barandilla`,
       `${TUE} 08:00-14:00 Barandilla`,
-      `${TUE} 15:30-17:30 Barandilla`,
     ]);
     expect(listProjects(db).find((project) => project.name === 'Barandilla')?.totalMinutes).toBe(14 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
@@ -689,34 +689,35 @@ describe('block gestures', () => {
     resizeBlock(barandilla.blocks[0].id, { durationMinutes: 4 * 60, today: MON }, db);
     expect(calendar()).toEqual([
       `${MON} 08:00-10:00 Porton`,
-      `${MON} 10:00-14:00 Barandilla`,
+      `${MON} 10:00-14:00 Barandilla [locked]`,
+      `${MON} 15:30-19:30 Barandilla`,
       `${TUE} 08:00-14:00 Barandilla`,
-      `${TUE} 15:30-19:30 Barandilla`,
     ]);
     expect(listProjects(db).find((project) => project.name === 'Barandilla')?.totalMinutes).toBe(14 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
   it('lets a resize reach into the bottom margin, and the row stays there', () => {
-    // Report C for the resize. Without the pin the reflow pulls the row back inside the
-    // periods on this very save, which is what made the margins unusable by hand.
+    // Report C for the resize. The padlock is what keeps the reflow from pulling the row
+    // back inside the periods — and since it is also what allows the resize at all, no
+    // second mark was ever needed here.
     job('Porton', 6);
     const puerta = job('Puerta', 2, GREEN);
     expect(calendar()).toEqual([`${MON} 08:00-14:00 Porton`, `${MON} 15:30-17:30 Puerta`]);
 
     // 15:30 to 20:30 — an hour past the last period, into the grey band the Settings
     // screen offers and no gesture could reach.
+    setBlockLock(puerta.blocks[0].id, true, { today: MON }, db);
     const result = resizeBlock(puerta.blocks[0].id, { durationMinutes: 5 * 60, today: MON }, db);
 
     expect(result.block?.locked).toBe(true);
-    expect(result.block?.manualDuration).toBe(true);
     expect(calendar()).toEqual([`${MON} 08:00-14:00 Porton`, `${MON} 15:30-20:30 Puerta [locked]`]);
     // Nothing farther in the job to draw from, so this is the one case that grows the
     // estimate — 2 h to 5 h — and the hours invariant still holds.
     expect(listProjects(db).find((project) => project.name === 'Puerta')?.totalMinutes).toBe(5 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
 
-    // It survives an unrelated save, which is the whole point of the mark.
+    // It survives an unrelated save, which is the whole point of the padlock.
     job('Reja', 2);
     expect(calendar()).toEqual([
       `${MON} 08:00-14:00 Porton`,
@@ -729,72 +730,63 @@ describe('block gestures', () => {
     expect(readWeek(MON, { today: MON }, db).days[0].capacityMinutes).toBe(10 * 60);
   });
 
-  it('gives the hours it frees to the job behind it, and takes them back on release', () => {
+  it('lets the whole day be used again, and the padlock is what gives the length back', () => {
     const puerta = job('Puerta', 8);
     job('Barandilla', 4, GREEN);
-    expect(calendar()).toEqual([
+    const automatic = calendar();
+    expect(automatic).toEqual([
       `${MON} 08:00-14:00 Puerta`,
       `${MON} 15:30-17:30 Puerta`,
       `${MON} 17:30-19:30 Barandilla`,
       `${TUE} 08:00-10:00 Barandilla`,
     ]);
 
+    setBlockLock(puerta.blocks[0].id, true, { today: MON }, db);
     resizeBlock(puerta.blocks[0].id, { durationMinutes: 2 * 60, today: MON }, db);
 
     expect(calendar()).toEqual([
-      `${MON} 08:00-10:00 Puerta`,
-      // Barandilla moves up into the hours Monday just gained: a newer job starts
-      // before the older one's remainder, which is the price of honouring the length.
-      `${MON} 10:00-14:00 Barandilla`,
-      `${TUE} 08:00-14:00 Puerta`,
-    ]);
-
-    const released = releaseBlock(puerta.blocks[0].id, { today: MON }, db);
-
-    // Releasing gives back the LENGTH, not the queue position. Barandilla now ranks
-    // between Puerta's two runs on the calendar, and queue order IS calendar order, so
-    // the engine keeps that order — exactly as it does after any drag. To put Puerta
-    // back in front, drag it there.
-    expect(released.block?.manualDuration).toBe(false);
-    expect(calendar()).toEqual([
-      `${MON} 08:00-10:00 Puerta`,
-      `${MON} 10:00-14:00 Barandilla`,
-      // Puerta's second run fills Monday's afternoon and finishes on Tuesday, instead of
-      // moving whole to Tuesday and leaving 15:30-19:30 empty. Monday is booked to its
-      // 10 h stop line.
-      `${MON} 15:30-19:30 Puerta`,
-      `${TUE} 08:00-10:00 Puerta`,
+      `${MON} 08:00-10:00 Puerta [locked]`,
+      // STRICT ORDER, UNBROKEN, and the day is used to its stop line: Puerta's own
+      // remaining hours take the room its shrunk row freed and Barandilla still follows
+      // it, so the only thing that changed is which 2 h are padlocked. Ending the day at
+      // 10:00 is what a GAP is for, and only the owner makes one.
+      `${MON} 10:00-14:00 Puerta`,
+      `${MON} 15:30-17:30 Puerta`,
+      `${MON} 17:30-19:30 Barandilla`,
+      `${TUE} 08:00-10:00 Barandilla`,
     ]);
     expect(() => assertProjectHours(db)).not.toThrow();
-  });
 
-  it('puts a job back the way it was when the only hand-set row is released', () => {
-    const puerta = job('Puerta', 8);
-    const automatic = calendar();
-
-    resizeBlock(puerta.blocks[0].id, { durationMinutes: 2 * 60, today: MON }, db);
-    expect(calendar()).toEqual([`${MON} 08:00-10:00 Puerta`, `${TUE} 08:00-14:00 Puerta`]);
-
-    releaseBlock(puerta.blocks[0].id, { today: MON }, db);
-
+    // Pressing the padlock hands the row back, length included: the calendar is the
+    // automatic one again. That is the whole of *back to automatic* now.
+    setBlockLock(puerta.blocks[0].id, false, { today: MON }, db);
     expect(calendar()).toEqual(automatic);
-    expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
+    // By id, not by position: two jobs created in the same second are ordered by their
+    // random ids.
+    expect(listProjects(db).find((project) => project.id === puerta.project.id)?.totalMinutes).toBe(
+      8 * 60,
+    );
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
-  it('keeps a hand-set length through an unrelated save, a new job and a delete', () => {
+  it('keeps a padlocked length through an unrelated save, a new job and a delete', () => {
     const puerta = job('Puerta', 8);
+    setBlockLock(puerta.blocks[0].id, true, { today: MON }, db);
     resizeBlock(puerta.blocks[0].id, { durationMinutes: 2 * 60, today: MON }, db);
-    const handSetId = puerta.blocks[0].id;
+    const sizedId = puerta.blocks[0].id;
 
     const barandilla = job('Barandilla', 2, GREEN);
     createGap({ date: THU, startMinutes: 8 * 60, durationMinutes: 60, today: MON }, db);
     deleteProject(barandilla.project.id, { today: MON }, db);
 
-    const stored = listBlocks(db).find((row) => row.id === handSetId);
+    const stored = listBlocks(db).find((row) => row.id === sizedId);
     expect(stored?.durationMinutes).toBe(2 * 60);
-    expect(stored?.manualDuration).toBe(true);
-    expect(calendar()).toEqual([`${MON} 08:00-10:00 Puerta`, `${TUE} 08:00-14:00 Puerta`]);
+    expect(stored?.locked).toBe(true);
+    expect(calendar()).toEqual([
+      `${MON} 08:00-10:00 Puerta [locked]`,
+      `${MON} 10:00-14:00 Puerta`,
+      `${MON} 15:30-17:30 Puerta`,
+    ]);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
@@ -804,17 +796,16 @@ describe('block gestures', () => {
     // that 409 is a question rather than a wall. Nothing is written until it is answered,
     // marks included.
     const puerta = job('Puerta', 8);
+    const last = puerta.blocks[puerta.blocks.length - 1];
+    setBlockLock(last.id, true, { today: MON }, db);
     const before = calendar();
 
-    const error = refusal(() =>
-      resizeBlock(puerta.blocks[puerta.blocks.length - 1].id, { durationMinutes: 60, today: MON }, db),
-    );
+    const error = refusal(() => resizeBlock(last.id, { durationMinutes: 60, today: MON }, db));
 
     expect(error.status).toBe(409);
     expect(error.code).toBe('shrink-needs-choice');
     expect(error.messageKey).toBe('errors.shrinkNeedsChoice');
     expect(calendar()).toEqual(before);
-    expect(listBlocks(db).every((row) => !row.manualDuration)).toBe(true);
   });
 
   it('cuts a movable row a drop lands in, so the day reads A, B, A', () => {
@@ -957,7 +948,6 @@ describe('raising the hours of a job whose only row is in the frozen past', () =
         startMinutes: 12 * 60,
         durationMinutes: 2 * 60,
         locked: false,
-        manualDuration: false,
       },
       db,
     );
@@ -1059,17 +1049,20 @@ describe('the past is read-only to the block gestures', () => {
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
-  it('still lets a stale ruler be handed back, since that moves nothing', () => {
-    // *Back to automatic* only clears a mark the engine no longer consults on a past day.
-    // Refusing it would strand the mark in the job panel with no undo beside it.
+  it('leaves a padlock a row carried into the past exactly where it is', () => {
+    // Nothing is stranded by the past being read-only: the padlock a past row carries
+    // changes nothing the engine reads, since `isMovable` asks the date before the flag.
+    // There is no second mark to hand back any more — *back to automatic* went with it.
     const puerta = job('Puerta', 4, BLUE, TUE);
+    setBlockLock(puerta.blocks[0].id, true, { today: TUE }, db);
     resizeBlock(puerta.blocks[0].id, { durationMinutes: 3 * 60, freedHours: 'reduce-total', today: TUE }, db);
-    expect(listBlocks(db)[0].manualDuration).toBe(true);
+    expect(listBlocks(db)[0].durationMinutes).toBe(3 * 60);
 
-    releaseBlock(listBlocks(db)[0].id, { today: WED }, db);
-
-    expect(listBlocks(db)[0].manualDuration).toBe(false);
-    expect(calendar()).toEqual([`${TUE} 08:00-11:00 Puerta`]);
+    // The next day it is a record. The padlock stays, and the padlock itself is refused.
+    const error = refusal(() => setBlockLock(listBlocks(db)[0].id, false, { today: WED }, db));
+    expect(error.code).toBe('past-block-frozen');
+    expect(listBlocks(db)[0].locked).toBe(true);
+    expect(calendar()).toEqual([`${TUE} 08:00-11:00 Puerta [locked]`]);
   });
 });
 
@@ -1132,7 +1125,6 @@ describe('no transaction may store a row that runs past the end of its day', () 
         startMinutes: 12 * 60,
         durationMinutes: 2 * 60,
         locked: false,
-        manualDuration: false,
       },
       db,
     );
@@ -1161,7 +1153,6 @@ describe('no transaction may store a row that runs past the end of its day', () 
       startMinutes: 23 * 60,
       durationMinutes: 2 * 60,
       locked: false,
-      manualDuration: false,
     };
 
     const inserted = refusal(() => insertBlock(overrunning, db));
@@ -1189,7 +1180,6 @@ describe('no transaction may store a row that runs past the end of its day', () 
           startMinutes: 22 * 60,
           durationMinutes: 2 * 60,
           locked: true,
-          manualDuration: false,
         },
         db,
       ),
@@ -1211,8 +1201,10 @@ describe('no transaction may store a row that runs past the end of its day', () 
 describe('the end of the day is a line no write may cross', () => {
   it('refuses a resize whose stretch would run past the last manual window', () => {
     // Over HTTP the drag layer's cap is not in the way, and the server had none at all:
-    // 12 h from 08:00 stored `08:00-14:00` + `15:30-21:30`.
+    // 12 h from 08:00 stored `08:00-14:00` + `15:30-21:30`. The row is padlocked first,
+    // because that is now the only kind the edge sizes.
     job('Uno', 6, BLUE, THU);
+    setBlockLock(listBlocks(db)[0].id, true, { today: THU }, db);
     const before = calendar();
 
     const error = refusal(() =>
@@ -1230,10 +1222,12 @@ describe('the end of the day is a line no write may cross', () => {
 
   it('accepts the resize that reaches exactly the end of the day', () => {
     job('Uno', 6, BLUE, THU);
+    setBlockLock(listBlocks(db)[0].id, true, { today: THU }, db);
 
     resizeBlock(listBlocks(db)[0].id, { durationMinutes: 11 * 60, today: THU }, db);
 
-    // The stretch reaches the bottom margin, so both of its rows come back padlocked.
+    // Both rows of the stretch carry the padlock the target had: what holds a hand-made
+    // shape has to hold all of it, and the bottom margin is only reachable that way.
     expect(calendar()).toEqual([`${THU} 08:00-14:00 Uno [locked]`, `${THU} 15:30-20:30 Uno [locked]`]);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
@@ -1509,7 +1503,6 @@ describe('the lunch break is not a slot', () => {
         startMinutes: 14 * 60,
         durationMinutes: 2 * 60,
         locked: true,
-        manualDuration: false,
       },
       db,
     );
@@ -1585,8 +1578,8 @@ describe('a drop names the whole unit, so a unit moves in ONE transaction', () =
   });
 
   it('cuts the unit at the lunch break when it lands across it', () => {
-    const uno = job('Uno', 6, BLUE, THU);
-    resizeBlock(uno.blocks[0].id, { durationMinutes: 8 * 60, today: THU }, db);
+    // An 8 h job is cut at the break by the engine itself: two rows, one unit, no padlock.
+    job('Uno', 8, BLUE, THU);
     const unit = listBlocks(db);
     expect(calendar()).toEqual([`${THU} 08:00-14:00 Uno`, `${THU} 15:30-17:30 Uno`]);
 
@@ -1605,8 +1598,7 @@ describe('a drop names the whole unit, so a unit moves in ONE transaction', () =
     // per row re-laid the job's remaining hours onto different ids in between and the
     // second request moved whatever row had inherited the id the drag captured. One
     // transaction, one reflow: both halves land and the estimate never moves.
-    const uno = job('Uno', 6, BLUE, THU);
-    resizeBlock(uno.blocks[0].id, { durationMinutes: 8 * 60, today: THU }, db);
+    job('Uno', 8, BLUE, THU);
     const unit = listBlocks(db);
     expect(calendar()).toEqual([`${THU} 08:00-14:00 Uno`, `${THU} 15:30-17:30 Uno`]);
 
@@ -1966,6 +1958,7 @@ describe("the owner's case: 6 h dropped into a Monday holding 4 h", () => {
 describe('what a block mutation says about itself', () => {
   it('names both rows a resize left behind, and reports the write', () => {
     const puerta = job('Puerta', 8);
+    setBlockLock(puerta.blocks[0].id, true, { today: MON }, db);
 
     // 9 h from 08:00 is 08:00-14:00 plus 15:30-18:30: one stretch, two rows.
     const result = resizeBlock(puerta.blocks[0].id, { durationMinutes: 9 * 60, today: MON }, db);
@@ -1988,13 +1981,18 @@ describe('what a block mutation says about itself', () => {
     expect(setBlockLock(puerta.blocks[0].id, true, { today: MON }, db).changed).toBe(false);
   });
 
-  it('reports nothing for a release on a row that carried no mark', () => {
+  it('reports nothing for a resize that asked for the length the row already had', () => {
+    // The one place a successful gesture writes nothing: there is no mark left for it to
+    // set, so the same request twice really is the same state (`manual_duration`, deleted
+    // 2026-08-18, used to make the second call a write).
     const puerta = job('Puerta', 2);
+    setBlockLock(puerta.blocks[0].id, true, { today: MON }, db);
 
-    expect(releaseBlock(puerta.blocks[0].id, { today: MON }, db).changed).toBe(false);
-
-    resizeBlock(puerta.blocks[0].id, { durationMinutes: 60, freedHours: 'reduce-total', today: MON }, db);
-    expect(releaseBlock(puerta.blocks[0].id, { today: MON }, db).changed).toBe(true);
+    expect(resizeBlock(puerta.blocks[0].id, { durationMinutes: 2 * 60, today: MON }, db).changed).toBe(false);
+    expect(
+      resizeBlock(puerta.blocks[0].id, { durationMinutes: 60, freedHours: 'reduce-total', today: MON }, db)
+        .changed,
+    ).toBe(true);
   });
 
   it('answers for the FRAGMENT after the scissors, not for the row that was cut', () => {
@@ -2168,18 +2166,19 @@ describe('a drop onto a day that is full at the moment it is released', () => {
 
 describe('a resize that rewrites a LOCKED row says so', () => {
   it('names the locked continuation the stretch had to lengthen', () => {
-    // `stretchFrom` includes a continuation regardless of `locked`, and the response used
+    // `stretchFrom` takes a continuation in whatever its padlock, and the response used
     // to carry `touchedLockedBlockIds: []` — so the UI showed no warning at all, against
     // two stated promises ("a locked block is never grown silently", "never silent").
     const unit = job('U', 10, BLUE, THU);
-    const afternoon = listBlocks(db)[1];
+    const [morning, afternoon] = listBlocks(db);
     setBlockLock(afternoon.id, true, { today: THU }, db);
+    setBlockLock(morning.id, true, { today: THU }, db);
 
-    const result = resizeBlock(listBlocks(db)[0].id, { durationMinutes: 11 * 60, today: THU }, db);
+    const result = resizeBlock(morning.id, { durationMinutes: 11 * 60, today: THU }, db);
 
     expect(result.touchedLockedBlockIds).toEqual([afternoon.id]);
-    // Both rows padlocked: the afternoon one already was, and the stretch reached the
-    // bottom margin, which padlocks what it writes.
+    // Both rows padlocked, and both were before: the padlock is what let the edge size
+    // them at all, and it is what holds the length afterwards.
     expect(calendar()).toEqual([`${THU} 08:00-14:00 U [locked]`, `${THU} 15:30-20:30 U [locked]`]);
     expect(listProjects(db)[0].totalMinutes).toBe(11 * 60);
     expect(unit.project.id).toBe(listProjects(db)[0].id);

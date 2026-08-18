@@ -538,7 +538,7 @@ export function deleteProject(
  * On the FRIDAY buffer, the WEEKEND or a VISUAL MARGIN it PADLOCKS: the row comes back
  * with `locked: true`, keeps the exact slot, and the engine never recovers it — which is
  * how work stays on the colchón at all. The padlock is only ever added by a drop; the way
- * off is `setBlockLock(id, false)`, never `releaseBlockDuration`.
+ * off is `setBlockLock(id, false)`, the one undo the app has.
  *
  * Either way the row is stored in SEGMENTS: a drop crossing the lunch break comes back
  * as two rows of one job, and `block` is the first of them.
@@ -587,13 +587,15 @@ export function moveBlock(
  * which is everything a dialog needs to offer all three ways out in one go. Send the
  * owner's answer back through `freedHours`; cancelling is not calling again.
  *
- * The length STICKS on any row, including an unlocked weekday one: the row comes
- * back with `manualDuration: true`, the job's run ends there, its remaining hours
- * start on the next auto-fill day, and the jobs behind it take the hours this day
- * gained. `releaseBlockDuration` is the way back.
+ * IT ONLY SIZES A ROW THE ENGINE DOES NOT LAY OUT — one carrying a padlock, or one on a
+ * weekend. Anything else is 409 `resize-needs-padlock` with nothing written, because an
+ * automatic row is exactly as big as the room it has and the reflow would undo the number
+ * on the next save. So do not offer the edge on a row the engine still owns: padlocking it
+ * first is what fixes its length, and a GAP is what ends a day early. THE APP NEVER CREATES
+ * THAT GAP BY ITSELF — it names the action and the owner takes it.
  *
- * A PAST row is refused (`past-block-frozen`, 409): the past is a record, and the hours of
- * a job whose work is behind it are changed in the job form.
+ * A PAST row is refused first (`past-block-frozen`, 409): the past is a record, and the
+ * hours of a job whose work is behind it are changed in the job form.
  */
 export function resizeBlock(
   blockId: string,
@@ -608,26 +610,6 @@ export function resizeBlock(
       durationMinutes,
       ...(options.freedHours === undefined ? {} : { freedHours: options.freedHours }),
     },
-    options,
-  );
-}
-
-/**
- * "Back to automatic": gives the engine back the row's hand-set LENGTH
- * (`manualDuration`), so it re-derives the job's segmentation from its total again.
- *
- * Offer it exactly when that mark is set. It does NOT release the padlock: that mark is
- * drawn on the row and comes off with the padlock, which is the gesture the owner already
- * has.
- */
-export function releaseBlockDuration(
-  blockId: string,
-  options?: RequestOptions,
-): Promise<BlockMutation> {
-  return send<BlockMutation>(
-    'PATCH',
-    `/blocks/${encodeURIComponent(blockId)}`,
-    { action: 'release' },
     options,
   );
 }

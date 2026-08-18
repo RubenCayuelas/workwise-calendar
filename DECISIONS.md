@@ -17,12 +17,21 @@ not fixed** — *The One-Minute Rank Nudge Crosses the Break* — which have no 
 nobody has decided yet what the rule should be; each one is cross-referenced from the CLAUDE.md rule
 it breaks.
 
-> **A note on `hand_placed`.** Everything dated up to 2026-08-13 was written while a THIRD mark
-> existed — the pointing hand, "a human chose this DAY". It was removed on 2026-08-14 (*The Padlock
-> Is the Only Pin*), and every row those records describe as hand-placed carries a **padlock** now.
-> The records are left as they were written, because what they measured happened; read `hand_placed`
-> / `handPlaced` / *the hand mark* as `locked` throughout, and *back to automatic* as the padlock
-> wherever the sentence is about a POSITION rather than a length.
+> **A note on the two marks that no longer exist.** A row carries ONE mark today, the padlock. Two
+> others existed and both were removed by the same argument — *the padlock already says this* — so
+> anything written before those dates has to be read through them. The records are left as they were
+> written, because what they measured happened.
+>
+> | mark | its sentence | removed | read it as |
+> |---|---|---|---|
+> | `hand_placed` / `handPlaced` / *the hand mark* | "a human chose this DAY" | 2026-08-14, § *The Padlock Is the Only Pin* | `locked` |
+> | `manual_duration` / `manualDuration` / *the ruler mark* | "a human chose this LENGTH" | 2026-08-18, § *The Padlock Holds the Length* | `locked` |
+>
+> Read *back to automatic* as **pressing the padlock**, whether the sentence is about a POSITION or a
+> LENGTH — the action itself (`PATCH {action:"release"}`) is deleted and now answers 400
+> `invalid-action`. A record that says a gesture was *offered on every row*, or that a length *stuck
+> without a padlock*, is describing code that is gone; § *The Padlock Holds the Length* says what
+> replaced it.
 
 ---
 
@@ -640,6 +649,12 @@ reads.
 - **`release` (back to automatic) is still allowed on a past row.** It only clears `manualDuration`,
   which the engine no longer consults there, and refusing it would strand the ruler mark in the job
   panel with no undo beside it.
+  **DEAD SINCE 2026-08-18**: `manualDuration` and the whole `release` action are deleted, so this call
+  no longer exists to allow or refuse — `PATCH {action:"release"}` answers 400 `invalid-action`. What
+  the judgement call was protecting against is gone with it: there is no second mark left to strand,
+  and a padlock a past row carries is drawn as a read-only state icon. Re-measured: `resize` and `lock`
+  on a past row both answer 409 `past-block-frozen`, and the past row is drawn with **no bottom-edge
+  strip and no action bar at all**.
 
 **The cost, named and accepted by the owner**: this removes *correcting yesterday*, which was the
 motivating case for *Block Resize* when it was designed. If it comes back, the *Bloqueo con llave*
@@ -649,12 +664,21 @@ option — an explicit "edit the past" mode in the menu — was the shape discus
 on past rows in the job panel "so no row can be stranded"; the next made it 409. The server's
 reasoning is the one that holds — a padlock on a past row changes nothing the engine reads, so a
 control that is only ever answered with a refusal is worse than no control — and nothing is
-stranded, because the row still shows both marks and the ruler keeps its undo. Verified by opening
-the panel on a past job: no buttons at all on those rows.
+stranded, because the row still SHOWS its state. *(Written when there were two marks and the ruler
+carried its own undo. Since 2026-08-18 there is one mark and no undo to strand, which makes the
+conclusion stronger, not weaker.)* Verified by opening the panel on a past job: no buttons at all on
+those rows, and on the grid a past row has no bottom-edge strip either.
 
 ---
 
 ## Block Resize, and Shrinking That Asks
+
+> **NARROWED 2026-08-18 by § The Padlock Holds the Length below, and only in ONE place: the gesture is
+> now offered only on a row the engine does not lay out (409 `resize-needs-padlock` elsewhere).**
+> **What still stands, all of it:** resize as a TRANSFER inside the job with the job's last block as
+> counterparty; the freed hours never going to a row outside the movable pool; `isLast` as a dead-end
+> trigger; the three-way question and `choices` travelling in the refusal; and the drag being measured
+> in NET WORKING MINUTES across the lunch break. The dead end and its dialog are untouched.
 
 **Decided with the owner, 2026-08-13; built 2026-08-14.** The owner's report was that resize
 *"only works in one direction"*: growing the last row raises the estimate, and shrinking answered a
@@ -689,14 +713,231 @@ under a quarter of an hour, since a row that short is one no gesture may ask for
 > las 17:30 una tarea que empezaba a las 10, en vez de la hora del medio sumarla, ignorarla y sería
 > de 10 a 14 y de 15:30 a 17:30.»*
 
-**Verified end to end by dragging (2026-08-17).** A 4 h single-row job shrunk to 2 h asked; *Cancelar*
-wrote nothing (job still 240 min, row still 4 h); *Dividir* left the row at 2 h with the ruler mark
-and put the freed 2 h on the next day, total unchanged at 240 min; *Quitar las horas del total* on
-the job's last row took it from 240 to 180 min with the rows summing to 180.
+**Verified end to end by dragging (2026-08-17; re-measured over HTTP 2026-08-18).** A 4 h single-row job
+shrunk to 2 h asked; *Cancelar* wrote nothing (job still 240 min, row still 4 h); *Dividir* left the row
+at 2 h and put the freed 2 h on the next day, total unchanged at 240 min; *Quitar las horas del total* on
+the job's last row took it from 240 to 180 min with the rows summing to 180. *(The 2026-08-17 run recorded
+a ruler mark on the shrunk row. That mark is deleted — the row is held by its padlock now, which is what
+the gesture requires before it will run at all. Re-measured on a Saturday-only 3 h job: shrink to 2 h →
+409 `shrink-needs-choice`, `freedMinutes: 60`, `choices: [reduce-total, new-block]`; `reduce-total` → the
+job is 2 h; growing the same row to 4 h → the job is 4 h.)*
 
 ---
 
-## A Hand-Set Duration
+## The Padlock Holds the Length
+
+**Decided with the owner, 2026-08-18. This deletes *A Hand-Set Duration*, below.**
+
+The owner asked what the hand-set duration was for, and answered it themselves:
+
+> *"la duración de un bloque nunca es fija. Es fija cuando se aplica entre bloques de otras tareas
+> porque eso es lo que dura… si lo reduce de miércoles crece en jueves y sitio se libera en miércoles
+> y pasa allí quedando exactamente igual. Si el usuario quisiera hacer eso, significa que quiere
+> acabar la jornada antes… tendrá que añadir un gap."*
+
+**Why they are right, and why the column had to go rather than be renamed.** *Fill and Overflow,
+Always* made it plainly true that **a block is exactly as big as the room it has**. On a row the engine
+lays out there is no length to set: shrinking Wednesday grows Thursday, frees exactly those minutes on
+Wednesday, and the job flows straight back into them. `manual_duration` was a stored exception to the
+model, and an exception to a model does not stay one thing — it grew rules to hold it up:
+
+| what existed only for the mark | where it was |
+|---|---|
+| a hand-set length ENDS the job's run | `buildQueue`, `unitOf`, the grid's `buildRuns` |
+| "no more of that job lands on that day" | `closedDays` + `dayKey` + `acceptsItem`'s third argument |
+| the remainder is DEFERRED while the jobs behind fill that day | `compose`'s `deferred` / `deferralDate` / `remainderOf` / `drain` / `startsOn` / `lastItemOfProject` |
+| auto-merge may not fold a hand-set row | `mergeTouchingRows`'s two guards |
+| the stretch absorbs rows already hand-set | `stretchFrom` |
+| the mark is LOST when anything else rewrites the length | `setDuration` vs `pinDuration`, and a rule per gesture |
+| *back to automatic* | `releaseBlock` ×2, `PATCH {action:"release"}`, `releaseBlockDuration`, `manualBlockIds`, a glyph, two buttons, `notices.released` |
+| a resize into a margin PADLOCKS the row | `usesManualOnlyTime` (its only reader) |
+
+114 references across 20 files, 47 of them in the engine — and **one open question nobody could
+answer** (should padlocking a hand-set row re-open the day its ruler had closed?), which is the shape
+of a rule that does not belong.
+
+**What replaced it: nothing.** The padlock already does the whole job. The engine does not lay a locked
+row out, does not merge one and does not re-derive its length, so a length on a locked row is a stored
+fact — and one piece, visible on the row, with one undo, fixes the position AND the length. That is
+why the four decisions this round rests on are all *subtractions*:
+
+1. **The edge still resizes a LOCKED row** and stores nothing new.
+2. **On a row the engine lays out, the bottom edge does not resize** (409 `resize-needs-padlock`).
+   The UI does NOT withhold the strip, and that is a correction to this round's own first answer —
+   see *The edge does not go silent, it explains itself* below.
+3. **The gap is NEVER created for the owner** — *"no se creará el hueco automáticamente, sino que si el
+   usuario lo quiere lo deberá de crear él"*. The refusal names *Cerrar el día aquí*; they take it.
+4. **The dead-end question stays.** Growing a locked row still takes the hours from the job's later
+   rows, and asks when there are none — `shrink-needs-choice`, unchanged.
+
+**Two things had to be ADDED, and both are consequences of 1 and 2 rather than new rules.**
+
+- **The whole stretch comes out as fixed as the row that was dragged.** A 6 h drag on a padlocked
+  `10:00-14:00` writes a second segment at 15:30; when that landed on an automatic row it stayed
+  automatic, and the reflow immediately made it `15:30-19:30` — the drag stored 4 h where the owner
+  drew 2 h. So every row the stretch writes or absorbs inherits the target's padlock. It is `autoLock`'s
+  rule for a job born on a chosen day: what holds a hand-made shape has to hold all of it.
+- **`stretchFrom` keys on the POOL, not on the mark.** "A row already hand-set" became "a row the
+  engine does not lay out either", which is the same set in practice (the gesture pins everything it
+  writes) and is what keeps shrinking a padlocked cross-break stretch from leaving its padlocked
+  afternoon half behind. The other reason to absorb a row — the new segments land on it — is unchanged.
+
+### The edge does not go silent, it explains itself
+
+**Corrected inside the same round, 2026-08-18, after driving it.** "The app must not offer what the
+server refuses" pointed at withholding the handle, and withholding it is what was built first. In the
+browser that turned out to open a hole worse than the one it closed: with no strip there, a press on an
+automatic row's bottom ten pixels **fell through to the block body and started a MOVE**. A reach for a
+length silently re-ranked the queue — the one thing a resize must never be mistaken for.
+
+So the strip stays on every row but a past one, and it says which of the two it is:
+
+| the row | the strip |
+|---|---|
+| padlocked, or on a weekend, and not past | live: `ns-resize`, the job-coloured pill, `block.resizeHint` |
+| anything else the engine lays out | `.resizeInert`: `cursor: help`, a grey hairline pill, a two-line tooltip |
+| a PAST row | none at all — the body answers with `notices.pressOnPastDay` |
+
+The inert press is handed to the drag as a fourth `InertReason`, **`automatic`**, so the machinery that
+already existed for a press that cannot write does the rest: no ghost, nothing written, ONE sentence the
+moment travel proves a drag, and a press that does not travel is still a CLICK that opens the job panel.
+`INERT_KEYS` is typed `Exclude<InertReason, 'automatic'>`, so this branch cannot silently fall back into
+a generic sentence — `automatic` is the only reason that is about a ROW rather than about the calendar,
+which is also why `onInert` now carries the `DragTarget`.
+
+The two lines say what the length IS and what does change a day, which is the part a refusal alone
+cannot: *«Este borde no cambia la duración: un bloque automático mide el sitio que tiene y el motor la
+vuelve a calcular. Con candado, la fijas tú.»* / *«Lo que sí cambia la forma del día: un hueco que lo
+cierre antes, otro trabajo detrás, o las horas del trabajo en su ficha.»*
+(`block.lengthIsAutomatic`, `block.lengthIsAutomaticHow`.)
+
+**And the gap is one tap away while still never being automatic.** The sentence carries a *Cerrar el día
+aquí* button pre-filled for the row whose edge was pressed; pressing it dismisses the sentence and opens
+the gap form, and **the owner presses Guardar.** Absent when the row has nothing left to close. To stop
+the two entry points proposing different gaps, `WeekGrid`'s private `closeDayAfter` and its
+`closeDayInput` memo were extracted to `src/components/calendar/closeDayOffer.ts`, imported by the hover
+bar and by this sentence, with seven cases in `closeDayOffer.test.ts`.
+
+### This reverses the owner's own v0.3 request, and here is why
+
+In v0.3 the owner's report was that the bottom edge *"only works in one direction"*, and the answer then
+was to **offer the edge on every row** — the two strings that had explained why it was inert were
+deleted, and a row the engine re-laid-out kept its hand-drawn number in `blocks.manual_duration`. That
+was the right answer to the complaint AT THE TIME, because the mark existed to make the number stick.
+
+**What changed is not the owner's mind about the gesture; it is what a length MEANS.** With
+`manual_duration` deleted, "resize is always available" would mean offering a gesture the engine undoes
+on its next pass — precisely the silent no-op v0.3 was fixing. The owner's own words are the reversal:
+*«si lo reduce de miércoles crece en jueves y sitio se libera en miércoles y pasa allí quedando
+exactamente igual»*. So the availability moved rather than shrank: the gesture is available wherever it
+can be HONOURED (a padlocked row, a weekend row), and everywhere else the edge is still there and still
+answers — with the padlock, the gap, another job behind this one, or the job's own hours — instead of
+being deleted or, worse, quietly becoming a drag.
+
+**Measured, 2026-08-18, both halves.** A padlocked `Mar 18 15:30-19:30 4 h` of a 12 h job, dragged at
+its bottom edge from 19:30 to 18:30 in a real browser, stored `15:30-18:30 3 h [locked]` and the freed
+hour reappeared as `18:30-19:30 1 h` automatic of the same job, total still 12 h — and it SURVIVED a
+full reflow (a second job created afterwards left the locked row at 3 h). That is the owner's argument
+demonstrated from the other side: without the padlock the row would have gone straight back to 4 h; with
+it, the gesture is real and the hours it frees go to the queue. On the same calendar, dragging the
+automatic `Mié 19 08:00 2 h` row's edge 108 px produced no ghost, no request and no change on disk, one
+sentence, and the *Cerrar el día aquí* offer — which, pressed and saved, made a `Mié 19 10:00 9,5 h`
+gap and moved Porton's 5 h whole to `Jue 20 08:00`. Nothing disappeared and nothing was created behind
+the owner's back.
+
+**Migrating the shop's file.** `manual_duration = 1` rows were SIZED BY HAND, and afterwards the only
+thing that can hold a length is the padlock, so they come out `locked = 1` (`REMOVED_COLUMNS` in
+src/lib/migrations.ts, beside `hand_placed`, same argument and same transaction). Freeing them instead
+would let the very next reflow re-derive the length the owner had drawn. Verified against a database
+built with the old schema — including a row carrying `manual_duration = 1` with `locked = 0`, which
+comes out padlocked with its date, start and duration untouched — and on a file that never had the
+column, where `PRAGMA table_info` skips both carry-overs and nothing is padlocked by accident.
+
+**What got simpler, measured rather than claimed.** `compose` lost its two-phase queue walk: no
+`closedDays`, no deferral, no `startsOn`, no `roomFor` (its only reader was the deferral), and the
+2000-seed harness now asserts **strict order on every seed** where it used to skip the calendars that
+had a hand-set item. `acceptsItem` has one refusal left (the buffer) instead of two. `resizeBlock` lost
+its padlock arithmetic. `setDuration`/`pinDuration` became plain assignments. `mergeTouchingRows` lost
+both guards. The engine is a single forward pass again, and *the one documented break in strict order is
+gone with the mark that needed it.*
+
+### What two removals cost, and what they bought
+
+Counted, not estimated (`git diff --numstat` against 5e8a9e1, the commit this round started from):
+
+| | this round |
+|---|---|
+| files touched | 34 — 23 production, 9 test, 2 spec |
+| production code | **+568 / -906** — a net 338 lines gone |
+| tests | +487 / -692, and the suite got STRICTER (see below) |
+| spec | CLAUDE.md +181/-118, DECISIONS.md +281/-20 |
+| stored columns | 1 removed; **0 added** |
+| API actions | 1 removed (`release`); 0 added |
+| locale keys | 4 removed, 3 added |
+| rules removed from CLAUDE.md | 7 — the run break, the closed day, the deferral, auto-merge's two guards, the cut-releases-the-mark rules, the margin-padlocks-a-resize rule, *back to automatic* |
+| open questions closed | 2 (Open Decisions 3 and 9), **both by removal rather than by an answer** |
+| open questions made worse | 1 (Open Decision 4), stated plainly and left to the owner |
+
+The suite going from 899 to 887 tests is not coverage lost: the deleted tests were the mark's own, and
+two 2000-seed harnesses had an EXEMPTION deleted — placement now asserts strict order on every seed
+where it used to skip any calendar containing a hand-set item, and shrinking asserts the new
+precondition on every movable target. Fewer tests, more assertions per calendar.
+
+**THE TREND IS THE POINT.** Two extra marks have now been deleted by the same argument, four days apart:
+
+| mark | added | deleted | what the argument was |
+|---|---|---|---|
+| `hand_placed` | v0.2 | 2026-08-14 | it said "a human chose this DAY", which is what the padlock says |
+| `manual_duration` | v0.3 | 2026-08-18 | it said "a human chose this LENGTH", which is what the padlock says |
+
+Both were introduced to make a gesture stick; both grew rules to hold them up; both were removed
+by noticing that the padlock already fixes the row ENTIRE. The migration carries both into `locked = 1`,
+in the same list, by the same reasoning. **The rule that falls out of it, and the one to apply next time
+this comes up: a second column that means "the owner decided this" is the padlock under another name.
+Before adding one, work out what it would say that `locked` does not.** The reverse also held both
+times — each removal shortened the engine and closed an open question that had no answer while the
+column existed.
+
+**What this round leaves open, and it is the honest cost:** every resize is now on the fixed side of
+the calendar, where nothing separates an overlap afterwards — so **Open Decision 4** (a resize may grow
+a row over another job or over a gap) got BROADER, not narrower. Measured, with no margins involved: a
+padlocked `Mon 08:00-12:00` grown to 6 h is stored over a padlocked `12:00-14:00` of another job. It is
+a decision about what the gesture means and the mechanisms to answer it already exist
+(`findGapConflicts`, `otherJobOverlaps`), so it is left for the owner. Open Decision 2 is still open and
+now arrives as a DIALOG rather than a silent mark (a 6 px drag on a locked lunch-split unit sends
+`resize 360` against a 600-minute stretch and gets `shrink-needs-choice`, `freedMinutes: 240`). Open
+Decision 3 closed by removal: it needed a movable target.
+
+---
+
+## A Hand-Set Duration — SUPERSEDED
+
+> **DELETED 2026-08-18 by § The Padlock Holds the Length above.** `Block.manualDuration` no longer
+> exists. Read the two lists below before you use anything on this page — the last superseded note in
+> this file said only what fell, and the owner reasonably read it as meaning a RUN had stopped moving
+> together, which had never been proposed.
+>
+> **WHAT FALLS.** The stored mark itself; a hand-set length **ending a job's run** in `buildQueue`,
+> `unitOf` and the grid's `buildRuns`; **"no more of that job lands on that day"** (`closedDays`) and
+> the **deferral** behind it, which was the one documented break in strict order; the mark being LOST
+> when another gesture rewrote the length; and ***back to automatic*** in all six places it lived. The
+> "Verified surviving a reflow" measurement at the foot of this section is about the deleted mark and
+> proves nothing about the code today.
+>
+> **WHAT STANDS, and is still load-bearing.**
+> - **A run still moves as one, and a job's rows still group as before.** Nothing about the drag unit
+>   changed: a run is a job's consecutive movable groups, and the lunch break and a night still do not
+>   break one. What changed is only that there is no longer a FOURTH thing that could break one.
+> - **Do not derive grouping from the placement.** This is the constraint the section was written to
+>   record, and deleting the mark makes it STRONGER, not weaker: grouping is now a function of movable
+>   order alone, with no stored flag to read at all. The earlier critical defect it guards against —
+>   grouping derived from the layout while the layout was derived from the grouping, so an unrelated
+>   save silently resized the owner's blocks — is unchanged and still the reason.
+> - **Recomposing twice must change nothing.** The `QueueItem` doc comment in
+>   `src/lib/composition.ts` states the stronger version, and the 2000-seed harness still asserts the
+>   fixed point on every seed.
+> - **The strict-order break is gone, and that is a gain, not a loss.** The trade-off recorded below
+>   ("a newer job starts before the older job's remainder") no longer has to be made by anyone.
 
 **Decided with the owner, 2026-08-12.**
 
@@ -1468,15 +1709,23 @@ waste the answer.
    the ghost promises nothing.** The ghost reads `08:00–14:00 · 6 h` — no change — and the request
    `resize 360` is still sent, because `useBlockDrag`'s no-op guard compares the released NET minutes
    from the row's start (360) with `target.durationMinutes`, which for a resize is the STRETCH (600).
-   The two can never be equal on a multi-row unit, so no micro-drag is ever suppressed. The resize is
-   then a zero-delta one whose only effect is to set `manual_duration`. The mechanical half could be
-   fixed tomorrow; the semantic half cannot, because the edge the owner can grab sits at 14:00 while
-   the value the client is editing ends at 19:30.
+   The two can never be equal on a multi-row unit, so no micro-drag is ever suppressed. The mechanical
+   half could be fixed tomorrow; the semantic half cannot, because the edge the owner can grab sits at
+   14:00 while the value the client is editing ends at 19:30.
+   **Re-measured 2026-08-18, on the gesture as it now is:** the zero-delta resize is no longer a
+   silent mark (`manual_duration` is deleted) — a padlocked 10 h unit whose first row is dragged by
+   6 px answers **409 `shrink-needs-choice`, `freedMinutes: 240`, `choices: [reduce-total, new-block]`**.
+   The drag that went nowhere now opens a dialog, which makes the question louder, not answered.
 
-3. **A resize whose result does not fit the day leaves the dragged row untouched, invents a row on
-   another day, and the toast says it worked.** Gap Thu 18:30-19:30, then `Barandilla 13 h`; drag the
+3. ~~**A resize whose result does not fit the day leaves the dragged row untouched, invents a row on
+   another day, and the toast says it worked.**~~ Gap Thu 18:30-19:30, then `Barandilla 13 h`; drag the
    `15:30-18:30` row's edge to 19:30 → ghost `15:30–19:30 · 4 h`, request `resize 240`, and the
-   Thursday row is still 3 h while a NEW 1 h row appears on Monday. The toast says «pasa a 4 h aquí».
+   Thursday row was still 3 h while a NEW 1 h row appeared on Monday. The toast said «pasa a 4 h aquí».
+   **CLOSED 2026-08-18 BY REMOVAL.** The shape needed a MOVABLE target — the transfer was applied and
+   the reflow then re-derived the row it had grown — and the edge no longer sizes such a row. The same
+   reproduction, with the row padlocked first: `Thu 15:30-19:30` really is stored, the hour comes off
+   the job's Monday row (`08:00-12:00` → `08:00-11:00`), the total stays 780 min, nothing is invented.
+   What is left of it is decision 4.
 
 4. **A resize may grow a row over another job, or over a gap, wherever the reflow cannot separate
    them.** Both rows are padlocked (the margin does that), so both are outside the pool and the
@@ -1484,6 +1733,11 @@ waste the answer.
    `Porton 19:30-20:30` on TODAY, and a Friday row grown from 12:00 to 13:00 sits on a gap at
    12:00-14:00. `resizeBlock` never looks at other projects' rows and never at gaps; only the drop
    path resolves overlaps.
+   **BROADER since 2026-08-18, and now the round's one real hole.** The edge only sizes rows the engine
+   does not lay out, so EVERY resize is on this side; no margin is needed to reach it any more. Measured
+   on a plain Monday: a padlocked `08:00-12:00 Barandilla` grown to 6 h is stored `08:00-14:00` over a
+   padlocked `12:00-14:00 Porton`, and closed decision 3 leaves `15:30-19:30` sitting on a gap at
+   `18:30-19:30`. The two halves of an answer already exist (`findGapConflicts`, `otherJobOverlaps`).
 
 5. **A drop released in the lunch band stores one solid row straight through the break.** 6 h
    released at Thu 14:00 is stored as ONE `14:00-20:00` row, of which only 15:30-19:30 is inside a
@@ -1511,18 +1765,20 @@ waste the answer.
 
 **Two more, decisions rather than defects:**
 
-- **A hand-set row that has LEFT the pool stops closing its job's day.** `closedDays` is seeded from
-  the QUEUE, and a locked, weekend or past row is not a queue item — so padlocking a hand-set row
-  re-opens the day the ruler had closed and pulls the same job back onto it. Reproduced:
+- ~~**A hand-set row that has LEFT the pool stops closing its job's day.**~~ `closedDays` was seeded
+  from the QUEUE, and a locked, weekend or past row is not a queue item — so padlocking a hand-set row
+  re-opened the day the ruler had closed and pulled the same job back onto it. Reproduced:
   `Barandilla 14 h` + `Porton 6 h`, shrink Barandilla's Thu 08:00 row to 2 h, then padlock it → 2 h
-  of Barandilla come back to Thursday 17:30-19:30 and the Tuesday row disappears. Hours conserved,
-  no overlap, idempotent — so this is not an invariant break, and the mechanical "fix" (seed
-  `closedDays` from the stored flag) makes the padlock leave the day EMPTY instead, which is
-  decision 1 arriving from a third direction.
-  **The chain to decision 1 was cut on 2026-08-17**: since *Fill and Overflow, Always* nothing leaves
-  a day empty, so the mechanical fix no longer has that consequence and this can be decided on its own
-  terms. The question itself — should padlocking a hand-set row re-open the day its ruler closed? — is
-  still the owner's, and is still unanswered.
+  of Barandilla came back to Thursday 17:30-19:30 and the Tuesday row disappeared. Hours conserved,
+  no overlap, idempotent — never an invariant break — and the mechanical "fix" (seed `closedDays` from
+  the stored flag) made the padlock leave the day EMPTY instead, which was decision 1 arriving from a
+  third direction. The chain to decision 1 was cut on 2026-08-17.
+  **CLOSED 2026-08-18 BY REMOVAL, and confirmed rather than assumed.** Every noun in the question is
+  deleted: there is no mark, no `closedDays`, no `dayKey`, no `handSetDate` and no deferral in
+  `compose`, so there is no day for a padlock to re-open and no asymmetry between a stored flag and the
+  queue. The evidence that nothing was quietly kept: the 2000-seed harness asserts strict order on
+  every seed now, where it used to skip the calendars that had a hand-set item. A day the owner wants
+  closed to a job is a GAP — see § The Padlock Holds the Length.
 
 - **A sub-quarter row deleted leaves `total_hours` off the quarter hour for ever.**
   `DELETE /api/blocks/:id` does `total -= row.duration` with no floor, so deleting the 1-minute head
@@ -1617,7 +1873,36 @@ does not cover, which is the kind of gap the 14:00 defect lived in.
 - ~~**The dead zone at the bottom of a reflowing day is an engine limit, not a pointer one.**~~
   **ANSWERED by the owner on 2026-08-14 and built the same day**: *«Pasa al siguiente día»*.
 - ~~**Shrinking a job's only or last row still answers 409 `shrink-last-block`**~~ — the owner's
-  "resize only works in one direction". **BUILT 2026-08-14**: the engine asks instead.
+  "resize only works in one direction". **BUILT 2026-08-14**: the engine asks instead. *(The QUESTION is
+  untouched by 2026-08-18. What changed is only which rows the gesture runs on at all: a row the engine
+  does not lay out. The dead end, the three answers and `choices` in the refusal are all as built.)*
+- ~~**Open Decision 3 — a resize whose result does not fit the day invents a row on another day while
+  the toast says it worked.**~~ **CLOSED 2026-08-18 BY REMOVAL.** The shape needed a MOVABLE target: the
+  transfer was applied, the reflow re-derived the row it had grown, and the hour surfaced elsewhere. The
+  edge no longer sizes such a row. Re-measured on the original reproduction — gap Thu 18:30-19:30,
+  `Barandilla 13 h`, the padlocked `15:30-18:30` row dragged to 19:30 — the row really becomes
+  `15:30-19:30`, the hour comes off the job's Monday row (4 h → 3 h), the total stays 780 min and no row
+  is invented. What it leaves behind is Open Decision 4, and only that.
+- ~~**Open Decision 9 — does padlocking a hand-set row re-open the day its ruler had closed?**~~
+  **CLOSED 2026-08-18 BY REMOVAL, not by an answer.** Every noun in the question is deleted: the mark,
+  the day it closed (`closedDays`) and the deferral behind it. Confirmed rather than assumed —
+  `closedDays`, `dayKey` and `handSetDate` do not appear in `compose` any more, and the 2000-seed
+  harness now asserts strict order on **every** seed instead of skipping the calendars that had a
+  hand-set item. If the owner ever wants a day closed to a job, that is a GAP.
+- **NOT closed, and made WORSE: Open Decision 4** (a resize may grow a row over another job, or over a
+  gap). Every resize is now on the fixed side of the calendar, where nothing separates an overlap
+  afterwards, so this is the one real hole the round leaves. **Both halves re-measured over HTTP on
+  2026-08-18, on a plain future Monday and Tuesday with no margins involved and nothing clever set up:**
+
+  | set up | the resize | what was stored |
+  |---|---|---|
+  | `Barandilla Lun 24 08:00 4 h [locked]` + `Porton Lun 24 12:00 2 h [locked]` | Barandilla → 6 h | **200.** `Barandilla 08:00 6 h [locked]` (08:00–14:00) lying straight over `Porton 12:00 2 h [locked]` |
+  | `Reja Mar 25 15:30 3 h [locked]` + `gap Mar 25 18:30 1 h «mantenimiento»` | Reja → 4 h | **200.** `Reja 15:30 4 h [locked]` (15:30–19:30) covering the whole gap |
+
+  `resizeBlock` never looks at another project's rows and never at gaps; only the drop path resolves
+  overlaps, and `findGapConflicts` / `otherJobOverlaps` — its two halves — already exist. So whichever
+  answer the owner picks (refuse naming the row or the gap; cut at the obstacle the way a drop does;
+  allow it and draw the overlap on purpose) is a call rather than a new mechanism.
 
 ---
 
@@ -2186,3 +2471,85 @@ candidates in § *The One-Minute Rank Nudge Crosses the Break*.
 CLAUDE.md. Two closed with this round: 1 (its stated cause was the deleted rule) and 5.
 
 ---
+
+**v0.14 — the owner deleted the second mark, and the engine lost a rule per consequence (2026-08-18).**
+The owner asked what a hand-set duration was for and answered it themselves: a block is exactly as big
+as the room it has, and shortening a day is what a gap is for (§ *The Padlock Holds the Length*).
+`manual_duration` is gone — 114 references across 20 files, 47 of them in the engine — and with it
+every rule that existed only to hold it up: the run break in `buildQueue` / `unitOf` / `buildRuns`, the
+closed day (`closedDays`, `dayKey`, `acceptsItem`'s third argument), the deferral (`deferred`,
+`deferralDate`, `remainderOf`, `drain`, `startsOn`, `lastItemOfProject`, `roomFor`), auto-merge's two
+guards, `setDuration`/`pinDuration`, `usesManualOnlyTime`/`manualOnlyMinutes`, and *back to automatic*
+in all six places it lived (`releaseBlock` ×2, `PATCH {action:"release"}`, `releaseBlockDuration`,
+`manualBlockIds`, the ruler glyph, two buttons, `notices.released`). **`compose` is a single forward
+pass again: 82 statements against 123**, and the ONE documented break in strict order went with the
+mark that needed it. What replaced the mark is nothing at all — the padlock already fixes a row's
+length, because the engine neither moves a locked row nor re-derives it.
+
+*The gesture that changed:* the bottom edge now sizes only a row the engine does not lay out; anything
+else is 409 `resize-needs-padlock`. **Withholding the handle there was this round's own first answer and
+was reverted before it shipped** — driven in a browser, a press on an automatic row's bottom ten pixels
+fell through to the body and started a MOVE, so a reach for a length re-ranked the queue. The strip
+therefore stays on every row but a past one and says which of the two it is: live where the server will
+size it, `.resizeInert` with `cursor: help` and a two-line tooltip everywhere else, handed to the drag
+as a fourth `InertReason` (`automatic`) so nothing is written, no ghost is drawn, and a press that does
+not travel is still the click that opens the job panel. The sentence names the padlock, a gap, another
+job behind this one and the job's own form, and carries a *Cerrar el día aquí* button pre-filled for that
+row — **the app never creates that gap by itself**, from either entry point, which was the owner's own
+condition. Both entry points read one `closeDayOffer.ts`. **On a PAST row no edge is drawn at all**,
+which the spec already required and the code did not do.
+
+*Verified 2026-08-18*, twice and by two agents, from a scratch database on its own port
+(`WORKWISE_DB_PATH`, repo `data/` untouched): `tsc --noEmit` clean, `vitest run` **887 passing across 30
+files**, `next lint` clean, `next build` clean with no dev server up. All FIVE 2000-seed harnesses pass
+(placement, manual placement, drops, editing, shrinking), and two of them got STRICTER rather than being
+relaxed: placement now asserts **strict order on every seed** (it used to skip any calendar with a
+hand-set item), and shrinking asserts the new precondition on every seed where the target is in the
+movable pool.
+
+Over HTTP: `resize` on an automatic row answers 409 `resize-needs-padlock` with
+`{projectId, blockId}` and nothing written; `{action:"release"}` answers 400 `invalid-action` naming
+`[move, resize, lock]`; on a PAST row **`past-block-frozen` wins first** even though the row is locked and
+the arithmetic would have worked, and `lock` is refused there too; the dead-end question still asks — a
+Saturday-only 3 h job shrunk to 2 h answered 409 `shrink-needs-choice` with `freedMinutes: 60` and
+`choices: [reduce-total, new-block]`, `reduce-total` took the job to 2 h, and growing the same row to 4 h
+raised the total to 4 h. No block payload anywhere carries `manualDuration`.
+
+In a real browser at 1600×1000, on a 12 h job laid out `Mar 18 08:00 6 h` + `15:30 4 h [locked]` +
+`Mié 19 08:00 2 h`: dragging the padlocked row's edge from 19:30 to 18:30 stored
+`Mar 18 15:30 3 h [locked]` with the freed hour back on the calendar as `Mar 18 18:30 1 h` automatic of
+the same job, total unchanged at 12 h — **and the locked row was still 3 h after a whole second job was
+created and the week reflowed**, which is the padlock holding a length, measured. Dragging the automatic
+`Mié 19 08:00` row's edge 108 px produced no ghost, no request, no change on disk and one sentence with
+the *Cerrar el día aquí* button; clicking that button opened the gap form pre-filled *«miércoles 19 de
+agosto · 10:00–19:30 · el día pierde 8 h planificables»* and naming the 5 h of Porton the engine would
+move; pressing *Cerrar el día* stored `gap Mié 19 10:00 9,5 h` and moved Porton's 5 h whole to
+`Jue 20 08:00 5 h` — hours conserved on both jobs, nothing invented. A click on the same inert edge with
+no travel opened the job panel. On the previous week the past row had **no edge and no action bar at
+all**.
+
+*The migration:* `manual_duration = 1` rows come out `locked = 1` (`REMOVED_COLUMNS`, beside
+`hand_placed`, same transaction and the same argument). **Re-verified independently by booting the real
+app against a database carrying BOTH retired columns** — not through a unit test — with four rows chosen
+to cover every combination:
+
+| row on disk before | after the first boot |
+|---|---|
+| `manual_duration = 1, locked = 0` | `locked = 1`, date / start / duration **untouched** |
+| `manual_duration = 0, locked = 0` | `locked = 0` — nothing padlocked by accident |
+| `hand_placed = 1, locked = 0` | `locked = 1` (the 2026-08-14 carry-over, still working) |
+| `manual_duration = 1, locked = 1` | unchanged, `updated_at` not even touched |
+
+`PRAGMA table_info(blocks)` afterwards is `id, project_id, date, start_time, duration, locked,
+created_at, updated_at` — both columns gone — and `GET /api/week` returns block payloads whose key set
+contains no `manualDuration`. A **second boot on the same file** re-runs both carry-overs as no-ops and
+answers 200 with the schema and the rows identical, which is the idempotence the list is built for.
+`ADDED_COLUMNS` is now empty and the comment says that empty is the correct state.
+
+*Closed by removal, not by an answer:* the open question about whether padlocking a hand-set row should
+re-open the day its ruler had closed (every noun in it is deleted), and Open Decision 3 (it needed a
+movable target; re-measured, the padlocked row now really keeps the length it was given). *Made
+broader, and left for the owner:* **Open Decision 4** — every resize is now on the fixed side of the
+calendar, so a grown row can sit on another job or on a gap with nothing to separate them afterwards;
+measured on a plain Monday with no margins involved. Open Decision 2 is still open and now arrives as a
+dialog rather than a silent mark.

@@ -117,16 +117,27 @@ export type DragKind = 'move' | 'resize';
  * can do (CLAUDE.md's own rule about drops applies to presses: "a gesture the app refuses
  * has to say so, in the same breath as one it accepts").
  *
- * | reason | the press lands on…                                    |
- * |--------|--------------------------------------------------------|
- * | `busy` | the calendar while a save or a reload is still in flight |
- * | `past` | a frozen day, which is a record and not a plan           |
- * | `gap`  | a gap, which has no drag gesture at all                  |
+ * | reason      | the press lands on…                                            |
+ * |-------------|----------------------------------------------------------------|
+ * | `busy`      | the calendar while a save or a reload is still in flight        |
+ * | `past`      | a frozen day, which is a record and not a plan                 |
+ * | `gap`       | a gap, which has no drag gesture at all                        |
+ * | `automatic` | the BOTTOM EDGE of a row the engine lays out (2026-08-18)      |
  *
- * A CLICK still happens on the first two: opening the job panel writes nothing, and it is
- * the very place the owner has to go to edit a past day by hand.
+ * A CLICK still happens on all but `gap`: opening the job panel writes nothing, and it is
+ * the very place the owner has to go to edit a past day — or to change a job's hours — by
+ * hand.
+ *
+ * `automatic` IS THE ONE THAT IS NOT A CIRCUMSTANCE BUT A RULE, and it is why this list
+ * grew: since the hand-set duration was deleted, an automatic row is exactly as big as the
+ * room it has, so its bottom edge sizes nothing (the server refuses it,
+ * `resize-needs-padlock`). Withholding the strip would have made the reach for it start a
+ * MOVE instead — the press falls through to the block's own body — which is a re-ranked
+ * queue for a gesture about a length. So the strip stays, it is inert, and it explains: the
+ * owner asked for the free resize two days before it was taken away, so the explanation is
+ * the feature.
  */
-export type InertReason = 'busy' | 'past' | 'gap';
+export type InertReason = 'busy' | 'past' | 'gap' | 'automatic';
 
 /** What is being dragged. Built by the grid from a group and its rows. */
 export interface DragTarget {
@@ -289,8 +300,13 @@ export interface BlockDragOptions {
    * A press that cannot become a gesture said so. Called ONCE per press, the moment the
    * pointer travels far enough to prove the owner meant to drag — not on the press itself,
    * because a press that turns out to be a click has nothing to apologise for.
+   *
+   * THE TARGET TRAVELS WITH THE REASON, because one of them needs it: `automatic` answers
+   * with what DOES change the shape of that day, and the gap that would end it early
+   * belongs to that row and no other. The other three are facts about the calendar and
+   * ignore it.
    */
-  onInert: (reason: InertReason) => void;
+  onInert: (reason: InertReason, target: DragTarget) => void;
 }
 
 /** What is different about a press that lands on the hover action bar. */
@@ -314,7 +330,7 @@ export interface BeginOptions {
    * This press may not write, and why. It is still TRACKED rather than dropped: a click
    * still opens the job panel, and the first real travel says why nothing will move.
    *
-   * Undefined is the ordinary case. See `InertReason` for the three that are not.
+   * Undefined is the ordinary case. See `InertReason` for the four that are not.
    */
   inert?: InertReason;
 }
@@ -608,7 +624,7 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
           // "lifted" styling — but the release is no longer read as a click either. A
           // refused drag refuses; it does not quietly navigate somewhere instead.
           current.moved = true;
-          live.current.onInert(current.inert);
+          live.current.onInert(current.inert, current.target);
           return;
         }
 

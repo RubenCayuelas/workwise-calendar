@@ -87,7 +87,6 @@ function block(spec: BlockSpec): Block {
     startMinutes: t(spec.from),
     durationMinutes: Math.round(spec.hours * 60),
     locked: spec.locked ?? false,
-    manualDuration: false,
     createdAt: stamp(index),
     updatedAt: stamp(index),
   };
@@ -174,7 +173,6 @@ function reload(result: ComposeResult): Block[] {
     startMinutes: row.startMinutes,
     durationMinutes: row.durationMinutes,
     locked: row.locked,
-    manualDuration: row.manualDuration,
     createdAt: stamp(index),
     updatedAt: stamp(index),
   }));

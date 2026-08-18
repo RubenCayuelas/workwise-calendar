@@ -43,10 +43,12 @@ describe('getDb', () => {
 });
 
 describe('the migration meets a database that already holds work', () => {
-  it("adds a column the shop's file predates, keeping the rows it already has", () => {
-    // `CREATE TABLE IF NOT EXISTS` is skipped wholesale on a table that exists, so a
-    // column added later would never reach `data/calendar.db` — which is not thrown
-    // away between versions. This is that path, with the pre-`manual_duration` schema.
+  it("opens the shop's existing file and leaves the rows it already has alone", () => {
+    // `CREATE TABLE IF NOT EXISTS` is skipped wholesale on a table that exists, so a column
+    // added later would never reach `data/calendar.db` — which is not thrown away between
+    // versions. `ADDED_COLUMNS` is the path for that and is EMPTY today: both flags it once
+    // carried have been retired (see `REMOVED_COLUMNS`), so what this pins is that opening
+    // an older file adds nothing, drops nothing and touches no row.
     const dbPath = path.join(scratch, 'legacy', 'calendar.db');
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     const legacy = new Database(dbPath);
@@ -74,22 +76,22 @@ describe('the migration meets a database that already holds work', () => {
 
     const db = openDatabase(dbPath);
 
-    // The row survives, and it defaults to the value that means "as it was before":
-    // the engine still owns its length.
-    expect(db.prepare('SELECT id, duration, manual_duration FROM blocks').all()).toEqual([
-      { id: 'b1', duration: 2, manual_duration: 0 },
+    // The row survives exactly as it was, padlock included.
+    expect(db.prepare('SELECT id, duration, locked FROM blocks').all()).toEqual([
+      { id: 'b1', duration: 2, locked: 0 },
     ]);
     // And running the migration again is a no-op rather than a duplicate-column error.
     expect(() => openDatabase(dbPath).close()).not.toThrow();
     db.close();
   });
 
-  it('turns the retired `hand_placed` rows into PADLOCKED ones, and drops the column', () => {
-    // The shop's file holds the third mark this version removes. Every row that carried it
-    // was pinned BY THE OWNER — a Friday, a weekend, a margin — so freeing it would let the
-    // next recomposition move exactly the work they had placed on purpose. It comes out
-    // locked instead, which is what the mark now means everywhere else.
-    const dbPath = path.join(scratch, 'hand-placed', 'calendar.db');
+  it('turns both retired marks into PADLOCKED rows, and drops their columns', () => {
+    // The shop's file holds both marks this app has retired, and the same argument settles
+    // both: every row that carried one had been settled BY THE OWNER — a Friday, a weekend,
+    // a margin, a length they drew — so freeing it would let the next recomposition move or
+    // re-derive exactly the work they meant. They come out `locked`, which is the only mark
+    // left and now means both things at once.
+    const dbPath = path.join(scratch, 'retired-marks', 'calendar.db');
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     const legacy = new Database(dbPath);
     legacy.exec(`
@@ -118,29 +120,57 @@ describe('the migration meets a database that already holds work', () => {
         UPDATE blocks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
       END;
       INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Escalera', '#1D9E75', 6);
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p2', 'Puerta', '#1D9E75', 4);
       INSERT INTO blocks (id, project_id, date, start_time, duration, locked, manual_duration, hand_placed)
         VALUES ('viernes',   'p1', '2026-08-14', '10:00', 2, 0, 0, 1),
                ('bloqueado', 'p1', '2026-08-13', '08:00', 2, 1, 1, 0),
-               ('libre',     'p1', '2026-08-12', '08:00', 2, 0, 0, 0);
+               ('medido',    'p2', '2026-08-12', '15:30', 2, 0, 1, 0),
+               ('libre',     'p2', '2026-08-11', '08:00', 2, 0, 0, 0);
     `);
     legacy.close();
 
     const db = openDatabase(dbPath);
 
-    expect(db.prepare('PRAGMA table_info(blocks)').all().map((row) => (row as { name: string }).name)).not.toContain(
-      'hand_placed',
-    );
-    // The pinned row is padlocked; the padlock and the ruler that were already there are
-    // untouched; the free row is still free.
-    expect(db.prepare('SELECT id, locked, manual_duration FROM blocks ORDER BY id').all()).toEqual([
-      { id: 'bloqueado', locked: 1, manual_duration: 1 },
-      { id: 'libre', locked: 0, manual_duration: 0 },
-      { id: 'viernes', locked: 1, manual_duration: 0 },
+    const columns = db
+      .prepare('PRAGMA table_info(blocks)')
+      .all()
+      .map((row) => (row as { name: string }).name);
+    expect(columns).not.toContain('hand_placed');
+    expect(columns).not.toContain('manual_duration');
+
+    // The row a human PLACED and the row a human SIZED both come out padlocked; the one
+    // that already was stays; the free row is still free. Nothing else changed: same
+    // dates, same starts, same durations.
+    expect(db.prepare('SELECT id, locked, date, start_time, duration FROM blocks ORDER BY id').all()).toEqual([
+      { id: 'bloqueado', locked: 1, date: '2026-08-13', start_time: '08:00', duration: 2 },
+      { id: 'libre', locked: 0, date: '2026-08-11', start_time: '08:00', duration: 2 },
+      { id: 'medido', locked: 1, date: '2026-08-12', start_time: '15:30', duration: 2 },
+      { id: 'viernes', locked: 1, date: '2026-08-14', start_time: '10:00', duration: 2 },
     ]);
-    // Idempotent: the column is gone, so the second run has nothing to carry over.
+    // Idempotent: the columns are gone, so the second run has nothing to carry over.
     expect(() => openDatabase(dbPath).close()).not.toThrow();
     expect(db.prepare("SELECT locked FROM blocks WHERE id = 'libre'").get()).toEqual({ locked: 0 });
     db.close();
+  });
+
+  it('is safe on a database that never had the retired columns at all', () => {
+    // The other path through `dropRemovedColumns`: a file created by THIS version. Both
+    // carry-overs are skipped by `PRAGMA table_info`, so nothing runs and nothing is
+    // padlocked by accident.
+    const dbPath = path.join(scratch, 'fresh-schema', 'calendar.db');
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+    const first = openDatabase(dbPath);
+    first.exec(`
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Escalera', '#1D9E75', 2);
+      INSERT INTO blocks (id, project_id, date, start_time, duration, locked)
+        VALUES ('libre', 'p1', '2026-08-12', '08:00', 2, 0);
+    `);
+    first.close();
+
+    const again = openDatabase(dbPath);
+    expect(again.prepare('SELECT id, locked FROM blocks').all()).toEqual([{ id: 'libre', locked: 0 }]);
+    again.close();
   });
 });
 

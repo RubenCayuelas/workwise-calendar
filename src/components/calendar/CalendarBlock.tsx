@@ -6,41 +6,38 @@
  * | gesture              | effect                                                    |
  * |----------------------|-----------------------------------------------------------|
  * | drag the body        | move the UNIT — reorders the queue, then the reflow runs  |
- * | drag the bottom edge | resize THIS ROW: a transfer of hours inside the job        |
+ * | drag the bottom edge | resize THIS ROW — only where the engine does not lay it out |
  * | click                | open the job panel                                         |
- * | hover                | the action bar: lock, back to automatic, stop the day here,|
- * |                      | split, delete                                             |
+ * | hover                | the action bar: lock, stop the day here, split, delete      |
  *
  * The action bar is never behind a modifier key: "on a shop PC an Alt-drag would never
  * be discovered" (CLAUDE.md).
  *
- * THE RESIZE EDGE IS OFFERED ON EVERY ROW (decided with the owner, 2026-08-12). It used
- * to be inert on an unlocked future weekday row, with a tooltip naming the two things
- * that did work, because the reflow re-derived the job's segmentation from its total and
- * undid the transfer — the request answered 200 with the block unchanged. The engine now
- * stores the intent, so the length sticks anywhere; what the owner has to be able to see
- * is the state that buys it, which is the two things this file adds to the row:
+ * THE BOTTOM EDGE SIZES ONLY A ROW THE ENGINE DOES NOT LAY OUT — one carrying a PADLOCK,
+ * or one on a weekend. `resizable` is the caller's answer, and it is what the server
+ * accepts: everywhere else `resizeBlock` refuses with `resize-needs-padlock`, and the app
+ * must not offer what the server refuses.
  *
- * - THE HAND-SET MARK, deliberately not a padlock. They mean different things and are
- *   independent: the padlock fixes the row's POSITION, the ruler fixes its LENGTH. A
- *   row can carry either, both or neither.
- * - BACK TO AUTOMATIC, in the action bar. A hand-set length is otherwise invisible
- *   except that the row stopped reflowing, so without a one-click release the owner
- *   cannot undo it and the marks accumulate until the engine manages nothing.
+ * BUT THE EDGE IS STILL DRAWN, AND IT STILL ANSWERS. This reverses something the owner
+ * asked for explicitly two days earlier, so the explanation is the feature — and a strip
+ * that is simply not there does not explain, it just goes quiet twice over: the press falls
+ * through to the block's body and a reach for a length RE-RANKS THE QUEUE instead. So the
+ * inert edge keeps the row's bottom ten pixels, marks itself as a question rather than a
+ * handle (`.resizeInert`: no `ns-resize` cursor, a grey hover pill instead of the job's
+ * colour), and hands the press to the drag as `InertReason.automatic` — no ghost, nothing
+ * written, a click still opens the job, and the first real travel says in two lines why the
+ * length is not the owner's here and what does change the shape of a day: a GAP that ends
+ * it early, another job behind this one, or the job's hours in its form. The padlock is the
+ * fourth answer and the one this gesture wants: it fixes the row's length as well as its
+ * place. THE APP NEVER MAKES THE GAP ITSELF — the refusal points at the action, the owner
+ * presses it.
  *
- * TWO MARKS, NOT THREE (2026-08-14). There used to be a third, `hand_placed`, drawn as a
- * pointing hand and meaning "a human chose this DAY". It is gone: a drop onto a place the
- * engine would never choose by itself now sets the PADLOCK, which says the same thing in
- * the one vocabulary the owner already has — padlock = fixed, no padlock = free.
- *
- * | mark            | what it fixes | how it reads                                    |
- * |-----------------|---------------|-------------------------------------------------|
- * | padlock         | the POSITION  | never auto-moved, wherever it is; survives a drag |
- * | ruler           | the LENGTH    | plus a solid bottom edge — the edge that was dragged |
- *
- * They are independent: a Friday row can be padlocked with a perfectly automatic length,
- * and a Monday row can be hand-sized without being fixed anywhere. So they keep separate
- * undos — the padlock is pressed off, and *back to automatic* gives back the length.
+ * ONE MARK, NOT TWO (2026-08-18), and not three (2026-08-14). `hand_placed` — a pointing
+ * hand for "a human chose this DAY" — went first; `manual_duration`, drawn as a ruler for
+ * "the length is mine", went with the bottom-edge drag's freedom to touch an automatic row,
+ * and *back to automatic* went with it since there is no mark left to give back. What is
+ * left is the padlock, which the owner already understands: padlock = fixed, no padlock =
+ * free, and what it fixes is the row entire — where it sits AND how long it is.
  *
  * The padlock is also what separates a Friday row the owner put there from one the engine
  * parked: `desborde 2 h` is only ever drawn on a unit with no padlock in it.
@@ -54,8 +51,6 @@ import {
   IconClockStop,
   IconLock,
   IconLockOpen,
-  IconRestore,
-  IconRuler,
   IconScissors,
   IconTrash,
 } from '@tabler/icons-react';
@@ -120,16 +115,21 @@ export interface CalendarBlockProps {
    * is what this handler used to do) made the drag do nothing at all, silently.
    */
   onPointerDownActions: (event: React.PointerEvent) => void;
+  /**
+   * THE SERVER WOULD ACCEPT A RESIZE OF THIS ROW: it carries a padlock, or it is on a
+   * weekend, and it is not in the frozen past.
+   *
+   * The strip is drawn either way (except on a past row, where nothing is) and
+   * `onPointerDownResize` is wired either way; this is what the strip SAYS. False: no resize
+   * cursor, a muted hover pill, and a tooltip naming what does change a day instead of what
+   * the drag would do. The press itself is inert on the caller's side
+   * (`InertReason.automatic`), which is what keeps one gesture from quietly becoming the
+   * other.
+   */
+  resizable: boolean;
   onPointerDownResize: (event: React.PointerEvent) => void;
   onOpen: () => void;
   onToggleLock: () => void;
-  /**
-   * "Back to automatic": give the engine back the LENGTH a bottom-edge drag set on this
-   * unit. Present exactly when some row of it carries that mark. It never returns the
-   * queue POSITION, and it never touches the padlock — the row keeps whatever place the
-   * calendar now gives it.
-   */
-  onReleaseDuration?: () => void;
   /**
    * "Stop the day here": a gap from the end of this row to the end of the day. Omitted
    * when there is nothing left to close, or on a day auto-fill never touches.
@@ -151,10 +151,10 @@ export function CalendarBlock({
   busy,
   onPointerDownBody,
   onPointerDownActions,
+  resizable,
   onPointerDownResize,
   onOpen,
   onToggleLock,
-  onReleaseDuration,
   onCloseDay,
   onSplit,
   onDelete,
@@ -182,7 +182,7 @@ export function CalendarBlock({
    * at the default scale, so the bar covered ALL of it.
    *
    * TOO NARROW (`blockHoldsActions`, added 2026-08-14 — the same defect, still open on the
-   * other axis). The bar is as wide as the buttons it is showing, up to five of them, and
+   * other axis). The bar is as wide as the buttons it is showing, up to four of them, and
    * it is anchored at the RIGHT edge: on a weekend column, and on any column once the
    * window is small enough, it covers the whole top of the block INCLUDING ITS NAME, which
    * is the owner's most natural place to press. The row is tall, so nothing above caught it.
@@ -198,8 +198,7 @@ export function CalendarBlock({
    * the row is at the very top of the axis and there is nothing above it but the sticky day
    * header.
    */
-  const buttonCount =
-    3 + (onReleaseDuration === undefined ? 0 : 1) + (onCloseDay === undefined ? 0 : 1);
+  const buttonCount = 3 + (onCloseDay === undefined ? 0 : 1);
   const detached = height < MIN_ACTIONS_HEIGHT || !blockHoldsActions(blockWidth, buttonCount);
   const barBelow = detached && timeline.yOf(block.startMinutes) < ACTIONS_BAR_HEIGHT;
 
@@ -239,14 +238,13 @@ export function CalendarBlock({
         : format.hours(block.durationMinutes);
 
   /*
-   * ONE LINE PER MARK, each naming the mark and the single thing it fixes — "Duración
-   * fija · la longitud la has puesto tú", "Bloqueado · el motor no lo mueve de aquí".
-   * Each icon carries its own line, and the row's tooltip carries all the lines it has.
+   * THE MARK, NAMED AND WITH THE THING IT FIXES — "Bloqueado · el motor no lo mueve de
+   * aquí". A list of one since 2026-08-18, kept a list because the row's tooltip is built
+   * by joining whatever lines the row has and the padlock's line has to travel with it.
    */
-  const markHints = [
-    block.manualDuration ? t('block.markManualDuration') : null,
-    block.locked ? t('block.markLocked') : null,
-  ].filter((line): line is string => line !== null);
+  const markHints = [block.locked ? t('block.markLocked') : null].filter(
+    (line): line is string => line !== null,
+  );
 
   /*
    * The seam, said in words. The ellipsis in the hours label is quiet by design — three
@@ -274,7 +272,6 @@ export function CalendarBlock({
     // drag, because a press on it cannot start one.
     busy && !frozen ? styles.saving : '',
     lifted ? styles.lifted : '',
-    block.manualDuration ? styles.manual : '',
     block.locked ? styles.pinned : '',
     cutAtMinutes === undefined ? '' : styles.cutting,
     detached ? styles.detached : '',
@@ -307,7 +304,9 @@ export function CalendarBlock({
         format.dayTimeHours(block.date, block.startMinutes, block.durationMinutes),
         ...seamHints,
         ...markHints,
-        ...(frozen ? [t('day.frozenHint')] : [t('block.drag'), t('block.resize')]),
+        ...(frozen
+          ? [t('day.frozenHint')]
+          : [t('block.drag'), resizable ? t('block.resize') : t('block.lengthIsAutomatic')]),
       ].join('\n')}
       style={{
         '--ww-block-color': block.project.color,
@@ -331,18 +330,12 @@ export function CalendarBlock({
       </div>
 
       {/*
-       * The three marks share the corner the action bar takes over on hover, and they
-       * are independent states, so all three can be up at once: the padlock says the
-       * engine may not MOVE this row, the ruler says it may not RESIZE it, the hand says
-       * a human chose the DAY it is on.
+       * The mark sits in the corner the action bar takes over on hover. One glyph, because
+       * one state: the padlock says the engine neither moves this row nor re-derives its
+       * length. Kept as a `marks` box so the corner keeps its geometry.
        */}
       {markHints.length === 0 ? null : (
         <span className={styles.marks} aria-hidden="true">
-          {block.manualDuration ? (
-            <span className={styles.softMark} title={t('block.markManualDuration')}>
-              <IconRuler size={13} stroke={1.9} />
-            </span>
-          ) : null}
           {block.locked ? <IconLock size={13} stroke={1.9} /> : null}
         </span>
       )}
@@ -375,17 +368,6 @@ export function CalendarBlock({
             disabled={busy}
             onClick={onToggleLock}
           />
-          {onReleaseDuration === undefined ? null : (
-            // `restore` rather than a ruler-off glyph: the action is about the UNDOING,
-            // and a struck-through ruler reads as a state rather than a button.
-            <IconButton
-              size="sm"
-              icon={<IconRestore size={13} stroke={1.9} />}
-              label={t('block.releaseDuration')}
-              disabled={busy}
-              onClick={onReleaseDuration}
-            />
-          )}
           {onCloseDay === undefined ? null : (
             <IconButton
               size="sm"
@@ -414,15 +396,23 @@ export function CalendarBlock({
       )}
 
       {/*
-       * The resize edge. On EVERY row, and that is two changes rather than one: every
-       * DAY (it used to be inert wherever the reflow would undo it) and every ROW of a
-       * unit (it used to be only the last).
+       * The bottom edge, in its two forms. It SIZES on a row the engine does not lay out;
+       * on an automatic row the length IS the room the row has — dragging it there was a
+       * gesture the reflow undid on the next save, and the mark that used to make it stick
+       * is gone (2026-08-18) — so there it EXPLAINS. Same strip, same ten pixels, so the
+       * reach never lands on the body and turns into a move. The padlock is how a row gets a
+       * length the owner owns; a gap is how a day ends early.
        *
-       * The second one is what makes CLAUDE.md's own worked example reachable — "the
-       * owner shrinks the Wednesday morning row to 2 h" is the FIRST row of a unit that
-       * carries on after lunch. A unit has one handle for the MOVE, because it is one
-       * thing to drag; but its rows are two rectangles with the lunch band between them,
-       * each with a real bottom edge on screen.
+       * ON EVERY ROW OF A UNIT, not only its last. That is what makes shrinking the
+       * MORNING half of a padlocked unit reachable: a unit has one handle for the MOVE,
+       * because it is one thing to drag, but its rows are two rectangles with the lunch
+       * band between them, each with a real bottom edge on screen.
+       *
+       * NOT DRAWN AT ALL ON A PAST ROW, which is the spec's own list: on a frozen day
+       * "drag, resize, split, delete and the padlock are all refused there, and none of them
+       * is drawn". Nothing is lost by that — the row's body answers a press with the same
+       * sentence about the past — and it takes away the `ns-resize` cursor that used to
+       * promise a gesture over the record of a day the shop has already worked.
        *
        * WHAT THE EDGE SIZES is the STRETCH that begins at this row's start, in net working
        * minutes over the day's manual windows: the drag crosses the lunch break (the band
@@ -431,13 +421,29 @@ export function CalendarBlock({
        * cap is the end of the day rather than the end of this row's period — which is the
        * defect the owner reported. See `durationTo` and `maxDurationFrom` in geometry.ts.
        */}
-      <div
-        className={styles.resize}
-        role="separator"
-        aria-label={t('block.resize')}
-        title={t('block.resizeHint')}
-        onPointerDown={onPointerDownResize}
-      />
+      {frozen ? null : resizable ? (
+        <div
+          className={styles.resize}
+          role="separator"
+          aria-label={t('block.resize')}
+          title={t('block.resizeHint')}
+          onPointerDown={onPointerDownResize}
+        />
+      ) : (
+        /*
+         * THE SAME TEN PIXELS, ANSWERING INSTEAD OF SIZING. Two lines on the hover and, the
+         * moment the press travels, the same two in a toast with *Cerrar el día aquí* beside
+         * them — one tap from where the gesture failed, and the owner is the one who presses
+         * it. No role and no label: the strip is not a control, and the sentence is already
+         * on the row's own tooltip for anything that reads the block rather than hovers it.
+         */
+        <div
+          className={`${styles.resize} ${styles.resizeInert}`}
+          aria-hidden="true"
+          title={`${t('block.lengthIsAutomatic')}\n${t('block.lengthIsAutomaticHow')}`}
+          onPointerDown={onPointerDownResize}
+        />
+      )}
     </div>
   );
 }

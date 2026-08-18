@@ -31,7 +31,8 @@ import { useFormat } from '../../lib/useFormat';
 import { addDays } from '../../lib/dates';
 import { netMinutesOf } from '../../lib/manualWindow';
 import { fillStartFor, planDropSpill, spillByDay, type SpillDay } from '../../lib/dropSpill';
-import { planCloseDay, type CloseDayInput, type CloseDayRequest } from '../../lib/closeDay';
+import type { CloseDayInput, CloseDayRequest } from '../../lib/closeDay';
+import { closeDayAfter, closeDayInputFor } from './closeDayOffer';
 import type { Gap } from '../../types';
 import type { WeekBlock, WeekDay, WeekView } from '../../lib/api-client';
 import { CalendarBlock } from './CalendarBlock';
@@ -122,12 +123,6 @@ export interface WeekGridProps {
   onOpenGap?: (gap: Gap) => void;
   onToggleLock: (block: WeekBlock) => void;
   /**
-   * "Back to automatic" for a whole unit: every row whose LENGTH the owner drew. The
-   * padlock is not part of it — that mark is visible on the row and comes off with the
-   * padlock.
-   */
-  onReleaseDuration: (blockIds: readonly string[]) => void;
-  /**
    * "Stop the day here". Wired only when the gap form exists — it opens that form
    * pre-filled, since the gap is what makes the day hold fewer hours.
    */
@@ -142,8 +137,12 @@ export interface WeekGridProps {
    * one has nothing to start. `busy`: a save is in flight, and the gap's form is withheld
    * until it lands — which used to be a `disabled` button, i.e. a press that did nothing at
    * all and said nothing, in the second right after every mutation.
+   *
+   * The TARGET is optional because neither of those two is about a row: a block's own inert
+   * presses reach the same handler through the drag controller (`onInert`), and one of them
+   * — `automatic`, the bottom edge of a row the engine sizes — answers about that row.
    */
-  onPressHint: (reason: InertReason) => void;
+  onPressHint: (reason: InertReason, target?: DragTarget) => void;
   metricsRef: React.MutableRefObject<(() => GridMetrics | null) | null>;
   settle: SettleRequest | null;
   onSettled: () => void;
@@ -160,7 +159,6 @@ export function WeekGrid({
   onOpenJob,
   onOpenGap,
   onToggleLock,
-  onReleaseDuration,
   onCloseDay,
   onSplit,
   onDelete,
@@ -538,7 +536,6 @@ export function WeekGrid({
               onPressGap={onPressGap}
               onPressGapBusy={onPressGapBusy}
               onToggleLock={onToggleLock}
-              onReleaseDuration={onReleaseDuration}
               onCloseDay={onCloseDay}
               onSplit={onSplit}
               onDelete={onDelete}
@@ -749,7 +746,6 @@ interface DayColumnProps {
   /** The same, for a gap pressed while a save is in flight: it says "wait" instead. */
   onPressGapBusy: (event: React.PointerEvent) => void;
   onToggleLock: (block: WeekBlock) => void;
-  onReleaseDuration: (blockIds: readonly string[]) => void;
   onCloseDay?: (request: CloseDayRequest) => void;
   onSplit: (block: WeekBlock) => void;
   onDelete: (block: WeekBlock) => void;
@@ -779,7 +775,6 @@ function DayColumn({
   onPressGap,
   onPressGapBusy,
   onToggleLock,
-  onReleaseDuration,
   onCloseDay,
   onSplit,
   onDelete,
@@ -1000,24 +995,17 @@ function DayColumn({
    * no sense: the weekend and a closed day have no plannable hours to cap, and the past
    * is a record rather than a plan.
    */
-  const closeDayInput = useMemo<CloseDayInput | null>(() => {
-    if (onCloseDay === undefined || day.isPast || day.isWeekend || day.isClosed) return null;
-    return {
-      date: day.date,
-      periods: day.periods,
-      blocks: groups.flatMap((group) =>
-        group.blocks.map((block) => ({
-          id: block.id,
-          projectId: block.projectId,
-          name: block.project.name,
-          startMinutes: block.startMinutes,
-          durationMinutes: block.durationMinutes,
-          locked: block.locked,
-        })),
-      ),
-      gaps,
-    };
-  }, [onCloseDay, day, groups, gaps]);
+  const closeDayInput = useMemo<CloseDayInput | null>(
+    () =>
+      onCloseDay === undefined
+        ? null
+        : closeDayInputFor(
+            day,
+            groups.flatMap((group) => group.blocks),
+            gaps,
+          ),
+    [onCloseDay, day, groups, gaps],
+  );
 
   /**
    * «4 h el lun 17 · 2 h el mar 18» — WHAT BECOMES OF THE HOURS, named day by day, and the
@@ -1214,6 +1202,23 @@ function DayColumn({
            * and history moved.
            */
           const inert = day.isPast ? ('past' as const) : busy ? ('busy' as const) : undefined;
+          /*
+           * DOES THE ENGINE LAY THIS ROW OUT? The mirror of `isMovable` (unlocked, not
+           * past, not a weekend), and the same three questions the server's resize asks
+           * before it refuses with `resize-needs-padlock`. A row it owns has no length of
+           * its own: it is exactly as big as the room it has, so the bottom edge SIZES
+           * NOTHING there — the padlock is what gives a row a length, and a GAP is what
+           * ends a day early.
+           *
+           * THE EDGE IS STILL THERE, AND IT IS STILL PRESSABLE, because the failure mode
+           * this project keeps repeating is a gesture that goes quiet. Withholding the strip
+           * would have been worse than quiet: the press falls through to the block's body
+           * and starts a MOVE, so reaching for a length would have re-ranked the queue. It
+           * is handed to the drag as an INERT press instead — no ghost, nothing written, a
+           * click still opens the job, and the first real travel says what does change the
+           * shape of a day (`InertReason.automatic`).
+           */
+          const engineLaysOut = !segment.block.locked && !day.isPast && !day.isWeekend;
           return (
             <CalendarBlock
               key={segment.block.id}
@@ -1236,6 +1241,10 @@ function DayColumn({
               // The hover bar is over the block, so it drags the block too — see
               // `BeginOptions.overlay` for the two things that keeps working.
               onPointerDownActions={(event) => drag.beginMove(event, target, { overlay: true, inert })}
+              // WHAT THE SERVER WOULD ACCEPT: a row it does not lay out, and not one in the
+              // frozen past — there `resizeBlock` refuses first and for its own reason
+              // (`past-block-frozen`), and the block draws no edge at all.
+              resizable={!engineLaysOut && !day.isPast}
               onPointerDownResize={(event) =>
                 drag.beginResize(
                   event,
@@ -1253,21 +1262,18 @@ function DayColumn({
                       .slice(segment.index)
                       .reduce((total, row) => total + row.durationMinutes, 0),
                   },
-                  // The same reason a move carries it: a resize of a past row rewrites the
-                  // record just as much as a drag of it does.
-                  { inert },
+                  /*
+                   * WHY THIS PRESS CANNOT SIZE, most binding reason first. The past and a
+                   * save in flight are the row's own reasons and they carry over from the
+                   * move — a resize of a past row rewrites the record just as much as a
+                   * drag of it does — and `automatic` is the RULE underneath: on a row the
+                   * engine lays out there is no length to drag.
+                   */
+                  { inert: inert ?? (engineLaysOut ? 'automatic' : undefined) },
                 )
               }
               onOpen={() => onOpenJob(segment.block.projectId)}
               onToggleLock={() => onToggleLock(segment.block)}
-              // One release for the whole unit: a hand-set stretch cut at the lunch break
-              // is two marked rows, and giving the engine back only half of it would leave
-              // the other half holding the day open for no visible reason.
-              onReleaseDuration={
-                segment.group.manualBlockIds.length === 0
-                  ? undefined
-                  : () => onReleaseDuration(segment.group.manualBlockIds)
-              }
               onCloseDay={
                 closeDay === null || onCloseDay === undefined
                   ? undefined
@@ -1610,23 +1616,6 @@ function buildLayout(view: WeekView): WeekLayout {
   );
 
   return { groups, gaps: gapsByDate, lanes, runs };
-}
-
-/**
- * The "stop the day here" the row offers, or `null` when it has nothing to offer.
- *
- * The moment is the END of this row, so the action reads exactly as it is labelled: the
- * hours up to here stay today and the rest of the day stops being plannable. A row that
- * already runs to the end of the day, or one with nothing but existing gaps after it, has
- * nothing to close — the button is then absent rather than disabled, because there is no
- * state to explain.
- */
-function closeDayAfter(input: CloseDayInput | null, block: WeekBlock): CloseDayRequest | null {
-  if (input === null) return null;
-  const fromMinutes = block.startMinutes + block.durationMinutes;
-  const plan = planCloseDay(input, fromMinutes);
-  if (plan === null || plan.workingMinutes <= 0) return null;
-  return { input, fromMinutes };
 }
 
 /**

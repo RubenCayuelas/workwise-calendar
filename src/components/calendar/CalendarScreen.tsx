@@ -23,14 +23,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ConfirmDialog, InlineBanner, useToast } from '../ui';
+import { IconClockStop } from '@tabler/icons-react';
+import { Button, ConfirmDialog, InlineBanner, useToast } from '../ui';
 import { useFormat } from '../../lib/useFormat';
 import {
   deleteBlock as apiDeleteBlock,
   getProject,
   isApiError,
   moveBlock as apiMoveBlock,
-  releaseBlockDuration as apiReleaseBlockDuration,
   resizeBlock as apiResizeBlock,
   setBlockLock as apiSetBlockLock,
   splitBlock as apiSplitBlock,
@@ -46,6 +46,7 @@ import type { CloseDayRequest } from '../../lib/closeDay';
 import { PROJECT_COLORS } from '../../lib/projectColors';
 import { manualWindowsOf } from '../../lib/manualWindow';
 import { spillByDay } from '../../lib/dropSpill';
+import { closeDayAfter, closeDayInputFor } from './closeDayOffer';
 import { rankFor, createTimeline, type GridMetrics, type Timeline } from './geometry';
 import { dropPins } from './dropEffect';
 import { describeDrop, type DropOutcomeKind } from './dropOutcome';
@@ -378,17 +379,96 @@ export function CalendarScreen({
   }, [t, toast]);
 
   /**
+   * THE BOTTOM EDGE OF A ROW THE ENGINE LAYS OUT, which sizes nothing — and this is the
+   * whole of what the app does about it, so it has to be worth the gesture.
+   *
+   * The owner asked for the free bottom-edge resize two days before it was taken away
+   * (`manual_duration`, deleted 2026-08-18 because a length the reflow re-derives cannot be
+   * stored), so a dead edge would read as a regression rather than a rule. TWO LINES, in
+   * their own words: an automatic block measures the room it has, and what really changes
+   * the shape of a day is a GAP that ends it early, another job behind this one, or the
+   * job's hours in its form. The padlock is named too — it is the one that makes this very
+   * gesture work.
+   *
+   * AND THE GAP IS ONE TAP AWAY, NEVER AUTOMATIC. *Cerrar el día aquí* rides along on the
+   * toast, pre-filled for THIS row (`closeDayAfter`, the same offer the row's hover bar
+   * makes), and it opens the form — the owner presses Save. The owner was explicit: «no se
+   * creará el hueco automáticamente, sino que si el usuario lo quiere lo deberá de crear
+   * él». Absent when there is nothing left to close, e.g. a row that already runs to the
+   * end of the day.
+   */
+  const explainAutomaticLength = useCallback(
+    (target: DragTarget): void => {
+      const view = viewRef.current;
+      const day = view?.days.find((candidate) => candidate.date === target.date);
+      // The ROW the edge belongs to, not the unit: the gap starts where THAT row ends,
+      // exactly as the button on its own hover bar would propose it.
+      const row = view?.blocks.find((block) => block.id === target.blockId);
+      const offer =
+        view === null || day === undefined || row === undefined
+          ? null
+          : closeDayAfter(
+              closeDayInputFor(
+                day,
+                view.blocks.filter((block) => block.date === day.date),
+                view.gaps.filter((gap) => gap.date === day.date),
+              ),
+              row,
+            );
+      // No gap form wired means no form to open, so there is nothing to press either.
+      const action = offer === null || renderGapForm === undefined ? null : offer;
+
+      // Assigned twice on purpose: the button has to be able to dismiss the toast it is
+      // inside, and the id only exists once `show` returns. The click is always later.
+      let toastId = '';
+      toastId = toast.show({
+        tone: 'info',
+        // Long enough to read two lines and reach the button. The other inert hints are one
+        // line with nothing to press, so they keep the default.
+        duration: action === null ? undefined : 12000,
+        message: (
+          <span className={styles.inertHint}>
+            <span>{t('block.lengthIsAutomatic')}</span>
+            <span>{t('block.lengthIsAutomaticHow')}</span>
+            {action === null ? null : (
+              <Button
+                size="sm"
+                icon={<IconClockStop size={14} stroke={1.75} />}
+                onClick={() => {
+                  toast.dismiss(toastId);
+                  setGapTarget({ gap: null, closeDay: action });
+                }}
+              >
+                {t('block.closeDay')}
+              </Button>
+            )}
+          </span>
+        ),
+      });
+    },
+    [renderGapForm, t, toast],
+  );
+
+  /**
    * A press that could not become a gesture, saying why.
    *
-   * All three used to be a press that did nothing at all, which the owner reads as the app
-   * ignoring them — and one of them, `busy`, lands in the second right after a drop, when
-   * the next press is most likely. See `InertReason`.
+   * Every one of them used to be a press that did nothing at all, which the owner reads as
+   * the app ignoring them — and one of them, `busy`, lands in the second right after a drop,
+   * when the next press is most likely. `automatic` is the odd one out: it is not a
+   * circumstance that will pass but a RULE about the row, so it gets its own paragraph and
+   * its own way forward. See `InertReason`.
    */
   const onInert = useCallback(
-    (reason: InertReason): void => {
+    (reason: InertReason, target?: DragTarget): void => {
+      // The only reason that is about a ROW, so it is the only one that reads the target —
+      // and the drag hook always hands it over. Nothing else can produce it.
+      if (reason === 'automatic') {
+        if (target !== undefined) explainAutomaticLength(target);
+        return;
+      }
       toast.info(t(INERT_KEYS[reason]));
     },
-    [t, toast],
+    [explainAutomaticLength, t, toast],
   );
 
 
@@ -396,13 +476,12 @@ export function CalendarScreen({
    * The bottom edge. Two things the grid cannot show by itself, so both are said here:
    *
    * - THE CONSEQUENCE IS NOT LOCAL. A resize is a transfer inside the job, so the hours
-   *   move to (or come off) the job's LAST block, the job's run ends at the resized row,
-   *   its remainder starts on the next auto-fill day, and the jobs behind it take the
-   *   hours the day just gained. None of that is visible in the row the owner dragged,
-   *   and some of it is not even in the week on screen.
-   * - THE ROW IS NOW HAND-SET, which is a state with an undo (*back to automatic*), so
-   *   each sentence ends by saying the length is now fixed. The mark on the row and its
-   *   tooltip carry that afterwards; this is what says it the moment it becomes true.
+   *   move to (or come off) the job's LAST block the engine still lays out, and the rest of
+   *   the calendar reflows around the result. None of that is visible in the row the owner
+   *   dragged, and some of it is not even in the week on screen.
+   * - THE PADLOCK IS WHAT HOLDS THE NEW LENGTH, and it is the row's only mark, so each
+   *   sentence says so. The edge is offered nowhere else — an automatic row is exactly as
+   *   big as the room it has — and pressing the padlock is the undo.
    *
    * SHRINKING MAY ASK INSTEAD OF SUCCEEDING (409 `shrink-needs-choice`). That is not a
    * failure and it must not reach the banner: nothing was written, the server is holding
@@ -452,29 +531,6 @@ export function CalendarScreen({
       });
     },
     [format, mutate, report, t, toast],
-  );
-
-  /**
-   * "Back to automatic". One call per hand-set row of the unit, because a stretch cut at
-   * the lunch break is two marked rows and releasing half of it would leave the other
-   * half still closing the day.
-   *
-   * It gives back the LENGTH, not the queue position — the row keeps whatever place the
-   * calendar now gives it, exactly as after any drag — so the notice says so.
-   */
-  const onReleaseDuration = useCallback(
-    (blockIds: readonly string[]): void => {
-      if (blockIds.length === 0) return;
-      void mutate(async () => {
-        const results: BlockMutation[] = [];
-        for (const blockId of blockIds) results.push(await apiReleaseBlockDuration(blockId));
-        return mergeMutations(results);
-      }).then((result) => {
-        report(result);
-        if (result !== undefined) toast.info(t('notices.released'));
-      });
-    },
-    [mutate, report, t, toast],
   );
 
   const onToggleLock = useCallback(
@@ -760,7 +816,6 @@ export function CalendarScreen({
                       (closeDay) => setGapTarget({ gap: null, closeDay })
                 }
                 onToggleLock={onToggleLock}
-                onReleaseDuration={onReleaseDuration}
                 onSplit={onSplit}
                 onDelete={onDelete}
                 // The same sentence a press on a block gets, for the one thing on the grid
@@ -924,42 +979,10 @@ const FALLBACK_TIMELINE = createTimeline({
 const DAY_HEADER_ALLOWANCE = 46;
 
 /**
- * Several one-row transactions, reported as the one gesture the owner made.
- *
- * A unit is moved (and released) a row at a time — each its own transaction, so the
- * calendar is never half-written — but its consequences belong to the whole gesture.
- * The entity fields come from the LAST call, which saw the final calendar; the three
- * consequence lists are unioned, since each is a set of ids and any of the calls may
- * have contributed to it.
- */
-function mergeMutations(results: readonly BlockMutation[]): BlockMutation | undefined {
-  const last = results[results.length - 1];
-  if (last === undefined) return undefined;
-
-  const union = (pick: (result: BlockMutation) => readonly string[]): string[] => {
-    const ids: string[] = [];
-    for (const result of results) {
-      for (const id of pick(result)) if (!ids.includes(id)) ids.push(id);
-    }
-    return ids;
-  };
-
-  return {
-    ...last,
-    touchedLockedBlockIds: union((result) => result.touchedLockedBlockIds),
-    mergedBlockIds: union((result) => result.mergedBlockIds),
-    displacedProjectIds: union((result) => result.displacedProjectIds),
-    // The gesture changed something if ANY of its calls did. `placedBlockIds` comes from
-    // the last call, which is the only one that saw the final calendar.
-    changed: results.some((result) => result.changed),
-  };
-}
-
-/**
  * What a press that cannot write says. One key per `InertReason`, each naming the reason
  * AND what the owner can still do — a message with no next step is only half delivered.
  */
-const INERT_KEYS: Record<InertReason, string> = {
+const INERT_KEYS: Record<Exclude<InertReason, 'automatic'>, string> = {
   busy: 'notices.pressWhileBusy',
   past: 'notices.pressOnPastDay',
   gap: 'notices.pressOnGap',

@@ -47,13 +47,7 @@ import { firstClearStart } from './dropSlide';
 // hours will really be stored in (`planDropSpill`), so the floor has one implementation and
 // both sides import it. See src/lib/dropSpill.ts.
 import { takeableFrom } from './dropSpill';
-import {
-  adjacentInWindows,
-  clockEndOf,
-  dayEndMinutes,
-  usesManualOnlyTime,
-  type DayWindows,
-} from './manualWindow';
+import { adjacentInWindows, clockEndOf, dayEndMinutes, type DayWindows } from './manualWindow';
 import { MIN_ROW_MINUTES } from './validation';
 
 /** The i18n key `compose` reports when the hours run past the planning horizon. */
@@ -208,13 +202,6 @@ export interface PlacedBlock {
   startMinutes: number;
   durationMinutes: number;
   locked: boolean;
-  /**
-   * Carried through untouched for a fixed row, and copied from the queue item for a
-   * reflowed one — every row an item with a hand-set duration produces keeps the
-   * mark, so a stretch the owner sized by hand that had to be cut at the lunch break
-   * is still one hand-set stretch on the next pass.
-   */
-  manualDuration: boolean;
 }
 
 export type ComposeErrorCode = 'horizon-exceeded';
@@ -282,29 +269,16 @@ export type ComposeResult = ComposeSuccess | ComposeFailure;
  * the hole in front of it empty (rules 7 and 8 applied to the whole job). The
  * documented way to nail hours down is `locked`, on the half being kept.
  *
- * THE ONE THING THAT DOES BREAK A RUN — a HAND-SET DURATION (`Block.manualDuration`).
- * A row the owner sized with the bottom-edge drag is its own item, and the job's
- * remaining hours are the item after it. Read against the paragraph above, this is
- * the case that looks dangerous and is not, so the distinction is worth stating
- * exactly:
- *
- *   The earlier defect broke a run at a FIXED block — a property of the LAYOUT
- *   (`locked`, or the date being past or a weekend, which the reflow itself moves
- *   rows across). Grouping was therefore a function of the placement while the
- *   placement was a function of the grouping, so an unrelated save re-cut the queue
- *   and resized somebody's blocks. `manualDuration` is a COLUMN. It is written only
- *   by the gesture that sets it and cleared only by the gestures that overwrite the
- *   duration it stands for (see *A Hand-Set Duration* in CLAUDE.md); no reflow ever
- *   sets or clears it, and moving a row across days does not change it. Grouping
- *   therefore stays a function of (stored flags x movable order), both of which the
- *   reflow preserves, and `compose` stays a fixed point — the property the
- *   "recomposing twice is not a second reflow" test and the 2000-seed harness pin
- *   down.
- *
- * Consecutive hand-set rows of one job ON ONE DAY are one item, because that is the
- * shape a hand-set stretch comes back as when it had to be cut at the lunch break:
- * regrouping them keeps the second pass looking at the same 7 h the owner drew,
- * rather than at a 2 h item and a 5 h item.
+ * NOTHING BUT ANOTHER MOVABLE JOB BREAKS A RUN, and since 2026-08-18 nothing else can.
+ * A HAND-SET DURATION used to: `Block.manualDuration` made the row the owner had sized
+ * with the bottom-edge drag an item of its own, with the job's remaining hours as the item
+ * behind it. The COLUMN IS GONE — a block is exactly as big as the room it has (*Fill and
+ * Overflow, Always*), and the padlock is the only thing that fixes a row, its LENGTH
+ * included, because the engine lays no locked row out at all. So grouping is a function of
+ * MOVABLE ORDER ALONE, which is the strongest form of the paragraph above rather than an
+ * exception to it: no stored flag is left for the queue to read, nothing can be derived
+ * from the placement by mistake, and `compose` stays the fixed point the "recomposing
+ * twice is not a second reflow" test and the 2000-seed harness pin down.
  *
  * THERE IS NO `continuation` FLAG ANY MORE (removed 2026-08-17). It said "this item is not
  * its job's first in the queue", and its ONLY reader was the exemption that let a displaced
@@ -322,12 +296,6 @@ export interface QueueItem {
   isNew: boolean;
   /** True when the project is listed in `ComposeInput.grownProjectIds`. */
   grown: boolean;
-  /**
-   * The owner set this stretch's length by hand. The engine keeps it, ends the job's
-   * run here, and lets no more of that job onto the day it lands on — see
-   * `compose`'s "a hand-set stretch closes its job's day".
-   */
-  manualDuration: boolean;
   /**
    * The dates this item's rows already sit on. Only consulted for the Friday
    * buffer, where it is what keeps an unrelated save from pushing absorbed
@@ -356,8 +324,8 @@ export interface QueueItem {
  * 2. RUNS — consecutive groups of one job, exactly `buildQueue`'s items. A group the engine
  *    never moves (padlocked, weekend, past) is an OBSTACLE, not a separator: it is skipped
  *    without ending the run, and it drags alone because dragging it is a literal placement.
- *    A hand-set length ends the run, because `buildQueue` will never join it to an automatic
- *    one and a drag that promised otherwise would be arguing with the reflow.
+ *    Nothing else divides a run: the one stored flag that used to (a hand-set length) is
+ *    gone, so a run is a job's consecutive movable groups and nothing more.
  *
  * The day filter this used to open with was the defect the drag layer measured on the
  * running app: an 11 h job stored Wed 08:00-14:00 + Wed 15:30-19:30 + Thu 08:00-09:00 drew
@@ -398,11 +366,6 @@ export function unitOf(
       runs.push(group);
       continue;
     }
-    if (group.some((row) => row.manualDuration)) {
-      runs.push(group);
-      open = null;
-      continue;
-    }
     if (open !== null && open[0].projectId === group[0].projectId) {
       open.push(...group);
       continue;
@@ -419,32 +382,22 @@ export function unitOf(
  * `createdAt` then `id` so the ordering is total and the engine deterministic.
  * Fixed blocks (locked, past, weekend) are obstacles, not queue items, and they
  * are skipped without breaking the run around them — see `QueueItem` for why the
- * grouping has to ignore them, and for why a hand-set duration may break one.
+ * grouping has to ignore them.
  */
 export function buildQueue(input: ComposeInput): QueueItem[] {
   const newProjects = new Set(input.newProjectIds ?? []);
   const grownProjects = new Set(input.grownProjectIds ?? []);
   const items: QueueItem[] = [];
   let open: QueueItem | null = null;
-  let openDate = '';
 
   for (const block of sortedByQueueRank(input.blocks)) {
     if (!isMovable(block, input.today)) continue;
-    // An automatic run absorbs the next automatic block of the same job; a hand-set
-    // stretch absorbs only another hand-set row of the same job on the same day (the
-    // two halves of one stretch around lunch). The two kinds never join, which is
-    // what makes the hand-set length survive the reflow.
-    const joins =
-      open !== null &&
-      open.projectId === block.projectId &&
-      open.manualDuration === block.manualDuration &&
-      (!block.manualDuration || openDate === block.date);
-
-    if (open !== null && joins) {
+    // A run absorbs the next movable block of the same job. Only a movable block of
+    // ANOTHER job ends it, which is the whole of the grouping rule.
+    if (open !== null && open.projectId === block.projectId) {
       open.blockIds.push(block.id);
       open.durationMinutes += block.durationMinutes;
       if (!open.originalDates.includes(block.date)) open.originalDates.push(block.date);
-      openDate = block.date;
       continue;
     }
     open = {
@@ -453,10 +406,8 @@ export function buildQueue(input: ComposeInput): QueueItem[] {
       durationMinutes: block.durationMinutes,
       isNew: newProjects.has(block.projectId),
       grown: grownProjects.has(block.projectId),
-      manualDuration: block.manualDuration,
       originalDates: [block.date],
     };
-    openDate = block.date;
     items.push(open);
   }
 
@@ -576,22 +527,16 @@ export function horizonEndDate(today: string, planningHorizonWeeks: number): str
  * a stretch of free time too short for a row is stepped over like an obstacle, and a take
  * that would leave a sliver behind leaves a full quarter of an hour instead.
  *
- * A HAND-SET STRETCH CLOSES ITS JOB'S DAY, and this is the one place strict order
- * is deliberately broken (decided with the owner, 2026-08-12). A row whose length
- * the owner drew keeps that length, so the job's remaining hours cannot simply
- * continue after it — they would flow straight back into the hours just given up
- * and auto-merge would undo the gesture. Two rules do it:
- *
- *  - once a hand-set stretch of job X lands on day D, no more of X may be placed
- *    on D. Stated over the DAY rather than over "the next item", so it holds again
- *    on the following pass, when the remainder is no longer the next item;
- *  - the remainder is DEFERRED while the jobs behind it fill the hours the stretch
- *    freed on D, and placed as soon as one of them would have to leave D. So the
- *    remainder starts on the next auto-fill day and the day is not left with a hole.
- *
- * The deferral only ever fires on the pass that follows the resize: afterwards the
- * remainder is no longer adjacent to the stretch in the queue and lands in exactly
- * the same place by ordinary forward fill, which is what keeps this a fixed point.
+ * STRICT ORDER IS NEVER BROKEN NOW, and it used to be, in one place. A hand-set stretch
+ * closed its job's day: no more of that job could be placed on the day the stretch landed
+ * on, and the job's remainder was DEFERRED while the jobs behind it took the hours the
+ * gesture had freed there. Both rules existed only to stop the reflow flowing the job's own
+ * hours straight back into the space the hand-set row had just given up and auto-merge then
+ * swallowing the gesture. `Block.manualDuration` is gone (2026-08-18) and with it the
+ * closed day, the deferral, `acceptsItem`'s `closedDays` set and the one documented break
+ * in strict order. Nothing replaces them: a length can only be held by the PADLOCK now, and
+ * the engine neither places nor merges a locked row, so there is nothing left for a
+ * closed day to protect.
  */
 export function compose(input: ComposeInput): ComposeResult {
   const horizon = horizonEndDate(input.today, input.planningHorizonWeeks);
@@ -619,42 +564,15 @@ export function compose(input: ComposeInput): ComposeResult {
       startMinutes: block.startMinutes,
       durationMinutes: block.durationMinutes,
       locked: block.locked,
-      manualDuration: block.manualDuration,
     });
   }
 
   const deletedBlockIds: string[] = [];
   const reflowed: PlacedBlock[] = [];
 
-  /**
-   * `date|projectId` pairs a hand-set stretch has closed for the rest of the day.
-   *
-   * Seeded from the QUEUE, so a hand-set row that has left the pool — locked, on a weekend,
-   * in the frozen past — does not close its day. That asymmetry is real and visible:
-   * padlocking a hand-set row re-opens the day the ruler had closed and pulls the same job
-   * back onto it, which is *back to automatic* performed by the stricter of the two marks.
-   *
-   * IT IS AN OPEN DECISION IN CLAUDE.md, AND STILL THE OWNER'S. What it used to be chained to
-   * is gone: seeding `closedDays` from the stored flag instead would once have left the day
-   * EMPTY, and since *Fill and Overflow, Always* nothing empties a day — the jobs behind take
-   * the hours either way. So the question is now only "should the padlock re-open a day the
-   * ruler closed", and whichever way it goes it must go the same way for both marks at once.
-   */
-  const closedDays = new Set<string>();
-
   // The forward-only cursor: a date, plus how far into that date we have got.
   let cursorDate = input.today;
   let cursor = openDay(planFor(cursorDate));
-  /** The day the hand-set stretch just placed ended on — the day its remainder must leave. */
-  let handSetDate = '';
-
-  /** True when the item would take some of `date` — used to know when the cursor is about to leave it. */
-  const startsOn = (item: QueueItem, date: string): boolean => {
-    // An empty item is dropped rather than placed, so it leaves no day.
-    if (item.durationMinutes <= 0) return true;
-    if (cursorDate !== date) return false;
-    return acceptsItem(cursor.plan, item, closedDays) && roomFor(cursor, item.durationMinutes) > 0;
-  };
 
   /** Places one item, or reports the engine's single failure without writing anything. */
   const placeItem = (item: QueueItem): ComposeError | null => {
@@ -685,7 +603,7 @@ export function compose(input: ComposeInput): ComposeResult {
         date = addDays(date, 1)
       ) {
         const day = date === cursorDate ? cursor : openDay(planFor(date));
-        if (!acceptsItem(day.plan, item, closedDays)) continue;
+        if (!acceptsItem(day.plan, item)) continue;
         const taken = takeFrom(day, remaining, lastResort);
         if (taken.length === 0) continue;
         for (const segment of taken) remaining -= segment.durationMinutes;
@@ -707,11 +625,6 @@ export function compose(input: ComposeInput): ComposeResult {
       };
     }
 
-    if (item.manualDuration) {
-      for (const segment of segments) closedDays.add(dayKey(segment.date, item.projectId));
-      handSetDate = segments[segments.length - 1].date;
-    }
-
     // The item's rows reuse the ids it was built from, in order; the ones left
     // over are the rows auto-merge absorbed and the caller must delete.
     const rows = mergeTouchingSegments(segments);
@@ -725,59 +638,19 @@ export function compose(input: ComposeInput): ComposeResult {
         // A queue item is by definition movable, so nothing the reflow places is fixed:
         // the padlock only ever travels on the fixed rows handed straight back above.
         locked: false,
-        manualDuration: item.manualDuration,
       });
     });
     deletedBlockIds.push(...item.blockIds.slice(rows.length));
     return null;
   };
 
-  // Remainders of hand-set stretches, held back while the jobs behind them take the
-  // hours those stretches freed, and let go the moment an item would have to leave
-  // the day. One per stretch, in queue order, so a week with two hand-set rows on
-  // different jobs drains them in the order the queue had them.
-  const deferred: QueueItem[] = [];
-  let deferralDate: string | null = null;
-  let remainderOf: string | null = null;
-
-  const drain = (): ComposeError | null => {
-    const waiting = deferred.splice(0);
-    deferralDate = null;
-    for (const item of waiting) {
-      const failure = placeItem(item);
-      if (failure !== null) return failure;
-    }
-    return null;
-  };
-
-  const queue = buildQueue(input);
-  // Where each job's LAST item sits. The deferral is allowed to overtake other jobs
-  // and nothing else: reordering two items of ONE job would leave them adjacent on
-  // the calendar with no item of another job between them, the next pass would group
-  // them into one, and the same hours would come out laid out differently. That is
-  // the grouping drift this engine is built to avoid, so a remainder with more of its
-  // own job behind it in the queue is simply placed in turn.
-  const lastItemOfProject = new Map<string, number>();
-  queue.forEach((item, index) => lastItemOfProject.set(item.projectId, index));
-
-  for (const [index, item] of queue.entries()) {
-    if (remainderOf === item.projectId && lastItemOfProject.get(item.projectId) === index) {
-      deferred.push(item);
-      if (deferralDate === null) deferralDate = handSetDate;
-      continue;
-    }
-    if (deferralDate !== null && !startsOn(item, deferralDate)) {
-      const drained = drain();
-      if (drained !== null) return { ok: false, error: drained };
-    }
-    remainderOf = null;
+  // ONE PASS, IN QUEUE ORDER, AND NOTHING WAITS. The deferral that used to sit here held a
+  // hand-set stretch's remainder back while the jobs behind it took the hours the gesture
+  // freed; it went with the mark, and strict order is now unbroken end to end.
+  for (const item of buildQueue(input)) {
     const failure = placeItem(item);
     if (failure !== null) return { ok: false, error: failure };
-    if (item.manualDuration) remainderOf = item.projectId;
   }
-
-  const drained = drain();
-  if (drained !== null) return { ok: false, error: drained };
 
   // Auto-merge is about what ends up touching on the calendar, not about what the
   // queue thought, so the last word on it is taken over the whole reflowed set.
@@ -849,11 +722,6 @@ interface TakePiece {
   runIndex: number;
   startIndex: number;
   minutes: number;
-}
-
-/** The key of "job X may take no more of day D". The date is fixed width, so it never aliases. */
-function dayKey(date: string, projectId: string): string {
-  return `${date}|${projectId}`;
 }
 
 function roleOf(date: string): DayRole {
@@ -1025,13 +893,11 @@ function openDay(plan: DayPlan): DayCursor {
  * fixed point — the item's own rows are the evidence, and they are exactly what
  * the previous pass wrote.
  *
- * `closedDays` is the other refusal: a day a hand-set stretch of this same job has
- * already taken. Stated over the day so it survives into the next pass, when the
- * remainder is no longer the item right behind the stretch.
+ * The buffer is the ONLY refusal left. A second one used to live here — a day a hand-set
+ * stretch of this same job had already taken — and it went with `Block.manualDuration`.
  */
-function acceptsItem(plan: DayPlan, item: QueueItem, closedDays: ReadonlySet<string>): boolean {
+function acceptsItem(plan: DayPlan, item: QueueItem): boolean {
   if (!plan.fillable) return false;
-  if (closedDays.has(dayKey(plan.date, item.projectId))) return false;
   if (plan.role !== 'buffer') return true;
   if (item.isNew) return false;
   return item.grown || item.originalDates.includes(plan.date);
@@ -1039,7 +905,8 @@ function acceptsItem(plan: DayPlan, item: QueueItem, closedDays: ReadonlySet<str
 
 /**
  * WHAT THIS DAY WOULD GIVE AN ITEM OF `remaining` MINUTES, run by run, without committing
- * anything — so `roomFor` can ask the question and `takeFrom` can ask it and then act.
+ * anything. `takeFrom` is the one caller: it plans the whole helping first and then applies
+ * it, so a day is never left half-taken.
  *
  * Forward only: runs before the cursor are never considered, which is the whole of the
  * no-backfill rule. Every run is visited at most once, so a run whose take was reduced by
@@ -1068,11 +935,6 @@ function planTake(day: DayCursor, remaining: number, lastResort: boolean): TakeP
   }
 
   return pieces;
-}
-
-/** How much of `remaining` this day would really take. Zero means the cursor should move on. */
-function roomFor(day: DayCursor, remaining: number): number {
-  return planTake(day, remaining, false).reduce((total, piece) => total + piece.minutes, 0);
 }
 
 /**
@@ -1146,11 +1008,6 @@ function mergeTouchingSegments(segments: Segment[]): Segment[] {
  * UPDATE rather than a DELETE plus an INSERT; the ids it absorbed are the rows to
  * delete. `rows` must already be in calendar order.
  *
- * A row with a HAND-SET duration is never joined to anything, in either direction:
- * merging is what would quietly hand those hours back and undo the gesture. The two
- * halves of one hand-set stretch around lunch are already one row each by the time
- * they get here, since `mergeTouchingSegments` settled them inside the item.
- *
  * There is no padlock guard because a padlocked row cannot reach this function at all: it
  * is not in the pool, and every row the reflow produced carries `locked: false`.
  */
@@ -1160,8 +1017,6 @@ function mergeTouchingRows(rows: PlacedBlock[], deletedBlockIds: string[]): Plac
     const last = merged[merged.length - 1];
     if (
       last !== undefined &&
-      !last.manualDuration &&
-      !row.manualDuration &&
       last.projectId === row.projectId &&
       last.date === row.date &&
       last.startMinutes + last.durationMinutes === row.startMinutes
@@ -1223,6 +1078,7 @@ function clamp(value: number, min: number, max: number): number {
 export type EditErrorCode =
   | 'unknown-block'
   | 'invalid-duration'
+  | 'resize-needs-padlock'
   | 'shrink-needs-choice'
   | 'transfer-exceeds-job'
   | 'reduction-exceeds-job';
@@ -1231,6 +1087,7 @@ export type EditErrorCode =
 export const EDIT_MESSAGE_KEYS: Record<EditErrorCode, string> = {
   'unknown-block': 'errors.unknownBlock',
   'invalid-duration': 'errors.invalidDuration',
+  'resize-needs-padlock': 'errors.resizeNeedsPadlock',
   'shrink-needs-choice': 'errors.shrinkNeedsChoice',
   'transfer-exceeds-job': 'errors.transferExceedsJob',
   'reduction-exceeds-job': 'errors.reductionExceedsJob',
@@ -1318,7 +1175,7 @@ export function changeProjectMinutes(blocks: readonly Block[], change: HoursChan
   if (delta > 0) {
     const target = lastAutomatic(own, change.today);
     if (target !== undefined) {
-      setDuration(target, target.durationMinutes + delta);
+      target.durationMinutes += delta;
       return settledEdit(draft, [], delta, []);
     }
     // Every row of the job is outside the pool — locked, on a weekend or in the frozen
@@ -1359,9 +1216,11 @@ export interface BlockResize {
    */
   today: string;
   /**
-   * The day the row sits on, in BOTH views. A resize is a hand action, so it is measured
-   * and cut over `manualWindows` — the margins included — while `periods` is what says
-   * whether the result has left auto-fill's reach and must therefore be pinned.
+   * The day the row sits on. A resize is a hand action, so it is measured and cut over
+   * `manualWindows` — the margins included — which is the only view this gesture reads.
+   * (It read `periods` too while a resize into a margin had to pin its row; every row it can
+   * touch is padlocked or on a weekend now, so there is nothing left to decide. The whole
+   * `DayWindows` is still passed because it is what `getDayConfig` hands out.)
    */
   day: DayWindows;
   /**
@@ -1405,14 +1264,22 @@ export interface BlockResize {
  * the `choices` that really exist, so the caller can put all three to the owner in one
  * dialog without a second round trip.
  *
- * THE ROW IS MARKED `manualDuration` on every success, including a resize to the
- * length it already had. Without the mark the transfer above is undone on the very
- * next recomposition — `compose` re-derives the job's segmentation from its total —
- * which is what made the gesture a silent no-op on an unlocked weekday row. With
- * it, the length survives, the job's run ends at that row, and the day it freed goes
- * to the jobs behind it. Marking a no-delta resize too keeps the gesture total: the
- * same request twice leaves the same state, and dropping the edge where it already
- * was is still the owner saying "this row is this long".
+ * IT ONLY EVER SIZES A ROW THE ENGINE DOES NOT LAY OUT, and that is the whole shape of
+ * this function now (decided with the owner, 2026-08-18). A row inside the movable pool is
+ * refused with `resize-needs-padlock`, because ON SUCH A ROW THERE IS NOTHING TO SIZE: the
+ * length of an automatic row is the room it has (*Fill and Overflow, Always*), so shrinking
+ * Wednesday grows Thursday, frees exactly those minutes on Wednesday, and the job flows
+ * straight back into them — «quedando exactamente igual», the owner's own words. The mark
+ * that used to make the number stick (`manualDuration`) is deleted: it was a stored
+ * exception to the model, and the two ways to really shorten a day are the padlock (fix
+ * this row, then size it) and a GAP (stop the day here). The app names them; it never
+ * creates the gap by itself.
+ *
+ * So nothing new is stored for a length. The rows this gesture may size are outside the
+ * pool already — padlocked, or on a weekend — which means `compose` hands their geometry
+ * straight back untouched, and THE PADLOCK IS WHAT HOLDS IT. One piece fixes a row's
+ * position and its length at once, which is why there is no second mark and no undo of its
+ * own: pressing the padlock gives the row back to the engine, length included.
  *
  * IT SIZES A STRETCH, NOT A RECTANGLE (2026-08-13). `durationMinutes` is NET working
  * minutes counted from the row's start over the day's MANUAL WINDOWS, so the gesture
@@ -1422,23 +1289,28 @@ export interface BlockResize {
  *
  * - the result is stored in SEGMENTS by `segmentDroppedRow`, the same splitter a drop
  *   uses, so no stored row can straddle the break whatever the drag did;
- * - the row's own continuation is part of what is being sized (`stretchFrom`). Sizing the
- *   target alone would hand the freed hours to the continuation sitting right below it
- *   and the next pass would read the pair back as the SAME stretch — a resize that
- *   answered 200 and changed nothing, which is precisely the defect `manualDuration` was
- *   introduced to kill.
+ * - the row's own continuation is part of what is being sized (`stretchFrom`): the other
+ *   FIXED half of the unit the owner grabbed, and any row the new segments land on. An
+ *   automatic row the stretch does not reach stays the engine's.
  *
- * A RESIZE THAT REACHES INTO MANUAL-ONLY TIME PADLOCKS THE ROW. The margins are hand time:
- * they do not exist in the engine's index space, so a row the reflow still owns would be
- * pulled back inside the periods — or thrown onto the next day when the hours no longer fit
- * there — and the owner's drag would visibly do nothing. The padlock is only applied where
- * the engine would otherwise have undone it (`isMovable`), it is the same mark a drop onto
- * the buffer earns, and the padlock itself is what takes it off again.
+ * THE MARGINS NEED NO PADLOCK ANY MORE. A resize reaching into manual-only time used to pin
+ * its row, because the margins do not exist in the engine's index space and a row the
+ * reflow still owned would have been pulled back inside the periods. Every row this gesture
+ * can now touch is outside the pool already, so there was nothing left to pin and
+ * `usesManualOnlyTime` was deleted with the mark.
  */
 export function resizeBlock(blocks: readonly Block[], resize: BlockResize): EditResult {
   const draft = blocks.map(cloneBlock);
   const target = draft.find((block) => block.id === resize.blockId);
   if (target === undefined) return failedEdit('unknown-block', { blockId: resize.blockId });
+
+  // THE ONE PRECONDITION: the engine must not be laying this row out. On a row it does lay
+  // out the length is the room the row has, so a hand-set number could only survive as a
+  // stored exception to the model — which is what was deleted. Refused here rather than in
+  // the operation so the pure engine states its own rule and the UI can mirror it.
+  if (isMovable(target, resize.today)) {
+    return failedEdit('resize-needs-padlock', { blockId: target.id, projectId: target.projectId });
+  }
 
   const next = Math.round(resize.durationMinutes);
   if (!Number.isFinite(next) || next <= 0) {
@@ -1456,7 +1328,7 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
   const reachMinutes = lastSegment.startMinutes + lastSegment.durationMinutes;
 
   const own = sortedByQueueRank(draft.filter((block) => block.projectId === target.projectId));
-  const stretch = stretchFrom(own, target, resize.day.manualWindows, reachMinutes);
+  const stretch = stretchFrom(own, target, resize.day.manualWindows, reachMinutes, resize.today);
   const stretchMinutes = stretch.reduce((total, row) => total + row.durationMinutes, 0);
   const delta = next - stretchMinutes;
   const counterparties = own.filter((row) => !stretch.includes(row));
@@ -1494,7 +1366,7 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
     const receiver = isLast ? undefined : lastAutomatic(counterparties, resize.today);
 
     if (receiver !== undefined) {
-      setDuration(receiver, receiver.durationMinutes + freedMinutes);
+      receiver.durationMinutes += freedMinutes;
     } else {
       // THE DEAD END, AND IT ASKS RATHER THAN REFUSING. No block of the job can take
       // these hours: it is the job's only row, or every other one is locked, on a
@@ -1544,30 +1416,30 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
   // The stretch is written over its rows in order: one row for a length that stays inside
   // its window, two once it crosses the break.
   //
-  // The padlock is added, never removed: it is the owner's mark, and this gesture is about
-  // the row's LENGTH. `isMovable` is what keeps it from being added twice over.
-  const pin = usesManualOnlyTime(resize.day.periods, segments) && isMovable(target, resize.today);
-
+  // THE WHOLE STRETCH COMES OUT AS FIXED AS ITS TARGET, whether a row was created for it or
+  // absorbed from the same job. Half a stretch left to the engine would come apart on the
+  // very next pass — a 6 h drag stored as a padlocked `10:00-14:00` and an automatic
+  // `15:30-17:30` was reflowed straight back to `15:30-19:30`, so the owner's drag stored a
+  // length nobody asked for. It is the same rule `autoLock` states for a job born on a
+  // chosen day: what holds a hand-made shape has to hold all of it. The padlock is only ever
+  // ADDED, never taken off, and `touchedLockedBlockIds` was computed above so this never
+  // reports the padlock it has just applied.
   segments.forEach((segment, index) => {
     const row = stretch[index];
     if (row === undefined) {
-      // The stretch grew a segment: a new row of the same job, on the same day, carrying
-      // the same marks — a half-marked stretch would come apart on the next pass.
       draft.push({
         ...target,
         id: resize.newBlockId(),
         startMinutes: segment.startMinutes,
         durationMinutes: segment.durationMinutes,
-        manualDuration: true,
-        locked: target.locked || pin,
         createdAt: resize.now,
         updatedAt: resize.now,
       });
       return;
     }
     row.startMinutes = segment.startMinutes;
-    pinDuration(row, segment.durationMinutes);
-    if (pin) row.locked = true;
+    row.durationMinutes = segment.durationMinutes;
+    row.locked = row.locked || target.locked;
   });
 
   // Shrunk back across the break: the rows the stretch no longer needs are gone. Their
@@ -1600,26 +1472,27 @@ function freedHoursChoices(minutes: number): FreedHoursChoice[] {
 
 /**
  * The rows a bottom-edge drag rewrites: the row it was dragged on, plus the rows of its OWN
- * job that continue it on the same day AND CANNOT SURVIVE THE RESIZE ON THEIR OWN. There
- * are exactly two of those, and the distinction is the whole subtlety of the gesture:
+ * job that continue it on the same day AND CANNOT SURVIVE THE RESIZE ON THEIR OWN. There are
+ * exactly two of those, and the distinction is the whole subtlety of the gesture:
  *
- * - A ROW THE QUEUE WOULD READ BACK AS PART OF THIS STRETCH — one that is already hand-set.
- *   After the resize the target is hand-set too, and `buildQueue` joins consecutive
- *   hand-set rows of one job on one day into a single item; so sizing the target alone
- *   would hand the freed hours to the row directly below it, the next pass would read the
- *   pair back as the same stretch, and the resize would answer 200 having changed nothing.
- *   That is the class of defect `manualDuration` exists to kill, so this must not
- *   reintroduce it. Shrinking a 6 h stretch cut at lunch back into the morning is this case.
- * - A ROW THE NEW SEGMENTS LAND ON (`reachMinutes`). Growing the morning half of a unit
- *   past the break puts a segment exactly where the afternoon half sits; absorbing it
- *   reuses that row instead of stacking a second one on top of it.
+ * - A ROW THE ENGINE DOES NOT LAY OUT EITHER (`isMovable`). It is the other half of the unit
+ *   the owner grabbed — the shape a hand-made stretch comes back as once it was cut at the
+ *   lunch break — and nothing will ever move it or re-derive its length, so a length written
+ *   over the target alone would leave stored geometry the gesture has just contradicted:
+ *   shrinking a padlocked 6 h stretch into the morning would leave its padlocked afternoon
+ *   half sitting there. Since the target is always outside the pool too (see `resizeBlock`),
+ *   this is "the fixed rows of one hand-made stretch, together".
+ * - A ROW THE NEW SEGMENTS LAND ON (`reachMinutes`). Growing the morning half of a unit past
+ *   the break puts a segment exactly where the afternoon half sits; absorbing it reuses that
+ *   row instead of stacking a second one on top of it.
  *
- * AN AUTOMATIC ROW THE STRETCH DOES NOT REACH IS DELIBERATELY LEFT ALONE, and it is what
- * makes CLAUDE.md's own worked example work: shrinking the Wednesday MORNING row of an
- * automatic 10 h unit to 2 h must leave the job's remaining hours to the ENGINE, which
- * moves them to the next auto-fill day and lets the jobs behind take the freed space.
- * Absorbing them instead would read the gesture as "this job now has 2 h", and a job with
- * nothing behind it would answer `shrink-last-block` to a perfectly ordinary drag.
+ * AN AUTOMATIC ROW THE STRETCH DOES NOT REACH IS DELIBERATELY LEFT TO THE ENGINE. Its hours
+ * are the engine's to place and it will flow wherever the reflow puts it, so taking it in
+ * would be reading "this row is shorter" as "this job is smaller".
+ *
+ * (The first case used to be "a row already carrying the hand-set mark", read off the column
+ * deleted on 2026-08-18. The mark and the pool answered the same question here, because the
+ * gesture pinned every row it wrote; `isMovable` is the one that survived.)
  *
  * `adjacentInWindows` is the same predicate the grid groups a unit with, so a unit on
  * screen and a stretch here can never disagree about where one ends. Only rows AFTER the
@@ -1631,6 +1504,7 @@ function stretchFrom(
   target: Block,
   manualWindows: readonly WorkPeriod[],
   reachMinutes: number,
+  today: string,
 ): Block[] {
   const stretch = [target];
   let endMinutes = target.startMinutes + target.durationMinutes;
@@ -1638,35 +1512,12 @@ function stretchFrom(
   for (const row of own.slice(own.indexOf(target) + 1)) {
     if (row.date !== target.date) break;
     if (!adjacentInWindows(manualWindows, endMinutes, row.startMinutes)) break;
-    if (!row.manualDuration && row.startMinutes >= reachMinutes) break;
+    if (isMovable(row, today) && row.startMinutes >= reachMinutes) break;
     stretch.push(row);
     endMinutes = row.startMinutes + row.durationMinutes;
   }
 
   return stretch;
-}
-
-/**
- * "Back to automatic": gives the engine back the LENGTH the bottom-edge drag set
- * (`manualDuration`). The next recomposition re-derives the job's segmentation from the
- * job's total, so the row rejoins its run.
- *
- * IT DOES NOT TOUCH THE PADLOCK, and that is the point of there being two marks rather
- * than three. The ruler is invisible in the calendar's geometry — the row simply stops
- * obeying the engine, with nothing on screen to undo — so it needs an action of its own.
- * The padlock is drawn on the row and is undone by pressing the padlock, which is the
- * gesture the owner already has; releasing it from here would mean one button quietly
- * unpinning work the owner had fixed on purpose.
- *
- * It gives back the LENGTH. It does not give back the queue POSITION: that is whatever
- * the calendar now says, exactly as after any drag.
- */
-export function releaseBlock(blocks: readonly Block[], blockId: string): EditResult {
-  const draft = blocks.map(cloneBlock);
-  const target = draft.find((block) => block.id === blockId);
-  if (target === undefined) return failedEdit('unknown-block', { blockId });
-  target.manualDuration = false;
-  return settledEdit(draft, [], 0, []);
 }
 
 // ---------------------------------------------------------------------------
@@ -2013,7 +1864,7 @@ function resolveDrop(
     // an INSERT — the same convention as rule 12's `mergeTouchingRows`.
     const [survivor, absorbed] = sortedByQueueRank([other, placed]);
     survivor.startMinutes = startMinutes;
-    setDuration(survivor, durationMinutes);
+    survivor.durationMinutes = durationMinutes;
     // A fold may never free hours the owner had fixed: if either row was padlocked, the
     // one row they become is.
     survivor.locked = survivor.locked || absorbed.locked;
@@ -2111,7 +1962,7 @@ function resolveDrop(
     const minutes = victim.durationMinutes - headMinutes;
     const spareIds: string[] = [];
     if (headMinutes > 0) {
-      setDuration(victim, headMinutes);
+      victim.durationMinutes = headMinutes;
     } else {
       // The drop covers the row from its very start: nothing is left in front, so
       // the row's id is free for the first row of its tail. (A movable victim never
@@ -2143,8 +1994,6 @@ function resolveDrop(
         // fixed by its DAY (a weekend, the frozen past) and its tail stays on that day
         // wherever it can, so nothing is being freed that the owner had pinned.
         locked: false,
-        // These hours were cut out of another row, not drawn by hand.
-        manualDuration: false,
         createdAt: placement.now,
         updatedAt: placement.now,
       });
@@ -2442,7 +2291,7 @@ function takeMinutes(ordered: readonly Block[], minutes: number): TakeOutcome {
       if (block.locked !== lockedPass) continue;
       const take = Math.min(block.durationMinutes, remaining);
       if (take <= 0) continue;
-      setDuration(block, block.durationMinutes - take);
+      block.durationMinutes -= take;
       remaining -= take;
       if (lockedPass) touchedLockedBlockIds.push(block.id);
       if (block.durationMinutes === 0) deletedBlockIds.push(block.id);
@@ -2450,27 +2299,6 @@ function takeMinutes(ordered: readonly Block[], minutes: number): TakeOutcome {
   }
 
   return { ok: remaining === 0, deletedBlockIds, touchedLockedBlockIds };
-}
-
-/**
- * Writes a row's new length and DROPS any hand-set mark on it.
- *
- * The mark stands for one specific number the owner drew. Once anything else has
- * rewritten that number — the LIFO transfer from the job form, being the
- * counterparty of another row's resize, a drop that cut the row in two — the mark
- * would claim an intent that is no longer on the row, and the owner would be left
- * with a block the engine had stopped managing for no visible reason. So exactly one
- * gesture sets it (`resizeBlock`, on its own target) and everything else clears it.
- */
-function setDuration(block: Block, durationMinutes: number): void {
-  block.durationMinutes = durationMinutes;
-  block.manualDuration = false;
-}
-
-/** The one place the hand-set mark is set: the row the owner just sized. */
-function pinDuration(block: Block, durationMinutes: number): void {
-  block.durationMinutes = durationMinutes;
-  block.manualDuration = true;
 }
 
 /**
@@ -2539,9 +2367,8 @@ function createdRowAfter(
     date,
     startMinutes,
     durationMinutes: minutes,
-    // Hours the engine invented: neither a length the owner drew nor a day they chose.
+    // Hours the engine invented, on a day nobody chose: the reflow owns them.
     locked: false,
-    manualDuration: false,
     createdAt: change.now,
     updatedAt: change.now,
   };

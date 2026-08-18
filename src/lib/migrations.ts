@@ -17,7 +17,7 @@ import { DEFAULT_SETTINGS, serializeSettings } from './settings';
  * A column REMOVED after that first run needs the same treatment in reverse, and it
  * needs one thing more: what the column meant has to survive. `REMOVED_COLUMNS`
  * carries the statement that carries the meaning over, run once, before the column
- * goes — see `hand_placed` there.
+ * goes — see `hand_placed` and `manual_duration` there.
  *
  * Two conventions worth knowing:
  *
@@ -53,19 +53,17 @@ CREATE TABLE IF NOT EXISTS projects (
 -- row's position: the padlock the owner sets, and the padlock a drop onto a place
 -- the engine would never choose by itself (a visual margin, the Friday buffer, the
 -- weekend) sets for them. There is no manually_placed and no hand_placed flag.
--- 'manual_duration' marks a row whose length the owner set by hand (the
--- bottom-edge drag). The engine then keeps that length instead of re-deriving the
--- job's segmentation from its total, and the job's run ENDS at that row.
+-- There is no manual_duration flag either: a block is exactly as big as the room it
+-- has, and the padlock is the one thing that fixes a length as well as a position.
 CREATE TABLE IF NOT EXISTS blocks (
-  id              TEXT PRIMARY KEY,
-  project_id      TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  date            TEXT NOT NULL,
-  start_time      TEXT NOT NULL,
-  duration        REAL NOT NULL CHECK (duration > 0),
-  locked          INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
-  manual_duration INTEGER NOT NULL DEFAULT 0 CHECK (manual_duration IN (0, 1)),
-  created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  id         TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  date       TEXT NOT NULL,
+  start_time TEXT NOT NULL,
+  duration   REAL NOT NULL CHECK (duration > 0),
+  locked     INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- A hole in the schedule (maintenance, breakdown, admin). Gaps are time: they
@@ -146,17 +144,15 @@ END;
  * the same answer however many times it runs, and needs no `schema_version` row to
  * be right about a file whose history nobody recorded.
  *
- * SQLite's `ADD COLUMN` cannot add a NOT NULL column without a default, which is
- * exactly why every flag here defaults to the value that means "as it was before":
- * existing rows keep the engine's automatic behaviour.
+ * SQLite's `ADD COLUMN` cannot add a NOT NULL column without a default, so every flag
+ * added here has to default to the value that means "as it was before": existing rows
+ * keep the engine's automatic behaviour.
+ *
+ * EMPTY IS THE CORRECT STATE, not a leftover. The schema above is the whole shape, and
+ * the two flags that were once on this list have both been retired — see
+ * `REMOVED_COLUMNS`, which is the only list with entries now.
  */
-const ADDED_COLUMNS: ReadonlyArray<{ table: string; column: string; definition: string }> = [
-  {
-    table: 'blocks',
-    column: 'manual_duration',
-    definition: 'INTEGER NOT NULL DEFAULT 0 CHECK (manual_duration IN (0, 1))',
-  },
-];
+const ADDED_COLUMNS: ReadonlyArray<{ table: string; column: string; definition: string }> = [];
 
 function addMissingColumns(db: Db): void {
   for (const { table, column, definition } of ADDED_COLUMNS) {
@@ -175,19 +171,33 @@ function addMissingColumns(db: Db): void {
  * shape with the meaning moved. Both are idempotent — the second run sees no column and
  * does nothing at all — which is the same property `ADDED_COLUMNS` has.
  *
- * `hand_placed` marked a row a human had put on the Friday buffer or the weekend, so the
- * engine would leave it there. It has been replaced by the padlock, which says the same
- * thing in the one vocabulary the owner already has ("padlock = fixed, no padlock =
- * free"). Every row that carried it was PINNED BY THE OWNER, so it must come out of this
- * migration pinned: `locked = 1`. Freeing them instead would let the next recomposition
- * quietly move work the owner had placed by hand — on a file where that is exactly the
- * work that matters most.
+ * BOTH ENTRIES CARRY THEIR MEANING INTO THE SAME COLUMN, and it is the same argument
+ * twice: the padlock is the only mark left, so anything the owner had fixed by hand has
+ * to come out of the migration padlocked. Freeing those rows instead would let the next
+ * recomposition quietly move — or resize — exactly the work the owner had settled on
+ * purpose, on a file where that is the work that matters most.
+ *
+ * - `hand_placed` marked a row a human had put on the Friday buffer or the weekend, so
+ *   the engine would leave it there. Replaced by the padlock, which says the same thing
+ *   in the one vocabulary the owner already has ("padlock = fixed, no padlock = free").
+ * - `manual_duration` marked a row whose LENGTH the owner had drawn with the bottom-edge
+ *   drag. It is gone because a block is exactly as big as the room it has (CLAUDE.md,
+ *   *Fill and Overflow, Always*), so a stored exception to that fought the model. A row
+ *   that carried it was sized by hand, and afterwards the only thing that can hold a
+ *   length is the padlock — the engine does not lay a locked row out, so its duration is
+ *   a stored fact. Hence `locked = 1`: without it the very next reflow would re-derive
+ *   the row's length from its job's total and the hours the owner drew would vanish.
  */
 const REMOVED_COLUMNS: ReadonlyArray<{ table: string; column: string; carryOver: string }> = [
   {
     table: 'blocks',
     column: 'hand_placed',
     carryOver: 'UPDATE blocks SET locked = 1 WHERE hand_placed = 1 AND locked = 0',
+  },
+  {
+    table: 'blocks',
+    column: 'manual_duration',
+    carryOver: 'UPDATE blocks SET locked = 1 WHERE manual_duration = 1 AND locked = 0',
   },
 ];
 

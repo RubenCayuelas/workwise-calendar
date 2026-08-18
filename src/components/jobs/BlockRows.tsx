@@ -12,35 +12,24 @@
  * them — the calendar draws them as one grouped unit, the panel tells the truth about
  * the rows.
  *
- * This is also the only place a HAND MARK can be released on a row that is not in the
- * week on screen — the panel lists every row of the job, across every week, and a marked
- * row is one the engine has stopped re-laying out, so it can sit weeks away holding a
- * day open.
+ * ONE MARK REACHES THIS LIST — the PADLOCK (`locked`) — and it is pressed off with the
+ * padlock button beside it. A drop onto the buffer, the weekend or a margin sets it, so
+ * this list is where a row weeks away can be handed back to the engine: the calendar only
+ * shows the week on screen. A ruler for a hand-set LENGTH, and *back to automatic* beside
+ * it, stood here until 2026-08-18; both went with `manual_duration`, since the padlock now
+ * fixes a row's length as well as its position.
  *
- * TWO MARKS REACH THIS LIST and each has its own undo: a hand-set LENGTH
- * (`manualDuration`, the ruler) released by *back to automatic*, and the PADLOCK
- * (`locked`), pressed off with the padlock button beside it. A drop onto the buffer, the
- * weekend or a margin sets the padlock, so this list is where a row weeks away can be
- * handed back to the engine.
- *
- * A PAST ROW IS DIMMED AND SHOWS BOTH MARKS, BUT ONLY THE RULER'S UNDO. The past is
+ * A PAST ROW IS DIMMED AND SHOWS ITS PADLOCK AS A STATE, WITHOUT THE BUTTON. The past is
  * read-only to the block gestures, so the padlock and the scissors are refused there and
- * are not drawn — the padlock as a plain state icon instead. Nothing is stranded by that:
- * a padlock on a past row changes nothing the engine reads, since `isMovable` asks the
- * date before it asks the flag.
+ * are not drawn. Nothing is stranded by that: a padlock on a past row changes nothing the
+ * engine reads, since `isMovable` asks the date before it asks the flag.
  *
- * The list is display + two toggles. The requests belong to the panel, which owns the
+ * The list is display + one toggle. The requests belong to the panel, which owns the
  * refetch and the error banner.
  */
 
 import { useTranslation } from 'react-i18next';
-import {
-  IconLock,
-  IconLockOpen,
-  IconRestore,
-  IconRuler,
-  IconScissors,
-} from '@tabler/icons-react';
+import { IconLock, IconLockOpen, IconScissors } from '@tabler/icons-react';
 import { IconButton } from '../ui';
 import { useFormat } from '../../lib/useFormat';
 import { FRIDAY, compareDates, weekdayOf } from '../../lib/dates';
@@ -59,13 +48,6 @@ export interface BlockRowsProps {
    */
   onToggleLock?: (block: Block) => void;
   /**
-   * "Back to automatic" on a row whose LENGTH was set by hand. One mark, one undo: the
-   * padlock is the other mark and it is undone by pressing the padlock. Omit to render the
-   * ruler without its undo; the mark itself is always shown, since a row that has stopped
-   * reflowing must never be a silent state.
-   */
-  onReleaseDuration?: (block: Block) => void;
-  /**
    * Adds the scissors to each row. The panel is the only way to reach another week's rows.
    * Never drawn on a past row: the past is read-only to the block gestures.
    */
@@ -79,7 +61,6 @@ export function BlockRows({
   blocks,
   today,
   onToggleLock,
-  onReleaseDuration,
   onSplit,
   busyBlockId = null,
   disabled = false,
@@ -121,38 +102,6 @@ export function BlockRows({
                 {tag === undefined ? null : <span className={styles.blockTag}>{t(tag)}</span>}
 
                 {/*
-                 * The ruler: this row's LENGTH is the owner's. Always shown — the whole
-                 * point of a mark is that the row's stillness has a visible reason. The
-                 * padlock, the other mark, is the toggle further along the row.
-                 */}
-                {!block.manualDuration ? null : (
-                  <span
-                    className={styles.blockTag}
-                    aria-label={t('block.manualDuration')}
-                    title={t('block.markManualDuration')}
-                  >
-                    <IconRuler size={15} stroke={1.75} />
-                  </span>
-                )}
-
-                {/*
-                 * The undo for the ruler, offered exactly when it is set. A separate
-                 * control rather than a toggled version of the mark: a struck-through
-                 * ruler reads as a state, and this is a button.
-                 */}
-                {onReleaseDuration === undefined || !block.manualDuration ? null : (
-                  <IconButton
-                    size="sm"
-                    variant="ghost"
-                    active
-                    icon={<IconRestore size={15} stroke={1.75} />}
-                    label={t('block.releaseDuration')}
-                    disabled={disabled || busy}
-                    onClick={() => onReleaseDuration(block)}
-                  />
-                )}
-
-                {/*
                  * THE SCISSORS AND THE PADLOCK ARE ABSENT ON A PAST ROW, not disabled: the
                  * past is read-only to the block gestures (decided 2026-08-13), so both are
                  * refused by the server — `split-on-past-day` and a padlock that would
@@ -160,10 +109,6 @@ export function BlockRows({
                  * A control that is only ever answered with a refusal is worse than no
                  * control, and a row already carries its state in the read-only padlock
                  * below.
-                 *
-                 * The ruler's undo above IS still offered here, deliberately: it only
-                 * clears `manualDuration`, which the engine no longer consults on a past
-                 * day, and removing it would strand the mark with no way to take it off.
                  */}
                 {onSplit === undefined || isPast ? null : (
                   <IconButton

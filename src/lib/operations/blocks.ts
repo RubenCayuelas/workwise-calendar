@@ -34,7 +34,6 @@ import { compareDates, todayLocal } from '../dates';
 import { dropLanding, dropLandsLiterally, type DropDay } from '../dropSlide';
 import {
   dayReflows,
-  releaseBlock as releaseBlockMarks,
   resizeBlock as resizeBlockHours,
   unitOf,
   type DayConfig,
@@ -306,13 +305,14 @@ export interface ResizeBlockInput {
  * project in `grownProjectIds`: a pure transfer takes hours OFF the job's furthest
  * row, which relieves pressure on the week instead of adding to it.
  *
- * IT WORKS ON EVERY FUTURE ROW, and it did not use to. The transfer was applied and then
- * quietly undone by the recomposition that follows it, because `compose` re-derives
- * a job's segmentation from its total — so on an unlocked weekday row the request
- * answered 200 with the block unchanged. The engine now stores the intent
- * (`manualDuration`), keeps the length through the reflow, and ends the job's run
- * there. On a PAST row the gesture is refused outright: correcting yesterday was what the
- * resize was designed for, and the owner gave it up when the past became read-only.
+ * IT ONLY WORKS ON A ROW THE ENGINE DOES NOT LAY OUT — padlocked, or on a weekend (409
+ * `resize-needs-padlock`). On an automatic row there is no length to set: the row is exactly
+ * as big as the room it has, so the transfer was applied and then undone by the very
+ * recomposition that follows it. That used to be papered over by a stored mark; the mark is
+ * gone (2026-08-18) and the padlock is what holds a length now, since the engine hands a
+ * locked row's geometry straight back. On a PAST row the gesture is refused for a different
+ * reason and first: the past is a record, and the owner gave the correction up when they
+ * froze it.
  *
  * SHRINKING ASKS INSTEAD OF REFUSING. The freed hours go to the job's last row the engine
  * still lays out, skipping the locked ones; when no row can take them the request is
@@ -335,8 +335,8 @@ export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = g
         blockId,
         durationMinutes: input.durationMinutes,
         today,
-        // Both views of the row's day: the stretch is measured and cut over the manual
-        // windows, and the margins are what tell it to pin the row.
+        // The row's day. The stretch is measured and cut over the MANUAL WINDOWS, margins
+        // included — a hand gesture reads that view.
         day: getDayConfig(block.date, db),
         freedHours: input.freedHours,
         newBlockId: newId,
@@ -370,42 +370,6 @@ export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = g
       dayConfigResolver(db),
       db,
     );
-  });
-}
-
-/**
- * "Back to automatic": the row gives the engine back its LENGTH (`manualDuration`).
- *
- * The counterpart of the resize, and not a nicety. A hand-set length is a decision the
- * engine then obeys for ever, and the only way it shows is that the row stops being
- * re-derived from the job's total — so without a one-click release the owner cannot undo
- * it and marks accumulate until the engine manages nothing.
- *
- * IT DOES NOT TOUCH THE PADLOCK. That mark is drawn on the row and its undo is the
- * padlock itself; releasing it from here would mean this button quietly unpinning work the
- * owner fixed on purpose.
- *
- * Releasing changes no geometry itself; the recomposition that follows is what
- * re-derives the job's segmentation and closes the day a hand-set stretch was holding
- * open.
- *
- * No intent is passed: giving hours back to the engine is not growth, so it must not
- * spend the Friday colchón.
- */
-export function releaseBlock(
-  blockId: string,
-  options: { today?: string } = {},
-  db: Db = getDb(),
-): BlockMutation {
-  const today = options.today ?? todayLocal();
-
-  return runTransaction(db, () => {
-    const block = requireBlock(blockId, db);
-    const edit = requireEdit(releaseBlockMarks(listBlocks(db), blockId));
-    const report = recompose(db, { today, blocks: edit.blocks });
-    // No `wrote` override: the ruler is one of the fields `RecomposeReport.changed` compares,
-    // so clearing it registers even when the engine re-derives the same length.
-    return settled(blockId, block.projectId, report, [], today, dayConfigResolver(db), db);
   });
 }
 
@@ -536,9 +500,6 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
         ? {
             ...row,
             durationMinutes: row.durationMinutes - input.durationMinutes,
-            // The scissors rewrite the source row's length, so a hand-set length on
-            // it no longer stands for anything: the engine takes the row back.
-            manualDuration: false,
           }
         : row,
     );
@@ -549,9 +510,6 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
       startMinutes: landing.startMinutes,
       durationMinutes: input.durationMinutes,
       locked: pinned,
-      // A fragment's length is the portion the owner chose to MOVE, not a length
-      // drawn on the calendar; `locked` is what pins a fragment to a slot.
-      manualDuration: false,
       createdAt: now,
       updatedAt: now,
     });

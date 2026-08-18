@@ -36,25 +36,13 @@ export interface BlockGroup {
   endMinutes: number;
   /** True only when every row of the group is locked. */
   locked: boolean;
-  /**
-   * The rows of the unit whose LENGTH was set by hand, in clock order — and therefore
-   * exactly what *back to automatic* sends. Empty means the engine already owns the unit's
-   * length and the action is absent rather than disabled.
-   *
-   * `locked` above is rolled up into one boolean because its only consumer asks a
-   * yes/no question about the whole unit. A hand-set length cannot be, for two
-   * reasons that pull in opposite directions: the unit is one gesture on screen
-   * (one resize handle, one *back to automatic*), but the mark is per row — a
-   * hand-set stretch cut at the lunch break comes back as TWO marked rows, and a
-   * hand-set row can sit next to an automatic row of the same job, which is exactly
-   * why the engine refuses to join them into one queue item.
-   *
-   * There is no second list next to it any more. While the pin was a mark of its own
-   * (`hand_placed`) the release cleared both and had to be offered for either, so the
-   * group carried a wider set; now the pin IS the padlock, undone by pressing the padlock,
-   * and *back to automatic* means one thing again.
+  /*
+   * There is no second list beside `locked` any more. This carried `manualBlockIds` — the
+   * rows of the unit whose LENGTH had been set by hand, which was exactly what *back to
+   * automatic* sent — and before that a wider set, while the pin was a mark of its own
+   * (`hand_placed`). Both marks are gone: the padlock is the only one left, it is a
+   * yes/no question about the whole unit, and pressing it is its undo.
    */
-  manualBlockIds: string[];
 }
 
 /** One row, with the group it belongs to and its place in it. */
@@ -122,7 +110,6 @@ export function groupBlocks(
       open.totalMinutes += block.durationMinutes;
       open.endMinutes = block.startMinutes + block.durationMinutes;
       open.locked = open.locked && block.locked;
-      if (block.manualDuration) open.manualBlockIds.push(block.id);
       continue;
     }
 
@@ -135,7 +122,6 @@ export function groupBlocks(
       startMinutes: block.startMinutes,
       endMinutes: block.startMinutes + block.durationMinutes,
       locked: block.locked,
-      manualBlockIds: block.manualDuration ? [block.id] : [],
     });
   }
 
@@ -226,9 +212,10 @@ function isWindowBreak(
  * - A UNIT THE ENGINE NEVER MOVES IS SKIPPED, not treated as a separator. Fixed work
  *   (padlocked, weekend, past) is an obstacle the reflow flows around, so it does not end
  *   the run — and it is its own drag unit, because dragging it is a literal placement.
- * - A HAND-SET LENGTH ENDS THE RUN. `buildQueue` never joins a hand-set stretch to an
- *   automatic one, and never joins two of them across days; the drag must not either, or
- *   it would promise to move hours the engine is about to separate again.
+ * - NOTHING ELSE ENDS A RUN. A hand-set length used to (`manual_duration`, deleted
+ *   2026-08-18): `buildQueue` would not join it to an automatic one, so neither could the
+ *   drag. With the mark gone there is one rule on both sides — consecutive movable groups
+ *   of one job — and no stored flag for either to read.
  */
 export interface BlockRun {
   /** Every row of the run in queue order, across days. What the request names. */
@@ -271,13 +258,6 @@ export function buildRuns(
     // Fixed work is an obstacle, never a separator: the run continues past it, and it
     // drags on its own.
     if (!group.blocks.some(isMovable)) {
-      runs.set(group.id, runOf([group]));
-      continue;
-    }
-    // A hand-set stretch is its own queue item wherever it sits, so it is its own run and
-    // it ends whatever run was open.
-    if (group.blocks.some((block) => block.manualDuration)) {
-      close();
       runs.set(group.id, runOf([group]));
       continue;
     }

@@ -62,8 +62,8 @@ export const ACTIONS_BAR_HEIGHT = 27;
 /**
  * One button of the hover action bar: `--ww-control-height-sm` (24 px) plus the 2 px gap
  * the bar puts between them. The bar is as wide as the buttons it happens to be showing —
- * three on an ordinary row, five when *back to automatic* and *cerrar el día aquí* are
- * both offered — so its width is a number the component works out, not a constant.
+ * three on an ordinary row, four when *cerrar el día aquí* is offered too — so its width is
+ * a number the component works out, not a constant.
  */
 export const ACTIONS_BUTTON_WIDTH = 26;
 

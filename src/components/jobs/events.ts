@@ -16,8 +16,6 @@ export type JobsMutationKind =
   | 'job-updated'
   | 'job-deleted'
   | 'block-locked'
-  /** A hand-set length was given back to the engine ("back to automatic"). */
-  | 'block-released'
   | 'block-split'
   | 'gap-created'
   | 'gap-updated'

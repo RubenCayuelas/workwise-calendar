@@ -1,28 +1,32 @@
 /**
  * `/api/blocks/:id` — the gestures on one row of the calendar.
  *
- * PATCH  { action: "move",    date, startTime | startMinutes, unitBlockIds? }
- * PATCH  { action: "resize",  durationHours | durationMinutes, freedHours? }
- * PATCH  { action: "release" }
- * PATCH  { action: "lock",    locked: boolean }
+ * PATCH  { action: "move",   date, startTime | startMinutes, unitBlockIds? }
+ * PATCH  { action: "resize", durationHours | durationMinutes, freedHours? }
+ * PATCH  { action: "lock",   locked: boolean }
  *        -> { block, blocks, summary, placedBlockIds, changed,
  *             touchedLockedBlockIds, mergedBlockIds, displacedProjectIds }
  * DELETE -> { deleted: true, projectId, summary }
  *
- * `action` is the discriminator because all four are edits of the same row and a
+ * `action` is the discriminator because all three are edits of the same row and a
  * single endpoint keeps "one gesture, one request, one recomposition" obvious.
+ *
+ * `action: "release"` — *back to automatic* — WAS REMOVED on 2026-08-18 with the hand-set
+ * duration it gave back. There is no mark left to release: the padlock is the only thing
+ * that fixes a row, and `action: "lock", locked: false` is its undo.
  *
  * NOTHING HERE TOUCHES A PAST DAY. Every action, and DELETE, is refused with 409
  * `past-block-frozen` on a row dated before today, and a MOVE aimed at a past day is
  * refused with 409 `drop-onto-past-day`. The past is the record of what the shop did: to
  * change a job whose work is behind it, edit the job (`PATCH /api/projects/:id`), where the
- * hours land on a row on a future day. The one exception is RELEASE, which clears a mark
- * the engine no longer consults there and moves nothing.
+ * hours land on a row on a future day.
  *
- * RESIZE sets the row's length by hand and it STICKS: the row comes back with
- * `manualDuration: true`, the engine stops re-deriving that job's segmentation
- * there, and the job's remaining hours start on the next auto-fill day while the
- * jobs behind it take the hours the day just gained.
+ * RESIZE ONLY SIZES A ROW THE ENGINE DOES NOT LAY OUT — one carrying a padlock, or one on a
+ * weekend. Everything else is 409 `resize-needs-padlock`, and nothing is written: an
+ * automatic row is exactly as big as the room it has, so a length set on it would be undone
+ * by the reflow that follows. The two honest ways to make a day shorter are in the sentence
+ * the refusal carries — padlock the row and then size it, or create a GAP. THE APP NEVER
+ * CREATES THAT GAP BY ITSELF (`POST /api/gaps` is the owner's own action).
  *
  * SHRINKING ASKS RATHER THAN REFUSING. The freed hours go to the job's last row the engine
  * still lays out, skipping the locked ones and cascading backwards. When no row can take
@@ -58,8 +62,7 @@
  *   the exact slot it was dropped in and the engine never recovers it — which is how the
  *   owner puts work on the colchón. The padlock is only ever ADDED by a move: dropping the
  *   row back onto Mon-Thu leaves it locked, and `action: "lock", locked: false` is the way
- *   off. A row carries two marks at most, `locked` and `manualDuration`, and they are
- *   independent.
+ *   off. `locked` is the ONLY mark a row carries.
  * - A MOVE onto the weekend, into the past or onto a padlocked row lands where the
  *   reflow may not reach, so an overlap there is resolved on the spot: `mergedBlockIds`
  *   lists rows of the same job the drop absorbed (hours SUMMED, so 2 h onto a 2 h row is
@@ -114,19 +117,13 @@ import {
   type JsonBody,
 } from '@/src/lib/api';
 import type { FreedHoursChoice } from '@/src/lib/composition';
-import {
-  deleteBlock,
-  moveBlock,
-  releaseBlock,
-  resizeBlock,
-  setBlockLock,
-} from '@/src/lib/operations/blocks';
+import { deleteBlock, moveBlock, resizeBlock, setBlockLock } from '@/src/lib/operations/blocks';
 
 export const dynamic = 'force-dynamic';
 
 type Context = { params: Promise<{ id: string }> };
 
-const ACTIONS = ['move', 'resize', 'release', 'lock'] as const;
+const ACTIONS = ['move', 'resize', 'lock'] as const;
 
 /** The two ways out a `shrink-needs-choice` refusal offers. Cancel is not sending one. */
 const FREED_HOURS: readonly FreedHoursChoice[] = ['reduce-total', 'new-block'];
@@ -157,8 +154,6 @@ export async function PATCH(request: NextRequest, context: Context): Promise<Res
           // owner's answer comes back on the next request.
           freedHours: readFreedHoursChoice(body),
         });
-      case 'release':
-        return releaseBlock(id);
       case 'lock':
         return setBlockLock(id, requireFlag(body, 'locked'));
     }

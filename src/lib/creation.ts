@@ -476,8 +476,6 @@ function bornRow(
     // chose, so it goes on the rows that landed on that day and not on the tail, whose
     // day the engine decided.
     locked: decision.autoLock || (decision.dayLock && segment.date === decision.startDate),
-    // A length nobody drew by hand.
-    manualDuration: false,
     createdAt: request.now,
     updatedAt: request.now,
   };
@@ -498,7 +496,6 @@ function rankedRow(request: CreationRequest, date: string, minutes: number): Blo
     startMinutes: 0,
     durationMinutes: minutes,
     locked: false,
-    manualDuration: false,
     createdAt: request.now,
     updatedAt: request.now,
   };
