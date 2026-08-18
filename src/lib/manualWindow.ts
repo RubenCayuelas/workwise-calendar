@@ -332,3 +332,45 @@ export function usesManualOnlyTime(
 ): boolean {
   return manualOnlyMinutes(periods, segments) >= MIN_MANUAL_ONLY_MINUTES;
 }
+
+/**
+ * THE MANUAL-ONLY MINUTES A DROP IS ASKING FOR: the ones it must spend before it reaches
+ * working hours, and every minute of it when there are no working hours left at all.
+ *
+ * A DROP AND A RESIZE ASK DIFFERENT QUESTIONS, and this is the drop's. A resize sets a
+ * LENGTH and that length is stored, so a row reaching 20:00 really does occupy margin time
+ * and `usesManualOnlyTime` — the whole footprint — is the right question for it. A drop
+ * writes a queue RANK: on a day the engine lays out, the rows that will really be stored
+ * are whatever the reflow decides, and the reflow FILLS WHAT THE DAY HAS LEFT AND CARRIES
+ * THE REST TO THE NEXT DAY (see `compose`). So minutes past the end of the working periods
+ * are not a request for the margin below them — they are overflow.
+ *
+ * Reading the whole footprint instead is what made the owner's own case impossible: 6 h
+ * released at Monday 15:30 reaches 21:30 on the documented shift, scored 120 manual-only
+ * minutes, and came back PADLOCKED at a slot that then had to be refused or rolled onto
+ * another day. They had aimed at a four-hour hole.
+ *
+ * The head is capped by the drop's own duration, and a start ONE MINUTE inside a margin
+ * still asks for nothing: a rank that ties with an existing row is nudged by a minute
+ * (`rankFor`), so `MIN_MANUAL_ONLY_MINUTES` is where a request begins.
+ */
+export function manualOnlyHeadMinutes(
+  periods: readonly WorkPeriod[],
+  startMinutes: number,
+  durationMinutes: number,
+): number {
+  // No working time at or after the start — a bottom margin, or a day whose afternoon is
+  // switched off — so every minute the row occupies is manual-only.
+  if (netMinutesBetween(periods, startMinutes, MINUTES_PER_DAY) === 0) return durationMinutes;
+  const working = firstWorkingMinute(periods, startMinutes);
+  return Math.min(durationMinutes, Math.max(0, working - startMinutes));
+}
+
+/** True when a DROP starting there is asking for a real amount of manual-only time. */
+export function startsInManualOnlyTime(
+  periods: readonly WorkPeriod[],
+  startMinutes: number,
+  durationMinutes: number,
+): boolean {
+  return manualOnlyHeadMinutes(periods, startMinutes, durationMinutes) >= MIN_MANUAL_ONLY_MINUTES;
+}

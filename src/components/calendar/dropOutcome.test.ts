@@ -1,5 +1,5 @@
 /**
- * The seven ways a drop can end, and the one way it is allowed to say nothing.
+ * The eight ways a drop can end, and the one way it is allowed to say nothing.
  *
  * The rule these pin down is the owner's complaint, generalised: a drag that produces no
  * visible change must never be indistinguishable from a drag the app ignored. Friday was
@@ -28,6 +28,9 @@ function input(overrides: Partial<DropOutcomeInput> = {}): DropOutcomeInput {
     landed: { date: '2026-08-13', startMinutes: 10 * 60, locked: false },
     merged: false,
     wasLocked: false,
+    // The ordinary case: the server wrote something, and the hours all landed on one day.
+    changed: true,
+    placed: [{ date: '2026-08-13', minutes: 4 * 60 }],
     visibleDates: WEEK,
     ...overrides,
   };
@@ -169,6 +172,74 @@ describe('describeDrop', () => {
         }),
       ),
     ).toEqual({ kind: 'leftWeek', date: '2026-08-24' });
+  });
+
+  /*
+   * FILL AND OVERFLOW, the outcome the owner's own report produced. Their words: «Si quiero
+   * colocar la tarea test3 en el hueco del lunes no se divide sino que dice que no cabe.»
+   * It divides now, and the sentence has to name both days — `landed` is only the first row,
+   * so nothing else in this file could have told them.
+   */
+  it('names every day the hours ended up on when they filled and carried on', () => {
+    expect(
+      describeDrop(
+        input({
+          to: { date: '2026-08-12', startMinutes: 15 * 60 + 30 },
+          landed: { date: '2026-08-12', startMinutes: 15 * 60 + 30, locked: false },
+          placed: [
+            { date: '2026-08-12', minutes: 4 * 60 },
+            { date: '2026-08-13', minutes: 2 * 60 },
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'filled', date: '2026-08-12' });
+  });
+
+  it('counts a stretch cut at the comida as ONE day, not as an overflow', () => {
+    // Two rows, one day: nothing carried anywhere, so the calendar is the answer.
+    expect(
+      describeDrop(
+        input({
+          landed: { date: '2026-08-13', startMinutes: 10 * 60, locked: false },
+          placed: [{ date: '2026-08-13', minutes: 6 * 60 }],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it('leads with the division even when the tail left the week', () => {
+    // `leftWeek` reads the dragged ROW; the division names all of it, which is more.
+    expect(
+      describeDrop(
+        input({
+          placed: [
+            { date: '2026-08-13', minutes: 4 * 60 },
+            { date: '2026-08-24', minutes: 2 * 60 },
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'filled', date: '2026-08-13' });
+  });
+
+  /*
+   * THE SERVER SAYS IT, THE CLIENT DOES NOT INFER IT. `changed` is asked of the ROWS, so a
+   * pass that folded a run into one row and laid it out again reports `false` even though
+   * every id in sight is new — and a drop the reflow answered with the calendar the owner
+   * already had is exactly the silence this whole round came from.
+   */
+  it('admits a drop the server wrote nothing for, whatever the ids did', () => {
+    expect(
+      describeDrop(
+        input({
+          changed: false,
+          landed: { date: '2026-08-13', startMinutes: 15 * 60 + 30, locked: false },
+          placed: [
+            { date: '2026-08-13', minutes: 4 * 60 },
+            { date: '2026-08-14', minutes: 2 * 60 },
+          ],
+        }),
+      ),
+    ).toEqual({ kind: 'unchanged', date: '2026-08-13' });
   });
 
   it('says the hours were absorbed when the row id is gone', () => {

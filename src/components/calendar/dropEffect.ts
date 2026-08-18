@@ -63,13 +63,8 @@
  */
 
 import { overlapsSegments, segmentDroppedRow, type DropSegment } from '../../lib/dropSegments';
-import { firstClearStart } from '../../lib/dropSlide';
-import {
-  dayEndMinutes,
-  netMinutesBetween,
-  netMinutesOf,
-  usesManualOnlyTime,
-} from '../../lib/manualWindow';
+import { dropLandsLiterally, firstClearStart, type DropPin } from '../../lib/dropSlide';
+import { dayEndMinutes, netMinutesBetween, netMinutesOf } from '../../lib/manualWindow';
 import type { DayRole } from '../../lib/composition';
 import type { WorkPeriod } from '../../types';
 
@@ -168,12 +163,12 @@ export interface DropEffect {
  * means honouring the slot. Branch for branch —
  *
  * - PINNED: a locked unit, or a day the engine does not lay out (`role !== 'auto'`: the
- *   Friday colchón and the weekend), or a footprint that asks for MANUAL-ONLY TIME — a
- *   VISUAL MARGIN — on ANY day, Monday included, because the engine's index space has no
- *   margin minutes in it and an unpinned margin row is pulled straight back inside the
- *   periods. The lunch band is NOT manual-only time to this question: `segmentDroppedRow`
- *   lays a drop aimed there out from 15:30, so the segments it measures sit inside a period
- *   and ask for nothing.
+ *   Friday colchón and the weekend), or a drop that STARTS in MANUAL-ONLY TIME — a VISUAL
+ *   MARGIN — on ANY day, Monday included, because the engine's index space has no margin
+ *   minutes in it and an unpinned margin row is pulled straight back inside the periods.
+ *   The lunch band is NOT manual-only time to this question: a drop aimed there is read as
+ *   15:30, so it asks for nothing. Neither is a footprint that merely RUNS PAST the end of
+ *   the periods, since *fill and overflow* carries those minutes to the next day.
  * - RE-RANKED otherwise: the drop writes a place in the queue and the reflow decides the
  *   clock, so the ghost's minutes are an AIM rather than a promise.
  *
@@ -185,26 +180,8 @@ export interface DropEffect {
  * slide a pinned drop forward, or hand it back as a plain rank. `resolveDropPreview`
  * applies both, from the same shared arithmetic the server uses.
  */
-export function dropPins(input: {
-  /** The dragged unit is locked, so the reflow will not lay it out either. */
-  locked: boolean;
-  /** `auto` Mon-Thu, `buffer` Friday, `manual` Sat/Sun — `WeekDay.role`. */
-  role: DayRole;
-  /** The day's WORKING periods: the minutes auto-fill may use, margins excluded. */
-  periods: readonly WorkPeriod[];
-  /** The periods with the margins fused on: the view a hand action is cut over. */
-  manualWindows: readonly WorkPeriod[];
-  startMinutes: number;
-  durationMinutes: number;
-}): boolean {
-  if (input.locked || input.role !== 'auto') return true;
-  return usesManualOnlyTime(
-    input.periods,
-    segmentDroppedRow(input.manualWindows, {
-      startMinutes: input.startMinutes,
-      durationMinutes: input.durationMinutes,
-    }),
-  );
+export function dropPins(input: DropPin): boolean {
+  return dropLandsLiterally(input);
 }
 
 /**

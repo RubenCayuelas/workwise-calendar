@@ -68,6 +68,26 @@ export interface BlockMutation {
   block: Block | null;
   blocks: Block[];
   summary: ScheduleSummary;
+  /**
+   * THE ROWS THE GESTURE'S HOURS ENDED UP ON, in calendar order — the run the moved work is
+   * stored as, so they can be read straight out of `blocks`.
+   *
+   * One id normally. TWO OR MORE once the hours filled what a day had left and carried on to
+   * the next day, which is ordinary now: 6 h dropped into a 4 h afternoon comes back as
+   * `[Monday 4 h, Tuesday 2 h]`. `block` is only the FIRST of them, so a notice built from
+   * `block` alone tells the owner half of what happened.
+   *
+   * Empty when the row no longer exists — a row of the same job absorbed it, which
+   * `mergedBlockIds` reports.
+   */
+  placedBlockIds: string[];
+  /**
+   * FALSE WHEN THE REQUEST WROTE NOTHING AT ALL. A drop writes a queue RANK, so the reflow
+   * may answer it with the calendar the owner already had — and that is indistinguishable
+   * from a drop that worked if you only compare rectangles, which is exactly the defect it
+   * exists for. Use it, never geometry, to decide whether to say «no ha cambiado nada».
+   */
+  changed: boolean;
   touchedLockedBlockIds: string[];
   /**
    * Rows of the dropped row's OWN job that the drop absorbed, because it overlapped

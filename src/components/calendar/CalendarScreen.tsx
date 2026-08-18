@@ -45,7 +45,8 @@ import type { DayShape, Gap } from '../../types';
 import type { CloseDayRequest } from '../../lib/closeDay';
 import { PROJECT_COLORS } from '../../lib/projectColors';
 import { manualWindowsOf } from '../../lib/manualWindow';
-import { clampDropStart, rankFor, createTimeline, type GridMetrics, type Timeline } from './geometry';
+import { spillByDay } from '../../lib/dropSpill';
+import { rankFor, createTimeline, type GridMetrics, type Timeline } from './geometry';
 import { dropPins } from './dropEffect';
 import { describeDrop, type DropOutcomeKind } from './dropOutcome';
 import { SummaryStrip } from './SummaryStrip';
@@ -302,6 +303,19 @@ export function CalendarScreen({
         // mutation rather than from the refetched week, so the sentence cannot race the
         // reload — and `null` (the id is gone) is itself one of the answers.
         const landed = result.blocks.find((row) => row.id === target.blockIds[0]);
+        /*
+         * EVERY ROW THE GESTURE'S HOURS ENDED UP ON, day by day.
+         *
+         * `placedBlockIds` is routinely more than one id now that work fills a day and
+         * overflows (`BlockMutation`), and `block`/`landed` is only the FIRST of them — so a
+         * sentence built from that alone reports half of what happened. Grouped with the same
+         * function the ghost's label uses, so the drag and the toast count the days alike.
+         */
+        const placed = spillByDay(
+          result.placedBlockIds
+            .map((id) => result.blocks.find((row) => row.id === id))
+            .filter((row): row is (typeof result.blocks)[number] => row !== undefined),
+        );
         const outcome = describeDrop({
           from: { date: target.date, startMinutes: target.startMinutes },
           to: drop,
@@ -317,6 +331,11 @@ export function CalendarScreen({
           // The unit as it was BEFORE the drag: a padlock it already had is not what the
           // drop just did to it.
           wasLocked: target.locked,
+          // THE SERVER SAYS IT, THE CLIENT DOES NOT INFER IT. Comparing rectangles cannot tell
+          // a drop the reflow answered with the calendar the owner already had from one that
+          // worked, and that was the silence the owner reported.
+          changed: result.changed,
+          placed,
           visibleDates: viewRef.current?.week.dates ?? [],
         });
         if (outcome === null) return;
@@ -326,6 +345,11 @@ export function CalendarScreen({
             name: target.name,
             day: format.dayHeader(outcome.date),
             date: format.longDate(outcome.date),
+            // «4 h el lun 17 · 2 h el mar 18» — only `filled` reads it, and it is the whole of
+            // that sentence: which day got how much of the job.
+            parts: placed
+              .map((part) => format.hoursOnDay(part.date, part.minutes))
+              .join(t('units.listSeparator')),
             // Only `movedWeek` reads it, and it is the whole point of that sentence: the
             // screen changed while the owner was looking at the block, so the answer has
             // to name the week they are now in as well as the day the row is on.
@@ -567,14 +591,15 @@ export function CalendarScreen({
         apiSplitBlock(fragment.blockId, {
           durationMinutes: fragment.durationMinutes,
           date: slot.date,
-          // Clamped over the DAY, like a drop: the scissors' second click is the one
-          // placement that went through `rankFor` with no cap at all, so a fragment could be
-          // stored at 19:45-20:45, or 19:30-23:00 — past the end of the day (invariant 3).
+          // The slot is already clamped over the DAY where the fragment lands literally —
+          // `slotUnder` in WeekGrid does it, so the ghost and this click cannot disagree, and a
+          // fragment can no longer be stored at 19:45-20:45 (invariant 3). All the NUDGE needs
+          // is to stay a time of day: `rankFor` only consults this for a placement that is a
+          // queue rank, and a rank stores no geometry to fit.
           startMinutes: rankFor(
             slot.startMinutes,
             takenStartsOn(slot.date, [fragment.blockId]),
-            (minutes) =>
-              clampDropStart(day.manualWindows, minutes, fragment.durationMinutes, timeline),
+            (minutes) => timeline.clampStart(minutes),
             // The fragment is a drop like any other, so it pins on the same days and in the
             // same bands — and where it pins the minute is stored, so it must not be nudged.
             dropPins({
@@ -924,6 +949,9 @@ function mergeMutations(results: readonly BlockMutation[]): BlockMutation | unde
     touchedLockedBlockIds: union((result) => result.touchedLockedBlockIds),
     mergedBlockIds: union((result) => result.mergedBlockIds),
     displacedProjectIds: union((result) => result.displacedProjectIds),
+    // The gesture changed something if ANY of its calls did. `placedBlockIds` comes from
+    // the last call, which is the only one that saw the final calendar.
+    changed: results.some((result) => result.changed),
   };
 }
 
@@ -947,6 +975,7 @@ const DROP_OUTCOME_KEYS: Record<DropOutcomeKind, string> = {
   leftWeek: 'notices.dropLeftWeek',
   pulledBack: 'notices.dropPulledBack',
   movedWeek: 'notices.dropMovedWeek',
+  filled: 'notices.dropFilled',
   unchanged: 'notices.dropUnchanged',
   absorbed: 'notices.dropAbsorbed',
 };

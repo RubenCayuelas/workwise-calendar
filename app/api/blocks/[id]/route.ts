@@ -5,8 +5,8 @@
  * PATCH  { action: "resize",  durationHours | durationMinutes, freedHours? }
  * PATCH  { action: "release" }
  * PATCH  { action: "lock",    locked: boolean }
- *        -> { block, blocks, summary, touchedLockedBlockIds,
- *             mergedBlockIds, displacedProjectIds }
+ *        -> { block, blocks, summary, placedBlockIds, changed,
+ *             touchedLockedBlockIds, mergedBlockIds, displacedProjectIds }
  * DELETE -> { deleted: true, projectId, summary }
  *
  * `action` is the discriminator because all four are edits of the same row and a
@@ -38,8 +38,15 @@
  * lists only the answers that exist, so the dialog never has to guess — `new-block` is
  * absent when the freed hours are under a quarter of an hour.
  *
- * Four things the UI must handle in the response:
+ * Six things the UI must handle in the response:
  *
+ * - `placedBlockIds` is where the gesture's hours REALLY ended up, in calendar order, and
+ *   it is normally longer than one. Work fills what a day has left and the remainder
+ *   overflows to the next day it can use, so 6 h dropped into a 4 h afternoon comes back as
+ *   two rows — `block` is only the first of them. Look the ids up in `blocks`.
+ * - `changed` is FALSE when the request wrote nothing at all. A move writes a queue rank, so
+ *   the reflow may answer it with the calendar the owner already had; that used to be
+ *   indistinguishable from a move that worked. Never infer it from geometry.
  * - `block` is NULL when auto-merge absorbed the edited row into a neighbouring row
  *   of the same job. `blocks` — the job's rows as they now stand — is the answer in
  *   that case.
@@ -69,13 +76,20 @@
  * being dragged: `overlaps-locked-block`, `overlaps-gap`, `merge-exceeds-day` and
  * `displaced-hours-unplaceable`. Nothing is written by any of them.
  *
- * A MOVE AIMED BELOW WHAT THE DAY HOLDS LANDS ON THE NEXT DAY the engine would use, at the
- * top of its working periods, instead of being refused for running past the end of the
- * day: aiming past the end of a day means the day after, on any calendar. Monday to
- * Thursday and the Friday buffer roll forward (a row that lands on Friday is padlocked
- * like any Friday drop); the weekend, a closed day and the past do not roll — there the
- * exact minute is the whole promise, and the end-of-day 409 stands. `block` in the
- * response says which day it really was.
+ * A MOVE THAT LANDS LITERALLY AND IS AIMED BELOW WHAT THE DAY HOLDS LANDS ON THE NEXT DAY
+ * the engine would use, at the top of its working periods, instead of being refused for
+ * running past the end of the day: aiming past the end of a day means the day after, on any
+ * calendar. Monday to Thursday and the Friday buffer roll forward (a row that lands on
+ * Friday is padlocked like any Friday drop); the weekend, a closed day and the past do not
+ * roll — there the exact minute is the whole promise, and the end-of-day 409 stands. `block`
+ * in the response says which day it really was.
+ *
+ * A MOVE THAT IS ONLY A QUEUE RANK IS NEVER ROLLED — an unlocked row released inside the
+ * working periods of Monday to Thursday. It has no footprint to fit: the engine takes what
+ * the day has left and carries the rest to the next day it can use, so 6 h released into a
+ * 4 h afternoon is 4 h there and 2 h the day after, and `placedBlockIds` names both rows.
+ * Rolling it moved the row to a day it might already be on and answered 200 with nothing
+ * changed.
  *
  * A drop is stored in SEGMENTS: a stretch crossing the lunch break comes back as two
  * rows of one job (10:00-14:00 and 15:30-17:30 for 6 h at 10:00), never one row running

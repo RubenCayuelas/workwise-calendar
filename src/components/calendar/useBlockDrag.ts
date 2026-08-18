@@ -75,7 +75,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { dayEndMinutes } from '../../lib/manualWindow';
 import {
-  clampDropStart,
   durationTo,
   rankFor,
   slotAt,
@@ -716,17 +715,25 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
             return;
           }
           const taken = live.current.takenStartsOn(settled.date, current.target.blockIds);
-          const windows = live.current.dayAt(settled.date)?.manualWindows ?? [];
           live.current.onMove(current.target, {
             date: settled.date,
             // The rank, or the clock: `rankFor` leaves a PINNED drop alone. See its note.
             startMinutes: rankFor(
               settled.startMinutes,
               taken,
-              // A drop that lands in manual-only time is stored exactly as sent — on EVERY
-              // day, the auto-filled ones included — so the nudge may not carry the row past
-              // the end of the day either.
-              (minutes) => clampDropStart(windows, minutes, settled.durationMinutes, current.timeline),
+              /*
+               * THE NUDGE IS KEPT ON THE AXIS AND NOTHING MORE (2026-08-17).
+               *
+               * `rankFor` only ever consults this for a drop that is a RANK — a pinned one
+               * keeps its minute untouched — and a rank stores no geometry: since *Fill and
+               * Overflow, Always* the engine takes what the day has left and carries the rest
+               * on, and `assertFitsInDay` is not even asked of it. It used to be
+               * `clampDropStart`, the day-END clamp, and that made the one-minute nudge into a
+               * different gesture: a 6 h run released on an afternoon row's start at Monday
+               * 15:30 was nudged to 15:29, found not to fit the day, and re-ranked at 13:00 —
+               * inside the morning, cutting a row the owner never aimed at.
+               */
+              (minutes) => current.timeline.clampStart(minutes),
               settled.pinned === true,
             ),
           });
@@ -958,6 +965,9 @@ export function previewMove(
     date: aimedDate,
     startMinutes: aimed,
     durationMinutes: current.target.durationMinutes,
+    // A padlocked unit lands literally, so its footprint has to fit the day — which is
+    // what makes the roll and the clamp its business and not an unlocked run's.
+    locked: current.target.locked,
     timeline,
   });
 

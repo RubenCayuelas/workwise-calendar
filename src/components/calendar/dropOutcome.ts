@@ -14,7 +14,13 @@
  * is the job's rows as they stand after the recomposition, so the answer is available
  * the moment the request resolves and cannot race the refetch.
  *
- * Pure, so the seven branches can be pinned by a test rather than by dragging blocks
+ * AND TWO OF ITS INPUTS ARE THE SERVER'S OWN ANSWERS, not geometry (2026-08-17): `changed`
+ * says whether anything was written at all, and `placed` says which DAYS the hours ended up
+ * on — routinely more than one now that work fills a day and overflows. Both were added
+ * because the client cannot derive them: the reflow answering a drop with the calendar the
+ * owner already had looks exactly like a drop that worked.
+ *
+ * Pure, so the eight branches can be pinned by a test rather than by dragging blocks
  * around a browser.
  */
 
@@ -37,6 +43,30 @@ export interface DropOutcomeInput {
   /** True when the merge was already reported (`BlockMutation.mergedBlockIds`). */
   merged: boolean;
   /**
+   * THE SERVER'S OWN ANSWER TO "DID ANYTHING CHANGE" (`BlockMutation.changed`), and the only
+   * admissible one.
+   *
+   * A drop is a rank, so the reflow may answer it with the calendar the owner already had —
+   * which is indistinguishable from a drop that worked if you compare rectangles, and
+   * comparing them is what let the owner's own case answer 200 in silence. It is asked of the
+   * ROWS and not of the ids, because moving a run folds it into one row and lets the reflow
+   * lay it out again: ids churn on a pass that moved nothing.
+   */
+  changed: boolean;
+  /**
+   * WHERE THE GESTURE'S HOURS ENDED UP, one entry per DAY, in calendar order
+   * (`BlockMutation.placedBlockIds` grouped by `spillByDay`).
+   *
+   * Routinely more than one day since *Fill and Overflow, Always*: 6 h dropped into a 4 h
+   * afternoon is stored as `[Monday 4 h, Tuesday 2 h]`. `landed` is only the FIRST of those
+   * rows, so an outcome read from it alone tells the owner half of what happened — which is
+   * the whole reason this field exists rather than being derived from the geometry.
+   *
+   * Grouped by DAY on purpose: the two halves of a stretch cut at the comida are one day's
+   * share, and a drop that produced them has not overflowed anywhere.
+   */
+  placed: readonly { date: string; minutes: number }[];
+  /**
    * The unit already carried a padlock before the drag. A row that was padlocked and
    * stayed exactly where it was put is not news; a row the DROP padlocked is, because the
    * mark is new state the owner did not press for.
@@ -58,6 +88,15 @@ export type DropOutcomeKind =
    * that is a new state rather than a movement, so it says how to undo it.
    */
   | 'pinned'
+  /**
+   * THE HOURS FILLED WHAT THE DAY HAD LEFT AND CARRIED ON — *Fill and Overflow, Always*, which
+   * since 2026-08-17 is the ordinary outcome of dropping a job into a hole smaller than it is.
+   *
+   * It outranks every sentence about WHERE the row settled because it is a different and
+   * bigger fact: the job is now in more than one piece, on days the owner has to be told
+   * about by name. The one thing they must not have to do is count rectangles to find out.
+   */
+  | 'filled'
   /** The reflow put it somewhere else on this week. The grid slides it; this says why. */
   | 'settled'
   /** It no longer fits this week: the hours carry on in a LATER one. */
@@ -122,9 +161,26 @@ export function describeDrop(input: DropOutcomeInput): DropOutcome | null {
     return input.merged ? null : { kind: 'absorbed', date: to.date };
   }
 
+  /*
+   * THE REQUEST WROTE NOTHING THE OWNER CAN SEE — asked of the server, never of the
+   * rectangles (`DropOutcomeInput.changed`).
+   *
+   * It comes first because it is the one outcome that is about the whole calendar rather than
+   * about this row, and because it is the complaint this round came from: the owner dropped a
+   * 6 h job into a 4 h hole, got 200 «ok», and watched nothing happen. Silence is not
+   * available here — a drag that asked for something and got the calendar it already had has
+   * to say so, and teach the route: padlock first, then move.
+   */
+  if (!input.changed) return { kind: 'unchanged', date: landed.date };
+
   // Only when the padlock is NEW. Dragging a row that was already padlocked keeps it
   // where it was released, which is what the owner asked for and already knew.
   if (landed.locked && !input.wasLocked) return { kind: 'pinned', date: landed.date };
+
+  // The hours are now on more than one day: they filled what the first day had left and
+  // carried on. Above every sentence about where the ROW went, because they describe one row
+  // and this describes all of them.
+  if (input.placed.length > 1) return { kind: 'filled', date: landed.date };
 
   if (!input.visibleDates.includes(landed.date)) {
     // Which SIDE of the week it went out of. `leftWeek`'s sentence says the hours carried
@@ -144,17 +200,15 @@ export function describeDrop(input: DropOutcomeInput): DropOutcome | null {
    */
   if (!input.visibleDates.includes(from.date)) return { kind: 'movedWeek', date: landed.date };
 
+  // The row came back to its own slot while the pass moved something else. `changed` has
+  // already ruled out the case where nothing moved at all, so this is the narrower one: the
+  // calendar did change, just not here.
   if (landed.date === from.date && landed.startMinutes === from.startMinutes) {
-    // The drag asked for something and the calendar answered with what it already had.
-    return sameSpot(from, to) ? null : { kind: 'unchanged', date: landed.date };
+    return { kind: 'unchanged', date: landed.date };
   }
 
   const settled =
     landed.date !== to.date ||
     Math.abs(landed.startMinutes - to.startMinutes) >= SETTLE_TOLERANCE_MINUTES;
   return settled ? { kind: 'settled', date: landed.date } : null;
-}
-
-function sameSpot(a: DropPoint, b: DropPoint): boolean {
-  return a.date === b.date && a.startMinutes === b.startMinutes;
 }

@@ -12,7 +12,10 @@ this file have saved several rounds of re-deciding things the owner had already 
 rules in CLAUDE.md are unreadable when the reasons are interleaved with them.
 
 Section names here match the rule names in CLAUDE.md, so *A Continuation Fills Forward* in one is
-*A Continuation Fills Forward* in the other.
+*A Continuation Fills Forward* in the other. The exceptions are sections named for a **defect that is
+not fixed** — *The One-Minute Rank Nudge Crosses the Break* — which have no rule to match because
+nobody has decided yet what the rule should be; each one is cross-referenced from the CLAUDE.md rule
+it breaks.
 
 > **A note on `hand_placed`.** Everything dated up to 2026-08-13 was written while a THIRD mark
 > existed — the pointing hand, "a human chose this DAY". It was removed on 2026-08-14 (*The Padlock
@@ -249,6 +252,22 @@ had placed on purpose. Verified against a database built with the old schema.
 
 ## A Continuation Fills Forward
 
+> **SUPERSEDED 2026-08-17 by *Fill and Overflow, Always*.** The rule this was carved out of is gone,
+> so the carve-out is gone with it and the `QueueItem.continuation` FLAG was deleted. Everything below
+> still happened and the defect it fixed is still fixed — by the general rule now, not by an exemption.
+>
+> **WHAT STILL HOLDS, because this note was misread as saying otherwise.** A `QueueItem` is still a
+> run of consecutive movable blocks of one job, and the engine still places it as a **single
+> indivisible piece**: the whole run moves together, exactly as the owner asked for
+> (*«muevo todo hasta la tarea que los separe»*). What changed is only what happens when it does not
+> fit in a day — it now fills what is left and carries the rest to the next day, instead of jumping
+> whole. The flag that was deleted existed *only* to exempt a displaced tail from a rule that no
+> longer exists; deleting it removed an exception, not the unit.
+>
+> The owner read the first paragraph alone and reasonably concluded the run had stopped moving
+> together. A superseded note has to say both halves — what falls and what stands — or the next reader
+> draws the same conclusion.
+
 **Decided with the owner, 2026-08-12.** The defect, in the owner's words:
 
 > *«al mover un bloque a otro, en vez de adaptarse, desplazó el bloque al día siguiente sin partirlo
@@ -270,6 +289,303 @@ moves whole or not at all.
 
 This also fixed the owner's second complaint, *«redimensiona mal empujando de forma errónea otros
 bloques»*: after a resize the remainder used to leap past a day it could partly fill.
+
+---
+
+## Fill and Overflow, Always
+
+**Decided by the owner, 2026-08-17.** Their report:
+
+> *«Si quiero colocar la tarea test3 en el hueco del lunes no se divide sino que dice que no cabe. Si
+> no cabe se desborda al siguiente día, así es como dijimos que funcionaba.»*
+
+**Reproduced on a copy of their calendar.** `test 3` is 6 h; Monday holds 4 h of free afternoon
+behind a padlocked morning. Dropping it there answered **HTTP 200 «ok» and changed nothing** — the
+row stayed on Tuesday — while the ghost had already said *«6 h no pueden empezar después de las …»*
+before the release. Three separate things were wrong at once, and only the third is a defect in the
+ordinary sense:
+
+| what happened | why |
+|---|---|
+| the drop was ROLLED onto the next day the engine would use | its 6 h footprint reaches 21:30 and the day ends at 20:30, so *Aiming Below What A Day Holds* moved it — to a day it was already on |
+| the engine would not have split it anyway | *Never split a job to make it fit*: no day from the cursor could hold 6 h whole, so the item was laid back down where it was |
+| the response could not say so | `BlockMutation` carried no "nothing was written", and the geometry is identical either way |
+
+**The owner's answer removed the rule.** Work fills what is left of the day and the remainder
+overflows to the next day it can use — always, and whoever placed it. They accepted the consequence
+in as many words: **a job may end up in four or five pieces.**
+
+**What it supersedes, and both of these were the owner's own earlier decisions:**
+
+- *A Continuation Fills Forward* (2026-08-12). It exempted a displaced tail from the rule; with no
+  rule there is nothing to exempt, so `QueueItem.continuation` was deleted rather than left as a flag
+  with no reader. `findWholeFit`, `takeExactly` and `ItemTarget` went with it.
+- *No Backfilling*'s worked example (the hole in front of a locked block stays empty and the owner
+  decides by hand). Work fills up to the lock and continues after it. **The rule itself survives
+  intact** — the cursor is forward-only, so nothing is ever pulled BACK into an earlier hole; what
+  changed is that far fewer holes are left.
+
+### The sharp edge: a remainder smaller than the minimum row
+
+Once a day may take PART of an item, the arithmetic can leave any number of minutes over, and the
+answer had to be decided rather than discovered. **Filling a ten-minute hole may not produce a
+ten-minute row** — `MIN_LABEL_HEIGHT` makes that a nameless two-pixel stripe. The rule is in
+CLAUDE.md's own table; what belongs here is why each answer is that answer:
+
+- **A stretch too short for a row is stepped over like an obstacle.** This is the answer the deleted
+  "does the whole item fit here" question used to give for free; the new engine has to make it
+  explicitly, and it is the only one that keeps the invariant.
+- **A remainder of one quarter but not two goes on WHOLE.** Splitting a legal 15-minute row into 10
+  and 5 to fill a hole is strictly worse than waiting for somewhere it fits.
+- **And the floor is never a refusal.** `compose` walks the horizon once with the floor on and, only
+  if the hours still have nowhere at all to go, once more with it off. An item the cursor keeps
+  stepping over ends in `horizon-exceeded`, which rolls the WHOLE save back — a short row beats that,
+  and that trade was already the decision in *The Calendar Sits On The Quarter Hour*.
+
+**Two defects the property harness found, and neither was reachable before this change.** The
+2000-seed generator now produces off-grid quantities on a quarter of its calendars, because that is
+where the floor is actually at risk (a real calendar gets there through the one sub-quarter row a
+drop may leave behind being deleted, which takes those minutes off `total_hours`):
+
+- **seed 275** — a free stretch spanning the comida is ONE stretch to the arithmetic and TWO rows on
+  the clock, so the floor was applied to the pair. An obstacle ending at 13:50 stored
+  `13:50-14:00` — ten minutes — plus the rest of the afternoon. Fixed by cutting the free stretches
+  at every real break (`splitAtBreaks`), so a stretch and a stored row are the same shape.
+- **seed 57** — a 15-minute remainder was cut into 10 and 5 by a ten-minute hole, which is what sent
+  the "one quarter but not two" answer above the "draw it" answer.
+
+### The drop side: a rank has no footprint
+
+The roll and the clamp both exist so that the row a drop STORES ends inside its day. On Monday to
+Thursday, inside the periods, with the row unlocked, a drop stores no geometry at all: it writes a
+queue RANK and the reflow decides the clock. So neither has anything to do there, and both were
+doing harm — the roll moved the row to another DATE, and the clamp pulled the ghost up to a minute
+the owner had not aimed at and then sent that minute.
+
+**One question decides it, in one place**: `dropLandsLiterally` (`src/lib/dropSlide.ts`), which is
+now what the write path's `pinsTheRow`, the ghost's `dropPins` and `dropLanding`'s own roll all read.
+Those first two were documented as "one rule, two mirrors" and the rule had quietly grown a third
+reader.
+
+**And the padlock question narrowed with it.** A drop asks for manual-only time by STARTING in it,
+not by reaching into it: the minutes past the end of the periods are hours the reflow carries to the
+next day. Read over the whole footprint, the owner's own 6 h release at Monday 15:30 scored 120
+manual-only minutes and came back PADLOCKED — a mark they had not pressed for, on a row they had
+aimed at a four-hour hole. A **resize** is unchanged and still reads its whole footprint, because a
+length really is stored where it reaches.
+
+### The silent no-op
+
+`BlockMutation` gained two fields, and the shape of both is a lesson from the first attempt at each:
+
+- **`changed`** — asked of the ROWS the owner can see, not of the row ids. Measured on the ids it
+  answers `true` for a drop that produced the very calendar it started from, because moving a run
+  folds it into one row and lets the reflow lay it out again: verified over HTTP, the repeat of the
+  owner's own drop reported ids deleted and inserted while nothing on screen moved.
+- **`placedBlockIds`** — the whole run the hours ended up as, in calendar order, because `block` is
+  only the first of them and splitting is ordinary now. A client reading `block` alone would tell the
+  owner about 4 h and say nothing about the other 2 h.
+
+**Verified 2026-08-17.** The full suite (872 tests, 28 files), the 2000-seed harness with the new
+off-grid dimension and the sliver invariant added to it, and idempotence — `expectSettled` on every
+rewritten scenario plus the harness. Then on a scratch database, the owner's own calendar rebuilt
+and their gesture made **by dragging in a real browser**: `test 3` came back as `Lun 15:30-19:30 4 h`
+plus `Mar 08:00-10:00 2 h`, unpadlocked, on the day they aimed at, with the mid-drag hint reading
+*«Entra en la cola por aquí»* instead of the clamp's sentence. The repeat answered `changed: false`,
+and two unrelated saves left the split untouched.
+
+**One Open Decision fell out with the rule** — see *Reproductions behind the Open Decisions* № 1.
+
+### Re-verified independently, 2026-08-18
+
+Both halves — the engine and the drag — driven again from a scratch database on its own port, on a
+calendar shaped like the owner's: a padlocked day the cursor cannot use, a Wednesday whose morning is
+padlocked so it holds **4 h of free afternoon**, and `test 3` at 6 h.
+
+| the case | stored |
+|---|---|
+| the owner's gesture, **dragged in a real browser** from Saturday into Wednesday's 4 h afternoon | `Mié 15:30-19:30 4 h` + `Jue 08:00-10:00 2 h`, neither padlocked |
+| the same 6 h job created with the hole already there — the engine on its own | the same two rows |
+| **the hole in FRONT of a padlocked row** (`candado` padlocked 10:00-14:00, 2 h free before it) | `Mié 08:00-10:00 2 h` + `Mié 15:30-19:30 4 h` — filled up to the lock, continues after it, whole job on one day in two pieces |
+| a **ten**-minute hole in front of an obstacle | stepped over, still free; the hours go `Mié 15:30-19:30` + `Jue 08:00-10:00` |
+| a **fifteen**-minute hole | taken whole: `Mié 08:00-08:15 0,25 h` + `15:30-19:30` + `Jue 08:00-09:45` |
+| an **18 h run dragged** onto Monday-Thursday | 200, laid out across days, `placedBlockIds` 3 long. The same run onto a **Saturday** is still 400 `out-of-range` (Open Decision 13's remainder) |
+| the **Friday buffer** | a new 6 h job with Friday empty skips it for the next Monday; a job grown 30 h → 46 h fills Friday 10 h and carries 6 h to Monday |
+| the **weekend** | 46 h created puts nothing on Sat/Sun. A 6 h hand drop at Sat 12:00 stores `12:00-14:00` + `15:30-19:30`, padlocked; a second drop over it is 409 `overlaps-locked-block` and writes nothing |
+| the **frozen past** | 46 h created writes nothing before today; a drop onto yesterday is 409 `drop-onto-past-day`; a past row is 409 `past-block-frozen` to drag and to delete |
+
+**The ghost said it before the release, across columns**: measured mid-drag with the button still
+down, «Se coloca así: 4 h el Mié 19 · 2 h el Jue 20» over a 4 h rectangle on Wednesday
+(`15:30–19:30`, not into the bottom margin) and «…sigue aquí · 2 h» over a 2 h rectangle on
+Thursday. The notice after the release: ««test 3» llena lo que quedaba del día y sigue en el
+siguiente: 4 h el Mié 19 · 2 h el Jue 20. Si lo quieres entero en un día, hazle sitio o ponle el
+candado.» A 7 h run dropped in front of a padlock previewed «6 h el Mié 19 · 1 h el Jue 20» over
+three rectangles — two of them on Wednesday, one day's share — and stored exactly that.
+
+`tsc --noEmit` clean, `vitest run` **899 passing across 29 files**, `next lint` clean, `next build`
+clean with no dev server up. Idempotence over HTTP as well as in the suite: a rename, a recolour and
+a gap added-then-removed each left the split calendar byte-identical.
+
+**And the re-verification found one defect** — § *The One-Minute Rank Nudge Crosses the Break* below.
+
+---
+
+## The One-Minute Rank Nudge Crosses the Break
+
+**Found 2026-08-18, re-verifying *Fill and Overflow, Always*. NOT FIXED, and not a question about
+what a gesture means — a stated invariant is broken, so it is recorded here and beside the rule it
+breaks (CLAUDE.md § *The Calendar Sits On The Quarter Hour*) rather than in *Open Decisions*.**
+
+The gesture is ordinary: aim a run at the upper third of a row that starts at 08:00. *A Drop Onto
+Another Row's Start Goes BEFORE It* makes that a rank one minute earlier, so the request carries
+`startMinutes: 479` — 07:59, one minute inside the top visual margin. That much is deliberate and
+right: `MIN_MANUAL_ONLY_MINUTES` exists exactly so one minute of margin is read as a tie-break and
+not as a request, and the drop correctly comes back **unpadlocked**.
+
+What is not right is what happens next. `resolveDrop` step 2 cuts the provisional row at the lunch
+break **from the minute the rank names** (`segmentDroppedRow`), and it does so for a rank drop as
+well as a literal one. From 07:59 a 7 h run reaches 14:59, so it is stored as `07:59 +361` and
+`15:30 +59` — and the next job's row ranks between those two, so `buildQueue`, which joins only
+CONSECUTIVE rows of one job, cannot put them back together. One run reaches the engine as **two
+items of 361 and 59 minutes**, quantities no gesture asked for, and `takeableFrom` then leaves a
+quarter behind the 361 and cuts it into 346 + 15.
+
+Reproduced over HTTP with no browser in the loop, on a Wednesday whose only obstacle is a padlocked
+Tuesday, `detras` 7 h behind `test 3` 6 h:
+
+| the rank sent | what was stored |
+|---|---|
+| `480` — 08:00 | `Mié 08:00-14:00 6 h`, `Mié 15:30-16:30 1 h`, then `test 3`. Clean, strict order, everything on the quarter |
+| `479` — 07:59 | `Mié 08:00-13:46 5,77 h`, `Mié 15:30-15:45 0,25 h`, then `test 3` twice, then **`Jue 10:15-11:14 0,98 h` of `detras` again** |
+
+The same rank with a **6 h 15 m** run stores `Jue 10:15-10:29` — a **14-minute row**, which
+CLAUDE.md says in as many words the engine never stores. The band is narrow and real: 476-479 all
+misbehave; at 465 (a full quarter of margin) the drop becomes a literal placement and is refused
+409 `overlaps-locked-block`, which is correct.
+
+**Whose defect it is.** The nudge and the segmentation are both older than *Fill and Overflow,
+Always* and neither was touched by it — `resolveDrop` step 2 is unchanged in the diff. The engine is
+innocent too: handed a 361-minute item it applies the quarter-hour floor correctly, and the 2000-seed
+harness's sliver rule (a short row is allowed only where a queue ITEM was itself under two quarters)
+is satisfied, because the write path had already made the item 14 minutes long. What the rule change
+did was remove the thing that used to hide it: an item that did not fit moved WHOLE, so an off-grid
+quantity never reached the layout. Now it does, in three visible ways — off-quarter clock times, the
+job's hours interleaved with the next job's, and **the ghost contradicted** (measured: the preview
+said «6 h el Mié 19 · 1 h el Jue 20», the save stored 5,77 h and 1,23 h).
+
+Hours are still conserved, nothing straddles a break, and recomposing twice changes nothing.
+
+**Two candidate fixes, and this is the owner's call because it decides what a nudged minute MEANS:**
+
+- **clamp the rank** to the first minute of the working periods when the manual-only time it asks for
+  is under `MIN_MANUAL_ONLY_MINUTES`. This is the reading *A Minute With No Working Time* already
+  gives the lunch band, applied to the sub-quarter margin, and it makes the nudge a pure ordering
+  device — which is all `rankFor` ever meant it to be;
+- **do not segment a rank drop at all.** A literal drop is segmented because its geometry is the
+  promise; a rank's geometry is the reflow's business and gets re-derived anyway, so cutting it first
+  can only invent quantities.
+
+Same cause as Open Decisions 6 and 7 (both about the nudge), so all three want one answer.
+
+---
+
+## The Ghost of a Rank Is the Division
+
+**Built 2026-08-17, the drag side of *Fill and Overflow, Always*.** The engine change left the
+preview arguing with the engine in three separate ways, all of them the deleted rule still talking:
+
+| what the drag said | what the engine did |
+|---|---|
+| «6 h no pueden empezar después de las 13:00» (`grid.dropNoLower`) | accepted the release and split the job |
+| «6 h no caben en un solo día» (`grid.dropLongerThanDay`) | filled the day and carried the rest on |
+| one rectangle at the pointer, capped at the day's manual window | two rows, on two days, neither of them where the rectangle was |
+
+The owner chose a live preview precisely so the outcome is visible before the mouse comes up, so a
+preview that cannot describe the new behaviour is not a cosmetic debt — it is the feature failing at
+the one moment it exists for.
+
+### Drawing it needed the reflow's arithmetic, not the reflow
+
+The honest objection to drawing the split was that only `compose` knows where an item lands, because
+it lays out the WHOLE queue. That is true of the POSITION and not of the DIVISION, and separating the
+two is what made this buildable:
+
+- **`planDropSpill`** answers the narrow question — *given where the work in front of this drop ends,
+  how far down the day do these hours reach, and where does the rest go* — by walking the release day
+  and the days after it the way `compose` does. It lives in `src/lib/dropSpill.ts` next to
+  `segmentDroppedRow` and `firstClearStart`, for the same stated reason: two callers need the
+  identical answer and neither may guess it. **`takeableFrom` MOVED there out of the engine**, so the
+  quarter-hour floor has one implementation; a preview that re-derived it would have drawn the
+  ten-minute rows the floor exists to prevent.
+- **The POSITION is still not promised.** The ghost stays hollow, the clock range stays unprinted, and
+  the label still says «Entra detrás de «Muro»». Where the reflow disagrees with the drawing it is
+  because it found room EARLIER (the drop is a rank) — never because it stored a shape the ghost did
+  not draw.
+
+### The three answers that had to be decided
+
+- **The hours begin where the work in FRONT of them ends** (`fillStartFor`), not at the released
+  minute. This is the one that makes the label's numbers right rather than nearly right: 6 h released
+  at 16:00 into an afternoon free from 15:30 is stored from 15:30, and drawn from 16:00 it would have
+  printed «3,5 h el lunes · 2,5 h el martes» — two numbers the save contradicts. Measured against
+  EVERYTHING on the day, gaps and ordinary rows alike, because strict queue order keeps all of it in
+  front; an aim INSIDE a row is left alone, because there the row is cut and the hours really do start
+  on that minute. The consequence is deliberate: over free time the ghost snaps to the top of the free
+  run rather than following the pointer, which is what an insertion point means.
+- **The ROOM is what nothing will move out of the way** — the gaps and the padlocked rows only. Every
+  other row is ranked behind the drop and the reflow lays it out after these hours, so counting it
+  would understate the room. Verified on the case that distinguishes them: a fragment aimed INSIDE
+  another job's row previewed `1,25 h el Mié 19 · 3,75 h el Jue 20` and stored exactly that, because
+  the server cuts the row it lands in and only the head stays in front.
+- **The day's stop-line is `plannableMinutes` less what the work ahead has spent of it.** On the
+  documented shift the capacity IS the whole shift, so this only bites where the owner has
+  deliberately set auto-fill below their day — and there it is the difference between drawing 6 h and
+  drawing 10 h.
+
+### What was deleted rather than reworded
+
+- `grid.dropLongerThanDay` and `grid.dropNoLower` are now asked of a drop that lands LITERALLY only.
+  Both are still true there — on a Saturday a 6 h row really cannot start after 13:00 — and both are
+  drawn as before.
+- **The one-minute rank nudge stopped being clamped over the day.** `rankFor`'s clamp is only ever
+  consulted for a drop that is a RANK, and it was `clampDropStart`: a 6 h run released on an afternoon
+  row's start at Monday 15:30 was nudged to 15:29, found not to fit the day, and re-ranked at **13:00**
+  — inside the morning, cutting a row nobody had aimed at. It is now the axis clamp and nothing more.
+- **The scissors' second click lost the same clamp**, and gained the same plan (`placingGhost`). Left
+  with the clamp it pulled a 5 h fragment aimed at 18:15 back to 15:30; taken away without the plan it
+  drew a rectangle running into the bottom margin, which auto-fill never enters. Neither is a shape the
+  server would store, which is why the two changes had to travel together.
+
+### The notice, and why `changed` had to be the source
+
+`describeDrop` gained one branch and lost its geometry:
+
+- **`filled`** — the hours ended up on more than one DAY, so the notice names them:
+  «llena lo que quedaba del día y sigue en el siguiente: 4 h el Mié 19 · 2 h el Jue 20». Grouped by
+  day, not by row, or a stretch cut at the comida would be reported as an overflow. It reads
+  `placedBlockIds` and shares `spillByDay` and `format.hoursOnDay` with the ghost, so the drag and the
+  toast say the same words about the same gesture.
+- **`unchanged` is decided from `changed`** and is asked before every other branch. It used to be
+  `landed === from && to !== from`, which is exactly the comparison that cannot see the owner's
+  defect: the reflow answering a drop with the calendar they already had is identical, rectangle for
+  rectangle, to a drop that worked.
+
+### Verified by dragging in a real browser
+
+On a scratch database at two window widths (1646 and 1100), with the ghost read mid-drag over CDP and
+the stored rows read back over HTTP afterwards:
+
+| the gesture | the ghost said | the server stored |
+|---|---|---|
+| 6 h released at Wed 16:00, morning taken, afternoon free | `Mié 15:30-19:30` + `Jue 08:00-10:00`, «Se coloca así: 4 h el Mié 19 · 2 h el Jue 20» | exactly that, unpadlocked; `filled` notice with the same words |
+| the same in front of a padlocked 17:00-18:00 row | three rectangles: `15:30-17:00`, `18:00-19:30`, `Jue 08:00-11:00`, «3 h el Mié 19 · 3 h el Jue 20» | exactly that — the hole in front of the lock filled and the work continued after it |
+| an 18 h run dropped in front of a full Tuesday | four rectangles over two columns, «10 h el Mar 18 · 8 h el Mié 19» | exactly that, 200 and no `out-of-range` |
+| 6 h released into a TEN-MINUTE hole in front of a lock | nothing on Wednesday, the whole gesture on Thursday, «6 h el Jue 20» | nothing on Wednesday; the row stayed where it was and the `unchanged` notice said so |
+| a 5 h scissors fragment clicked at Wed 18:15, inside another job's row | `18:15-19:30` + `Jue 08:00-11:45`, «1,25 h el Mié 19 · 3,75 h el Jue 20» | exactly that; the row it landed in was cut at 18:15 |
+| 6 h dropped low on Saturday | solid ghost `13:00–20:30`, «Más abajo no cabe: 6 h no pueden empezar después de las 13:00», pin hint | `Sáb 13:00 +60 [L]` + `15:30 +300 [L]`; `pinned` notice |
+| 6 h dropped in Wednesday's TOP MARGIN | solid ghost `07:00–13:00`, pin hint | `Mié 07:00 +360 [L]`; `pinned` notice, and Muro reflowed around it |
+| a 10 h run dropped on Thursday, whose afternoon a padlock holds | `Jue 08:00-14:00`, «6 h el Jue 20 · 4 h más adelante» — the buffer is skipped, so the remainder leaves the week | the rank was already what it is, so nothing moved: the `unchanged` notice said so |
+| a drop that does not CHANGE the rank (nothing in front of it, or the same predecessor it already had) | the division measured from the release day | the reflow puts the item back where its cursor reaches, which may be an earlier day — **the standing limit of a rank's preview**: `planDropSpill` answers where the hours REACH, and only a whole pass can answer where the item STARTS. The `unchanged` and `settled` notices are what close it, and they now always fire |
 
 ---
 
@@ -1139,6 +1455,14 @@ waste the answer.
    queue is that its earlier rows LEFT the pool, so `continuation` is false, *Never split a job to
    make it fit* applies, and the remainder moves whole. It arrives three ways at once: growing a row
    into the bottom margin, padlocking a row, and growing a row up against a gap.
+   **ANSWERED 2026-08-17 — by the owner removing the rule, not by anyone answering the question.**
+   The cause quoted above no longer exists: there is no `continuation` and nothing moves whole. The
+   answer is candidate (c), *prefer the current day for the remainder even when it must split*, and it
+   arrives for the same three gestures at once. Re-measured on a scratch database, all three: growing
+   the row into the margin left Monday's morning intact and moved exactly the one hour it added
+   (Barandilla's Tuesday row 4 h → 3 h, Porton up by an hour); padlocking the row moved nothing at
+   all; and a gap under the following morning split Barandilla around it (`08:00-11:00` +
+   `12:00-13:00`) instead of throwing it forward.
 
 2. **A 6-pixel drag on the bottom edge of a lunch-split unit's first row reshuffles the week while
    the ghost promises nothing.** The ghost reads `08:00–14:00 · 6 h` — no change — and the request
@@ -1195,6 +1519,10 @@ waste the answer.
   no overlap, idempotent — so this is not an invariant break, and the mechanical "fix" (seed
   `closedDays` from the stored flag) makes the padlock leave the day EMPTY instead, which is
   decision 1 arriving from a third direction.
+  **The chain to decision 1 was cut on 2026-08-17**: since *Fill and Overflow, Always* nothing leaves
+  a day empty, so the mechanical fix no longer has that consequence and this can be decided on its own
+  terms. The question itself — should padlocking a hand-set row re-open the day its ruler closed? — is
+  still the owner's, and is still unanswered.
 
 - **A sub-quarter row deleted leaves `total_hours` off the quarter hour for ever.**
   `DELETE /api/blocks/:id` does `total -= row.duration` with no floor, so deleting the 1-minute head
@@ -1233,6 +1561,17 @@ filling with `formatTime` complaints, forty per drag). The integration pass meas
   three at once, which is why they are left alone: the collision test, the pin decision and the clamp
   all read the same run total and all three would change meaning.
 
+  **MOSTLY ANSWERED 2026-08-17, and the answer was "yes, cut it across days" — arriving as a
+  consequence of *Fill and Overflow, Always* rather than as a decision about the drag.** A drop that
+  is only a queue rank stores no geometry, so `assertFitsInDay` is not asked of it and the engine lays
+  the run out. Measured over HTTP on a scratch database: an 18 h run dragged onto Monday-Thursday
+  answers 200, and dropped behind a 2 h job it came out `Corto 08:00-09:00` then Nave across two days.
+  Two of the three consumers went with it — the PIN now reads the drop's START (a footprint past the
+  end of the periods is overflow, not a request for the margin) and the CLAMP does not run on a rank
+  at all. What is LEFT is the same drag onto a day that keeps the minute, where the row really would
+  be stored inside one day: still 400 `out-of-range`, still a sentence about an hour, still worth
+  rewording. And `dropEffectOf`'s collision test still measures against the uncut footprint.
+
 **14 — a resize ghost's tail on an occupied day.** Measured both ways on 2026-08-17. With Wednesday
 afternoon FREE, growing the 6 h Wednesday row to 8 h previewed two rectangles — `08:00-14:00`
 (325.5 px) and `15:30-17:30` (108.5 px) — and stored exactly `2026-08-19 480+360` and `930+120`. With
@@ -1241,6 +1580,22 @@ Wednesday afternoon held by another job the same gesture previewed the same shap
 holds, and the rectangle and the `17:30` are wrong. The ghost has no reflow to consult, which is the
 whole difficulty — a resize is documented as the one gesture whose range is literal, and that was
 true while its tail stayed on its own day.
+
+**15 — a division inside one day says nothing.** Measured 2026-08-18 while re-verifying *Fill and
+Overflow, Always*, both in a browser and over HTTP. Wednesday holds a padlocked `candado 10:00-14:00`;
+`sujeto`, 6 h, is dropped at Wednesday 08:00. The ghost is right and complete — two rectangles on the
+one column, `08:00-10:00` and `15:30-19:30`, the bare hours line «6 h» (correctly NOT the split
+sentence, since the hours never leave the day) and one insertion rule. The save is right too:
+`Mié 08:00-10:00 2 h` + `Mié 15:30-19:30 4 h`, `changed: true`, `placedBlockIds` two long,
+`block` = `480+120`. **And the toast never appears**: `filled` counts DAYS and there is one, `pinned`
+is false, the row is at the minute released so nothing else fires.
+
+Why it is a question rather than a defect: the documented silence rule is "the row is visible, at the
+minute it was released, with nothing else changed", and by the letter of it this qualifies. What makes
+it worth asking is the asymmetry — the same 6 h split across a night gets a full sentence naming both
+days, and the same 6 h split across the comida gets none, while four of the hours are five and a half
+hours below the pointer. It is also the only shape the rule change made ordinary that the notice table
+does not cover, which is the kind of gap the 14:00 defect lived in.
 
 ### Closed, and how
 
@@ -1797,5 +2152,37 @@ database (`WORKWISE_DB_PATH`, port 3479, chromium over CDP; the repo's `data/` u
 by this round's measurements and left exactly as they were — 13 (an over-long RUN cannot be dragged:
 a 14 h run aimed at 09:00 is clamped to 07:00 and refused with a sentence about a clock time) and the
 `out-of-range` refusals in the 770-drop sweep, which are the same thing.
+
+---
+
+**v0.13 — the owner deleted a rule, and two layers came apart behind it (2026-08-17/18).** The owner's
+report was one drop that answered 200 and changed nothing; the answer was to remove *Never split a job
+to make it fit* for the engine and for a hand drop alike (§ *Fill and Overflow, Always*), which
+superseded two of their own earlier decisions and let three things be deleted rather than maintained:
+`findWholeFit`, `takeExactly`, `ItemTarget` and `QueueItem.continuation` — the last of these existing
+only to exempt a displaced tail from the rule now gone. Then the drag layer, which had been built to
+refuse exactly the release that now works, was rewritten to draw the division instead
+(§ *The Ghost of a Rank Is the Division*): one shared arithmetic (`src/lib/dropSpill.ts`, imported by
+the engine so the two cannot disagree), a ghost that spans columns, and a drop that always answers —
+`changed` and `placedBlockIds` on every mutation, and a `filled` notice naming the days.
+
+*Re-verified independently on 2026-08-18* from a scratch database on its own port with the repo's
+`data/` untouched: `tsc --noEmit` clean, `vitest run` 899 passing across 29 files, `next lint` clean,
+`next build` clean with no dev server up. The owner's own gesture driven by dragging in a real browser
+gave `Mié 15:30-19:30 4 h` + `Jue 08:00-10:00 2 h` with the ghost naming both columns before the
+release and the toast naming them after; the reversal it created — work filling the hole in FRONT of a
+padlocked row and continuing after it — measured as `Mié 08:00-10:00` + `Mié 15:30-19:30` around a
+padlocked `10:00-14:00`; and the rules that did not change (a hole under a quarter of an hour, a run
+longer than a day, the Friday buffer, the weekend, the frozen past, idempotence) each measured on the
+running app. The full table is in § *Fill and Overflow, Always* → *Re-verified independently*.
+
+*The defect the re-verification found:* **the one-minute rank nudge crosses the lunch break**, and the
+day comes back off the quarter hour — including one 14-minute stored row, which is the invariant this
+round's own table is built on. Not fixed: the fix decides what a nudged minute means, which is the
+owner's call, and it is the same cause as Open Decisions 6 and 7. Reproduction, mechanism and the two
+candidates in § *The One-Minute Rank Nudge Crosses the Break*.
+
+*Still open, and deliberately:* Open Decisions 2-4, 6-12 and the remainders of 8, 13 and 14 in
+CLAUDE.md. Two closed with this round: 1 (its stated cause was the deleted rule) and 5.
 
 ---

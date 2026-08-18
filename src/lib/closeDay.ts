@@ -16,7 +16,7 @@
  *
  * WHAT THIS MODULE DELIBERATELY DOES NOT DO: predict where those hours land. Only
  * `compose` can answer that, over the whole calendar rather than the seven days a screen
- * holds, and it may well move a job WHOLE (rule: never split a job to make it fit). So
+ * holds, and it may well cut a job across several days (*Fill and Overflow, Always*). So
  * the plan reports what is certain — the hours the day loses, and the work that cannot
  * stay inside the closed stretch — and the calendar shows the rest the moment it saves.
  */

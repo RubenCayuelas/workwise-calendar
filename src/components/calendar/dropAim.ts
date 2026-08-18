@@ -33,7 +33,7 @@
  * `row-past-day-end`.
  */
 
-import { dropLanding } from '../../lib/dropSlide';
+import { dropLanding, dropLandsLiterally } from '../../lib/dropSlide';
 import { clockEndOf, dayEndMinutes } from '../../lib/manualWindow';
 import type { WorkPeriod } from '../../types';
 import type { WeekDay } from '../../lib/api-client';
@@ -155,6 +155,13 @@ export function resolveDropDay(input: {
   startMinutes: number;
   /** The whole run's net working minutes: what the request will carry. */
   durationMinutes: number;
+  /**
+   * The dragged unit is already padlocked, so it lands literally and its footprint has to
+   * fit the day. Without it an unlocked Monday-Thursday release is a queue RANK, which has
+   * no footprint to fit — the reflow takes what the day has left and carries the rest to
+   * the next day — so neither the roll nor the clamp has anything to solve.
+   */
+  locked?: boolean;
   timeline: Timeline;
 }): AimedDrop {
   const day = input.days.find((candidate) => candidate.date === input.date);
@@ -166,19 +173,45 @@ export function resolveDropDay(input: {
     date: input.date,
     startMinutes: input.startMinutes,
     durationMinutes: input.durationMinutes,
+    locked: input.locked ?? false,
     dayOf: (date) => {
       const candidate = input.days.find((other) => other.date === date);
-      if (candidate === undefined) return { periods: [], manualWindows: [], reflows: false };
+      if (candidate === undefined) {
+        return { periods: [], manualWindows: [], reflows: false, role: 'manual' };
+      }
       return {
         periods: candidate.periods,
         manualWindows: candidate.manualWindows,
         reflows: dayReflowsOn(candidate),
+        role: candidate.role,
       };
     },
     maxDays: input.days.length,
   });
   if (landing.date !== input.date) {
     return { ...landing, rolled: true, clamped: false };
+  }
+
+  /*
+   * A QUEUE RANK IS NEVER CLAMPED EITHER (2026-08-17). The clamp exists so the row a drop
+   * stores ends inside its day; on Monday-Thursday, inside the periods, with the row
+   * unlocked, the drop stores no geometry at all — it writes a rank and the engine fills
+   * what the day has left and carries the rest to the next day. Clamping there pulled the
+   * ghost up to a minute the owner had not aimed at and said «no pueden empezar después
+   * de…» about a release that works perfectly well; and the request it then sent was for a
+   * different rank. Same question the server asks (`dropLandsLiterally`), same answer.
+   */
+  if (
+    !dropLandsLiterally({
+      locked: input.locked ?? false,
+      role: day.role,
+      periods: day.periods,
+      manualWindows: day.manualWindows,
+      startMinutes: landing.startMinutes,
+      durationMinutes: input.durationMinutes,
+    })
+  ) {
+    return { date: input.date, startMinutes: landing.startMinutes, rolled: false, clamped: false };
   }
 
   // It landed on the day it was released on: either it fitted there, or nothing later

@@ -34,9 +34,15 @@
  * has it as cheaply as the server does.
  */
 
+import type { DayRole } from './composition';
 import { addDays } from './dates';
 import { segmentDroppedRow, overlapsSegments, type DropSegment } from './dropSegments';
-import { clockEndOf, dayEndMinutes, firstWorkingMinute } from './manualWindow';
+import {
+  clockEndOf,
+  dayEndMinutes,
+  firstWorkingMinute,
+  startsInManualOnlyTime,
+} from './manualWindow';
 import type { WorkPeriod } from '../types';
 
 export interface DropSlideInput {
@@ -88,12 +94,62 @@ export function firstClearStart(input: DropSlideInput): number | null {
 }
 
 // ---------------------------------------------------------------------------
+// Does the drop keep the minute it was released on?
+// ---------------------------------------------------------------------------
+
+export interface DropPin {
+  /** The row being dragged already carries a padlock, so it lands wherever it is released. */
+  locked: boolean;
+  /** `auto` Mon-Thu, `buffer` Friday, `manual` Sat/Sun. */
+  role: DayRole;
+  /** The day's WORKING periods: the minutes auto-fill may use, margins excluded. */
+  periods: readonly WorkPeriod[];
+  /** The periods with the margins fused on: the view a hand action is cut over. */
+  manualWindows: readonly WorkPeriod[];
+  startMinutes: number;
+  /** Net working minutes — the whole unit's, since the whole unit moves as one row. */
+  durationMinutes: number;
+}
+
+/**
+ * DOES THIS DROP LAND LITERALLY — keeping the exact minute it was released on, and earning
+ * a padlock for it? THE ONE IMPLEMENTATION, imported by the write path (`pinsTheRow`, in
+ * src/lib/operations/blocks.ts), by the drag ghost (`dropPins`, in dropEffect.ts) and by
+ * `dropLanding` below, which is the third caller and the reason this moved here: those two
+ * were documented as "one rule, two mirrors" and the rule had grown a third reader.
+ *
+ * Two reasons a drop lands literally, and both are "the reflow's only possible answer here
+ * would be to undo the gesture":
+ *
+ * - THE DAY. The Friday buffer and the weekend are the days whose whole point is that the
+ *   engine does not decide what sits there. A day the engine auto-fills takes a drop as a
+ *   queue rank instead. A row that is already padlocked keeps its minute on any day.
+ * - THE SLOT. A drop that STARTS in manual-only time — a visual margin. The engine's index
+ *   space holds no margin minutes, so an unpinned margin row would be pulled straight back
+ *   inside the periods, which is why the margins were configurable and unusable.
+ *
+ * THE SLOT IS READ AT THE START, NOT ACROSS THE FOOTPRINT (2026-08-17), because since
+ * *fill and overflow* the minutes past the end of the day's periods are not a request for
+ * the margin — they are hours the reflow carries to the next day. See
+ * `manualOnlyHeadMinutes`. The lunch break asks for nothing either way: the start is read
+ * through `firstWorkingMinute`, so a release anywhere in the band is 15:30.
+ */
+export function dropLandsLiterally(input: DropPin): boolean {
+  if (input.locked || input.role !== 'auto') return true;
+  return startsInManualOnlyTime(
+    input.periods,
+    firstWorkingMinute(input.manualWindows, input.startMinutes),
+    input.durationMinutes,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Aiming below what a day holds
 // ---------------------------------------------------------------------------
 
 /**
- * ONE DAY, AS A LANDING PLACE: both views of it, and whether the engine lays it out at
- * all. `DayConfig` satisfies it once `reflows` is filled in from `dayReflows`.
+ * ONE DAY, AS A LANDING PLACE: both views of it, its role, and whether the engine lays it
+ * out at all. `DayConfig` satisfies it once `reflows` is filled in from `dayReflows`.
  */
 export interface DropDay {
   /** Auto-fill's view. Its first minute is where a drop that rolled onto this day lands. */
@@ -105,6 +161,8 @@ export interface DropDay {
    * and the past — the three kinds of day this roll neither leaves nor lands on.
    */
   reflows: boolean;
+  /** Which day this is, for `dropLandsLiterally`: only a literal drop has a footprint to fit. */
+  role: DayRole;
 }
 
 export interface DropLandingInput {
@@ -113,6 +171,11 @@ export interface DropLandingInput {
   /** Net working minutes — the whole unit's, since the whole unit moves as one row. */
   durationMinutes: number;
   dayOf: (date: string) => DropDay;
+  /**
+   * The row being dragged is already padlocked, so it lands literally on any day and its
+   * footprint has to fit. Defaults to false — an unlocked row.
+   */
+  locked?: boolean;
   /** How far forward to look for a day that can hold it. */
   maxDays?: number;
 }
@@ -139,7 +202,16 @@ const MAX_LANDING_DAYS = 14;
  * end-of-day guard refused the write — with a landing the ghost can show while dragging,
  * so the day change is never a surprise on release.
  *
- * THREE THINGS BOUND IT, and each one is a place the roll would otherwise be the surprise:
+ * IT ONLY APPLIES TO A DROP THAT LANDS LITERALLY (2026-08-17). A drop that is a queue RANK
+ * has no footprint to fit: since *fill and overflow* the engine takes what the day has left
+ * and carries the rest to the next day by itself, so a 6 h release into a 4 h afternoon is
+ * not a drop on another day — it is 4 h here and 2 h there, which is what the owner meant.
+ * Rolling it was the whole of their defect: the row moved to a day it was already on and
+ * the request answered 200 having changed nothing. So the roll is now reserved for the
+ * drops whose minute really is the promise — the buffer, the weekend, a visual margin, a
+ * padlocked row — where a footprint past the end of the day would otherwise be a 409.
+ *
+ * FOUR THINGS BOUND IT, and each one is a place the roll would otherwise be the surprise:
  *
  * - IT ONLY LEAVES A DAY THE ENGINE LAYS OUT, and only lands on one. "The next day the
  *   engine would use" means nothing where the engine chooses nothing: on the weekend, on a
@@ -178,6 +250,17 @@ export function dropLanding(input: DropLandingInput): DropLanding {
   const released = { date: input.date, startMinutes };
   if (fitsFrom(here.manualWindows, startMinutes, input.durationMinutes)) return released;
   if (!here.reflows) return released;
+  // A queue rank has no footprint to fit: the reflow fills what the day has left and
+  // carries the rest forward, so there is nothing here for another DATE to solve.
+  const literal = dropLandsLiterally({
+    locked: input.locked ?? false,
+    role: here.role,
+    periods: here.periods,
+    manualWindows: here.manualWindows,
+    startMinutes,
+    durationMinutes: input.durationMinutes,
+  });
+  if (!literal) return released;
 
   const horizon = input.maxDays ?? MAX_LANDING_DAYS;
   for (let step = 1; step <= horizon; step += 1) {

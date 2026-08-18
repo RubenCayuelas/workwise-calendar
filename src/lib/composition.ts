@@ -42,6 +42,11 @@ import {
 } from './dates';
 import { overlapsSegments, segmentDroppedRow, type DropSegment } from './dropSegments';
 import { firstClearStart } from './dropSlide';
+// The quarter-hour floor on a SPLIT. It lives next to `segmentDroppedRow` and
+// `firstClearStart`, and for the same reason: the drag ghost draws the division a drop's
+// hours will really be stored in (`planDropSpill`), so the floor has one implementation and
+// both sides import it. See src/lib/dropSpill.ts.
+import { takeableFrom } from './dropSpill';
 import {
   adjacentInWindows,
   clockEndOf,
@@ -300,6 +305,13 @@ export type ComposeResult = ComposeSuccess | ComposeFailure;
  * shape a hand-set stretch comes back as when it had to be cut at the lunch break:
  * regrouping them keeps the second pass looking at the same 7 h the owner drew,
  * rather than at a 2 h item and a 5 h item.
+ *
+ * THERE IS NO `continuation` FLAG ANY MORE (removed 2026-08-17). It said "this item is not
+ * its job's first in the queue", and its ONLY reader was the exemption that let a displaced
+ * tail fill forward while a job being placed for the first time moved whole or not at all.
+ * Every item fills forward now, so the distinction guarded a rule that no longer exists —
+ * see `compose`. Nothing else consulted it, which is why it went rather than being kept
+ * "just in case": a flag with no reader is a rule the next reader will invent a use for.
  */
 export interface QueueItem {
   projectId: string;
@@ -316,16 +328,6 @@ export interface QueueItem {
    * `compose`'s "a hand-set stretch closes its job's day".
    */
   manualDuration: boolean;
-  /**
-   * This item is NOT its job's first item in the queue, so its hours are the REST of
-   * work already under way — the tail a drop cut off, or the hours a hand-set length
-   * pushed out of its day. See `compose`'s "a continuation fills forward".
-   *
-   * Derived from the queue rather than stored, and safe for the same reason the
-   * grouping above is: the reflow preserves movable order, so "is there an earlier item
-   * of this job" gives the same answer on the next pass.
-   */
-  continuation: boolean;
   /**
    * The dates this item's rows already sit on. Only consulted for the Friday
    * buffer, where it is what keeps an unrelated save from pushing absorbed
@@ -423,7 +425,6 @@ export function buildQueue(input: ComposeInput): QueueItem[] {
   const newProjects = new Set(input.newProjectIds ?? []);
   const grownProjects = new Set(input.grownProjectIds ?? []);
   const items: QueueItem[] = [];
-  const started = new Set<string>();
   let open: QueueItem | null = null;
   let openDate = '';
 
@@ -453,11 +454,9 @@ export function buildQueue(input: ComposeInput): QueueItem[] {
       isNew: newProjects.has(block.projectId),
       grown: grownProjects.has(block.projectId),
       manualDuration: block.manualDuration,
-      continuation: started.has(block.projectId),
       originalDates: [block.date],
     };
     openDate = block.date;
-    started.add(block.projectId);
     items.push(open);
   }
 
@@ -545,16 +544,37 @@ export function horizonEndDate(today: string, planningHorizonWeeks: number): str
 /**
  * Reflows the movable pool in queue order, from `today` forward.
  *
- * Placement, in one paragraph: a cursor walks forward and never goes back, so a
- * hole left in front of an obstacle stays empty (never backfill) and once an
- * item overflows, the rest of the queue follows it (strict order). An item is
- * placed whole wherever it fits — the space left in a day being
- * `min(the free run from the cursor, the day's remaining plannable minutes)` —
- * and is split across days only when no single day within the horizon could hold
- * it whole. Inside a day, work that crosses a non-working interval is emitted as
- * separate segments of the same project, since a stored block is always a solid
- * rectangle on the clock; touching segments of the same project inside the same
- * period are merged back into one row.
+ * FILL AND OVERFLOW, ALWAYS. A cursor walks forward and never goes back, and every day it
+ * reaches gives the item at the head of the queue as much as that day can hold; whatever
+ * the day cannot hold carries forward to the next day the item may use. So an item is cut
+ * at a day boundary whenever the day runs out, and that is ORDINARY rather than
+ * exceptional. The cursor's forward-only walk is what still guarantees the two rules that
+ * did not change: a hole the queue has already walked past is never reclaimed (never
+ * backfill), and once an item spills onto a later day the rest of the queue follows it
+ * (strict order). Inside a day, work that crosses a non-working interval is emitted as
+ * separate segments of the same project, since a stored block is always a solid rectangle
+ * on the clock; touching segments of the same project inside the same period are merged
+ * back into one row.
+ *
+ * "NEVER SPLIT A JOB TO MAKE IT FIT" IS GONE (decided by the owner, 2026-08-17), and the
+ * whole "does the whole item fit here" question went with it — `findWholeFit`,
+ * `takeExactly`, `ItemTarget` and `QueueItem.continuation`, which existed only to exempt a
+ * displaced tail from the rule now deleted. The owner's report was a 6 h job dropped into
+ * a Monday holding 4 h of free afternoon: the drop answered 200 and changed nothing,
+ * because no day from the cursor could hold 6 h whole and the item was laid back down
+ * exactly where it already was. It now stores 4 h on Monday and 2 h on the next day it can
+ * use. The owner accepted the consequence in as many words: a job may end up in four or
+ * five pieces.
+ *
+ * Two things fell out of it, both wanted: the hole in front of a locked row is FILLED by
+ * whatever the cursor is carrying and the work continues after the lock, and a day whose
+ * tail used to be left empty because the next job "did not fit" is filled to its stop
+ * line.
+ *
+ * EVERY PIECE IS STILL A LEGAL ROW, and that is the sharp edge of the change —
+ * `takeableFrom` is the whole of it. A ten-minute hole may not become a ten-minute row, so
+ * a stretch of free time too short for a row is stepped over like an obstacle, and a take
+ * that would leave a sliver behind leaves a full quarter of an hour instead.
  *
  * A HAND-SET STRETCH CLOSES ITS JOB'S DAY, and this is the one place strict order
  * is deliberately broken (decided with the owner, 2026-08-12). A row whose length
@@ -572,23 +592,6 @@ export function horizonEndDate(today: string, planningHorizonWeeks: number): str
  * The deferral only ever fires on the pass that follows the resize: afterwards the
  * remainder is no longer adjacent to the stretch in the queue and lands in exactly
  * the same place by ordinary forward fill, which is what keeps this a fixed point.
- *
- * A CONTINUATION FILLS FORWARD, and this is where "never split a job to make it fit"
- * stops (decided with the owner, 2026-08-12). That rule is about PLACING a job. Applied
- * to a tail that is already a continuation of work under way it produced the defect the
- * owner reported: drop a 2 h job into the middle of a full Thursday and the 10 h that
- * had to move went WHOLE to the following Monday, leaving Thursday empty from noon.
- *
- * So an item that is not its job's first in the queue — `QueueItem.continuation` — is
- * placed by the same path as a job longer than a day: it takes the hours left in the
- * day it was cut on and continues on the next auto-fill day. Everything else is
- * unchanged, and deliberately so:
- *
- *  - a job's FIRST item still moves whole or not at all, so a new job never leaves a
- *    stub behind (rule 8) — get this backwards and the rule is gone;
- *  - the continuation is still placed IN ITS QUEUE POSITION, so strict order holds and
- *    nothing is brought forward into the space it left;
- *  - it is still not growth, so it skips the Friday buffer like any displaced work.
  */
 export function compose(input: ComposeInput): ComposeResult {
   const horizon = horizonEndDate(input.today, input.planningHorizonWeeks);
@@ -630,10 +633,12 @@ export function compose(input: ComposeInput): ComposeResult {
    * in the frozen past — does not close its day. That asymmetry is real and visible:
    * padlocking a hand-set row re-opens the day the ruler had closed and pulls the same job
    * back onto it, which is *back to automatic* performed by the stricter of the two marks.
-   * It is left as it is deliberately, because closing the day instead is what empties it and
-   * parks the work later — the shape of the owner's own «redimensiona mal empujando de forma
-   * errónea otros bloques», an Open Decision in CLAUDE.md. Whichever way it goes, it goes the
-   * same way for the ruler and for the padlock at once.
+   *
+   * IT IS AN OPEN DECISION IN CLAUDE.md, AND STILL THE OWNER'S. What it used to be chained to
+   * is gone: seeding `closedDays` from the stored flag instead would once have left the day
+   * EMPTY, and since *Fill and Overflow, Always* nothing empties a day — the jobs behind take
+   * the hours either way. So the question is now only "should the padlock re-open a day the
+   * ruler closed", and whichever way it goes it must go the same way for both marks at once.
    */
   const closedDays = new Set<string>();
 
@@ -643,35 +648,12 @@ export function compose(input: ComposeInput): ComposeResult {
   /** The day the hand-set stretch just placed ended on — the day its remainder must leave. */
   let handSetDate = '';
 
-  /**
-   * The first day from the cursor onwards that can hold the item WHOLE (never split
-   * to make it fit). Days in between are abandoned: the rest of the queue follows
-   * the item, it is never brought forward.
-   *
-   * `null` for a CONTINUATION, which is what sends it down the fill-forward path
-   * instead — see `compose`'s "a continuation fills forward".
-   */
-  const targetFor = (item: QueueItem): ItemTarget | null => {
-    if (item.continuation) return null;
-    for (let date = cursorDate; compareDates(date, horizon) <= 0; date = addDays(date, 1)) {
-      const day = date === cursorDate ? cursor : openDay(planFor(date));
-      if (!acceptsItem(day.plan, item, closedDays)) continue;
-      const spot = findWholeFit(day, item.durationMinutes);
-      if (spot !== null) return { date, day, ...spot };
-    }
-    return null;
-  };
-
-  /** True when the item would start on `date` — used to know when the cursor is about to leave it. */
+  /** True when the item would take some of `date` — used to know when the cursor is about to leave it. */
   const startsOn = (item: QueueItem, date: string): boolean => {
     // An empty item is dropped rather than placed, so it leaves no day.
     if (item.durationMinutes <= 0) return true;
     if (cursorDate !== date) return false;
-    const target = targetFor(item);
-    if (target !== null) return target.date === date;
-    // The split path: an item no single day can hold starts wherever the cursor
-    // stands, as long as this day can still take something of it.
-    return acceptsItem(cursor.plan, item, closedDays) && remainingRoom(cursor) > 0;
+    return acceptsItem(cursor.plan, item, closedDays) && roomFor(cursor, item.durationMinutes) > 0;
   };
 
   /** Places one item, or reports the engine's single failure without writing anything. */
@@ -683,42 +665,46 @@ export function compose(input: ComposeInput): ComposeResult {
       return null;
     }
 
+    // FILL AND OVERFLOW. Every day from the cursor gives what it can hold and the rest
+    // carries forward. There is no "does the whole item fit here" question to ask any
+    // more, so there is one path for every item — a brand-new job, a tail a drop cut off,
+    // and a job longer than a week all take exactly this one.
     const segments: Segment[] = [];
-    const target = targetFor(item);
-
-    if (target !== null) {
-      cursorDate = target.date;
-      cursor = target.day;
-      cursor.runIndex = target.runIndex;
-      cursor.positionIndex = target.startIndex;
-      segments.push(...takeExactly(cursor, item.durationMinutes));
-    } else {
-      // Either no single day within the horizon could hold it whole — this job is
-      // longer than a day — or it is a CONTINUATION, which fills forward by the same
-      // machinery. It takes the hours left in the day the cursor is already on and the
-      // remainder continues on the next fillable day.
-      let remaining = item.durationMinutes;
-      for (let date = cursorDate; remaining > 0 && compareDates(date, horizon) <= 0; date = addDays(date, 1)) {
+    let remaining = item.durationMinutes;
+    // TWICE OVER THE HORIZON, AND THE SECOND PASS IS THE LAST RESORT. The quarter-hour floor
+    // prefers to step over a stretch too short to hold a row, which is right whenever a
+    // bigger stretch exists further on and wrong when none does. Rather than guess, the walk
+    // is simply run again with the floor off — and only when the hours would otherwise be
+    // reported as unplaceable, which rolls the whole save back. It is safe to continue from
+    // where the first pass stopped: nothing was taken from the days it stepped over, so
+    // their cursors come back full.
+    for (const lastResort of [false, true]) {
+      for (
+        let date = cursorDate;
+        remaining > 0 && compareDates(date, horizon) <= 0;
+        date = addDays(date, 1)
+      ) {
         const day = date === cursorDate ? cursor : openDay(planFor(date));
         if (!acceptsItem(day.plan, item, closedDays)) continue;
-        const taken = takeUpTo(day, wantedFrom(day, remaining));
+        const taken = takeFrom(day, remaining, lastResort);
         if (taken.length === 0) continue;
         for (const segment of taken) remaining -= segment.durationMinutes;
         cursorDate = date;
         cursor = day;
         segments.push(...taken);
       }
+      if (remaining <= 0) break;
+    }
 
-      if (remaining > 0) {
-        // One clean failure, no placement to roll back by hand.
-        return {
-          code: 'horizon-exceeded',
-          messageKey: HORIZON_EXCEEDED_KEY,
-          projectId: item.projectId,
-          unplacedMinutes: remaining,
-          horizonEndDate: horizon,
-        };
-      }
+    if (remaining > 0) {
+      // One clean failure, no placement to roll back by hand.
+      return {
+        code: 'horizon-exceeded',
+        messageKey: HORIZON_EXCEEDED_KEY,
+        projectId: item.projectId,
+        unplacedMinutes: remaining,
+        horizonEndDate: horizon,
+      };
     }
 
     if (item.manualDuration) {
@@ -839,7 +825,11 @@ interface ClockRuler {
 interface DayPlan extends ClockRuler {
   role: DayRole;
   workingMinutes: number;
-  /** Unoccupied stretches of the index ruler. Two stretches are one run iff no obstacle separates them. */
+  /**
+   * Unoccupied stretches of the index ruler, in order. Two stretches are one run iff no
+   * obstacle AND no real break between two periods separates them — see `splitAtBreaks`,
+   * which is what makes a run and a stored ROW the same shape.
+   */
   freeRuns: IndexRange[];
   plannableMinutes: number;
   /** False for the past, a closed day, the weekend, and a day with no room left. */
@@ -854,12 +844,11 @@ interface DayCursor {
   positionIndex: number;
 }
 
-/** Where an item is about to be placed whole: the day, and the spot inside it. */
-interface ItemTarget {
-  date: string;
-  day: DayCursor;
+/** One helping a day gives an item: where on the index ruler, and how much. */
+interface TakePiece {
   runIndex: number;
   startIndex: number;
+  minutes: number;
 }
 
 /** The key of "job X may take no more of day D". The date is fixed width, so it never aliases. */
@@ -926,6 +915,43 @@ function mergeRanges(ranges: IndexRange[]): IndexRange[] {
   return merged;
 }
 
+/**
+ * CUTS THE FREE STRETCHES WHEREVER A ROW WOULD HAVE TO BE CUT ANYWAY — at a break between
+ * two periods, and only at a REAL one (a shift configured with no lunch has none, so
+ * nothing is cut and a full day comes back as one solid row).
+ *
+ * The index ruler is deliberately continuous across the break, which is what makes "a job
+ * flows across lunch" free. The cost is that a stretch spanning the break is ONE stretch to
+ * `takeableFrom` and TWO rows to `toClockSegments`, so the quarter-hour floor was being
+ * applied to the pair and not to either row: an obstacle ending at 13:50 gave a free
+ * stretch of `13:50` through the afternoon, and a piece taken from it was stored as a
+ * TEN-MINUTE row plus the rest (found by the 2000-seed harness, seed 275). Cutting here
+ * means every piece lies inside one period, so a piece and a stored row are the same thing
+ * and the floor covers both. The sub-quarter tail of a period is then simply a stretch too
+ * short to hold a row, and is stepped over like any other.
+ */
+function splitAtBreaks(free: IndexRange[], spans: PeriodSpan[]): IndexRange[] {
+  const breaks: number[] = [];
+  for (let index = 0; index + 1 < spans.length; index += 1) {
+    const span = spans[index];
+    const endClock = span.startClock + (span.endIndex - span.startIndex);
+    if (spans[index + 1].startClock > endClock) breaks.push(span.endIndex);
+  }
+  if (breaks.length === 0) return free;
+
+  const cut: IndexRange[] = [];
+  for (const range of free) {
+    let start = range.start;
+    for (const bound of breaks) {
+      if (bound <= start || bound >= range.end) continue;
+      cut.push({ start, end: bound });
+      start = bound;
+    }
+    cut.push({ start, end: range.end });
+  }
+  return cut;
+}
+
 /** What is left of `[0, total)` once the occupied ranges are taken out. */
 function freeRangesOf(occupied: IndexRange[], total: number): IndexRange[] {
   const free: IndexRange[] = [];
@@ -968,7 +994,7 @@ function buildDayPlan(input: ComposeInput, date: string): DayPlan {
     role: config.role,
     spans,
     workingMinutes,
-    freeRuns: usable ? freeRangesOf(occupied, workingMinutes) : [],
+    freeRuns: usable ? splitAtBreaks(freeRangesOf(occupied, workingMinutes), spans) : [],
     plannableMinutes: plannable,
     fillable: usable && plannable > 0,
   };
@@ -1011,98 +1037,56 @@ function acceptsItem(plan: DayPlan, item: QueueItem, closedDays: ReadonlySet<str
   return item.grown || item.originalDates.includes(plan.date);
 }
 
-/** What `takeUpTo` could still take from this day: the free runs ahead of the cursor, capped by the budget. */
-function remainingRoom(day: DayCursor): number {
-  let free = 0;
-  for (let index = day.runIndex; index < day.plan.freeRuns.length; index += 1) {
-    const run = day.plan.freeRuns[index];
-    const start = index === day.runIndex ? Math.max(day.positionIndex, run.start) : run.start;
-    free += Math.max(0, run.end - start);
-  }
-  return Math.min(free, day.budgetMinutes);
-}
-
 /**
- * The first place from the cursor onwards where `minutes` fit WHOLE, the space
- * in a run being `min(what is left of the run, the day's remaining plannable
- * minutes)`. Runs before the cursor are never considered — that is the
- * no-backfill rule.
- */
-function findWholeFit(day: DayCursor, minutes: number): { runIndex: number; startIndex: number } | null {
-  if (day.budgetMinutes < minutes) return null;
-  for (let index = day.runIndex; index < day.plan.freeRuns.length; index += 1) {
-    const run = day.plan.freeRuns[index];
-    const start = index === day.runIndex ? Math.max(day.positionIndex, run.start) : run.start;
-    if (run.end - start >= minutes) return { runIndex: index, startIndex: start };
-  }
-  return null;
-}
-
-/** Places exactly `minutes` at the cursor. The caller has already checked it fits. */
-function takeExactly(day: DayCursor, minutes: number): Segment[] {
-  const run = day.plan.freeRuns[day.runIndex];
-  const start = Math.max(day.positionIndex, run.start);
-  const segments = toClockSegments(day.plan, start, minutes);
-  day.positionIndex = start + minutes;
-  day.budgetMinutes -= minutes;
-  return segments;
-}
-
-/**
- * How much of `remaining` to ask a day for, so the split never leaves a row shorter than
- * a quarter of an hour — invariant 4.
+ * WHAT THIS DAY WOULD GIVE AN ITEM OF `remaining` MINUTES, run by run, without committing
+ * anything — so `roomFor` can ask the question and `takeFrom` can ask it and then act.
  *
- * With every quantity on the quarter hour this is always `remaining` and the function does
- * nothing. It earns its place once an off-grid quantity gets into the calendar (an hour
- * total that lost a minute, a gap that does not sit on the quarter), because then the
- * arithmetic can leave 1-14 minutes over: a job of 19 h 59 min on days holding 600 and 590
- * placed `360 + 230` and then a NINE-MINUTE row on a day no gesture had touched — a
- * nameless two-pixel stripe, since a row that short cannot show its own hours.
- *
- * Two answers, and both keep every row a real row: leave exactly one quarter of an hour for
- * the tail, or — when that would make THIS day's row the sliver instead — take nothing here
- * and let the whole remainder go to the next day.
+ * Forward only: runs before the cursor are never considered, which is the whole of the
+ * no-backfill rule. Every run is visited at most once, so a run whose take was reduced by
+ * `takeableFrom` leaves the rest of itself unused rather than being immediately re-offered
+ * the sliver it just avoided.
  */
-function wantedFrom(day: DayCursor, remaining: number): number {
-  const room = remainingRoom(day);
-  if (room >= remaining) return remaining;
-  if (remaining - room >= MIN_ROW_MINUTES) return remaining;
-  // Fewer than two real rows' worth left: there is no split of it that avoids a short row,
-  // and refusing to place it would be far worse than drawing it — an item the cursor keeps
-  // skipping ends in `horizon-exceeded`, which rolls the whole save back.
-  if (remaining < 2 * MIN_ROW_MINUTES) return remaining;
-  return remaining - MIN_ROW_MINUTES;
+function planTake(day: DayCursor, remaining: number, lastResort: boolean): TakePiece[] {
+  const pieces: TakePiece[] = [];
+  let left = remaining;
+  let budget = day.budgetMinutes;
+
+  for (
+    let index = day.runIndex;
+    index < day.plan.freeRuns.length && left > 0 && budget > 0;
+    index += 1
+  ) {
+    const run = day.plan.freeRuns[index];
+    const startIndex = index === day.runIndex ? Math.max(day.positionIndex, run.start) : run.start;
+    const space = Math.min(run.end - startIndex, budget);
+    if (space <= 0) continue;
+    const minutes = takeableFrom(space, left, lastResort);
+    if (minutes <= 0) continue;
+    pieces.push({ runIndex: index, startIndex, minutes });
+    left -= minutes;
+    budget -= minutes;
+  }
+
+  return pieces;
+}
+
+/** How much of `remaining` this day would really take. Zero means the cursor should move on. */
+function roomFor(day: DayCursor, remaining: number): number {
+  return planTake(day, remaining, false).reduce((total, piece) => total + piece.minutes, 0);
 }
 
 /**
- * Fills the day from the cursor with up to `wanted` minutes, run by run — the
- * split path, used only for a job longer than any single day could hold. Still
- * forward-only, so it never reaches back over an obstacle it has passed.
+ * Fills the day from the cursor with as much of `remaining` as it can hold, run by run,
+ * and leaves the cursor where the last piece ended.
  */
-function takeUpTo(day: DayCursor, wanted: number): Segment[] {
+function takeFrom(day: DayCursor, remaining: number, lastResort: boolean): Segment[] {
   const segments: Segment[] = [];
-  let remaining = Math.min(wanted, day.budgetMinutes);
-
-  while (remaining > 0 && day.runIndex < day.plan.freeRuns.length) {
-    const run = day.plan.freeRuns[day.runIndex];
-    const start = Math.max(day.positionIndex, run.start);
-    const available = run.end - start;
-    if (available <= 0) {
-      day.runIndex += 1;
-      day.positionIndex = 0;
-      continue;
-    }
-    const chunk = Math.min(available, remaining);
-    segments.push(...toClockSegments(day.plan, start, chunk));
-    day.positionIndex = start + chunk;
-    day.budgetMinutes -= chunk;
-    remaining -= chunk;
-    if (chunk === available) {
-      day.runIndex += 1;
-      day.positionIndex = 0;
-    }
+  for (const piece of planTake(day, remaining, lastResort)) {
+    segments.push(...toClockSegments(day.plan, piece.startIndex, piece.minutes));
+    day.budgetMinutes -= piece.minutes;
+    day.runIndex = piece.runIndex;
+    day.positionIndex = piece.startIndex + piece.minutes;
   }
-
   return segments;
 }
 

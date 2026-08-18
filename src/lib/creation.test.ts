@@ -405,8 +405,9 @@ describe('a date beyond everything planned', () => {
     });
     const result = plan(withGap, { startDate: FAR_MON, hours: 4 });
 
-    // Never backfill: two hours are free before the gap, but the job goes whole.
-    expect(rows(result)).toEqual([`${FAR_MON} 12:00-14:00 [locked]`, `${FAR_MON} 15:30-17:30 [locked]`]);
+    // Fill and overflow: the two hours in front of the gap are the job's first two, and
+    // the other two carry on after it. The job used to skip the hole and start at 12:00.
+    expect(rows(result)).toEqual([`${FAR_MON} 08:00-10:00 [locked]`, `${FAR_MON} 12:00-14:00 [locked]`]);
   });
 
   it('reports nothing in the way, because there is nothing there', () => {
@@ -501,8 +502,9 @@ describe('what the plan hands the caller', () => {
 
     expect(collisions).toHaveLength(1);
     expect(collisions[0]).toMatchObject({ projectId: 'bar', date: NEXT_TUE, locked: true, fixed: true });
-    // Never backfill: the two free hours in front of the lock are left alone.
-    expect(rows(result)).toEqual([`${NEXT_TUE} 12:00-14:00 [locked]`, `${NEXT_TUE} 15:30-17:30 [locked]`]);
+    // Fill and overflow: the two free hours in front of the lock are used, and the job
+    // continues after it. The lock itself is untouched, which is what the collision names.
+    expect(rows(result)).toEqual([`${NEXT_TUE} 08:00-10:00 [locked]`, `${NEXT_TUE} 12:00-14:00 [locked]`]);
   });
 
   it('lands the whole calendar on a fixed point: the second pass moves nothing', () => {

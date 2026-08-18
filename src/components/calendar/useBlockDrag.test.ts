@@ -392,9 +392,17 @@ describe('previewMove', () => {
       expect(moveTo('2026-08-13', 7 * 60 + 15, { durationMinutes: 120 }).pinned).toBe(true);
     });
 
-    it('is true when the unit is long enough to reach the bottom margin', () => {
-      // 6 h from 13:00 is 13:00-14:00 plus 15:30-20:30, and the last hour of that is margin.
-      expect(moveTo('2026-08-13', 13 * 60, { durationMinutes: 360 }).pinned).toBe(true);
+    it('is FALSE when the unit merely reaches the bottom margin (2026-08-17)', () => {
+      // 6 h from 13:00 is 13:00-14:00 plus 15:30-20:30, and the last hour of that is
+      // margin — which used to pin it. It does not now: since *fill and overflow* the
+      // minutes past the end of the periods are hours the reflow carries to the next day,
+      // not a claim on the margin. Reading the whole footprint is what padlocked the
+      // owner's 6 h drop into a 4 h afternoon and then refused it a slot.
+      expect(moveTo('2026-08-13', 13 * 60, { durationMinutes: 360 }).pinned).toBe(false);
+    });
+
+    it('is true when the unit STARTS in the bottom margin', () => {
+      expect(moveTo('2026-08-13', 19 * 60 + 45, { durationMinutes: 30 }).pinned).toBe(true);
     });
 
     it('is true on the weekend, wherever the release lands', () => {
@@ -413,11 +421,16 @@ describe('previewMove', () => {
    * of freezing in silence for the last third of the column.
    */
   describe('clamped', () => {
-    const releaseAt = (release: number, durationMinutes: number) => {
+    // ONLY A DROP THAT LANDS LITERALLY IS CLAMPED (2026-08-17): the clamp exists so the row
+    // a drop STORES ends inside its day, and an unlocked Monday-to-Thursday release stores
+    // no geometry at all — it is a rank, and the engine fills what the day has left and
+    // carries the rest forward. A padlocked unit is the plainest literal drop.
+    const releaseAt = (release: number, durationMinutes: number, locked = true) => {
       const session = press('move', 8 * 60, PRESS_AXIS, {
         date: '2026-08-13',
         startMinutes: 8 * 60,
         durationMinutes,
+        locked,
       });
       session.grabOffsetMinutes = 0;
       return previewMove({ clientX: 260, clientY: yOf(release) }, session, METRICS, OPTIONS);
@@ -432,6 +445,16 @@ describe('previewMove', () => {
       const preview = releaseAt(18 * 60, 360);
       expect(preview.startMinutes).toBe(13 * 60);
       expect(preview.clamped).toBe(true);
+    });
+
+    it('is never set for a queue rank, which has no footprint to fit', () => {
+      // The clamp's own sentence — «6 h no pueden empezar después de las…» — was a lie
+      // about a release that works: the owner's ghost said it a moment before the drop
+      // answered 200 and changed nothing.
+      const preview = releaseAt(18 * 60, 360, false);
+      expect(preview.startMinutes).toBe(18 * 60);
+      expect(preview.clamped).toBe(false);
+      expect(preview.rolled).toBe(false);
     });
 
     it('is not set for a release above the axis, which is the edge of the screen', () => {
@@ -472,24 +495,39 @@ describe('previewMove — the aim and the day', () => {
     rowsOn: (): readonly AimRow[] => rows,
   });
 
-  const releaseOn = (release: number, durationMinutes: number, rows: readonly AimRow[] = []) => {
+  const releaseOn = (
+    release: number,
+    durationMinutes: number,
+    rows: readonly AimRow[] = [],
+    locked = false,
+  ) => {
     const session = press('move', 8 * 60, PRESS_AXIS, {
       date: '2026-08-13',
       startMinutes: 8 * 60,
       durationMinutes,
+      locked,
     });
     session.grabOffsetMinutes = 0;
     return previewMove({ clientX: 260, clientY: yOf(release) }, session, METRICS, optionsWith(rows));
   };
 
-  it('moves a release the day cannot hold to the next day, at its first period', () => {
+  it('moves a LITERAL release the day cannot hold to the next day, at its first period', () => {
     // 6 h aimed at 18:00 on Thursday: the day ends at 20:30. The owner on the old answer
     // (refuse it, freeze the ghost): «Pasa al siguiente día. ¿Sabes cómo funciona un
-    // calendario?»
-    const preview = releaseOn(18 * 60, 360);
+    // calendario?» The unit is padlocked, which is what makes the release a placement with
+    // a footprint rather than a rank.
+    const preview = releaseOn(18 * 60, 360, [], true);
     expect(preview.date).toBe('2026-08-14');
     expect(preview.startMinutes).toBe(8 * 60);
     expect(preview.rolled).toBe(true);
+    expect(preview.clamped).toBe(false);
+  });
+
+  it('leaves the same release on the day when the drop is a queue rank', () => {
+    const preview = releaseOn(18 * 60, 360);
+    expect(preview.date).toBe('2026-08-13');
+    expect(preview.startMinutes).toBe(18 * 60);
+    expect(preview.rolled).toBe(false);
     expect(preview.clamped).toBe(false);
   });
 

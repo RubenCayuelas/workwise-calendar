@@ -109,8 +109,19 @@ describe('aimAtThirds', () => {
 });
 
 describe('resolveDropDay', () => {
-  const resolve = (date: string, startMinutes: number, durationMinutes: number) =>
-    resolveDropDay({ days: WEEK, date, startMinutes, durationMinutes, timeline: TIMELINE });
+  /**
+   * `locked` because the roll and the clamp only ever apply to a drop that lands LITERALLY
+   * (2026-08-17). An unlocked Monday-to-Thursday release inside the periods is a queue RANK:
+   * the engine takes what the day has left and carries the rest to the next day, so there is
+   * no footprint to fit and nothing for either to do. A padlocked run is the plainest case
+   * of a literal drop, and it keeps these cases testing the rule they are about.
+   */
+  const resolve = (
+    date: string,
+    startMinutes: number,
+    durationMinutes: number,
+    locked = true,
+  ) => resolveDropDay({ days: WEEK, date, startMinutes, durationMinutes, locked, timeline: TIMELINE });
 
   it('leaves a release the day can hold exactly where it is', () => {
     expect(resolve('2026-08-18', 10 * 60, 120)).toEqual({
@@ -140,6 +151,7 @@ describe('resolveDropDay', () => {
       date: '2026-08-19',
       startMinutes: 19 * 60,
       durationMinutes: 360,
+      locked: true,
       timeline: TIMELINE,
     });
     // Thursday is closed, so it is Friday — the colchón, which is exactly what CLAUDE.md
@@ -185,6 +197,28 @@ describe('resolveDropDay', () => {
     });
     // 10 h 15 does not, and there is no day on the week that could take it.
     expect(resolve('2026-08-17', 18 * 60, 615).rolled).toBe(false);
+  });
+
+  it('neither rolls nor clamps an unlocked Monday-to-Thursday release', () => {
+    // THE GHOST ASKS THE SAME QUESTION THE SERVER DOES. 6 h released at 18:00 on a Tuesday
+    // used to be pulled to another column, or clamped up to 13:00 with «no pueden empezar
+    // después de…» — about a release that works perfectly well. It is a rank: the engine
+    // stores what Tuesday has left and carries the rest to Wednesday.
+    expect(resolve('2026-08-18', 18 * 60, 360, false)).toEqual({
+      date: '2026-08-18',
+      startMinutes: 18 * 60,
+      rolled: false,
+      clamped: false,
+    });
+    // Not even a run no day could hold.
+    expect(resolve('2026-08-18', 18 * 60, 3000, false)).toEqual({
+      date: '2026-08-18',
+      startMinutes: 18 * 60,
+      rolled: false,
+      clamped: false,
+    });
+    // The lunch band still reads as the next working minute — that is a different rule.
+    expect(resolve('2026-08-18', 14 * 60 + 30, 600, false).startMinutes).toBe(15 * 60 + 30);
   });
 
   it('says nothing about a date the week does not hold', () => {

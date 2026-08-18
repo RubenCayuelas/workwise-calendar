@@ -31,9 +31,7 @@
 import { getDb, type Db } from '../db';
 import { MIN_ROW_MINUTES, assertFitsInDay } from '../validation';
 import { compareDates, todayLocal } from '../dates';
-import { segmentDroppedRow } from '../dropSegments';
-import { dropLanding, type DropDay } from '../dropSlide';
-import { usesManualOnlyTime } from '../manualWindow';
+import { dropLanding, dropLandsLiterally, type DropDay } from '../dropSlide';
 import {
   dayReflows,
   releaseBlock as releaseBlockMarks,
@@ -76,6 +74,31 @@ export interface BlockMutation {
   /** Every row of the block's job after the recomposition, in queue order. */
   blocks: Block[];
   summary: ScheduleSummary;
+  /**
+   * THE ROWS THE GESTURE'S HOURS ENDED UP ON, in calendar order — the run the moved work
+   * is stored as, so they can be read straight out of `blocks`.
+   *
+   * One id for an ordinary gesture. TWO OR MORE once the hours filled what a day had left
+   * and carried on to the next day, which since *fill and overflow* is ordinary rather
+   * than exceptional: 6 h dropped into a 4 h afternoon comes back as `[Monday 4 h,
+   * Tuesday 2 h]`. `block` is only the first of them, so it cannot tell that story on its
+   * own — and a client that reads `block` alone reports half of what happened.
+   *
+   * Empty when the row no longer exists (auto-merge or the overlap merge absorbed it);
+   * `mergedBlockIds` is what says so.
+   */
+  placedBlockIds: string[];
+  /**
+   * FALSE WHEN THE REQUEST WROTE NOTHING AT ALL — not a row inserted, moved, resized,
+   * re-marked or deleted.
+   *
+   * It exists because a drop writes a queue RANK and the reflow may answer it with the
+   * calendar the owner already had, and that used to be indistinguishable from a drop that
+   * worked: the owner's own report was a 6 h job dropped onto Monday that answered 200 with
+   * the row still on Tuesday. Geometry cannot tell the two apart — a row that legitimately
+   * settles back into its own slot looks identical — so the server says it outright.
+   */
+  changed: boolean;
   /** Locked rows a transfer had to touch. Never silent — see CLAUDE.md. */
   touchedLockedBlockIds: string[];
   /**
@@ -177,18 +200,26 @@ export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb
     const durationMinutes = unit.reduce((total, row) => total + row.durationMinutes, 0);
     const absorbed = unit.filter((row) => row.id !== blockId).map((row) => row.id);
 
-    // Aimed below what the day can hold, the drop goes to the next day the engine would
-    // use — the plainest thing a calendar does. Everything below reads the LANDING.
+    // Aimed below what the day can hold, a drop that lands LITERALLY goes to the next day
+    // the engine would use — the plainest thing a calendar does. A drop that is a queue
+    // RANK is left exactly where it was released: the reflow fills what the day has left
+    // and carries the rest to the next day, which is the answer the roll was standing in
+    // for. Everything below reads the LANDING.
     const landing = dropLanding({
       date: input.date,
       startMinutes: input.startMinutes,
       durationMinutes,
+      locked: block.locked,
       dayOf: (date) => landingDay(date, dayOf, today),
     });
+    const pinned =
+      block.locked || pinsTheRow(landing.date, landing.startMinutes, durationMinutes, dayOf);
 
-    // The row keeps the unit's duration, so the drop point has to leave room for it: a
-    // block is a solid rectangle inside one day and cannot run past midnight.
-    assertFitsInDay(landing.startMinutes, durationMinutes);
+    // A row stored where it was released is a solid rectangle inside ONE day, so the drop
+    // point has to leave room for the unit's hours. A RANK carries no such promise — the
+    // engine decides the geometry — so all that has to hold there is that the rank is a
+    // time of day, which the route already checked.
+    if (pinned) assertFitsInDay(landing.startMinutes, durationMinutes);
     const blocks = stored
       .filter((row) => !absorbed.includes(row.id))
       .map((row) =>
@@ -200,9 +231,7 @@ export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb
               durationMinutes,
               // Added, never taken away: the padlock is the owner's mark, and a drop is
               // not the gesture that removes it.
-              locked:
-                row.locked ||
-                pinsTheRow(landing.date, landing.startMinutes, durationMinutes, dayOf),
+              locked: pinned,
             }
           : row,
       );
@@ -216,26 +245,15 @@ export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb
       deletedBlockIds: absorbed,
       manualPlacementBlockId: blockId,
     });
-    return settled(blockId, block.projectId, report, [], db);
+    return settled(blockId, block.projectId, report, [], today, dayOf, db);
   });
 }
 
 /**
- * Whether a drop PADLOCKS the row where it landed.
- *
- * The whole policy in one place — which places earn a padlock the owner did not press for.
- * Two reasons, and both are "the reflow's only possible answer here would be to undo the
- * drop":
- *
- * - THE DAY. The Friday buffer and the weekend are the days whose whole point is that the
- *   engine does not decide what sits there, so they keep exactly what the owner dropped.
- *   A day the engine auto-fills (Mon-Thu) takes a drop as a queue rank instead.
- * - THE SLOT. A drop into MANUAL-ONLY TIME — a visual margin, or the lunch band — on any
- *   day. CLAUDE.md promises the margins accept manual drag-drop, and the engine's index
- *   space has no margin minutes in it at all: an unpinned margin row is pulled straight
- *   back inside the periods, which is why the margins were configurable and unusable. The
- *   drop is cut over the manual windows first, so the test is asked of the rows that will
- *   really be stored.
+ * Whether a drop PADLOCKS the row where it landed — `dropLandsLiterally` asked of a stored
+ * day configuration. The policy itself lives in src/lib/dropSlide.ts, with the ghost's
+ * `dropPins` and `dropLanding`'s roll reading the same function, because it had grown three
+ * readers and two of them were hand-written mirrors.
  *
  * It decides the SLOT, and `resolveManualPlacement` may still move it: on a day the engine
  * reflows a padlocked drop slides forward to the first slot clear of a gap or a lock. What
@@ -253,11 +271,16 @@ function pinsTheRow(
   dayOf: (date: string) => ReturnType<typeof getDayConfig>,
 ): boolean {
   const config = dayOf(date);
-  if (config.role !== 'auto') return true;
-  return usesManualOnlyTime(
-    config.periods,
-    segmentDroppedRow(config.manualWindows, { startMinutes, durationMinutes }),
-  );
+  return dropLandsLiterally({
+    // The row's own padlock is the caller's business: it is added, never removed, so a
+    // gesture asks this only about the place it is aiming at.
+    locked: false,
+    role: config.role,
+    periods: config.periods,
+    manualWindows: config.manualWindows,
+    startMinutes,
+    durationMinutes,
+  });
 }
 
 export interface ResizeBlockInput {
@@ -338,7 +361,15 @@ export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = g
       grownProjectIds: edit.totalMinutesDelta > 0 ? [block.projectId] : undefined,
     });
 
-    return settled(blockId, block.projectId, report, edit.touchedLockedBlockIds, db);
+    return settled(
+      blockId,
+      block.projectId,
+      report,
+      edit.touchedLockedBlockIds,
+      today,
+      dayConfigResolver(db),
+      db,
+    );
   });
 }
 
@@ -372,7 +403,9 @@ export function releaseBlock(
     const block = requireBlock(blockId, db);
     const edit = requireEdit(releaseBlockMarks(listBlocks(db), blockId));
     const report = recompose(db, { today, blocks: edit.blocks });
-    return settled(blockId, block.projectId, report, [], db);
+    // No `wrote` override: the ruler is one of the fields `RecomposeReport.changed` compares,
+    // so clearing it registers even when the engine re-derives the same length.
+    return settled(blockId, block.projectId, report, [], today, dayConfigResolver(db), db);
   });
 }
 
@@ -407,7 +440,11 @@ export function setBlockLock(
     // create an overlap. A row that was unlocked was reflowed clear of everything,
     // and locking it leaves it exactly there.
     const report = recompose(db, { today });
-    return settled(blockId, block.projectId, report, [], db);
+    return settled(blockId, block.projectId, report, [], today, dayConfigResolver(db), db, {
+      // The padlock is written before the reflow reads its baseline, so the reflow itself
+      // never reports it. The toggle is a change whatever else moved.
+      wrote: block.locked !== locked,
+    });
   });
 }
 
@@ -456,9 +493,18 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
       date: input.date,
       startMinutes: input.startMinutes,
       durationMinutes: input.durationMinutes,
+      locked: block.locked,
       dayOf: (date) => landingDay(date, dayOf, today),
     });
-    assertFitsInDay(landing.startMinutes, input.durationMinutes);
+    // The fragment IS the drop, so it follows the same rule a move does: padlocked on the
+    // buffer, on the weekend and in manual-only time, an ordinary queue rank anywhere
+    // Monday to Thursday the engine can reach. On top of whatever the source row already
+    // carried, since splitting is not a decision about mobility.
+    const pinned =
+      block.locked ||
+      pinsTheRow(landing.date, landing.startMinutes, input.durationMinutes, dayOf);
+    // Only a fragment stored where it was released has a footprint to fit; a rank does not.
+    if (pinned) assertFitsInDay(landing.startMinutes, input.durationMinutes);
     if (input.durationMinutes >= block.durationMinutes) {
       throw conflict('split-exceeds-block', ERROR_MESSAGE_KEYS.splitExceedsBlock, {
         field: 'durationMinutes',
@@ -502,12 +548,7 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
       date: landing.date,
       startMinutes: landing.startMinutes,
       durationMinutes: input.durationMinutes,
-      // The fragment IS the drop, so it follows the same rule a move does: padlocked on
-      // the buffer, on the weekend and in manual-only time, an ordinary queue rank
-      // anywhere Monday to Thursday the engine can reach. On top of whatever the source
-      // row already carried, since splitting is not a decision about mobility.
-      locked:
-        block.locked || pinsTheRow(landing.date, landing.startMinutes, input.durationMinutes, dayOf),
+      locked: pinned,
       // A fragment's length is the portion the owner chose to MOVE, not a length
       // drawn on the calendar; `locked` is what pins a fragment to a slot.
       manualDuration: false,
@@ -516,7 +557,11 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
     });
 
     const report = recompose(db, { today, blocks: draft, manualPlacementBlockId: fragmentId });
-    return settled(blockId, block.projectId, report, [], db);
+    // `block` stays the row that was CUT — that is the row the request named — while
+    // `placedBlockIds` answers for the FRAGMENT, because those are the hours that moved.
+    return settled(blockId, block.projectId, report, [], today, dayOf, db, {
+      placedBlockId: fragmentId,
+    });
   });
 }
 
@@ -619,6 +664,7 @@ function landingDay(
     periods: config.periods,
     manualWindows: config.manualWindows,
     reflows: dayReflows(config, date, today),
+    role: config.role,
   };
 }
 
@@ -631,18 +677,47 @@ function assertNotPastTarget(date: string, today: string): void {
   });
 }
 
-/** Re-reads the row the request named, which the reflow may have merged away. */
+/**
+ * Re-reads the row the request named, which the reflow may have merged away, and says what
+ * the request DID — the two things a gesture cannot be read off geometry.
+ *
+ * `placedBlockIds` is the RUN the gesture's hours ended up as, read with the engine's own
+ * `unitOf` so a client is told about the same unit the grid will draw: consecutive rows of
+ * that job with no other movable job between them, a night not breaking one. Since *fill
+ * and overflow* that is routinely more than one row, and `block` is only the first of them.
+ * Deriving the run from the PLACEMENT is safe here in a way it would never be inside the
+ * engine — nothing decides anything from it, it is a report.
+ */
 function settled(
   blockId: string,
   projectId: string,
   report: RecomposeReport,
   touchedLockedBlockIds: string[],
+  today: string,
+  dayOf: (date: string) => DayConfig,
   db: Db,
+  options: {
+    /**
+     * The row whose hours the gesture moved, when that is not the row the request named —
+     * the scissors' fragment.
+     */
+    placedBlockId?: string;
+    /** The request wrote something the RECOMPOSITION cannot see: a mark set before it ran. */
+    wrote?: boolean;
+  } = {},
 ): BlockMutation {
+  const placed = findBlock(options.placedBlockId ?? blockId, db);
   return {
     block: findBlock(blockId, db) ?? null,
     blocks: listBlocksByProject(projectId, db),
     summary: report.summary,
+    placedBlockIds:
+      placed === undefined
+        ? []
+        : unitOf(report.blocks, placed, (date) => dayOf(date).manualWindows, today).map(
+            (row) => row.id,
+          ),
+    changed: (options.wrote ?? false) || report.changed,
     touchedLockedBlockIds,
     mergedBlockIds: report.mergedBlockIds,
     displacedProjectIds: report.displacedProjectIds,

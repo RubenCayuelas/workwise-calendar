@@ -30,6 +30,7 @@ import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import { useFormat } from '../../lib/useFormat';
 import { addDays } from '../../lib/dates';
 import { netMinutesOf } from '../../lib/manualWindow';
+import { fillStartFor, planDropSpill, spillByDay, type SpillDay } from '../../lib/dropSpill';
 import { planCloseDay, type CloseDayInput, type CloseDayRequest } from '../../lib/closeDay';
 import type { Gap } from '../../types';
 import type { WeekBlock, WeekDay, WeekView } from '../../lib/api-client';
@@ -47,6 +48,7 @@ import {
   buildDropQueue,
   dayHoldsMinutes,
   dayReflowsOn,
+  dropPins,
   dropPredecessor,
   footprintEnd,
   footprintWithinDay,
@@ -66,6 +68,27 @@ export interface PlacingFragment {
   projectName: string;
   color: string;
   durationMinutes: number;
+}
+
+/**
+ * THE DROP AS THE REFLOW WILL LAY IT OUT — the ghost of a drop that is a queue RANK, which
+ * since *Fill and Overflow, Always* is a set of rows across DAYS rather than one rectangle on
+ * one column.
+ *
+ * `null` (see `ghost` in `WeekGrid`) for every gesture whose minute is the promise: a resize,
+ * and a drop that lands literally. Those keep the literal drawing, the roll and the clamp.
+ */
+interface GhostPlan {
+  /** The day the pointer released on — which may take none of the hours. */
+  date: string;
+  /** Every row the hours will be stored as, in calendar order, over every column. */
+  pieces: readonly { date: string; startMinutes: number; durationMinutes: number }[];
+  /** The same, one entry per DAY: what the label's «4 h el lunes · 2 h el martes» reads. */
+  byDay: readonly { date: string; minutes: number }[];
+  /** Hours that carry on past the week on screen. */
+  beyondMinutes: number;
+  /** The row the drop ranks itself behind, or `null` when the queue reaches back further. */
+  rankAfter: QueueRow | null;
 }
 
 /** Where a row was released, so the grid can animate it to where it landed. */
@@ -224,6 +247,113 @@ export function WeekGrid({
     return buildDropQueue(view.blocks, (date) => reflowing.has(date));
   }, [view.blocks, view.days]);
 
+  /**
+   * WHERE THE DROP'S HOURS WILL REALLY GO, while the pointer is still down — *Fill and
+   * Overflow, Always* drawn instead of described.
+   *
+   * A drop that is only a queue RANK has no footprint to fit any more: the engine takes what
+   * the day has left from the work in front of it and carries the rest to the next day it can
+   * use. So the ghost is not one rectangle on one column — it is the ROWS the gesture will be
+   * stored as, and for a 6 h release into a 4 h afternoon that is 4 h here and 2 h on the next
+   * column. Everything the drag layer used to say instead («6 h no pueden empezar después de
+   * las 13:00», «no caben en un solo día») was the deleted rule talking.
+   *
+   * Computed once for the WEEK rather than per column, because the answer spans columns, and
+   * `null` for every gesture whose minute really is the promise — a resize, and a drop that
+   * lands LITERALLY (the buffer, the weekend, a margin, a padlocked row). There the roll, the
+   * clamp and the end-of-day refusal still apply and the old drawing is exactly right.
+   */
+  const planDrop = useCallback(
+    (input: {
+      date: string;
+      startMinutes: number;
+      durationMinutes: number;
+      /** Rows the gesture takes OFF the calendar, so they are not obstacles to themselves. */
+      movingBlockIds: readonly string[];
+    }): GhostPlan | null => {
+      const released = view.days.find((day) => day.date === input.date);
+      if (released === undefined) return null;
+
+      // The run in the air is not an obstacle to itself, and the hours it frees on its old day
+      // are hours the reflow may use.
+      const moving = new Set(input.movingBlockIds);
+      const rowsOn = (date: string): WeekBlock[] =>
+        view.blocks.filter((block) => block.date === date && !moving.has(block.id));
+      const gapsOn = (date: string): Gap[] => view.gaps.filter((gap) => gap.date === date);
+      // What nothing will move out of the way, which is exactly what the engine treats as an
+      // obstacle: a gap and a padlocked row. Ordinary work is ranked BEHIND the drop now, so it
+      // is laid out after these hours rather than costing them room.
+      const immovableOn = (date: string) =>
+        [...gapsOn(date), ...rowsOn(date).filter((row) => row.locked)].map((row) => ({
+          startMinutes: row.startMinutes,
+          durationMinutes: row.durationMinutes,
+        }));
+
+      // The hours begin where the work in FRONT of them ends — see `fillStartFor`. Measured
+      // against everything on the day, because strict queue order keeps all of it in front.
+      const fromMinutes = fillStartFor(
+        released.periods,
+        [...gapsOn(input.date), ...rowsOn(input.date)],
+        input.startMinutes,
+      );
+      // The day's stop-line less what the work ahead of the drop has already spent of it.
+      // `plannableMinutes` has the gaps and the locks out of it already; ordinary rows are what
+      // is left to account for, and only the part of them above the fill start.
+      const spentAhead = rowsOn(input.date)
+        .filter((row) => !row.locked)
+        .reduce(
+          (total, row) =>
+            total + Math.max(0, Math.min(row.durationMinutes, fromMinutes - row.startMinutes)),
+          0,
+        );
+
+      const days: SpillDay[] = [
+        {
+          date: input.date,
+          periods: released.periods,
+          immovable: immovableOn(input.date),
+          budgetMinutes: Math.max(0, released.plannableMinutes - spentAhead),
+          fromMinutes,
+        },
+        // The days the overflow may use: the ones the engine lays out, and not the colchón —
+        // the buffer takes overflow only from work that GREW (`acceptsItem`), so a moved run's
+        // remainder skips Friday exactly as a new job's tail does.
+        ...view.days
+          .filter((day) => day.date > input.date && dayReflowsOn(day) && day.role !== 'buffer')
+          .map((day) => ({
+            date: day.date,
+            periods: day.periods,
+            immovable: immovableOn(day.date),
+            budgetMinutes: day.plannableMinutes,
+          })),
+      ];
+
+      const spill = planDropSpill({ days, durationMinutes: input.durationMinutes });
+      return {
+        date: input.date,
+        pieces: spill.pieces,
+        byDay: spillByDay(spill.pieces),
+        beyondMinutes: spill.beyondMinutes,
+        // The one true thing a rank can say about its position: the row it falls in behind.
+        rankAfter: dropPredecessor(queue, input.movingBlockIds, input.date, input.startMinutes),
+      };
+    },
+    [view, queue],
+  );
+
+  const ghost = useMemo<GhostPlan | null>(() => {
+    const preview = drag.preview;
+    const target = drag.target;
+    if (preview === null || target === null) return null;
+    if (preview.kind !== 'move' || !preview.allowed || preview.pinned === true) return null;
+    return planDrop({
+      date: preview.date,
+      startMinutes: preview.startMinutes,
+      durationMinutes: preview.durationMinutes,
+      movingBlockIds: target.blockIds,
+    });
+  }, [drag.preview, drag.target, planDrop]);
+
   useSettleAnimation({ gridRef, settle, timeline, view, onSettled });
 
   // Where the fragment would land. Only tracked while placing, so the grid does not
@@ -233,19 +363,76 @@ export function WeekGrid({
     if (placing === null) setHover(null);
   }, [placing]);
 
+  /**
+   * THE SAME ANSWER FOR THE SCISSORS' SECOND CLICK. A fragment is a drop: on a day the engine
+   * lays out it takes a queue rank, so its hours fill what the day has left and the rest
+   * carries on, and the preview has to draw that rather than one rectangle running into the
+   * bottom margin — which is what capping it at the day's manual window produced once the
+   * clamp stopped pulling it up the column.
+   *
+   * `movingBlockIds` is EMPTY here, and that is the difference from a drag: the source row does
+   * not leave the calendar, it only gets shorter, so it is still in front of the fragment in
+   * the queue and still holds its minutes.
+   */
+  const placingGhost = useMemo<GhostPlan | null>(() => {
+    if (placing === null || hover === null) return null;
+    const day = view.days.find((candidate) => candidate.date === hover.date);
+    if (day === undefined || day.isPast) return null;
+    if (
+      dropPins({
+        locked: false,
+        role: day.role,
+        periods: day.periods,
+        manualWindows: day.manualWindows,
+        startMinutes: hover.startMinutes,
+        durationMinutes: placing.durationMinutes,
+      })
+    ) {
+      return null;
+    }
+    return planDrop({
+      date: hover.date,
+      startMinutes: hover.startMinutes,
+      durationMinutes: placing.durationMinutes,
+      movingBlockIds: [],
+    });
+  }, [placing, hover, view.days, planDrop]);
+
   const slotUnder = useCallback(
     (event: { clientX: number; clientY: number }): { date: string; startMinutes: number } | null => {
       const metrics = measure();
       if (metrics === null) return null;
       const hit = slotAt({ x: event.clientX, y: event.clientY }, metrics, timeline);
       if (hit === undefined) return null;
-      // Clamped over the DAY, like a drop: the fragment is a row, and a row ends inside its
-      // day. Both the ghost and the click that commits it read this one answer, so the
-      // scissors cannot promise 19:45 and then store a row running to 20:45.
-      const windows = view.days.find((day) => day.date === hit.date)?.manualWindows ?? [];
+      const day = view.days.find((candidate) => candidate.date === hit.date);
+      const durationMinutes = placing?.durationMinutes ?? 0;
+      /*
+       * CLAMPED OVER THE DAY ONLY WHERE THE FRAGMENT LANDS LITERALLY — the weekend, the
+       * colchón, a visual margin (2026-08-17).
+       *
+       * There the fragment is a row stored exactly where it is put, and a row ends inside its
+       * day: both the ghost and the click that commits it read this one answer, so the
+       * scissors cannot promise 19:45 and then store a row running to 20:45. On a day the
+       * engine lays out the click is a queue RANK, and pulling it up to "the latest start that
+       * fits" is the deleted rule — it would rank a 6 h fragment aimed at the afternoon back
+       * inside the morning, cutting a row nobody aimed at, when the reflow would have filled
+       * the afternoon and carried the rest to the next day.
+       */
+      const literal =
+        day === undefined ||
+        dropPins({
+          locked: false,
+          role: day.role,
+          periods: day.periods,
+          manualWindows: day.manualWindows,
+          startMinutes: hit.snappedMinutes,
+          durationMinutes,
+        });
       return {
         date: hit.date,
-        startMinutes: clampDropStart(windows, hit.snappedMinutes, placing?.durationMinutes ?? 0, timeline),
+        startMinutes: literal
+          ? clampDropStart(day?.manualWindows ?? [], hit.snappedMinutes, durationMinutes, timeline)
+          : hit.snappedMinutes,
       };
     },
     [measure, placing, timeline, view.days],
@@ -341,10 +528,11 @@ export function WeekGrid({
               slide={slide}
               gapColor={view.settings.gapColor}
               busy={busy || stale}
-              queue={queue}
+              ghost={ghost}
               drag={drag}
               placing={placing}
               placingSlot={hover}
+              placingGhost={placingGhost}
               onOpenJob={onOpenJob}
               onOpenGap={onOpenGap}
               onPressGap={onPressGap}
@@ -538,12 +726,22 @@ interface DayColumnProps {
    * (`InertReason.busy`) instead of quietly doing nothing.
    */
   busy: boolean;
-  /** The week's movable rows in queue order, for what a re-ranking drop will say. */
-  queue: readonly QueueRow[];
+  /**
+   * THE WHOLE GESTURE'S GHOST, or `null` when it is a literal placement — see `GhostPlan`.
+   * Every column reads it, because a drop's hours now land on more than one of them: the
+   * column draws the pieces that are its own and nothing else.
+   */
+  ghost: GhostPlan | null;
   drag: DragController;
   placing: PlacingFragment | null;
   /** The slot the pointer is over while placing a fragment. */
   placingSlot: { date: string; startMinutes: number } | null;
+  /**
+   * The fragment's hours as the reflow will lay them out, or `null` when it lands literally
+   * (the weekend, the colchón, a margin) and the slot itself is the promise. Same shape and
+   * same arithmetic as a drag's `ghost`, because a fragment is a drop.
+   */
+  placingGhost: GhostPlan | null;
   onOpenJob: (projectId: string) => void;
   onOpenGap?: (gap: Gap) => void;
   /** Arms the "a gap is not dragged" hint. One handler for every gap on the grid. */
@@ -571,10 +769,11 @@ function DayColumn({
   slide,
   gapColor,
   busy,
-  queue,
+  ghost,
   drag,
   placing,
   placingSlot,
+  placingGhost,
   onOpenJob,
   onOpenGap,
   onPressGap,
@@ -590,6 +789,14 @@ function DayColumn({
 
   const bands = nonWorkingBands(day.periods, timeline);
   const preview = drag.preview?.date === day.date ? drag.preview : null;
+  /**
+   * THE GESTURE ITSELF, whichever column it was released over.
+   *
+   * `preview` is this column's own view of it and is null on every other column. The ghost's
+   * COLOUR and its TOTAL HOURS belong to the whole drag, and since a drop's hours now land on
+   * the next column too (`GhostPlan`), they are needed where there is no `preview` at all.
+   */
+  const gesture = drag.preview;
 
   /*
    * IS THIS COLUMN'S CONTENT TRAVELLING RIGHT NOW? True from the mount of a column that
@@ -663,7 +870,12 @@ function DayColumn({
     });
   }, [preview, drag.target, groups, gaps, day]);
 
-  const ranked = resolution !== null && !resolution.pinned;
+  /**
+   * A RANK, NOT A PLACE. One question, asked of the whole gesture rather than of this column:
+   * `ghost` is non-null exactly when the drop is a queue rank, which is exactly when the
+   * ghost's minutes are an aim and its clock range would be a promise nothing made.
+   */
+  const ranked = ghost !== null;
 
   /** Where the ghost is really drawn: the release point, or the slid one. */
   const ghostStartMinutes = resolution?.startMinutes ?? preview?.startMinutes ?? 0;
@@ -672,11 +884,28 @@ function DayColumn({
    * The row a re-ranked drop lands behind, if the week on screen can see it. `null` says
    * the queue reaches back further than this week, and the ghost falls back to naming the
    * rank without naming a neighbour rather than claiming a first place it cannot check.
+   *
+   * Read off the plan rather than recomputed here, because the rank belongs to the RELEASE and
+   * the label may be drawn on another column — a drop into ten free minutes takes none of them
+   * and its first row is on the next day.
    */
-  const rankAfter =
-    !ranked || drag.target === null
-      ? null
-      : dropPredecessor(queue, drag.target.blockIds, day.date, ghostStartMinutes);
+  const rankAfter = ghost?.rankAfter ?? null;
+
+  /**
+   * THE PIECES OF THE GESTURE THAT LAND ON THIS COLUMN, and the one that carries the label.
+   *
+   * A drop's hours fill what the day has left and carry on, so the ghost is drawn on every
+   * column they reach: the release column, the day after it, sometimes the day after that.
+   * The FIRST piece of the whole gesture carries the sentence — normally on the release
+   * column, and on the next one when the release day could not take a single legal row.
+   */
+  const spillPieces = ghost === null ? [] : ghost.pieces.filter((piece) => piece.date === day.date);
+  const carriesLabel =
+    ghost === null
+      ? preview !== null
+      : (ghost.pieces[0]?.date ?? ghost.date) === day.date;
+  /** This column's own share of the hours, for the bare "…sigue" label on a continuation. */
+  const spillMinutes = spillPieces.reduce((total, piece) => total + piece.durationMinutes, 0);
 
   /**
    * What the drop hovering over this column will do to the row underneath it — a cut,
@@ -701,10 +930,20 @@ function DayColumn({
    * which drew a single rectangle over the whole column, hatched lunch band included, for
    * every multi-day run the owner picked up. Capped at what the day holds, the shape is a
    * shape that can exist again.
+   *
+   * A DROP THAT IS A RANK IS DRAWN FROM THE PLAN INSTEAD (2026-08-17), because the day no
+   * longer takes all of it or none of it: `GhostPlan.pieces` are the rows the reflow will
+   * store, so they are cut at the break, stop where the day's periods do, skip what nothing
+   * will move out of the way, and are never shorter than a quarter of an hour — every rule the
+   * old single rectangle had to be capped and clamped into obeying.
    */
-  const ghostRows = useMemo(
-    () =>
-      preview === null
+  const ghostRows: readonly { startMinutes: number; durationMinutes: number }[] =
+    // The exotic case where not one of the days on screen can hold a legal row is left to the
+    // literal drawing: something has to be under the pointer, and the label then says where
+    // the hours really carry on to.
+    ghost !== null && ghost.pieces.length > 0
+      ? spillPieces
+      : preview === null
         ? []
         : footprintWithinDay({
             manualWindows: day.manualWindows,
@@ -713,9 +952,7 @@ function DayColumn({
             // the pointer would promise a slot the row never takes.
             startMinutes: ghostStartMinutes,
             durationMinutes: preview.durationMinutes,
-          }),
-    [preview, day.manualWindows, ghostStartMinutes],
-  );
+          });
 
   /**
    * Where the whole gesture ends on the clock — its last segment's end, lunch included —
@@ -747,9 +984,16 @@ function DayColumn({
    * own. Only a multi-day run gets here, and it is why the clamp has nothing true to say:
    * `latestStartFor` falls back to the first window's start when nothing fits, so the
    * ghost's «no pueden empezar después de las 07:00» claimed 07:00 would do.
+   *
+   * ASKED ONLY OF A DROP THAT LANDS LITERALLY (2026-08-17). On a day the engine lays out, "these
+   * hours do not fit in one day" is the deleted rule speaking: the run takes what the day has
+   * and the rest carries on, so what the ghost has to say there is the DIVISION, which the plan
+   * draws and the label names. A resize keeps it — its length really is stored on one day.
    */
   const longerThanTheDay =
-    preview !== null && !dayHoldsMinutes(day.manualWindows, preview.durationMinutes);
+    preview !== null &&
+    ghost === null &&
+    !dayHoldsMinutes(day.manualWindows, preview.durationMinutes);
 
   /**
    * The day as the "stop the day here" planner reads it, or `null` where the action makes
@@ -774,6 +1018,53 @@ function DayColumn({
       gaps,
     };
   }, [onCloseDay, day, groups, gaps]);
+
+  /**
+   * «4 h el lun 17 · 2 h el mar 18» — WHAT BECOMES OF THE HOURS, named day by day, and the
+   * one sentence this whole round exists for.
+   *
+   * Said only when there is something to say: hours that leave the day the pointer is on. All
+   * of them staying here needs no sentence, because then the rectangle IS the answer — and the
+   * days are named rather than counted, since "se parte en dos" would not tell the owner which
+   * two days their week just changed on.
+   */
+  const carryTextFor = (plan: GhostPlan | null): string | null => {
+    if (plan === null) return null;
+    const parts = plan.byDay.map((part) => format.hoursOnDay(part.date, part.minutes));
+    // The week on screen ran out before the hours did. The engine walks a whole planning
+    // horizon, so this is "they carry on further along", never "they do not fit".
+    if (plan.beyondMinutes > 0) {
+      parts.push(t('grid.dropCarriesLater', { hours: format.hourNumber(plan.beyondMinutes) }));
+    }
+    if (parts.length < 2 && plan.byDay[0]?.date === plan.date) return null;
+    return t('grid.dropFillsAndCarries', { parts: parts.join(t('units.listSeparator')) });
+  };
+
+  const carrySentence = carriesLabel ? carryTextFor(ghost) : null;
+
+  /**
+   * The same three answers for the scissors' fragment: the rectangles that are this column's,
+   * whether this column carries the words, and what the words say about the other days.
+   */
+  const placingPieces =
+    placingGhost === null ? [] : placingGhost.pieces.filter((piece) => piece.date === day.date);
+  const placingRows: readonly { startMinutes: number; durationMinutes: number }[] =
+    placing === null || placingSlot === null
+      ? []
+      : placingGhost !== null && placingGhost.pieces.length > 0
+        ? placingPieces
+        : placingSlot.date === day.date
+          ? footprintWithinDay({
+              manualWindows: day.manualWindows,
+              startMinutes: placingSlot.startMinutes,
+              durationMinutes: placing.durationMinutes,
+            })
+          : [];
+  const placingCarriesLabel =
+    placingGhost === null || placingGhost.pieces.length === 0
+      ? placingSlot?.date === day.date
+      : (placingGhost.pieces[0]?.date ?? placingGhost.date) === day.date;
+  const placingCarry = placingCarriesLabel ? carryTextFor(placingGhost) : null;
 
   // "libre" on a working day with nothing on it, "—" on a day the engine never touches.
   const emptyLabel =
@@ -989,7 +1280,7 @@ function DayColumn({
         })}
       </div>
 
-      {preview === null
+      {gesture === null
         ? null
         : ghostRows.map((row, index) => (
             <div
@@ -999,15 +1290,20 @@ function DayColumn({
                 // An insertion point rather than a placement: hollow, with a rule on the
                 // edge the drop ranks itself at. See `ranked` above.
                 ranked ? styles.ghostRanked : '',
-                index === 0 ? '' : styles.ghostContinued,
+                // ONE INSERTION POINT PER GESTURE, however many rectangles the hours land in
+                // and on however many columns: the heavy rule marks the drop's own first row,
+                // everything after it is a continuation. Asked of the whole gesture rather
+                // than of this column, or the hours carried to the next day would draw a
+                // second rank on a day the owner never released over.
+                index === 0 && carriesLabel ? '' : styles.ghostContinued,
                 // A refusal is drawn like a forbidden day: the save writes nothing either
                 // way. (`dropEffect` is null unless `allowed`, so this reads as one test.)
-                preview.allowed && dropEffect?.kind !== 'blocked' ? '' : styles.ghostDenied,
+                gesture.allowed && dropEffect?.kind !== 'blocked' ? '' : styles.ghostDenied,
               ]
                 .filter(Boolean)
                 .join(' ')}
               style={{
-                '--ww-block-color': preview.color,
+                '--ww-block-color': gesture.color,
                 top: `${timeline.yOf(row.startMinutes)}px`,
                 // Both edges through the axis, which clamps: a long unit dropped late in the
                 // day genuinely runs past the last period once the lunch break is added
@@ -1016,12 +1312,23 @@ function DayColumn({
               } as React.CSSProperties}
             >
               {/*
-               * The first rectangle carries the whole gesture — the span it runs over and
-               * the NET hours it is — exactly as a stored unit puts its name and hours on
-               * its first row and leaves the continuation bare. Per-rectangle labels would
-               * read as two separate drops, which is the one thing this is not.
+               * ONE LABEL PER GESTURE, on its FIRST rectangle wherever that is — normally
+               * the release column, and the next one when the release day could not take a
+               * single legal row. Every other rectangle of the drop is bare, exactly as a
+               * stored unit puts its name and hours on its first row: per-rectangle labels
+               * would read as two separate drops, which is the one thing this is not.
+               *
+               * A column that only holds the CARRIED hours says just that, so the owner can
+               * see how much landed there without reading the sentence on the other column.
                */}
-              {index === 0 ? (
+              {index === 0 && !carriesLabel ? (
+                <div className={styles.ghostLabel}>
+                  <span className={styles.ghostMeta}>
+                    {t('grid.dropCarries', { hours: format.hourNumber(spillMinutes) })}
+                  </span>
+                </div>
+              ) : null}
+              {index === 0 && carriesLabel ? (
                 /*
                  * The words sit on their own backing. The ghost itself is translucent so the
                  * row or the reserved gap underneath stays visible — which is the whole point
@@ -1047,7 +1354,20 @@ function DayColumn({
                         : format.timeRange(ghostStartMinutes, ghostEndMinutes)}
                     </span>
                   )}
-                  <span className={styles.ghostMeta}>{format.hours(preview.durationMinutes)}</span>
+                  {/*
+                   * THE HOURS — or, when they do not all land on this day, WHERE THEY GO.
+                   *
+                   * Since *Fill and Overflow, Always* a drop on a day the engine lays out is
+                   * not "it fits" or "it does not": it fills what is left and the rest carries
+                   * on, so the honest thing to say is which day gets how much. It REPLACES the
+                   * bare total rather than being added under it — the total is the sum of the
+                   * parts, and on a 155 px column a 1,5 h rectangle holds four lines, not six.
+                   */}
+                  {carrySentence === null ? (
+                    <span className={styles.ghostMeta}>{format.hours(gesture.durationMinutes)}</span>
+                  ) : (
+                    <span className={styles.ghostSplit}>{carrySentence}</span>
+                  )}
                   {!ranked ? null : (
                     <span className={styles.ghostRank}>
                       {rankAfter === null
@@ -1062,6 +1382,12 @@ function DayColumn({
                    * that is 13:00, which leaves the whole afternoon meaning one thing and
                    * the ghost sitting still while the pointer keeps going. The rule is
                    * real; the silence was the defect.
+                   *
+                   * BOTH OF THESE ARE NOW ABOUT A DROP THAT LANDS LITERALLY ONLY — the
+                   * buffer, the weekend, a margin, a padlocked row. On Monday-Thursday a
+                   * release below what the day holds is neither rolled nor clamped, so
+                   * `preview.rolled` and `preview.clamped` are false there by construction
+                   * and the sentence above is what answers instead.
                    */}
                   {/*
                    * THE DROP MOVED TO THIS DAY because the one the pointer is over cannot
@@ -1070,7 +1396,7 @@ function DayColumn({
                    * this only names the reason; without it the jump to the next column is
                    * the app appearing to lose the drag.
                    */}
-                  {preview.rolled !== true ? null : (
+                  {preview?.rolled !== true ? null : (
                     <span className={styles.ghostClamped}>
                       {t('grid.dropNextDay', { day: format.dayHeader(day.date) })}
                     </span>
@@ -1086,14 +1412,14 @@ function DayColumn({
                   {longerThanTheDay ? (
                     <span className={styles.ghostClamped}>
                       {t('grid.dropLongerThanDay', {
-                        hours: format.hourNumber(preview.durationMinutes),
+                        hours: format.hourNumber(gesture.durationMinutes),
                         dayHours: format.hourNumber(netMinutesOf(day.manualWindows)),
                       })}
                     </span>
-                  ) : preview.clamped !== true ? null : (
+                  ) : preview?.clamped !== true ? null : (
                     <span className={styles.ghostClamped}>
                       {t('grid.dropNoLower', {
-                        hours: format.hourNumber(preview.durationMinutes),
+                        hours: format.hourNumber(gesture.durationMinutes),
                         time: format.time(preview.startMinutes),
                       })}
                     </span>
@@ -1120,20 +1446,15 @@ function DayColumn({
           ))}
 
       {/* A split fragment waiting for its target. It is a drop like any other, so it is
-          previewed in segments too — a 5 h fragment placed at 10:00 crosses lunch and is
-          stored as two rows exactly as a dragged one is. */}
-      {placing === null || placingSlot === null || placingSlot.date !== day.date
-        ? null
-        : footprintWithinDay({
-            manualWindows: day.manualWindows,
-            startMinutes: placingSlot.startMinutes,
-            durationMinutes: placing.durationMinutes,
-          }).map((row, index) => (
+          previewed exactly like one: in segments where it lands literally, and as the rows the
+          reflow will lay it out in — this day's share and the next day's — where it is a rank. */}
+      {placing === null || placingSlot === null ? null : placingRows.map((row, index) => (
             <div
               key={row.startMinutes}
               className={[
                 styles.ghost,
-                index === 0 ? '' : styles.ghostContinued,
+                placingGhost === null ? '' : styles.ghostRanked,
+                index === 0 && placingCarriesLabel ? '' : styles.ghostContinued,
                 day.isPast ? styles.ghostDenied : '',
               ]
                 .filter(Boolean)
@@ -1144,13 +1465,27 @@ function DayColumn({
                 height: `${timeline.heightBetween(row.startMinutes, row.startMinutes + row.durationMinutes)}px`,
               } as React.CSSProperties}
             >
-              {index === 0 ? (
+              {index !== 0 ? null : placingCarriesLabel ? (
                 <div className={styles.ghostLabel}>
                   <span className={styles.ghostName}>{placing.projectName}</span>
-                  <span className={styles.ghostMeta}>{format.hours(placing.durationMinutes)}</span>
+                  {placingCarry === null ? (
+                    <span className={styles.ghostMeta}>{format.hours(placing.durationMinutes)}</span>
+                  ) : (
+                    <span className={styles.ghostSplit}>{placingCarry}</span>
+                  )}
                   <span className={styles.ghostMeta}>{t('grid.dropHere')}</span>
                 </div>
-              ) : null}
+              ) : (
+                <div className={styles.ghostLabel}>
+                  <span className={styles.ghostMeta}>
+                    {t('grid.dropCarries', {
+                      hours: format.hourNumber(
+                        placingRows.reduce((total, piece) => total + piece.durationMinutes, 0),
+                      ),
+                    })}
+                  </span>
+                </div>
+              )}
             </div>
           ))}
     </div>

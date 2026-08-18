@@ -61,6 +61,15 @@ export interface Formatter {
   /** "27 ago 2026" — for lists and confirmations. */
   mediumDate(date: string): string;
 
+  /**
+   * "4 h el Mié 12" — an amount of work and the day it lands on.
+   *
+   * One phrase, two readers, on purpose: the ghost says «4 h el lun 17 · 2 h el mar 18» while
+   * the pointer is down and the notice afterwards repeats it, so a drop that fills a day and
+   * carries the rest on is described in the same words before and after it happens.
+   */
+  hoursOnDay(date: string, minutes: number): string;
+
   /** "Mié 12 · 08:00–14:00" — the job panel's block rows. */
   dayTime(date: string, startMinutes: number, endMinutes: number): string;
   /** "Mié 12 · 08:00–14:00 · 6 h" — the same row with its duration. */
@@ -117,6 +126,9 @@ export function useFormat(): Formatter {
       todayOption: (date) => t('units.dayOptionToday', { date: dayOption(date) }),
       longDate: (date) => formatLongDate(date, language),
       mediumDate: (date) => formatMediumDate(date, language),
+
+      hoursOnDay: (date, minutes) =>
+        t('units.hoursOnDay', { hours: hourNumber(minutes), day: dayHeader(date) }),
 
       dayTime: (date, startMinutes, endMinutes) =>
         t('units.dayTime', {

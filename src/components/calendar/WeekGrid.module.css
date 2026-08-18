@@ -626,13 +626,23 @@
 }
 
 /*
- * The continuation of a ranked drop is drawn faintly: the segments a re-ranked drop would
- * be cut into are the reflow's business, not the owner's, and a second heavy rule would
- * read as a second insertion point.
+ * THE CONTINUATION OF A RANKED DROP IS THE ANSWER NOW, not a footnote (2026-08-17).
+ *
+ * It used to be drawn at 0.6 opacity because "the segments a re-ranked drop would be cut into
+ * are the reflow's business, not the owner's". Since *Fill and Overflow, Always* they are
+ * exactly the owner's business: the second rectangle is the hours that did NOT fit today, on
+ * the day they carry to, which is the whole thing the drag has to say. At 0.6 over another
+ * job's solid fill it was invisible — measured on the locked-block case, where the piece
+ * after the padlock could not be seen at all.
+ *
+ * So it keeps the ghost's own fill and only the RULE stays quiet: one heavy rule per gesture,
+ * on the edge the rank is taken at, because there is one insertion point however many
+ * rectangles the hours land in.
  */
 .ghostRanked.ghostContinued {
   border-top: var(--ww-hairline) dashed color-mix(in srgb, var(--ww-block-color) 45%, transparent);
-  opacity: 0.6;
+  background: color-mix(in srgb, var(--ww-block-color) 16%, transparent);
+  opacity: 0.9;
 }
 
 /* The rank in words: the row this will fall in behind. It replaces the clock range, which
@@ -718,6 +728,20 @@
   margin-top: 2px;
   color: var(--ww-warning);
   font-size: var(--ww-text-xs);
+}
+
+/*
+ * WHAT BECOMES OF THE HOURS: «3 h el Mié 19 · 3 h el Jue 20».
+ *
+ * Deliberately NOT `.ghostClamped`'s warning colour. Filling a day and carrying the rest to
+ * the next one is what the engine does with EVERY drop now, not a snag the owner has to fix —
+ * drawn in amber it read as the refusal this round exists to delete. It takes the place of the
+ * bare total, so it keeps the total's tabular figures and wraps rather than being clipped.
+ */
+.ghostSplit {
+  font-size: var(--ww-text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ww-text-muted);
 }
 
 /* --------------------------------------------------------------------------

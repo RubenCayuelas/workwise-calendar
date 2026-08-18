@@ -522,11 +522,18 @@ interface Interval {
 /**
  * Where hours physically fit on a day `compose` will not place on — the weekend.
  *
- * The same question `buildManualDayPlan` answers inside the engine for a displaced tail,
- * with the engine's two rules kept: a run that can hold the job WHOLE is preferred over
- * splitting it to make it fit, and every row sits inside ONE working period, so nothing
- * straddles the lunch break. Capacity is not applied: it is a stop-line for auto-fill and
- * "never blocks manual placement", and a day the owner chose by hand is manual placement.
+ * The same question `buildManualDayPlan` answers inside the engine for a displaced tail.
+ * Every row sits inside ONE working period, so nothing straddles the lunch break, and
+ * capacity is not applied: it is a stop-line for auto-fill and "never blocks manual
+ * placement", and a day the owner chose by hand is manual placement.
+ *
+ * A RUN THAT HOLDS THE HOURS WHOLE IS STILL PREFERRED HERE, and that is NOT the rule
+ * *Fill and Overflow, Always* deleted (2026-08-17). That rule was about a job that did not
+ * fit being thrown at ANOTHER DAY, leaving this one's tail empty; nothing of the kind
+ * happens here — whatever a chosen day cannot hold goes straight back to `compose`, and no
+ * hour is left free either way. What is left is a preference for CONTIGUITY on a day the
+ * owner named by hand: given a free hour at 08:00 and four from 10:00, a 3 h job asked for
+ * that Saturday is better as one row than as `1 h + 2 h`.
  */
 function manualDaySegments(input: ComposeInput, date: string, minutes: number): Segment[] {
   const config = input.getDayConfig(date);

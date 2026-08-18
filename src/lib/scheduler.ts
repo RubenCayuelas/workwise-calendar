@@ -173,6 +173,17 @@ export interface RecomposeReport {
   today: string;
   /** The calendar as stored after the write, in queue order. */
   blocks: Block[];
+  /**
+   * THE CALENDAR IS NOT WHAT IT WAS — asked of the rows the OWNER can see rather than of
+   * the ids, because those are two different questions and only the first one is news.
+   *
+   * A gesture on a multi-row run folds the run into one row and lets the reflow lay it out
+   * again, so ids are deleted and minted on a pass that moved nothing at all: the id lists
+   * below say `true` for a drop that produced the very calendar it started from, which is
+   * the silence this field exists to break. So the comparison is over
+   * `(project, date, start, duration, marks)` and ignores identity.
+   */
+  changed: boolean;
   insertedBlockIds: string[];
   updatedBlockIds: string[];
   deletedBlockIds: string[];
@@ -298,6 +309,7 @@ export function recompose(db: Db, options: RecomposeOptions = {}): RecomposeRepo
     return {
       today,
       blocks: written,
+      changed: !sameCalendar([...stored.values()], written),
       insertedBlockIds,
       updatedBlockIds,
       deletedBlockIds: removedBlockIds,
@@ -431,6 +443,22 @@ function placementRefusal(db: Db, error: ManualPlacementError): AppError {
           }),
     },
   });
+}
+
+/**
+ * Do these two calendars look the same to the owner? Every field a row is DRAWN from, and
+ * not its id — see `RecomposeReport.changed` for why the difference matters.
+ */
+function sameCalendar(before: readonly Block[], after: readonly Block[]): boolean {
+  const shape = (rows: readonly Block[]): string =>
+    rows
+      .map(
+        (row) =>
+          `${row.date} ${row.startMinutes} ${row.durationMinutes} ${row.projectId} ${row.locked ? 1 : 0}${row.manualDuration ? 1 : 0}`,
+      )
+      .sort()
+      .join('|');
+  return shape(before) === shape(after);
 }
 
 /** A stored row's end, for the guard's "no write may make an overrun worse" clause. */
