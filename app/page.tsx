@@ -1,23 +1,11 @@
 'use client';
 
 /**
- * The home screen IS the week view — the workshop opens the app to see how long it is
- * booked for, so there is nothing to put in front of that.
+ * Wiring only. Two rules it exists to honour:
  *
- * This file is only the wiring. `CalendarScreen` owns the grid, the gestures and the
- * week's data; the job panel, the create-job form, the gap form and the split form are
- * separate screens that all share one `SidePanel` slot on the right. They plug in
- * through `CalendarScreen`'s render props, which hand each one the week's own facts
- * (the shop's `today`, the summary strip, the shift shape) so no form re-fetches or
- * guesses at them.
- *
- * TWO RULES THIS FILE EXISTS TO HONOUR:
- *
- * 1. `onChanged` refetches the week, and every panel calls it after a save or a delete.
- *    A recomposition rewrites rows in weeks this screen is not even showing, so nothing
- *    is ever patched into local state.
- * 2. AT MOST ONE PANEL AT A TIME — they occupy the same slot. The job panel therefore
- *    steps aside while the split form is open, and comes back when it closes.
+ * 1. `onChanged` REFETCHES the week and every panel calls it after a save. A recomposition
+ *    rewrites rows in weeks not on screen, so nothing is ever patched into local state.
+ * 2. At most one panel at a time — they share one `SidePanel` slot.
  */
 
 import { useState } from 'react';
@@ -26,10 +14,7 @@ import { GapPanel, JobPanel, NewJobPanel, SplitBlockPanel } from '../src/compone
 import type { Block } from '../src/lib/api-client';
 
 export default function HomePage(): React.JSX.Element {
-  /**
-   * The row the job panel's scissors named. The calendar's own scissors can only reach
-   * a row inside the week on screen; this is how a row in another week gets split.
-   */
+  /** How a row in ANOTHER week gets split: the calendar's own scissors only reach this week. */
   const [splitting, setSplitting] = useState<Block | null>(null);
 
   return (

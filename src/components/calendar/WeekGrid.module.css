@@ -3,9 +3,8 @@
  * (sticky day headers over the timeline).
  *
  * Mon-Fri take equal shares of the width; Sat/Sun are half as wide and de-emphasised.
- * They are ALWAYS rendered — "so dragging to the weekend works with no extra state and
- * no setting" (CLAUDE.md) — which is why their narrowness is the only thing that marks
- * them as secondary.
+ * They are ALWAYS rendered, so dragging to the weekend needs no extra state and no
+ * setting — which is why their narrowness is the only thing that marks them as secondary.
  *
  * The vertical scale lives in `--ww-timeline-height`, set from the Timeline in
  * geometry.ts. Everything inside a day column is absolutely positioned against it.
@@ -440,7 +439,7 @@
  *   (`.detached .actions`), and `overflow-y: visible` is what lets it. Horizontally the bar is
  *   `right: 3px` INSIDE its block, and 116 px is already the smallest column that holds it, so
  *   there is nothing legitimate to clip sideways. `contain: paint` would clip both axes, which
- *   is the trap CLAUDE.md already warns about under *Block Gestures*.
+ *   is the trap that traps the outside-docked action bar behind its neighbour.
  */
 .columnSliding {
   overflow-x: clip;
@@ -694,7 +693,7 @@
 
 /*
  * The second rectangle of a drop that crosses the lunch break — the drop IS stored as two
- * rows (CLAUDE.md, *A Drop Is Stored In Segments*), so the preview draws two. Its top edge
+ * rows, so the preview draws two. Its top edge
  * is the seam, drawn the way a stored continuation draws it, and it carries no label: the
  * span and the hours belong to the gesture, which is one thing.
  */

@@ -1,34 +1,8 @@
 'use client';
 
 /**
- * `+ Nuevo trabajo`: name, description, colour, hours — the same four fields the job
- * panel edits, so creating and editing a job look identical — plus an OPTIONAL START
- * DATE.
- *
- * The one thing this screen has to get right is the consequence, because CLAUDE.md's
- * placement rule is not guessable: "A newly created job is appended after the last
- * existing block", "New job placement never targets Friday. A new job fills Mon-Thu;
- * if it does not fit, its tail goes to next week's Monday, skipping Friday entirely."
- *
- * So the consequence is shown twice:
- * - BEFORE saving, as the rule (`jobForm.hint`) plus the shop's current load, which is
- *   literally where the queue currently ends and therefore where this job starts.
- * - AFTER saving, as the rows the engine actually created — including, when it
- *   happens, the ones that landed in a later week and are therefore invisible on the
- *   week the owner is looking at.
- *
- * THE START DATE means "not before this day" — a floor, never a deadline. Choosing one
- * turns the first half of that promise into a real preview: `POST /api/projects/preview`
- * runs the SAME planner the save runs (`src/lib/creation.ts`), so the panel can say which
- * day the hours will really start on, what is already sitting across the whole span they
- * would occupy, and whether every row will come back locked — before anything is written.
- * Then the owner picks another day (the free ones are listed), forces it, or accepts it.
- *
- * Two gates are deliberately local rather than taken from the preview:
- * - the Friday/weekend CONFIRMATION, because it depends only on the weekday and a save
- *   must never honour one of those days silently just because a preview request failed;
- * - `force`, which is reset by every change of date, since it is an answer to one
- *   specific question about one specific day.
+ * `+ Nuevo trabajo`: the job panel's four fields plus an OPTIONAL START DATE, whose placement
+ * is previewed before saving.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -66,13 +40,9 @@ import { scheduleSummaryMessage } from './summary';
 import type { JobsMutationHandler } from './events';
 import styles from './jobs.module.css';
 
-/** A day's work: the estimate the owner is most likely to adjust from, not to accept. */
 const DEFAULT_HOURS = 8;
 
-/**
- * How long the form waits before asking the server where the job would land. The hours
- * stepper fires on every click, and a preview per click would be a request per click.
- */
+/** The hours stepper fires on every click, and a preview per click is a request per click. */
 const PREVIEW_DELAY_MS = 220;
 
 export interface NewJobPanelProps {
@@ -82,14 +52,11 @@ export interface NewJobPanelProps {
   onChanged?: JobsMutationHandler;
   /**
    * The job that was created. The panel stays OPEN afterwards, showing where the hours
-   * landed, so a parent that wants to open the job panel next should wait for `onClose`
-   * — two panels share the same slot on the right.
+   * landed, so a parent wanting to open the job panel next must wait for `onClose` — two
+   * panels share the same slot on the right.
    */
   onCreated?: (project: Project) => void;
-  /**
-   * `WeekView.summary`. Shown before saving as the answer to "where will this land":
-   * the job is appended to the end of the queue, and this is where the queue ends.
-   */
+  /** `WeekView.summary`: where the queue ends, and so where this job starts. */
   summary?: ScheduleSummary;
   /** `WeekView.today`, so "a later week" means later than the week on screen. */
   today?: string;
@@ -137,13 +104,9 @@ export function NewJobPanel({
   const done = created !== null;
 
   /**
-   * A fresh form every time the panel OPENS — on the opening edge only.
-   *
-   * Not on a change of the defaults, which is what it used to do, and driving the panel
-   * is what showed why: `defaultColor` is the swatch the calendar shows least of, so
-   * creating a job changes it, so the parent's refetch handed this panel a new default
-   * and the effect wiped the form — including the "where the hours went" notice the
-   * owner had just earned, half a second after it appeared.
+   * A fresh form on the panel's OPENING EDGE ONLY, never on a change of the defaults:
+   * `defaultColor` is the swatch the calendar shows least of, so creating a job changes it
+   * and the parent's refetch would wipe the notice the owner had just earned.
    */
   const initialised = useRef(false);
   useEffect(() => {
@@ -207,7 +170,8 @@ export function NewJobPanel({
   const startSummary: StartDateSummary | null =
     preview === null ? null : summarizeStartDate(preview);
 
-  // The weekday alone decides this, so it never depends on a request having succeeded.
+  // Deliberately local rather than taken from the preview: the weekday alone decides it, so a
+  // failed preview request can never let a save honour a Friday or a weekend silently.
   const dayConfirmKind = !dated || !isValidDate(startDate) ? null : confirmKindOf(startDate);
 
   const save = async (): Promise<void> => {
@@ -227,8 +191,7 @@ export function NewJobPanel({
         ...(dated ? { startDate, force } : {}),
       });
 
-      // A job created is a job placed: every row is new, so the diff against nothing
-      // is exactly "here is where the engine put it".
+      // Every row is new, so the diff against nothing is where the engine put it.
       setCreated({
         blocks: result.blocks,
         outcome: describePlacement([], result.blocks, reference),
@@ -315,9 +278,8 @@ export function NewJobPanel({
         {created === null ? null : (
           <>
             <PlacementNotice outcome={created.outcome} title={t('jobForm.created')} />
-            {/* The marks the date left on the rows. They are visible on the calendar as
-                glyphs, but the owner is looking at this panel, and a padlock nobody
-                asked for is exactly the thing to explain where it was decided. */}
+            {/* The marks the date left on the rows: a padlock nobody asked for is explained
+                where it was decided, not only as a glyph on a calendar off to the side. */}
             {created.placement?.autoLock === true ? (
               <p className={styles.hint}>{t('jobForm.createdLocked')}</p>
             ) : null}
@@ -357,11 +319,8 @@ export function NewJobPanel({
 
             {!dated ? null : (
               <>
-                {/* The day is CHOSEN from the schedule's own days, spelled by
-                    `useFormat()` and grouped under the week label the header shows —
-                    never a native date input, which would draw its parts in the
-                    BROWSER's locale. The window reaches back a few weeks on purpose:
-                    a past date records a job that was done but never logged. */}
+                {/* Never a native date input. The window reaches
+                    back on purpose: a past date records work done but never logged. */}
                 <Field
                   label={t('jobForm.startDate')}
                   hint={isValidDate(startDate) ? format.longDate(startDate) : undefined}
@@ -451,11 +410,9 @@ interface StartDatePreviewProps {
 }
 
 /**
- * The rows the job would be born as, then the notes, then what is in the way.
- *
- * All of the deciding happened in `summarizeStartDate`; this only spells it. The notes
- * are KINDS rather than strings so that this switch is the single place a sentence about
- * the start date is chosen, and every day and hour in it goes through `useFormat()`.
+ * The rows the job would be born as, then the notes, then what is in the way. All of the
+ * deciding happened in `summarizeStartDate`; this only spells it. The notes are KINDS rather
+ * than strings, so this switch is the single place a start-date sentence is chosen.
  */
 function StartDatePreview({
   summary,

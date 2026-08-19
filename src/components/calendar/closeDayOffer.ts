@@ -1,30 +1,14 @@
 /**
- * *Cerrar el día aquí*, read off a row — the ONE place the calendar works out what that
- * action would be, for the two surfaces that offer it.
- *
- * | surface | when |
- * |---------|------|
- * | the row's hover action bar (`WeekGrid`) | always, on a day there is something left to close |
- * | the toast a refused bottom-edge drag shows (`CalendarScreen`) | the edge does not size an automatic row, and this is what does end a day early |
- *
- * It exists as its own module because the second reader arrived on 2026-08-18 with the
- * hand-set duration's removal, and the two must not be able to propose different gaps
- * from the same row: the bar and the refusal are the same offer, reached two ways.
- *
- * **IT ONLY EVER PROPOSES.** The app never writes the gap — the owner does, in the form
- * this hands the request to: *«no se creará el hueco automáticamente, sino que si el
- * usuario lo quiere lo deberá de crear él»* (CLAUDE.md, *Capping a Day*).
+ * *Cerrar el día aquí*, read off a row. Its two readers — the hover bar and the toast a refused
+ * resize shows — must not propose different gaps from one row, so both come through here.
+ * It only ever PROPOSES.
  */
 
 import type { WeekBlock, WeekDay } from '../../lib/api-client';
 import type { Gap } from '../../types';
 import { planCloseDay, type CloseDayInput, type CloseDayRequest } from '../../lib/closeDay';
 
-/**
- * The day as the planner reads it, or `null` where the action makes no sense: the weekend
- * and a closed day have no plannable hours to cap, and the past is a record rather than a
- * plan.
- */
+/** The day as the planner reads it, or `null` where there is nothing to cap. */
 export function closeDayInputFor(
   day: WeekDay,
   blocks: readonly WeekBlock[],
@@ -47,13 +31,9 @@ export function closeDayInputFor(
 }
 
 /**
- * The "stop the day here" a row offers, or `null` when it has nothing to offer.
- *
- * The moment is the END of that row, so the action reads exactly as it is labelled: the
- * hours up to here stay today and the rest of the day stops being plannable. A row that
- * already runs to the end of the day, or one with nothing but existing gaps after it, has
- * nothing to close — the button is then absent rather than disabled, because there is no
- * state to explain.
+ * The "stop the day here" a row offers, from the END of that row, or `null` when it has
+ * nothing to offer — a row already running to the end of the day, or with only gaps after
+ * it. The button is then absent rather than disabled: there is no state to explain.
  */
 export function closeDayAfter(
   input: CloseDayInput | null,

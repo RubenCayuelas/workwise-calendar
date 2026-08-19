@@ -1,14 +1,8 @@
 /**
- * The schedule strip's sentence, rendered against the REAL locale files and the REAL
- * date formatters, in both languages.
- *
- * Why this file exists: the sentence used to have two implementations — this one and an
- * inline copy in the week view's `SummaryStrip` — and they drifted within a day. The
- * strip was fixed to print a MEDIUM buffer date while this copy still printed a long
- * one, so the create-job form said "el viernes viernes 14 de agosto". Both screens now
- * call `scheduleSummaryMessage`, and the test below is what keeps the wording rule from
- * coming back: `summary.*FridayBusy` already writes the weekday into the sentence, so
- * `bufferDate` must never carry one of its own.
+ * Measured: the sentence had two implementations — this one and an inline copy in the week
+ * view's `SummaryStrip` — and they drifted within a day. The strip printed a MEDIUM buffer
+ * date while this copy printed a long one, so the create-job form said "el viernes viernes
+ * 14 de agosto". `summary.*FridayBusy` writes the weekday, so `bufferDate` must not.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -108,11 +102,6 @@ describe('scheduleSummaryMessage', () => {
   }
 });
 
-/**
- * The other half of the capacity rule. Refusing to lower the capacity behind the owner's
- * back is only useful if a capacity BELOW the shift is visible — otherwise "six hours of a
- * ten hour day" still reads as an app that has stopped filling the afternoon.
- */
 describe('capacityNoticeMessage', () => {
   it('states both numbers when the stop line sits below the shift', () => {
     const text = capacityNoticeMessage(

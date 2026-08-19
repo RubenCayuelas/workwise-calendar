@@ -1,59 +1,24 @@
 /**
- * The two views of one day, derived in one place.
- *
- * The engine has always known a day as its **periods** — `08:00-14:00` and
- * `15:30-19:30` — because those are the hours auto-fill may book. A HAND action needs
- * a wider view: CLAUDE.md's visual margins "accept manual drag-drop only", so an hour
- * of margin at either end is time the owner may use and the engine may not.
- *
- * That wider view is a **manual window**: the periods PLUS the margins, fused wherever
- * they touch. On the documented shift it is `07:00-14:00` and `15:30-20:30`, so the
- * lunch break stays the only hole in the day and nothing about segmentation changes.
- *
- *     periods        08:00 ──────── 14:00   15:30 ──────── 19:30
- *     manual window  07:00 ──────────────── 15:30 ──────────────── 20:30
- *                    ^ margin                                ^ margin
- *
- * WHY IT IS ONE MODULE AND NOT A FLAG PASSED AROUND. Three defects the owner reported
- * were the same defect: a resize stopped at its period's end, a drop into a margin was
- * pulled back out, and margin time was unreachable by hand — each one a place where the
- * only view available was the engine's. Scattering `if (isMargin)` through the drag
- * layer, the engine and the scheduler would fix them one at a time and leave the next
- * reader free to add a rule to one view and forget the other. So both views are derived
- * HERE, from `DayShape` (see `dayShapeFromSettings`), travel together on `DayConfig` and
- * `WeekDay`, and every rule is stated over one of them explicitly:
- *
- * - AUTO-FILL and the capacity stop-line read `periods`, and only `periods`. The margins
- *   are invisible to `compose`, which is what keeps auto-fill out of them.
- * - A HAND ACTION — a drop, a resize, the scissors — reads `manualWindows`.
- *
- * Pure integer-minute arithmetic: no clock, no database, no React, so the browser can
- * have it as cheaply as the server can.
+ * The two views of one day: auto-fill's `periods`, and a hand gesture's wider `manualWindows` (the
+ * periods plus the visual margins). Both derived here so a rule cannot be added to one view and
+ * forgotten in the other.
  */
 
 import { MINUTES_PER_DAY } from './dates';
 import type { WorkPeriod } from '../types';
 
-/**
- * One day as both halves of the app need it. `DayConfig` and `WeekDay` satisfy it, so a
- * function that takes hand gestures can ask for exactly this much of a day.
- */
+/** `DayConfig` and `WeekDay` both satisfy it. */
 export interface DayWindows {
-  /** Auto-fill's view: the working periods, morning first. */
+  /** Morning first. */
   readonly periods: readonly WorkPeriod[];
-  /** A hand action's view: the periods plus the visual margins, fused where they touch. */
+  /** The periods plus the visual margins, fused where they touch. */
   readonly manualWindows: readonly WorkPeriod[];
 }
 
 /**
- * The periods widened by the visual margins — the top margin before the first period,
- * the bottom margin after the last — and fused wherever the result touches or overlaps.
- *
- * Fusing matters for two real configurations: a shift with no lunch at all
- * (`period2Start === period1End`) becomes ONE window, so nothing is ever cut in the
- * middle of it; and a margin wide enough to reach the neighbouring period cannot produce
- * two overlapping windows. A day with no periods (a closed day, or a broken
- * configuration) has no manual window either — there is nothing for a margin to hang off.
+ * Fusing matters for two real configurations: a shift with no lunch (`period2Start === period1End`)
+ * becomes ONE window, and a margin wide enough to reach the neighbouring period must not produce two
+ * overlapping ones. No periods means no manual window — there is nothing for a margin to hang off.
  */
 export function manualWindowsOf(
   periods: readonly WorkPeriod[],
@@ -84,27 +49,10 @@ export function manualWindowsOf(
 }
 
 /**
- * THE FIRST MINUTE AT OR AFTER `minute` THAT `intervals` ACTUALLY COVER — the answer to
- * "the owner aimed HERE; where can work really start?"
- *
- * A minute inside a window is its own answer, so this is a no-op for every ordinary
- * gesture. It exists for the minutes that are not: **the lunch break**, where a gesture
- * aimed at a slot that does not exist and the honest reading is the next one that does.
- * On the documented shift 14:00, 15:00 and 15:29 all mean 15:30, which is already exactly
- * what the same band means to a RESIZE — `netMinutesBetween` counts no working minutes in
- * there, so all three commit the same duration.
- *
- * WHY IT IS NOT A CLAMP AND NOT A REFUSAL. Left as it came, a start in the break makes a
- * stored row claim work in time the shop cannot work: 2 h released at 14:00 was saved as
- * ONE row `14:00 +120m -> 16:00`, ninety minutes of which is lunch, straddling the break
- * that the data model says no stored row may cross. Refusing instead would answer a plain
- * gesture — "put it after lunch" — with an error about a minute.
- *
- * `minute` IS RETURNED UNCHANGED WHEN NO WINDOW EVER COVERS IT AGAIN: past the end of the
- * day, and on a day whose afternoon is switched off, where the hole after the last window
- * runs to midnight. There is no later working minute to offer, so the answer belongs to
- * `dayEndMinutes` and its callers — the drop rolls to the next day, or the write path
- * refuses — and inventing a start here would hide that from them.
+ * The first minute at or after `minute` that `intervals` cover: a no-op inside a window, and the rule
+ * for the lunch break, where 14:00, 15:00 and 15:29 all mean 15:30. Returned UNCHANGED when no window
+ * ever covers it again — past the end of the day, or an afternoon switched off — because inventing a
+ * start there would hide that from the caller.
  */
 export function firstWorkingMinute(intervals: readonly WorkPeriod[], minute: number): number {
   let answer: number | undefined;
@@ -116,11 +64,7 @@ export function firstWorkingMinute(intervals: readonly WorkPeriod[], minute: num
   return answer ?? minute;
 }
 
-/**
- * Minutes of `intervals` inside `[from, to)`. Zero across the lunch break and across a
- * margin when `intervals` are the periods; zero only across the lunch break when they
- * are the manual windows. That difference is the whole point of the two views.
- */
+/** Minutes of `intervals` inside the half-open range `[from, to)`. */
 export function netMinutesBetween(
   intervals: readonly WorkPeriod[],
   from: number,
@@ -134,7 +78,6 @@ export function netMinutesBetween(
   return total;
 }
 
-/** Total minutes of `intervals`. */
 export function netMinutesOf(intervals: readonly WorkPeriod[]): number {
   let total = 0;
   for (const interval of intervals) total += Math.max(0, interval.endMinutes - interval.startMinutes);
@@ -142,24 +85,10 @@ export function netMinutesOf(intervals: readonly WorkPeriod[]): number {
 }
 
 /**
- * The clock a row starting at `startMinutes` may grow over, as intervals — the answer to
- * "how long can the owner drag this bottom edge, and which minutes count".
- *
- * From inside a window it is that window from `startMinutes` on, PLUS every later
- * window: a row starting at 10:00 can be dragged to 17:30 and the lunch break in between
- * contributes nothing, which is exactly the owner's worked example.
- *
- * FROM INSIDE THE BREAK IT IS THE WINDOWS AFTER IT, because that is where the row itself
- * starts: `firstWorkingMinute` is the one reading of a non-working start, and this function
- * has to give the same one `segmentDroppedRow` does or `clockEndOf` — which is built on it,
- * and which the end-of-day guard and the drop's landing both consult — would describe a row
- * the write path stores somewhere else. It used to return the HOLE ALONE, up to the next
- * window's start, which read the row as sitting in the lunch band and is what let a 2 h
- * release at 14:00 be measured (and stored) as `14:00-16:00`.
- *
- * PAST THE LAST WINDOW there is no later working minute, so it is that hole alone and
- * `endOfDayMinutes` closes it (the axis's own end). A row stranded out there by a settings
- * change keeps its hours and can still be shortened; it can never be grown.
+ * The clock a row starting at `startMinutes` may grow over: that window from the start on, plus every
+ * later one — so 10:00 dragged to 17:30 is 6 h and the break costs nothing. A start inside the break
+ * is read through `firstWorkingMinute`, so this and `segmentDroppedRow` describe the same row. Past
+ * the last window it is the hole alone, closed by `endOfDayMinutes`.
  */
 export function reachableRuns(
   manualWindows: readonly WorkPeriod[],
@@ -182,18 +111,8 @@ export function reachableRuns(
 }
 
 /**
- * THE END OF THE DAY FOR EVERY HAND GESTURE: the end of the last manual window.
- *
- * CLAUDE.md states the line twice — the data model's "a stored block never straddles a
- * non-working interval (lunch break, END OF DAY)", and *Block Resize*'s "it stops at the
- * end of the day's last manual window". Before this existed each call site drew its own
- * line and three of them drew it at MIDNIGHT, so a drop, a bottom-edge drag and the
- * scissors could all store a row hanging below the grid's own last rule (20:45, 21:30,
- * 23:00 on the documented shift).
- *
- * A day with no windows at all (a shape with no periods) falls back to midnight: there is
- * no last window to stop at, and refusing every row on such a day would be worse than
- * the guard it replaces.
+ * The end of the day for every hand gesture: the end of the last manual window. A shape with no
+ * periods falls back to midnight — refusing every row on such a day would be worse.
  */
 export function dayEndMinutes(manualWindows: readonly WorkPeriod[]): number {
   let end = 0;
@@ -202,19 +121,10 @@ export function dayEndMinutes(manualWindows: readonly WorkPeriod[]): number {
 }
 
 /**
- * The CLOCK minute a row of `netMinutes` starting at `startMinutes` ends at — the end of
- * the LAST row it is stored as.
- *
- * `duration` is net working time, so this is the one conversion that turns a gesture's
- * number back into the geometry it will occupy: 6 h at 13:15 reaches 20:45, because the
- * 45 minutes before lunch and the 5 h after it leave a quarter of an hour to put
- * somewhere.
- *
- * It agrees with `segmentDroppedRow` by construction, and that agreement is load-bearing:
- * both read a non-working start through `firstWorkingMinute`, so 2 h at 14:00 ends at
- * 17:30 here and is stored as `15:30-17:30` there. The two would otherwise disagree by the
- * whole break, and the end-of-day guard, the drag's clamp and the drop's landing all decide
- * from this number what the write path will do with that one.
+ * The CLOCK minute a row of `netMinutes` starting at `startMinutes` ends at: 6 h at 13:15 reaches
+ * 20:45. Reads a non-working start through `firstWorkingMinute` exactly as `segmentDroppedRow` does —
+ * the guard, the clamp and the drop's landing all decide from this number what the write path will
+ * do, so the two may not disagree by the whole break.
  */
 export function clockEndOf(
   manualWindows: readonly WorkPeriod[],
@@ -232,22 +142,15 @@ export function clockEndOf(
     remaining -= room;
     end = run.endMinutes;
   }
-  // More minutes than the day has left: they run past the end of it, which is what the
-  // callers refuse or clamp. Reported rather than hidden.
+  // More minutes than the day has left: reported rather than hidden, so callers can refuse or clamp.
   return end + remaining;
 }
 
 /**
- * The LATEST start a row of `netMinutes` may have and still end inside the day.
- *
- * The drag layer's clamp is stated over this rather than over `axisEnd − duration`, which
- * is the arithmetic it used to use and which mixes two units: `duration` is NET working
- * minutes while the axis is CLOCK minutes, so a 6 h unit was allowed to start at 13:15,
- * where it needs 7 h 30 of clock. On the documented shift the true answer is 13:00.
- *
- * Falls back to the first window's start when the row is longer than the whole day's
- * manual time — there is no legal start then, and the caller (a merge, over HTTP) refuses
- * it rather than storing it.
+ * The latest start a row of `netMinutes` may have and still end inside the day. Not
+ * `axisEnd − duration`, which mixes net minutes with clock minutes. Falls back to the first window's
+ * start when the row is longer than the whole day's manual time: there is no legal start then, and
+ * the caller refuses rather than storing it.
  */
 export function latestStartFor(
   manualWindows: readonly WorkPeriod[],
@@ -268,12 +171,8 @@ export function latestStartFor(
 
 /**
  * True when nothing workable separates a row ending at `endMinutes` from one starting at
- * `startMinutes` — so the two are one stretch: touching rows, or the two halves around
- * the lunch break, and never two rows with real free time between them.
- *
- * One predicate for both sides of the app: the grid groups a unit with it and the resize
- * finds the stretch it is sizing with it, so a unit on screen and a stretch on the server
- * can never disagree about where one ends.
+ * `startMinutes` — touching rows, or the two halves around lunch. One predicate for the grid's
+ * grouping and the resize's stretch, so screen and server cannot disagree.
  */
 export function adjacentInWindows(
   manualWindows: readonly WorkPeriod[],
@@ -284,58 +183,28 @@ export function adjacentInWindows(
 }
 
 /**
- * The smallest amount of manual-only time a hand action can be ASKING for.
- *
- * A drop writes a queue RANK, and a rank that ties with an existing row is nudged by a
- * single minute (`rankFor`) — so "put this at the very top of Monday" arrives as 07:59 when
- * 08:00 is taken. One minute of margin is not a request for the margin; it is a tie-break.
- * The gesture's own resolution is a quarter of an hour (`SNAP_MINUTES` in the drag layer,
- * held equal to this by a test), so that is where a request begins.
+ * The smallest manual-only time a hand action can be ASKING for: `rankFor` nudges a tying rank by one
+ * minute, and one minute of margin is a tie-break rather than a request. Held equal to the drag
+ * layer's `SNAP_MINUTES` by a test.
  */
 export const MIN_MANUAL_ONLY_MINUTES = 15;
 
-/*
- * `manualOnlyMinutes` and `usesManualOnlyTime` — "how much of this footprint is margin
- * time" — were deleted on 2026-08-18 with `Block.manualDuration`. Their one reader was
- * the RESIZE, which padlocked a row whose stored length reached into a margin; the resize
- * now only ever sizes rows that are outside the movable pool already, so there was nothing
- * left for them to decide. A DROP asks the narrower question below, and always did.
- */
-
 /**
- * THE MANUAL-ONLY MINUTES A DROP IS ASKING FOR: the ones it must spend before it reaches
- * working hours, and every minute of it when there are no working hours left at all.
- *
- * A DROP AND A RESIZE ASKED DIFFERENT QUESTIONS, and this is the drop's — the only one
- * left. A resize sets a LENGTH that is stored, so the whole footprint was the right question
- * for it; since it may only size rows the engine does not lay out, it needs no answer at all.
- * A drop writes a queue RANK: on a day the engine lays out, the rows that will really be stored
- * are whatever the reflow decides, and the reflow FILLS WHAT THE DAY HAS LEFT AND CARRIES
- * THE REST TO THE NEXT DAY (see `compose`). So minutes past the end of the working periods
- * are not a request for the margin below them — they are overflow.
- *
- * Reading the whole footprint instead is what made the owner's own case impossible: 6 h
- * released at Monday 15:30 reaches 21:30 on the documented shift, scored 120 manual-only
- * minutes, and came back PADLOCKED at a slot that then had to be refused or rolled onto
- * another day. They had aimed at a four-hour hole.
- *
- * The head is capped by the drop's own duration, and a start ONE MINUTE inside a margin
- * still asks for nothing: a rank that ties with an existing row is nudged by a minute
- * (`rankFor`), so `MIN_MANUAL_ONLY_MINUTES` is where a request begins.
+ * The manual-only minutes a DROP is asking for: the ones it must spend before it reaches working
+ * hours, and every minute of it when there are no working hours left at all. Minutes past the end of
+ * the periods are overflow, not a request for the margin below them.
  */
 export function manualOnlyHeadMinutes(
   periods: readonly WorkPeriod[],
   startMinutes: number,
   durationMinutes: number,
 ): number {
-  // No working time at or after the start — a bottom margin, or a day whose afternoon is
-  // switched off — so every minute the row occupies is manual-only.
+  // No working time at or after the start — a bottom margin, or an afternoon switched off.
   if (netMinutesBetween(periods, startMinutes, MINUTES_PER_DAY) === 0) return durationMinutes;
   const working = firstWorkingMinute(periods, startMinutes);
   return Math.min(durationMinutes, Math.max(0, working - startMinutes));
 }
 
-/** True when a DROP starting there is asking for a real amount of manual-only time. */
 export function startsInManualOnlyTime(
   periods: readonly WorkPeriod[],
   startMinutes: number,

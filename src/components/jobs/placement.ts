@@ -1,17 +1,7 @@
 /**
- * What a write actually DID to a job's rows — as data, not as a sentence.
- *
- * The engine owns placement; these components must never guess at it. But CLAUDE.md's
- * queue rules make the result genuinely surprising ("a dropped block does not stay at
- * the exact time it was dropped at", "New job placement never targets Friday", "if it
- * does not fit, its tail goes to next week's Monday"), and the brief is explicit that
- * the owner should not be surprised about where hours land. So every panel diffs the
- * job's rows BEFORE the request against the rows the API answered with, and reports
- * the difference.
- *
- * Nothing here re-implements a scheduling decision: it only compares two lists of
- * rows the server produced. Pure and dependency-free apart from the date helpers, so
- * it is safe to unit test and safe in a client component.
+ * What a write actually DID to a job's rows, as data: every panel diffs the rows it had against
+ * the rows the API answered with, since queue order makes the result surprising.
+ * Nothing here re-implements a scheduling decision.
  */
 
 import { FRIDAY, compareDates, startOfWeek, weekdayOf } from '../../lib/dates';
@@ -23,7 +13,7 @@ export type PlacementKind = 'new' | 'grown' | 'shrunk' | 'moved';
 export interface PlacementChange {
   block: Block;
   kind: PlacementKind;
-  /** The row sits on a Friday — the colchón. Worth saying out loud. */
+  /** The row sits on a Friday — the colchón. */
   isBuffer: boolean;
   /** The row is outside the week of the reference date, i.e. it slipped to a later week. */
   isLaterWeek: boolean;
@@ -51,10 +41,8 @@ export function sumMinutes(blocks: readonly Block[]): number {
 }
 
 /**
- * Compares the job's rows before and after a write.
- *
- * `reference` is the day the "later week" test is made against — pass `WeekView.today`
- * so "next week" means what the owner sees on screen.
+ * Compares the job's rows before and after a write. `reference` is the day the "later week"
+ * test is made against — pass `WeekView.today`, so it means what the owner sees on screen.
  */
 export function describePlacement(
   before: readonly Block[],
@@ -95,11 +83,9 @@ export function describePlacement(
 }
 
 /**
- * The rows worth naming in a notice.
- *
- * Hours that arrived are the interesting part, so new and grown rows win. A save that
- * only moved rows around (a colour change followed by an unrelated reflow, a lock
- * toggle) falls back to those, capped so a long job cannot flood the panel.
+ * The rows worth naming in a notice: hours that ARRIVED are the interesting part, so new and
+ * grown rows win and a save that only moved rows falls back to those. Capped so a long job
+ * cannot flood the panel.
  */
 export function placementHighlights(outcome: PlacementOutcome, limit = 6): PlacementChange[] {
   const gained = outcome.changes.filter((change) => change.kind === 'new' || change.kind === 'grown');
@@ -111,13 +97,7 @@ export function placementHighlights(outcome: PlacementOutcome, limit = 6): Place
 // Gap conflicts
 // ---------------------------------------------------------------------------
 
-/**
- * One row a gap could not be saved over, as `ApiError.details.conflicts` carries it.
- *
- * The error's own `messageKey` already names the FIRST offender in a full sentence;
- * this is for listing the rest, so the owner can see everything that is in the way in
- * one pass instead of unlocking one block and hitting the same refusal again.
- */
+/** One row a gap could not be saved over, as `ApiError.details.conflicts` carries it. */
 export interface GapConflictInfo {
   blockId: string;
   projectId: string;
@@ -163,12 +143,9 @@ export function readGapConflicts(details: Record<string, unknown> | undefined): 
 }
 
 /**
- * The conflicts the refusal message does NOT already name.
- *
- * `assertGapFits` puts one offender in the message (the locked one in preference to a
- * past or weekend one) and every offender in `details.conflicts`, so listing the array
- * as-is would repeat the sentence. The headline is identified by the `date` and
- * `startTime` the message interpolates, not by its position in the array.
+ * The conflicts the refusal message does NOT already name, so the owner can clear
+ * everything in the way in one pass. The headline offender is identified by the `date` and
+ * `startTime` the message interpolates, NOT by its position in the array.
  */
 export function otherGapConflicts(details: Record<string, unknown> | undefined): GapConflictInfo[] {
   const all = readGapConflicts(details);
@@ -186,7 +163,7 @@ export function otherGapConflicts(details: Record<string, unknown> | undefined):
 // Internals
 // ---------------------------------------------------------------------------
 
-/** `"08:00"` to 480. Local to this module so it stays free of form concerns. */
+/** `"08:00"` to 480. */
 function clockTimeToMinutes(value: string): number | undefined {
   const match = /^(\d{1,2}):(\d{2})$/.exec(value);
   if (match === null) return undefined;

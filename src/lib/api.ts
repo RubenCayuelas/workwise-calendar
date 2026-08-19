@@ -1,20 +1,9 @@
 /**
- * The HTTP edge: responses, and hand-written validation.
- *
- * No schema library. The payloads are half a dozen shapes wide and "keep the
- * dependency surface tiny" is a project rule, so every field is read through one of
- * the small readers below. They all behave the same way: absent means `undefined`
- * and the caller decides whether that is allowed; present but wrong throws an
- * `AppError` carrying an i18n key and the `field` to highlight.
- *
- * UNITS, once, because it is the thing to get right when calling these endpoints.
- * The engine and the components work in INTEGER MINUTES; decimal hours exist only at
- * the database boundary and in what the owner reads. A form holds hours (the job
- * panel's "Horas totales" stepper) while a drag holds minutes, so every
- * time-valued field accepts EITHER — `totalMinutes` or `totalHours`,
- * `durationMinutes` or `durationHours`, `startMinutes` or `startTime` ("HH:mm").
- * Supplying both forms of the same field is an error rather than a precedence
- * puzzle. Responses always speak minutes.
+ * The HTTP edge: responses, and hand-written validation — no schema library, by project rule. A
+ * reader returns `undefined` when the key is absent and throws an `AppError` (i18n key + `field`)
+ * when it is present and wrong. Responses speak integer MINUTES; every time-valued field accepts
+ * either unit (`totalHours` or `totalMinutes`, `startTime` or `startMinutes`), because a form holds
+ * hours and a drag holds minutes, and sending both is an error rather than a precedence puzzle.
  */
 
 import { NextResponse } from 'next/server';
@@ -41,13 +30,9 @@ export function jsonOk<T>(data: T, status = 200): NextResponse {
 }
 
 /**
- * Wraps a handler's body so every route reports failures identically.
- *
- * Everything the data layer refuses arrives here as a thrown `AppError` — thrown
- * rather than returned because that is what rolls a `better-sqlite3` transaction
- * back. Anything else is a bug or a broken database and becomes a 500 with
- * `errors.unexpected`, with the real reason logged for the shop PC's console rather
- * than sent to the browser.
+ * Wraps a handler's body so every route reports failures identically. An `AppError` is THROWN rather
+ * than returned because that is what rolls a `better-sqlite3` transaction back; anything else is a
+ * 500 with `errors.unexpected` and the real reason logged to the shop PC's console.
  */
 export async function route<T>(work: () => Promise<T> | T): Promise<NextResponse> {
   try {
@@ -71,8 +56,7 @@ export function failure(error: unknown): NextResponse {
     );
   }
   if (error instanceof RangeError) {
-    // A date or clock helper rejecting its input: a malformed payload that got past
-    // a reader, not a server fault.
+    // A date or clock helper rejecting its input: a malformed payload that got past a reader.
     return NextResponse.json(
       badRequest('invalid-payload', ERROR_MESSAGE_KEYS.invalidPayload, {
         details: { reason: error.message },
@@ -139,9 +123,9 @@ export function requireText(body: JsonBody, key: string, options: TextOptions = 
 }
 
 /**
- * Optional free text that can be CLEARED: `null` or `""` both come back as `null`,
- * which the repositories write as SQL NULL. Used for `description` and a gap's
- * `reason`, the two fields the owner is allowed to empty.
+ * Optional free text that can be CLEARED: `null` or `""` both come back as `null`, which the
+ * repositories write as SQL NULL. `description` and a gap's `reason` are the fields the owner may
+ * empty.
  */
 export function readClearableText(
   body: JsonBody,
@@ -211,11 +195,9 @@ export function requireFlag(body: JsonBody, key: string): boolean {
 }
 
 /**
- * A list of block ids, or `undefined` when the key is absent — the rows a drop names as ONE
- * unit with the row it is about.
- *
- * Ids that turn out not to be part of the unit are the OPERATION's business, not this
- * reader's: it only refuses a payload that is not a list of strings.
+ * A list of block ids — the rows a drop names as ONE unit with the row it is about. Ids that turn
+ * out not to belong to the unit are the OPERATION's business: this only refuses a payload that is
+ * not a list of strings.
  */
 export function readIdList(body: JsonBody, key: string, max = 64): string[] | undefined {
   if (!hasField(body, key)) return undefined;
@@ -232,8 +214,7 @@ export function readIdList(body: JsonBody, key: string, max = 64): string[] | un
 }
 
 /**
- * An OPTIONAL member of a fixed set — an answer the caller may or may not have, such as
- * `freedHours` on a resize. Absent is `undefined`; present and wrong is a 400, because a
+ * An OPTIONAL member of a fixed set, such as `freedHours` on a resize. Present and wrong is a 400: a
  * misspelled answer must never be read as "no answer" and quietly asked again.
  */
 export function readOneOf<T extends string>(
@@ -262,12 +243,9 @@ export function requireOneOf<T extends string>(body: JsonBody, key: string, allo
 // ---------------------------------------------------------------------------
 
 /**
- * A job colour, checked against the fixed swatch set.
- *
- * "No free hex input — amber is reserved for the app itself and a free picker would
- * let a job blend into the interface." So an arbitrary `#rrggbb` is refused even
- * though the column would happily store it, and the allowed values travel back in
- * `details` so a mis-set picker is debuggable. Storage is upper case.
+ * A job colour, checked against the fixed swatch set: an arbitrary `#rrggbb` is refused even though
+ * the column would store it, and the allowed values travel back in `details` so a mis-set picker is
+ * debuggable. Storage is upper case.
  */
 export function readProjectColor(body: JsonBody, key = 'color'): string | undefined {
   if (!hasField(body, key)) return undefined;
@@ -298,11 +276,8 @@ export function requireProjectColor(body: JsonBody, key = 'color'): string {
 // ---------------------------------------------------------------------------
 
 interface MinutesSpec {
-  /** The key carrying engine minutes. */
   minutesKey: string;
-  /** The key carrying decimal hours, as a form shows them. */
   hoursKey?: string;
-  /** The key carrying an `HH:mm` clock time. */
   timeKey?: string;
   messageKey: string;
   min: number;
@@ -310,14 +285,10 @@ interface MinutesSpec {
 }
 
 /**
- * Reads one time-valued field in any of its accepted units and returns whole
- * minutes.
- *
- * A minutes value is rounded rather than rejected: a resize handle computes minutes
- * from pixels, so `149.9997` means 150 and refusing it would only teach the UI to
- * round first. Two different units for one field ARE refused — a payload carrying
- * both `durationMinutes` and `durationHours` has no single meaning, and guessing one
- * would silently discard the owner's other number.
+ * Reads one time-valued field in any of its accepted units and returns whole minutes. A minutes
+ * value is ROUNDED rather than rejected — a resize handle computes minutes from pixels, so
+ * `149.9997` means 150. Two units for one field ARE refused: guessing one would silently discard
+ * the owner's other number.
  */
 export function readMinutes(body: JsonBody, spec: MinutesSpec): number | undefined {
   const present = [spec.minutesKey, spec.hoursKey, spec.timeKey].filter(
@@ -409,11 +380,9 @@ export function requireDurationMinutes(body: JsonBody): number {
 }
 
 /**
- * A job's estimate: `totalHours` (what the stepper holds) or `totalMinutes`.
- *
- * Zero is refused. The invariant leaves nowhere to park hours that are not on the
- * calendar and there is no unscheduled tray, so a nought-hour job would be a job
- * that is nowhere; `DELETE /api/projects/:id` is how a job goes away.
+ * A job's estimate: `totalHours` (what the stepper holds) or `totalMinutes`. Zero is refused —
+ * there is nowhere to park hours off the calendar, so a nought-hour job would be a job that is
+ * nowhere. `DELETE /api/projects/:id` is how a job goes away.
  */
 export function readTotalMinutes(body: JsonBody): number | undefined {
   return readMinutes(body, TOTAL_SPEC);

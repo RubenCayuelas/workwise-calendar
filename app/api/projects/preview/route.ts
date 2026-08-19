@@ -1,16 +1,8 @@
 /**
- * `/api/projects/preview` — where a job WOULD land, without creating it.
- *
  * POST { startDate, totalHours | totalMinutes, force? } -> CreationPreview
  *
- * The create form calls this whenever the owner picks a start date, because choosing a
- * date is only worth anything if the consequence is visible before saving: which day the
- * hours really start on, what is already sitting across the whole span they would
- * occupy, whether every row would be locked, and which days are free instead.
- *
- * It is a POST rather than a GET so the payload is read and validated by exactly the
- * same helpers `POST /api/projects` uses — a preview validated differently from the save
- * would be a preview that lies. It opens no transaction and writes nothing.
+ * A POST rather than a GET so the payload goes through the same helpers `POST /api/projects`
+ * uses: a preview validated differently from the save is a preview that lies. Writes nothing.
  */
 
 import type { NextRequest } from 'next/server';

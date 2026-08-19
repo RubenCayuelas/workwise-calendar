@@ -1,24 +1,7 @@
-/**
- * The composition engine's specification.
- *
- * These tests were written BEFORE the engine, so the interface they exercise is
- * the interface: `src/lib/composition.ts` currently holds only the types and a
- * set of stubs that throw. Every `describe` below names a rule from CLAUDE.md's
- * "Composition Engine Business Rules", so a red test says which rule broke.
- *
- * Three properties are asserted everywhere and are worth stating once:
- *
- * - The engine is PURE. No database, no `Date.now()` — `today` is an input, so a
- *   test can sit on any Tuesday it likes.
- * - Times are INTEGER MINUTES from midnight. `2.5 h` in a fixture is written in
- *   hours because that is what the owner types; it crosses into the engine as
- *   150.
- * - Assertions are made on a rendered `YYYY-MM-DD HH:mm-HH:mm project` line per
- *   row, so a failure reads like the calendar rather than like a heap of objects.
- *
- * The week under test is the one in the wireframe: Monday 10 to Sunday 16 August
- * 2026, ISO week 33.
- */
+// The composition engine's specification. Every `describe` names one business rule, so a red
+// test says which rule broke. The engine is PURE
+// (`today` is an input), times are INTEGER MINUTES, and assertions are on rendered
+// `YYYY-MM-DD HH:mm-HH:mm project` lines. The week is the wireframe's: 10-16 August 2026.
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MINUTES_PER_DAY, compareDates, hhmmToMinutes as t, isWeekend, minutesToHHmm } from './dates';
@@ -66,10 +49,7 @@ const SAT = '2026-08-15';
 const SUN = '2026-08-16';
 const NEXT_MON = '2026-08-17';
 
-/**
- * A day with BOTH views derived the way `dayShapeFromSettings` derives them, so no
- * fixture can hold periods and manual windows that disagree.
- */
+/** A day with BOTH views derived as `dayShapeFromSettings` derives them, so they cannot disagree. */
 function withWindows(spec: Omit<DayShape, 'manualWindows'>): DayShape {
   return {
     ...spec,
@@ -179,11 +159,9 @@ function input(spec: InputSpec): ComposeInput {
 }
 
 /**
- * A bottom-edge drag, with the three things every resize needs beyond the number the
- * owner drew: the day in BOTH views (the stretch is cut over its manual windows), an id
- * factory for the row a stretch across the lunch break grows, and a clock for it.
- *
- * `shape` is only passed where a test uses a day that is not the documented shift.
+ * A bottom-edge drag, with what a resize needs beyond the number the owner drew: the day in BOTH
+ * views (the stretch is cut over its manual windows), an id factory and a clock for the row a
+ * stretch across the lunch break grows. `shape` is passed only for a day that is not the shift.
  */
 function resizing(
   spec: {
@@ -233,7 +211,7 @@ function minutesByProject(blocks: readonly { projectId: string; durationMinutes:
   return totals;
 }
 
-/** CLAUDE.md's data-model invariant: the engine moves hours, it never creates or loses them. */
+/** The data-model invariant: the engine moves hours, it never creates or loses them. */
 function expectMinutesConserved(composeInput: ComposeInput, result: ComposeResult): void {
   expect(minutesByProject(expectOk(result).blocks)).toEqual(minutesByProject(composeInput.blocks));
 }
@@ -253,10 +231,8 @@ function reload(result: ComposeResult): Block[] {
 }
 
 /**
- * Recomposing the engine's own output must be a no-op, and so must the NEXT save
- * — the one that no longer creates or grows anything. Both directions matter:
- * an engine that is not a fixed point reshapes the calendar while the owner
- * watches, on a save that had nothing to do with the rows that moved.
+ * Recomposing the engine's own output must be a no-op, and so must the NEXT save. An engine that is
+ * not a fixed point reshapes the calendar on a save that had nothing to do with the rows that moved.
  */
 function expectSettled(composeInput: ComposeInput, result: ComposeResult, where = 'the reflow'): void {
   const later = compose({
@@ -319,12 +295,9 @@ function expectPlaced(result: ManualPlacementResult): ManualPlacementSuccess {
 }
 
 /**
- * Stored rows as readable calendar lines, in calendar order.
- *
- * The clock is printed where it is a clock. A row a RESOLUTION produced can legitimately
- * read `13:30 + 150 min` or run past midnight — on the reflowed side a cut victim's tail is
- * a queue RANK carrying the tail's whole duration, and `compose` is what lays it out — so a
- * renderer that threw on those would fail the test on data the engine never stores.
+ * Stored rows as readable calendar lines, in calendar order. The clock is printed where it is a
+ * clock: a row a RESOLUTION produced may legitimately read `13:30 + 150 min` — on the reflowed side
+ * a cut victim's tail is a queue RANK and `compose` is what lays it out.
  */
 function calendarRows(blocks: readonly Block[]): string[] {
   const clock = (minutes: number): string =>
@@ -386,8 +359,7 @@ describe('getDayConfig — global settings, then the weekday rule, then the over
   });
 
   it('caps an override capacity at the shift: the stop line can shorten a day, never lengthen it', () => {
-    // "Its purpose is 'fill less than the full shift so the shop can leave
-    // early', never 'work more hours than the shift covers'" — CLAUDE.md.
+    // The stop line only ever fills LESS than the shift; it can never buy more hours than it covers.
     const getDayConfig = createDayConfigResolver(SHAPE, [dayCapacity(THU, 99)]);
     expect(getDayConfig(THU).capacityMinutes).toBe(600);
   });
@@ -453,10 +425,8 @@ describe('rule 1 — the queue order is the calendar order', () => {
   });
 
   it('breaks a tie on the same start with created_at, then id, so the order is always total', () => {
-    // Two blocks can only share a minute while a provisional one is in flight.
-    // The rule exists so the engine is deterministic when it happens; the UI
-    // should still give a dropped block a start strictly inside the block it
-    // means to follow, which is what the next test does.
+    // Two blocks can only share a minute while a provisional one is in flight. The rule keeps the
+    // engine deterministic when it happens; the next test is the placement the UI should send.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -490,8 +460,7 @@ describe('rule 1 — the queue order is the calendar order', () => {
 
     expect(buildQueue(composeInput).map((item) => item.projectId)).toEqual(['b', 'd', 'a', 'c', 'a']);
 
-    // ...and the unlocked jobs shift to make room. Note that D does not stay at
-    // 09:00 where it was dropped: it keeps the position, not the time.
+    // ...and the unlocked jobs shift to make room. D keeps the POSITION, not the 09:00 it was at.
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
       `${MON} 08:00-10:00 b`,
@@ -546,8 +515,7 @@ describe('rule 2 — the movable pool', () => {
       ],
     });
 
-    // The head of the queue happens to fit the hole in front of the locked
-    // block, which is the one case CLAUDE.md allows it to be used.
+    // The head of the queue fits the hole in front of the locked block, so it uses it.
     expect(rows(compose(composeInput))).toEqual([
       `${LAST_FRI} 08:00-12:00 historial`,
       `${TUE} 08:00-10:00 escalera`,
@@ -580,8 +548,7 @@ describe('rule 3 — Monday to Thursday auto-fill', () => {
     expect(rows(result)).toEqual([
       `${MON} 08:00-10:00 primera`,
       `${MON} 10:00-12:00 barandilla [locked]`,
-      // Not a wall: the flexible work resumes after the locked block and the gap,
-      // and carries on across lunch into the afternoon period.
+      // Not a wall: the flexible work resumes after the lock and the gap, across lunch.
       `${MON} 13:00-14:00 escalera`,
       `${MON} 15:30-17:30 escalera`,
     ]);
@@ -659,12 +626,8 @@ describe('rule 4 — plannable hours are a union of intervals', () => {
   });
 
   it('measures an obstacle on the clock, so one that straddles lunch costs only its working part', () => {
-    // This fixture is impossible under the data model — "a stored block never
-    // straddles a non-working interval" — but a hand-edited row could look like
-    // it, so the answer is worth pinning. CLAUDE.md makes gaps and blocks ONE
-    // occupancy set computed as a union of intervals, and the sibling test above
-    // clips a gap to the periods, so a block is clipped the same way: 08:00-16:00
-    // costs 6 h of morning plus 30 min of afternoon, not the 8 h the row claims.
+    // Impossible under the data model, but a hand-edited row could look like it: gaps and blocks are
+    // ONE occupancy set clipped to the periods, so 08:00-16:00 costs 6 h + 30 min, not 8 h.
     const straddling = input({
       today: MON,
       blocks: [block({ project: 'barandilla', date: MON, from: '08:00', hours: 8, locked: true })],
@@ -702,9 +665,8 @@ describe('rule 5 — Friday is a buffer, not a workday', () => {
     const composeInput = input({
       today: MON,
       shape: withCapacity(4),
-      // The same 20 h, but these hours grew on a job that was already scheduled —
-      // which the operation has to say out loud, because growth is the ONLY thing
-      // the colchón absorbs.
+      // The same 20 h, but grown on a job already scheduled — which the operation has to say out
+      // loud, because growth is the ONLY thing the colchón absorbs.
       blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 20 })],
       grownProjectIds: ['escalera'],
     });
@@ -759,11 +721,8 @@ describe('rule 5 — Friday is a buffer, not a workday', () => {
 // Rule 5 — the other half of the buffer: what a HUMAN put on Friday
 // ---------------------------------------------------------------------------
 //
-// THE REPRODUCED DEFECT. `PATCH /api/blocks/:id {action:"move", date:<a Friday>}`
-// answered 200 and changed nothing: Friday is in the movable pool, so the reflow
-// reached Monday first and pulled the row straight back off the colchón. Nothing on
-// the row said whether the ENGINE had put it there or a human had, so there was no
-// way at all to place work on a Friday by hand — the thing CLAUDE.md promises.
+// Friday is in the movable pool, so the reflow reaches Monday first and pulls a hand-dropped row
+// straight back off the colchón unless something on the row says a human put it there.
 
 describe('rule 5 — the engine only recovers from Friday what it put there itself', () => {
   it('leaves a padlocked Friday row exactly where it was dropped, week empty in front of it', () => {
@@ -773,8 +732,7 @@ describe('rule 5 — the engine only recovers from Friday what it put there itse
     });
 
     const result = compose(composeInput);
-    // It keeps the slot, not merely the day: on the buffer and the weekend a drop
-    // PADLOCKS the row, because there the reflow's only possible move is to undo it.
+    // It keeps the SLOT and not merely the day: on the buffer a drop padlocks the row.
     expect(rows(result)).toEqual([`${FRI} 10:00-14:00 porton [locked]`]);
     expect(lockedIds(expectOk(result).blocks)).toEqual(['a-mano']);
     expectSettled(composeInput, result);
@@ -804,8 +762,7 @@ describe('rule 5 — the engine only recovers from Friday what it put there itse
       newProjectIds: ['escalera'],
     });
 
-    // It is an obstacle, not a queue item, so it does not drag the cursor to Friday:
-    // the new job fills Monday exactly as it would have anyway.
+    // An obstacle rather than a queue item, so it does not drag the cursor to Friday.
     expect(buildQueue(composeInput).map((item) => item.blockIds)).toEqual([['nueva']]);
     const result = compose(composeInput);
     expect(rows(result)).toEqual([`${MON} 08:00-12:00 escalera`, `${FRI} 10:00-14:00 porton [locked]`]);
@@ -892,17 +849,12 @@ describe('rule 6 — the weekend is outside the engine', () => {
 // ---------------------------------------------------------------------------
 
 describe('rule 7 — no backfilling: the cursor never goes back', () => {
-  // WHAT THE RULE STILL FORBIDS, now that a job fills what it finds instead of hopping
-  // over it (2026-08-17). "The hole in front of a locked block stays empty" was the
-  // rule's own worked example and it is GONE: the head of the queue fills that hole and
-  // carries on after the lock. What survives is the cursor — once the queue has walked
-  // past free minutes, nothing ever comes back for them.
+  // What the rule still forbids is the CURSOR: once the queue has walked past free minutes, nothing
+  // comes back for them. "The hole in front of a locked block stays empty" is not part of it.
 
   it('fills the hour in front of a locked block and carries on after it', () => {
-    // The prototype's scenario, with the answer the owner asked for: a 4 h flexible job,
-    // a 2 h locked block at 09:00 and a 1 h flexible job, auto-fill stopping at 8 h. The
-    // 08:00-09:00 hour used to be left for the owner to fill by hand; it is an hour of
-    // the 4 h job now, and the other three follow the lock.
+    // The prototype's scenario: a 4 h job, a 2 h lock at 09:00, a 1 h job, an 8 h stop line. The
+    // 08:00-09:00 hour is an hour of the 4 h job, and its other three follow the lock.
     const composeInput = input({
       today: MON,
       shape: withCapacity(8),
@@ -925,9 +877,8 @@ describe('rule 7 — no backfilling: the cursor never goes back', () => {
   });
 
   it('never comes back for the hours a day capacity left behind', () => {
-    // The plainest surviving form of the rule. Monday's stop line is 8 h of a 10 h shift,
-    // so 17:30-19:30 is free clock time the engine has finished with; the 1 h job behind
-    // the 8 h one is on Tuesday, not in it.
+    // The plainest surviving form: Monday's stop line is 8 h of a 10 h shift, so 17:30-19:30 is free
+    // clock the engine has finished with and the 1 h job behind is on Tuesday, not in it.
     const composeInput = input({
       today: MON,
       shape: withCapacity(8),
@@ -948,9 +899,8 @@ describe('rule 7 — no backfilling: the cursor never goes back', () => {
   });
 
   it('steps over a stretch too short to be a row, and no later job may have it', () => {
-    // A hole of ten minutes cannot become a ten-minute row (`MIN_ROW_MINUTES`), so the 6 h
-    // job steps over it exactly as it steps over the lock — and the quarter-hour job behind
-    // it does not go back for it either, because the cursor is past it.
+    // A ten-minute hole cannot become a ten-minute row, so the 6 h job steps over it like a lock —
+    // and the quarter-hour job behind it does not go back for it either.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -978,14 +928,8 @@ describe('rule 7 — no backfilling: the cursor never goes back', () => {
 // Rule 8 — Fill and overflow, always
 // ---------------------------------------------------------------------------
 //
-// "NEVER SPLIT A JOB TO MAKE IT FIT" WAS REMOVED BY THE OWNER, 2026-08-17, for the engine
-// and for a hand drop alike. Work fills what is left of the day and the remainder overflows
-// to the next day it can use, whoever placed it. The owner accepted the consequence in as
-// many words: a job may end up in four or five pieces.
-//
-// What the tests below used to pin was the opposite — a job that did not fit moved WHOLE and
-// left the day's tail empty — so they are rewritten rather than deleted: the same scenarios,
-// the answer the owner asked for.
+// Work fills what is left of the day and the remainder overflows to the next day it can use,
+// whoever placed it. A job may therefore end up in four or five pieces.
 
 describe('rule 8 — a job fills what the day has left and the rest overflows', () => {
   it('fills the two hours left in the day and carries the remainder to the next', () => {
@@ -997,8 +941,7 @@ describe('rule 8 — a job fills what the day has left and the rest overflows', 
       ],
     });
 
-    // Monday has 2 h left after the staircase. The 3 h door used to move whole to Tuesday
-    // and leave 17:30-19:30 empty; it takes those two hours now and finishes on Tuesday.
+    // Monday has 2 h left after the staircase: the door takes them and finishes on Tuesday.
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
       `${MON} 08:00-14:00 escalera`,
@@ -1047,9 +990,8 @@ describe('rule 8 — a job fills what the day has left and the rest overflows', 
   });
 
   it('uses the four hours a short day has left, and finishes on the next day', () => {
-    // THE OWNER'S OWN CASE, at the engine's own level: a 5 h job and a Monday cut down to
-    // 4 h of plannable time. It used to go to Tuesday intact, leaving Monday's afternoon
-    // for the owner to fill by hand; it is 4 h on Monday and 1 h on Tuesday now.
+    // The owner's own case at the engine's level: a 5 h job and a Monday cut to 4 h of plannable
+    // time is 4 h on Monday and 1 h on Tuesday.
     const composeInput = input({
       today: MON,
       blocks: [block({ project: 'escalera', date: MON, from: '15:30', hours: 5 })],
@@ -1067,8 +1009,7 @@ describe('rule 8 — a job fills what the day has left and the rest overflows', 
   });
 
   it('splits into as many pieces as the week needs, which the owner accepted', () => {
-    // Four days each cut down to two hours of plannable time. A 7 h job comes out in four
-    // pieces, and every one of them is a row the calendar can draw.
+    // Four days cut to two plannable hours each: a 7 h job comes out in four drawable pieces.
     const composeInput = input({
       today: MON,
       blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 7 })],
@@ -1093,17 +1034,8 @@ describe('rule 8 — a job fills what the day has left and the rest overflows', 
 // Rule 8 — a displaced tail, which needs no rule of its own any more
 // ---------------------------------------------------------------------------
 //
-// THE FIRST REPRODUCED DEFECT, which is where the exemption came from. "Never split a job
-// to make it fit" was being applied to a tail that is ALREADY the remainder of work under
-// way, and it emptied the rest of the day and threw the work a week forward —
-// «desplazó el bloque al día siguiente sin partirlo ni nada, dejando el día vacío». It was
-// answered on 2026-08-12 by carving a CONTINUATION out of the rule: an item that is not its
-// job's first in the queue filled forward, and everything else still moved whole.
-//
-// The carve-out is gone with the rule it was carved out of (2026-08-17), and
-// `QueueItem.continuation` went with it: every item fills forward, so nothing is left to
-// tell apart. These tests stay exactly as they were, because the behaviour they pin is what
-// the whole engine does now rather than what one class of item did.
+// A tail is ALREADY the remainder of work under way. It needed an exemption while a job that did
+// not fit moved whole; now every item fills forward, so nothing is left to tell apart.
 
 describe('rule 8 — a displaced tail fills forward like anything else', () => {
   const cutOnThursday = (): Block[] => [
@@ -1142,11 +1074,8 @@ describe('rule 8 — a displaced tail fills forward like anything else', () => {
   });
 
   it('fills the day the rest of a job reaches, rather than hunting for a whole day', () => {
-    // The owner's other complaint — «redimensiona mal empujando de forma errónea otros
-    // bloques»: after a resize the remainder leapt past a day it could partly fill.
-    // Tuesday keeps only its afternoon, so the old rule sent all 8 h to Wednesday.
-    // The 4 h the owner sized by hand are held by their PADLOCK (2026-08-18): that is what
-    // makes them an obstacle the rest of the job flows around instead of a queue item.
+    // After a resize the remainder used to leap past a day it could partly fill. Tuesday keeps only
+    // its afternoon here, and the 4 h sized by hand are held by their PADLOCK: an obstacle.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -1168,10 +1097,8 @@ describe('rule 8 — a displaced tail fills forward like anything else', () => {
   });
 
   it('treats a job with ONE item exactly the same way — there is no first placement any more', () => {
-    // The test that used to say the opposite («is not a licence to split a job being placed
-    // for the FIRST time»), and the reason the flag existed at all. A single-item job on a
-    // Monday holding 4 h now fills those four hours and finishes on Tuesday, which is the
-    // same answer its own tail would have got.
+    // A single-item job on a Monday holding 4 h fills those four hours and finishes on Tuesday —
+    // the same answer its own tail would have got.
     const composeInput = input({
       today: MON,
       blocks: [block({ id: 'sola', project: 'escalera', date: MON, from: '15:30', hours: 5 })],
@@ -1186,9 +1113,7 @@ describe('rule 8 — a displaced tail fills forward like anything else', () => {
   });
 
   it('carries no flag telling a job\'s later items from its first', () => {
-    // `QueueItem.continuation` was removed with the rule it guarded. The queue is the same
-    // three items it always was; nothing on them says which is a remainder, because nothing
-    // reads it.
+    // The queue is the same three items it always was, and nothing on them says which is a remainder.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -1213,15 +1138,11 @@ describe('rule 8 — a displaced tail fills forward like anything else', () => {
 
 describe('rule 9 — strict order end to end', () => {
   it('sends the rest of the queue after a job that overflows, and never past it', () => {
-    // CLAUDE.md's example: a Tuesday with 5 h free behind a locked block, the queue a 6 h
-    // staircase then a 2 h door. The staircase takes the 5 h and its last hour goes to
-    // Wednesday; the door follows it there.
+    // A Tuesday with 5 h free behind a lock, the queue a 6 h staircase then a 2 h door: the staircase
+    // takes the 5 h, its last hour goes to Wednesday, and the door follows it there.
     //
-    // THE PROTOTYPE GETS THIS WRONG. recompose-poc.js keeps filling the day after an item
-    // overflows, so it would drop the door into 13:00-14:00 + 15:30-16:30 and put a newer
-    // job ahead of an older one. This is the single behaviour of the prototype that the
-    // port had to change, and this is its regression test — unaffected by *fill and
-    // overflow*, which changes where an item STOPS, never who goes first.
+    // THE PROTOTYPE GETS THIS WRONG — it keeps filling the day after an item overflows, so the door
+    // would take 13:00-14:00 + 15:30-16:30 and put a newer job ahead of an older one.
     const composeInput = input({
       today: TUE,
       blocks: [
@@ -1252,9 +1173,8 @@ describe('rule 9 — strict order end to end', () => {
   });
 
   it('never brings a later job forward into the space an overflowing one left', () => {
-    // The counter-example recorded in CLAUDE.md: X 3 h, Y 6 h, Z 2 h at an 8 h stop line.
-    // The prototype places X and Z and overflows Y, so Z jumps the queue. Here Y takes what
-    // Monday's stop line has left, spills onto Tuesday, and Z follows it.
+    // The prototype behaviour that must NOT be ported: X 3 h, Y 6 h, Z 2 h at an 8 h stop line. It places X
+    // and Z and overflows Y; here Y takes what Monday has left, spills, and Z follows it.
     const composeInput = input({
       today: MON,
       shape: withCapacity(8),
@@ -1287,8 +1207,7 @@ describe('rule 10 — the past is frozen', () => {
     const composeInput = input({
       today: WED,
       blocks: [
-        // A Monday cut short by a breakdown: the morning is empty and must stay
-        // empty. Pulling later work back into it would rewrite what the shop did.
+        // A Monday cut short by a breakdown: the empty morning must stay empty.
         block({ id: 'ayer', project: 'historial', date: MON, from: '15:30', hours: 2 }),
         block({ project: 'escalera', date: WED, from: '10:00', hours: 3 }),
       ],
@@ -1347,8 +1266,7 @@ describe('rule 11 — a segment never straddles a non-working interval', () => {
       `${MON} 15:30-17:30 escalera`,
     ]);
 
-    // Two blocks of the same job, and the durations are net working hours: the
-    // 90 minutes of lunch are in neither of them.
+    // Two blocks of one job, and the durations are net working hours: no lunch in either.
     const segments = expectOk(result).blocks.filter((placed) => placed.projectId === 'escalera');
     expect(segments).toHaveLength(2);
     expect(segments.map((placed) => placed.durationMinutes)).toEqual([60, 120]);
@@ -1426,10 +1344,8 @@ describe('rule 12 — auto-merge when two runs of one job meet after the reflow'
       today: MON,
       blocks: [
         block({ id: 'viernes', project: 'escalera', date: FRI, from: '08:00', hours: 2 }),
-        // A Saturday block ranks between the two halves of the staircase. It is a
-        // fixed block, so it is skipped without breaking the run: the two halves
-        // are ONE item. See "recomposing twice is not a second reflow" for why the
-        // grouping has to ignore fixed blocks — the alternative drifts.
+        // A fixed block ranking between the two halves is skipped without breaking the run, so the
+        // halves are ONE item. The alternative drifts — see "recomposing twice".
         block({ project: 'urgencia', date: SAT, from: '09:00', hours: 2 }),
         block({ id: 'siguiente', project: 'escalera', date: NEXT_MON, from: '08:00', hours: 2 }),
       ],
@@ -1438,8 +1354,7 @@ describe('rule 12 — auto-merge when two runs of one job meet after the reflow'
     expect(buildQueue(composeInput).map((item) => item.projectId)).toEqual(['escalera']);
     expect(buildQueue(composeInput)[0].blockIds).toEqual(['viernes', 'siguiente']);
 
-    // Both halves are pulled back to Monday, and two touching rows of one job
-    // inside one period are one row.
+    // Both halves come back to Monday, and two touching rows of one job in one period are one row.
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
       `${MON} 08:00-12:00 escalera`,
@@ -1467,8 +1382,7 @@ describe('rule 12 — auto-merge when two runs of one job meet after the reflow'
   });
 
   it('never merges what a human left on the weekend, even when two rows of one job touch', () => {
-    // Rule 6: the weekend is never auto-recovered, so it is never auto-tidied
-    // either. Merging here would rewrite a decision the engine did not make.
+    // The weekend is never auto-recovered, so it is never auto-tidied either.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -1486,8 +1400,7 @@ describe('rule 12 — auto-merge when two runs of one job meet after the reflow'
   });
 
   it('emits one solid row when the shift has no lunch break to split it at', () => {
-    // Settings allow `period2Start === period1End`. Then there is no non-working
-    // interval to cut a row at, so a job spanning the boundary is one rectangle.
+    // With `period2Start === period1End` there is no interval to cut at: one rectangle.
     const noLunch: DayShape = withWindows({
       periods: [
         { startMinutes: t('08:00'), endMinutes: t('14:00') },
@@ -1605,9 +1518,8 @@ describe('rule 14 — day overrides', () => {
     });
 
     expect(plannableMinutes(composeInput, THU)).toBe(240);
-    // Without the override both jobs would sit on Thursday. With it the door
-    // overflows — but shortening a day is not GROWTH, and CLAUDE.md gives the
-    // colchón to growth alone, so the door skips Friday and waits for Monday.
+      // Without the override both jobs sit on Thursday. Shortening a day is not GROWTH, and the
+      // colchón is for growth alone, so the door skips Friday and waits for Monday.
     expect(rows(compose(composeInput))).toEqual([
       `${THU} 08:00-12:00 escalera`,
       `${NEXT_MON} 08:00-10:00 porton`,
@@ -1660,9 +1572,8 @@ describe('rule 15 — the hours invariant', () => {
 
 describe('recompose-poc.js scenario 1 — a job that does not fit spills onto the next day', () => {
   it('places A and B and spills C over the stop line (CHANGED, 2026-08-17)', () => {
-    // The prototype pushed C whole to Tuesday, and so did this engine until the owner
-    // removed "never split a job to make it fit". C takes the 3 h Monday's stop line has
-    // left and its last hour is Tuesday's.
+    // The prototype pushed C whole to Tuesday. C takes the 3 h Monday's stop line has left and its
+    // last hour is Tuesday's.
     const composeInput = input({
       today: MON,
       shape: withCapacity(8),
@@ -1704,16 +1615,14 @@ describe('recompose-poc.js scenario 1 — a job that does not fit spills onto th
     ]);
   });
 
-  // The prototype's third property — that it keeps filling the day with later
-  // jobs after one overflows — is the one deliberately CHANGED behaviour. Its
-  // regression test is "rule 9 — never brings a later job forward".
+  // The prototype's third property — it keeps filling the day after an item overflows — is the one
+  // deliberately CHANGED behaviour. Its regression test is "rule 9 — never brings a later job forward".
 });
 
 describe('recompose-poc.js scenario 2 — a locked block is not a wall', () => {
   it('carries the flexible work past the locked block instead of stopping at it (KEPT)', () => {
-    // The prototype had no real clock, so it placed both flexible jobs before the
-    // locked one. The property it proved — flexible work resumes after a locked
-    // block rather than treating it as the end of the day — is what is kept.
+    // The prototype had no real clock, so it placed both flexible jobs before the locked one. What is
+    // kept is the property: flexible work resumes after a lock rather than stopping at it.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -1748,8 +1657,7 @@ describe('recompose-poc.js scenario 3 — one job split by hand around another',
     expect(buildQueue(composeInput).map((item) => item.projectId)).toEqual(['nueva']);
     expect(plannableMinutes(composeInput, MON)).toBe(240);
 
-    // The two halves of the staircase stay two rows: they do not touch, so
-    // auto-merge has nothing to do.
+    // The two halves stay two rows: they do not touch, so auto-merge has nothing to do.
     expect(rows(compose(composeInput))).toEqual([
       `${MON} 08:00-10:00 escalera [locked]`,
       `${MON} 10:00-13:00 porton [locked]`,
@@ -1800,16 +1708,13 @@ describe('the engine is a pure function over a snapshot', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Where two rules meet. Each case below crosses rules that the sections above
-// only test one at a time, which is where an engine that claims compliance
-// rule by rule tends to come apart.
+// Where two rules meet — which is where an engine that complies rule by rule comes apart
 // ---------------------------------------------------------------------------
 
 describe('rules 5 + 9 — the Friday buffer under strict order', () => {
   it('skips Friday for a new job even when Monday to Thursday are full and Friday is empty', () => {
-    // The asymmetry, at its sharpest: 16 h of existing work fills Mon-Thu at a
-    // 4 h stop line, Friday is completely free, and the new 2 h job still has to
-    // wait for next Monday. Friday is kept clear for work that GROWS.
+    // The asymmetry at its sharpest: 16 h fills Mon-Thu at a 4 h stop line, Friday is completely
+    // free, and the new 2 h job still waits for next Monday.
     const composeInput = input({
       today: MON,
       shape: withCapacity(4),
@@ -1854,8 +1759,7 @@ describe('rules 5 + 9 — the Friday buffer under strict order', () => {
   });
 
   it('sends a new job created on a Friday to next Monday, since new work never targets the buffer', () => {
-    // A consequence of rule 5 worth having in writing: the rule is about the
-    // weekday, not about overflow, so it applies on the day itself too.
+    // The rule is about the WEEKDAY and not about overflow, so it applies on the day itself too.
     const composeInput = input({
       today: FRI,
       blocks: [block({ project: 'nuevo', date: FRI, from: '08:00', hours: 3 })],
@@ -1912,8 +1816,7 @@ describe('rules 5 + 3 — a locked block on the Friday buffer', () => {
       `${WED} 15:30-19:30 escalera`,
       `${THU} 08:00-14:00 escalera`,
       `${THU} 15:30-19:30 escalera`,
-      // A job already longer than any day is being split, so it fills the hour
-      // in front of the locked block rather than leaving it empty.
+      // Longer than any day, so it fills the hour in front of the lock instead of leaving it.
       `${FRI} 08:00-09:00 escalera`,
       `${FRI} 09:00-13:00 cita [locked]`,
       `${FRI} 13:00-14:00 escalera`,
@@ -1949,10 +1852,8 @@ describe('rules 4 + 7 + 8 — a gap overlapping a locked block', () => {
     expect(plannableMinutes(composeInput, MON)).toBe(600 - 240);
 
     const result = compose(composeInput);
-    // Monday's two holes are 08:00-10:00 (2 h) and 15:30-19:30 (4 h). Neither holds 5 h,
-    // and the job used to move whole to Tuesday leaving both empty; it takes the first two
-    // hours and three of the afternoon's four now. The afternoon's last hour is behind the
-    // cursor for ever after — that is what is left of "no backfilling".
+    // Monday's holes are 08:00-10:00 and 15:30-19:30; neither holds 5 h. The job takes the first two
+    // hours and three of the afternoon's four, and the last hour is behind the cursor for ever.
     expect(rows(result)).toEqual([
       `${MON} 08:00-10:00 escalera`,
       `${MON} 10:00-13:00 cita [locked]`,
@@ -1987,7 +1888,7 @@ describe('rules 8 + 6 — a job longer than a day that runs into next week', () 
 
 describe('rule 4 + the visual margins — a block a human dropped outside the periods', () => {
   it('costs the day no plannable time and is handed back untouched', () => {
-    // "Margins accept manual drag-drop only. Auto-fill never enters them."
+    // Auto-fill never enters the visual margins.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -2036,8 +1937,7 @@ describe('the day capacity is a stop line, not a wall', () => {
       ],
     });
 
-    // x + y hit the 8 h stop line exactly. 17:30-19:30 is still free on the
-    // clock — the owner may drop work there by hand, but auto-fill will not.
+    // x + y hit the 8 h stop line exactly: 17:30-19:30 is free clock auto-fill will not use.
     expect(rows(compose(composeInput))).toEqual([
       `${MON} 08:00-11:00 x`,
       `${MON} 11:00-14:00 y`,
@@ -2049,11 +1949,8 @@ describe('the day capacity is a stop line, not a wall', () => {
 
 describe('rule 8 — "longer than a day" is measured against the room that actually exists', () => {
   it('splits a job into the holes of one day when no day anywhere has a hole big enough', () => {
-    // Every day of the week is cut in two by a five-hour gap, so the biggest
-    // single stretch anywhere is 4 h and a 6 h job cannot be placed whole at all.
-    // Rule 8 then applies in its second form — "splitting only happens when a job
-    // is longer than a full day's plannable hours" — and the job fills the holes
-    // it finds, in order, instead of failing.
+    // Every day is cut in two by a five-hour gap, so the biggest stretch anywhere is 4 h: a 6 h job
+    // fills the holes it finds, in order, instead of failing.
     const composeInput = input({
       today: MON,
       horizonWeeks: 1,
@@ -2074,12 +1971,8 @@ describe('rule 8 — "longer than a day" is measured against the room that actua
 });
 
 describe('invariant 4 — the engine never leaves a row shorter than a quarter of an hour', () => {
-  // With every quantity on the quarter hour this can never happen, and it did not happen by
-  // accident: an off-grid TOTAL is reachable through the one sub-quarter row a drop can leave
-  // behind (an Open Decision in CLAUDE.md) being deleted, which takes those minutes off
-  // `total_hours`. From then on every layout of that job could leave 1-14 minutes over — a
-  // row too short to show its own hours, drawn as a nameless two-pixel stripe, on a day no
-  // gesture had touched.
+  // An off-grid TOTAL is reachable: the one sub-quarter row a drop can leave behind, deleted, takes
+  // those minutes off `total_hours`, and from then on every layout could leave 1-14 minutes over.
 
   it('leaves a full quarter for the tail instead of a sliver', () => {
     // 20 h 05 at 10 h a day: Monday 10 h, and then 5 minutes would be left over.
@@ -2102,11 +1995,8 @@ describe('invariant 4 — the engine never leaves a row shorter than a quarter o
   });
 
   it('draws what is left when there is nowhere at all that could hold it whole', () => {
-    // The honest boundary, stated so nobody reads more into the guard than it does: with a
-    // total under half an hour and EVERY day holding ten minutes, no split avoids a short
-    // row and no day can take it whole. Refusing instead would be worse than a short row —
-    // an item the cursor keeps stepping over ends in `horizon-exceeded`, which rolls the
-    // whole save back. That is the second, last-resort pass in `placeItem`.
+    // The honest boundary: with a total under half an hour and every day holding ten minutes, no
+    // split avoids a short row. Refusing would be `horizon-exceeded`, which rolls the save back.
     const composeInput = input({
       today: MON,
       blocks: [block({ project: 'alfa', date: MON, from: '08:00', hours: 20 / 60 })],
@@ -2121,9 +2011,8 @@ describe('invariant 4 — the engine never leaves a row shorter than a quarter o
   });
 
   it('steps over a ten-minute hole rather than storing a ten-minute row', () => {
-    // THE SHARP EDGE OF *FILL AND OVERFLOW*. Filling what a day has left means a day may be
-    // asked for ten minutes, and ten minutes is not a row the calendar can draw. The 6 h
-    // job leaves those ten minutes alone and starts after the lock.
+    // The sharp edge of *fill and overflow*: a day may be asked for ten minutes, which is not a row.
+    // The 6 h job leaves those ten minutes alone and starts after the lock.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -2143,9 +2032,8 @@ describe('invariant 4 — the engine never leaves a row shorter than a quarter o
   });
 
   it('carries a quarter of an hour on WHOLE rather than splitting it into ten and five', () => {
-    // The other half: a quarter of an hour IS a row, so a ten-minute hole may not have ten
-    // minutes of it. Alfa's last quarter waits for Tuesday instead. (Found by the 2000-seed
-    // harness once it started generating off-grid quantities — seed 57.)
+    // The other half: a quarter of an hour IS a row, so a ten-minute hole may not have ten minutes of
+    // it. Alfa's last quarter waits for Tuesday. (2000-seed harness, seed 57.)
     const composeInput = input({
       today: MON,
       blocks: [
@@ -2167,10 +2055,8 @@ describe('invariant 4 — the engine never leaves a row shorter than a quarter o
   });
 
   it('never lets a break cut a piece into a sliver: a period ends, the hours do not', () => {
-    // A stretch of free time spans the lunch break on the engine's index ruler but is TWO
-    // rows on the clock, so the floor has to be applied per row. An obstacle ending at
-    // 13:50 used to give `13:50-14:00` — a ten-minute row — plus the rest of the afternoon
-    // (2000-seed harness, seed 275). The ten minutes are left free instead.
+    // A free stretch spanning the break is ONE stretch to the arithmetic and TWO rows on the clock,
+    // so the floor is per row: an obstacle ending at 13:50 used to give a ten-minute row (seed 275).
     const composeInput = input({
       today: MON,
       blocks: [
@@ -2191,9 +2077,7 @@ describe('invariant 4 — the engine never leaves a row shorter than a quarter o
 
 describe('a locked block can never make placement fail', () => {
   it('flows a job past a day locked and gapped end to end, with no error', () => {
-    // CLAUDE.md is explicit: "Because overflow always chains forward, a locked
-    // block can never make placement fail. There is no 'Can't fit job due to
-    // blocked slot' error." Monday here has no plannable minute left at all.
+    // A locked block can never make placement fail, and Monday here has no plannable minute left.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -2250,9 +2134,8 @@ describe('every input row is accounted for exactly once', () => {
 
 describe('the horizon bounds where work sits, not which work is considered', () => {
   it('pulls a block parked months ahead back to today', () => {
-    // 2026-12-01 is a Tuesday, well beyond the 8-week default horizon. It is
-    // unlocked, on a weekday and not in the past, so it is in the movable pool
-    // and comes back — the horizon only limits where the engine may WRITE.
+    // A Tuesday well beyond the 8-week horizon, unlocked and not past, so it is in the movable pool
+    // and comes back: the horizon only limits where the engine may WRITE.
     const composeInput = input({
       today: MON,
       blocks: [block({ project: 'olvidado', date: '2026-12-01', from: '10:00', hours: 4 })],
@@ -2263,24 +2146,15 @@ describe('the horizon bounds where work sits, not which work is considered', () 
 });
 
 // ---------------------------------------------------------------------------
-// The engine has to SETTLE. Every rule above describes one recomposition; these
-// describe the second one, which must change nothing. Recomposition runs on every
-// mutating operation, so an engine that is not a fixed point rewrites the
-// calendar under the owner on a save that had nothing to do with those rows —
-// and there is no undo.
+// The engine has to SETTLE. Every rule above describes one recomposition; these describe the second,
+// which must change nothing — recomposition runs on every mutating operation and there is no undo.
 // ---------------------------------------------------------------------------
 
 describe('recomposing twice is not a second reflow', () => {
   it('settles in one pass when a fixed block ranks between two runs of one job', () => {
-    // THE REGRESSION. The queue used to break a run at any fixed block, so these
-    // two runs of `barandilla` were two items (3 h, then 3.5 h) and were placed a
-    // day each. The reflow then moved the Friday run to Tuesday — in front of the
-    // Wednesday lock that had separated them — so the NEXT recomposition saw one
-    // 6.5 h item and repacked it as 4 h + 2.5 h. Monday's block grew by an hour on
-    // a save that touched nothing.
-    //
-    // Fixed blocks are skipped without breaking the run, so the grouping is the
-    // same before and after the reflow and the first pass is already the answer.
+    // The queue used to break a run at any fixed block, so these two runs were two items placed a day
+    // each; the reflow then moved one in front of the lock that had separated them and the NEXT pass
+    // saw one item and repacked it. Monday's block grew by an hour on a save that touched nothing.
     const composeInput = input({
       today: MON,
       shape: withCapacity(4),
@@ -2304,10 +2178,8 @@ describe('recomposing twice is not a second reflow', () => {
   });
 
   it('settles a job the owner split by hand around a locked block on the same day', () => {
-    // The two halves are one item again — a fixed row does not break a run — and since
-    // *fill and overflow* that costs the owner nothing: the item fills the hole in front of
-    // the lock and carries on after it, which is where the halves were to begin with. The
-    // job used to hop the lock whole and leave 08:00-10:00 empty.
+    // The halves are one item again — a fixed row does not break a run — and that costs nothing: the
+    // item fills the hole in front of the lock and carries on after it.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -2369,10 +2241,8 @@ describe('recomposing twice is not a second reflow', () => {
 
 describe('rule 5 — the buffer belongs to growth, and only to growth', () => {
   it('keeps the new job off Friday on the save after the one that created it', () => {
-    // THE REGRESSION. "New" is a property of one operation, so on the next save
-    // the job was ordinary work and slid straight onto the Friday it had just
-    // been made to skip. The rule survived exactly one save and the colchón was
-    // eaten anyway. Friday is now opt-in for growth, not opt-out for new jobs.
+    // "New" is a property of one operation, so on the next save the job was ordinary work and slid
+    // onto the Friday it had just skipped. Friday is opt-in for growth, not opt-out for new jobs.
     const creating = input({
       today: MON,
       shape: withCapacity(4),
@@ -2396,10 +2266,8 @@ describe('rule 5 — the buffer belongs to growth, and only to growth', () => {
   });
 
   it('does not hand the buffer to work displaced by something else', () => {
-    // Overflow caused by a new job taking the head of the queue is not growth:
-    // nobody's hours went up, so Friday stays clear and the displaced work waits
-    // for Monday. Dropping a new job onto a full week costs next week, not the
-    // colchón.
+    // Overflow caused by a new job taking the head of the queue is not growth: nobody's hours went
+    // up, so Friday stays clear and the displaced work waits for Monday.
     const composeInput = input({
       today: MON,
       shape: withCapacity(4),
@@ -2468,9 +2336,8 @@ describe('rule 5 — the buffer belongs to growth, and only to growth', () => {
       grownProjectIds: ['creciente'],
     });
 
-    // The staircase fills Mon-Thu. The grown job takes the buffer; the door is
-    // ordinary work, so it waits for next Monday even though Friday still has
-    // an hour free.
+    // The grown job takes the buffer; the door is ordinary work, so it waits for next Monday even
+    // though Friday still has an hour free.
     expect(rows(compose(composeInput))).toEqual([
       `${MON} 08:00-12:00 escalera`,
       `${TUE} 08:00-12:00 escalera`,
@@ -2559,11 +2426,8 @@ describe('rules 4 + 3 — a shift with the afternoon switched off', () => {
 
 describe('rule 4 + the visual margins — an UNLOCKED block dropped outside the periods', () => {
   it('is pulled back into the working periods on the next recomposition', () => {
-    // Worth having in writing, because it is the consequence of two rules meeting
-    // rather than a rule of its own: the margins take a manual drop, and an
-    // unlocked block is in the movable pool. So a drop into the margin lasts until
-    // the next recomposition — which every mutating operation runs. Locking it is
-    // what makes it stay, exactly as for any other exact time.
+    // The consequence of two rules meeting: the margins take a manual drop, and an unlocked block is
+    // in the movable pool, so a drop into a margin lasts until the next recomposition.
     const composeInput = input({
       today: MON,
       blocks: [block({ project: 'urgente', date: MON, from: '07:00', hours: 1 })],
@@ -2624,7 +2488,7 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
   ];
 
   it("appends added hours to the job's last block", () => {
-    // CLAUDE.md's own example: Mon 2 h + Wed 1 h + Fri 3 h, adding 2 h makes Fri 5 h.
+    // Mon 2 h + Wed 1 h + Fri 3 h, adding 2 h makes Fri 5 h.
     const edit = expectEdited(
       changeProjectMinutes(job(), {
         projectId: 'escalera',
@@ -2662,8 +2526,7 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
   });
 
   it('grows the last UNLOCKED block, never a locked one', () => {
-    // The implementer default in CLAUDE.md: "A locked block is never grown or
-    // shrunk silently."
+    // A locked block is never grown or shrunk silently.
     const blocks = [
       block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
       block({ id: 'cita', project: 'escalera', date: FRI, from: '08:00', hours: 3, locked: true }),
@@ -2712,9 +2575,8 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
   });
 
   it('never grows a padlocked buffer row: the added hours get a row the engine can place', () => {
-    // The same reasoning as for a lock, and it matters more here: hours written onto a
-    // row the reflow cannot touch land straight on the clock, where they can run
-    // through the lunch break with nothing to segment them afterwards.
+    // The same reasoning as for a lock, and it matters more here: hours written onto a row the reflow
+    // cannot touch land straight on the clock, where nothing segments them afterwards.
     const pinned = [
       block({ id: 'colchon', project: 'porton', date: FRI, from: '10:00', hours: 2, locked: true }),
     ];
@@ -2731,8 +2593,7 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
 
     expect(edit.blocks.find((row) => row.id === 'colchon')?.durationMinutes).toBe(120);
     expect(edit.blocks.find((row) => row.id === 'nueva')?.durationMinutes).toBe(240);
-    // ...and the engine places those hours properly — from the front of the week, like
-    // any movable row — leaving the pinned row exactly where the owner put it.
+    // ...and the engine places those hours from the front of the week, leaving the pinned row alone.
     expect(rows(compose(input({ today: MON, blocks: edit.blocks })))).toEqual([
       `${MON} 08:00-12:00 porton`,
       `${FRI} 10:00-12:00 porton [locked]`,
@@ -2740,9 +2601,8 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
   });
 
   it('takes hours off a padlocked row only when the job has nothing else, and says so', () => {
-    // The other direction of the same rule. Shrinking frees space rather than claiming it,
-    // so LIFO may reach a padlocked row — but only after the rows the engine still owns,
-    // and never silently.
+    // The other direction: shrinking frees space rather than claiming it, so LIFO may reach a
+    // padlocked row — but only after the rows the engine still owns, and never silently.
     const pinned = () => [
       block({ id: 'automatico', project: 'porton', date: MON, from: '08:00', hours: 2 }),
       block({ id: 'colchon', project: 'porton', date: FRI, from: '10:00', hours: 2, locked: true }),
@@ -2778,16 +2638,10 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
   });
 
   it('never grows a row in the FROZEN PAST: the added hours get a row the engine can place', () => {
-    // The defect that took the whole calendar page down (found 2026-08-12). A job whose
-    // one row sits on YESTERDAY, raised from 2 h to 6 h, was stored as `Tue 12:00 + 360
-    // min` — a single row running straight through the 14:00-15:30 lunch break, claiming
-    // 6 h where the clock holds 4.5 h. Raised again to 13 h it became `12:00-25:00` and
-    // `useFormat().time` threw `Invalid minutes "1500"`, with no way back to the week.
-    //
-    // NO GESTURE IS NEEDED TO REACH IT: a row on today becomes a past row overnight, so
-    // any job carrying yesterday's work was one hours-edit away from a dead app. The
-    // cause was `lastAutomatic` testing the stored MARKS while its
-    // own rule is "every row outside the movable pool", which the past is.
+    // The defect that took the calendar page down: a job whose one row sits on YESTERDAY, raised from
+    // 2 h to 6 h, stored `Tue 12:00 + 360 min` through the break, and at 13 h `12:00-25:00`. No
+    // gesture is needed to reach it — a row on today becomes a past row overnight. `lastAutomatic`
+    // tested the stored marks while its own rule is "every row outside the movable pool".
     const yesterday = [block({ id: 'ayer', project: 'escalera', date: TUE, from: '12:00', hours: 2 })];
 
     const edit = expectEdited(
@@ -2812,10 +2666,8 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
   });
 
   it('never grows a WEEKEND row either — the pool is the rule, not the mark', () => {
-    // The weekend was masked only in practice: every hand drop onto Sat/Sun left a mark,
-    // so the old predicate happened to skip those rows. A row that never went through that
-    // gesture — an older calendar, an imported one, a hand-edited database — was grown just
-    // like the past one above.
+    // The weekend was masked only in practice: every hand drop onto Sat/Sun leaves a padlock, so a
+    // row that never went through that gesture — an imported or hand-edited one — was grown too.
     const saturday = [block({ id: 'sabado', project: 'porton', date: SAT, from: '12:00', hours: 2 })];
 
     const edit = expectEdited(
@@ -2837,9 +2689,8 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
   });
 
   it('still takes hours OFF a past row, since shrinking one frees space', () => {
-    // The asymmetry is the whole point: LIFO has to be able to reach the job's hours
-    // wherever they are, and taking hours away can never produce a row that runs over
-    // the day's other work or past its end.
+    // The asymmetry: LIFO has to reach the job's hours wherever they are, and taking hours away can
+    // never produce a row that runs over the day's other work or past its end.
     const yesterday = [
       block({ id: 'ayer', project: 'escalera', date: TUE, from: '12:00', hours: 2 }),
       block({ id: 'sabado', project: 'escalera', date: SAT, from: '12:00', hours: 1 }),
@@ -2855,8 +2706,7 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
       }),
     );
 
-    // The Saturday row empties and the last half hour comes off yesterday: LIFO from the
-    // far end, through rows the engine itself may not move.
+    // The Saturday row empties and the last half hour comes off yesterday: LIFO from the far end.
     expect(edit.deletedBlockIds).toEqual(['sabado']);
     expect(edit.blocks.find((row) => row.id === 'ayer')?.durationMinutes).toBe(30);
     expect(edit.totalMinutesDelta).toBe(-150);
@@ -2897,12 +2747,9 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
 
 describe('rule — Block Resize (drag the bottom edge) is a transfer inside the job', () => {
   /*
-   * THE ROW BEING SIZED ALWAYS CARRIES A PADLOCK, in every test here, and that is the
-   * rule rather than the fixture's convenience (2026-08-18): the edge only sizes rows the
-   * engine does not lay out. On a row it does lay out there is nothing to size — the row is
-   * exactly as big as the room it has — so the request is refused with
-   * `resize-needs-padlock`. The COUNTERPARTY is the opposite: always a row the engine still
-   * places, because a raw duration written onto a fixed row is geometry nothing settles.
+   * THE ROW BEING SIZED ALWAYS CARRIES A PADLOCK, in every test here: the edge only sizes rows the
+   * engine does not lay out, and elsewhere the request is refused with `resize-needs-padlock`. The
+   * COUNTERPARTY is the opposite — always a row the engine still places.
    */
   const job = (): Block[] => [
     block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 2, locked: true }),
@@ -2916,10 +2763,8 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   ];
 
   it('refuses a row the ENGINE lays out, because its length is the room it has', () => {
-    // The owner's own reasoning, and the whole reason `manual_duration` was deleted: «si lo
-    // reduce de miércoles crece en jueves y sitio se libera en miércoles y pasa allí quedando
-    // exactamente igual». Nothing is written, and the sentence names the two things that do
-    // work — the padlock, and a gap.
+    // On an automatic row the freed hours flow straight back into the room they left, so nothing is
+    // written and the sentence names the two things that do work: the padlock, and a gap.
     const automatic = [
       block({ id: 'mie', project: 'escalera', date: WED, from: '08:00', hours: 6 }),
       block({ id: 'jue', project: 'escalera', date: THU, from: '08:00', hours: 4 }),
@@ -2941,16 +2786,16 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   });
 
   it('refuses it on a Friday and inside a margin too — the pool is the whole question', () => {
-    // Every row the engine moves, wherever it sits: the colchón is in the movable pool, and
-    // a row in a margin is only ever there WITH a padlock, which is what makes it sizable.
+    // Every row the engine moves: the colchón is in the pool, and a margin row is only ever there
+    // WITH a padlock, which is what makes it sizable.
     const friday = [
       block({ id: 'colchon', project: 'escalera', date: FRI, from: '08:00', hours: 3 }),
       block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
     ];
     expect(resizeBlock(friday, resizing({ blockId: 'colchon', durationMinutes: 120, today: MON })).ok).toBe(false);
 
-    // A weekend row is outside the pool by DATE, so it needs no padlock at all. Its
-    // counterparty is the job's row after it, which the engine does still place.
+    // A weekend row is outside the pool by DATE, so it needs no padlock; its counterparty is the
+    // job's row after it.
     const weekend = [
       block({ id: 'sabado', project: 'escalera', date: SAT, from: '09:00', hours: 2 }),
       block({ id: 'lunes', project: 'escalera', date: NEXT_MON, from: '08:00', hours: 3 }),
@@ -2983,10 +2828,8 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   });
 
   it('ASKS when the last block shrinks, instead of refusing, and names what it freed', () => {
-    // The owner's "resize only works in one direction": growing the last row raises the
-    // estimate, and shrinking it used to be a flat 409. There is genuinely nothing to
-    // hand the hours to, so the transform stops and puts the question — with the hours
-    // and the answers that exist, so one round trip is enough to ask it.
+    // Growing the last row raises the estimate; shrinking it used to be a flat 409. There is nothing
+    // to hand the hours to, so the transform stops and asks — hours and answers in one round trip.
     const result = resizeBlock(lastPinned(), resizing({ blockId: 'viernes', durationMinutes: 60, today: MON }));
 
     expect(result.ok).toBe(false);
@@ -3017,17 +2860,15 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
       ),
     );
 
-    // The job keeps its 5 h: 2 h + the shrunk hour + the 2 h now standing alone, ranked
-    // after the job's last row for `compose` to place.
+    // The job keeps its 5 h, the standalone 2 h ranked after its last row for `compose` to place.
     expect(edit.totalMinutesDelta).toBe(0);
     expect(minutesByProject(edit.blocks)).toEqual({ escalera: 300 });
     expect(edit.blocks).toHaveLength(3);
   });
 
   it('offers only `reduce-total` for hours too few to be a row', () => {
-    // A quarter of an hour is the smallest row the calendar can draw or the owner can
-    // aim at, so a 10-minute block is not one of the ways out — and the caller is told
-    // that rather than left to work it out.
+    // A quarter of an hour is the smallest row the calendar can draw, so a 10-minute block is not one
+    // of the ways out — and the caller is told rather than left to work it out.
     const blocks = [
       block({ id: 'solo', project: 'escalera', date: MON, from: '08:00', hours: 2, locked: true }),
     ];
@@ -3045,9 +2886,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   });
 
   it('cascades backwards past a locked row to find the receiver', () => {
-    // "The freed hours go to the job's last block, skipping locked ones, cascading
-    // backwards until it finds one that can take them" — a padlocked row is never grown
-    // silently, so the hours stop at the row before it.
+    // A padlocked row is never grown silently, so the cascading hours stop at the row before it.
     const blocks = [
       block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 3, locked: true }),
       block({ id: 'martes', project: 'escalera', date: TUE, from: '08:00', hours: 1 }),
@@ -3066,9 +2905,8 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   });
 
   it('asks when every counterparty is outside the pool, rather than writing onto one', () => {
-    // The hours would land on a row nothing will ever re-lay out — a Saturday row, a
-    // locked one, yesterday's — where a raw duration stays on the clock for ever. So the
-    // dead end is the same one, and the owner is asked instead.
+    // The hours would land on a row nothing will ever re-lay out, where a raw duration stays on the
+    // clock for ever, so the dead end is the same one and the owner is asked instead.
     const blocks = [
       block({ id: 'mar', project: 'escalera', date: TUE, from: '08:00', hours: 3, locked: true }),
       block({ id: 'sabado', project: 'escalera', date: SAT, from: '12:00', hours: 2 }),
@@ -3105,10 +2943,8 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   });
 
   it('refuses a PAST row through the pool as well, so the record cannot be rewritten', () => {
-    // The operation refuses it first with `past-block-frozen`; the engine's own answer is
-    // the transfer, since a past row is outside the pool and therefore sizable here. That is
-    // deliberate: the past is a policy of the write path, and the pure engine is what the
-    // migration's «record work that was never logged» rows go through.
+    // The operation refuses it first with `past-block-frozen`; the pure engine's own answer is the
+    // transfer, since a past row is outside the pool. The past is a policy of the write path.
     const blocks = [
       block({ id: 'ayer', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
       block({ id: 'jueves', project: 'escalera', date: THU, from: '08:00', hours: 4 }),
@@ -3127,9 +2963,8 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   });
 
   it('hands the freed hours to a row the ENGINE lays out, not to a weekend row behind it', () => {
-    // The same rule as LIFO's, on the same predicate: a transfer that ADDS hours to a
-    // row the reflow cannot touch writes them straight onto the clock, where nothing
-    // settles them afterwards. The last row is on Saturday, so only the pool tells them apart.
+    // The same predicate as LIFO's: a transfer that ADDS hours to a row the reflow cannot touch writes
+    // them straight onto the clock. The last row is on Saturday, so only the pool tells them apart.
     const blocks = [
       block({ id: 'mar', project: 'escalera', date: TUE, from: '08:00', hours: 3, locked: true }),
       block({ id: 'jue', project: 'escalera', date: THU, from: '08:00', hours: 2 }),
@@ -3153,9 +2988,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   });
 
   it('adds no mark of its own — the padlock the row already had is the whole story', () => {
-    // What a success stores is a duration and nothing else. There is no second flag to set
-    // (`manual_duration`, deleted 2026-08-18) and none to clear, so a resize to the length
-    // the row already had really is a no-op, and a refusal leaves the calendar untouched.
+    // A success stores a duration and nothing else, so a resize to the length the row had is a no-op.
     const grown = expectEdited(resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 240, today: MON })));
     expect(lockedIds(grown.blocks)).toEqual(['lunes']);
     expect(Object.keys(grown.blocks[0]).includes('manualDuration')).toBe(false);
@@ -3166,8 +2999,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     expect(jobRows(unchanged.blocks, 'escalera')).toEqual(jobRows(job(), 'escalera'));
     expect(unchanged.totalMinutesDelta).toBe(0);
 
-    // A refusal writes nothing at all: growing the last row past what the job has is the
-    // transfer that cannot be paid for.
+    // A refusal writes nothing: growing the last row past what the job has cannot be paid for.
     expect(resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 600, today: MON })).ok).toBe(false);
   });
 });
@@ -3176,21 +3008,9 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
 // The padlock is what holds a length
 // ---------------------------------------------------------------------------
 //
-// A `manual_duration` column used to hold it. It was deleted on 2026-08-18 for the
-// owner's own reason:
-//
-//   "la duración de un bloque nunca es fija. Es fija cuando se aplica entre bloques de
-//   otras tareas porque eso es lo que dura… si lo reduce de miércoles crece en jueves y
-//   sitio se libera en miércoles y pasa allí quedando exactamente igual. Si el usuario
-//   quisiera hacer eso, significa que quiere acabar la jornada antes… tendrá que añadir
-//   un gap."
-//
-// So a block is exactly as big as the room it has, and the two rules that propped the mark
-// up went with it: "a hand-set stretch ends its job's run" and "no more of that job lands
-// on that day". What is left is the padlock, and it needs no support rules at all — the
-// engine does not lay a locked row out, does not merge one, and does not re-derive its
-// length, so the number the owner drew simply stays. This describe is the proof of that,
-// on the same worked example the mark had.
+// A block is exactly as big as the room it has, and the padlock is what holds a length: the engine
+// does not lay a locked row out, does not merge one and does not re-derive its length, so the number
+// the owner drew simply stays. No support rules are needed for that.
 
 describe('the padlock holds a resized length, and needs no second mark to do it', () => {
   /** Barandilla 14 h from Wednesday, Porton 8 h behind it. */
@@ -3215,8 +3035,7 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
   ];
 
   it('lays the calendar out the same way whether a row is padlocked or not', () => {
-    // The padlock costs nothing while the row is where the engine would have put it: it is
-    // an obstacle at exactly the slot the reflow was going to use anyway.
+    // The padlock costs nothing while the row is where the engine would have put it anyway.
     const composeInput = input({ today: WED, blocks: worked() });
     expect(rows(compose(composeInput))).toEqual(AUTOMATIC);
 
@@ -3233,8 +3052,7 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
       resizeBlock(pinnedMorning(), resizing({ blockId: 'bar-am', durationMinutes: 120, today: WED })),
     );
 
-    // The transfer is the ordinary one: the 4 h come off Wednesday and land on the job's
-    // last row the engine still places, and the estimate does not move.
+    // The ordinary transfer: the 4 h come off Wednesday onto the job's last row the engine places.
     expect(jobRows(edit.blocks, 'barandilla')).toEqual([
       `${WED} 08:00-10:00 [locked]`,
       `${WED} 15:30-19:30`,
@@ -3245,13 +3063,11 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
     const composeInput = input({ today: WED, blocks: edit.blocks });
     const result = compose(composeInput);
 
-    // Wednesday's freed hours go to whatever the queue has next, exactly as the mark used
-    // to arrange — but by ordinary strict-order forward fill, with no exception anywhere.
+    // Wednesday's freed hours go to whatever the queue has next, by ordinary forward fill.
     expect(rows(result)).toEqual([
       `${WED} 08:00-10:00 barandilla [locked]`,
-      // The job's OWN remaining hours take the room the shrink freed, and that is the
-      // owner's point rather than a defect: «pasa allí quedando exactamente igual». What
-      // ends a day early is a gap, and only the owner makes one.
+      // The job's OWN remaining hours take the room the shrink freed, which is the point rather than
+      // a defect: what ends a day early is a gap, and only the owner makes one.
       `${WED} 10:00-14:00 barandilla`,
       `${WED} 15:30-19:30 barandilla`,
       `${THU} 08:00-12:00 barandilla`,
@@ -3298,9 +3114,8 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
     });
     expect(rows(compose(withNewJob))).toContain(`${WED} 08:00-10:00 barandilla [locked]`);
 
-    // Deleting Porton frees Thursday. The padlocked 2 h stay 2 h — and the job's own
-    // remaining hours DO flow back into the hours the shrink freed, which is the owner's
-    // own point: the shop is either busy then or it is not, and only a gap says otherwise.
+    // Deleting Porton frees Thursday. The padlocked 2 h stay 2 h, and the job's own remaining hours DO
+    // flow back into the hours the shrink freed.
     const withoutPorton = input({
       today: WED,
       blocks: edit.blocks.filter((row) => row.projectId !== 'porton'),
@@ -3320,16 +3135,14 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
       resizeBlock(pinnedMorning(), resizing({ blockId: 'bar-am', durationMinutes: 120, today: WED })),
     );
 
-    // Pressing the padlock is the whole of *back to automatic* now: the row rejoins its
-    // job's run and the calendar is the automatic one again, hours and all.
+    // Pressing the padlock: the row rejoins its job's run and the calendar is automatic again.
     const unlocked = edit.blocks.map((row) => ({ ...row, locked: false }));
     expect(rows(compose(input({ today: WED, blocks: unlocked })))).toEqual(AUTOMATIC);
   });
 
   it('makes a padlocked row an OBSTACLE, never a queue item, and never a run divider', () => {
-    // The two halves of what the mark used to do to the queue, both gone: a padlocked row
-    // is not an item at all, and it does not end the run around it — the job's rows either
-    // side of it are ONE item, which is why the reflow can hop it.
+    // A padlocked row is not an item at all, and it does not end the run around it: the job's rows
+    // either side of it are ONE item, which is why the reflow can hop it.
     const beside = input({
       today: WED,
       blocks: [
@@ -3343,8 +3156,7 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
   });
 
   it('keeps a padlocked stretch cut at the lunch break exactly as it is', () => {
-    // 7 h padlocked from 08:00 is stored as two rows, and BOTH are outside the pool, so the
-    // engine hands them straight back. That is what a resize across the break produces.
+    // 7 h padlocked from 08:00 is two rows, both outside the pool, so the engine hands them back.
     const composeInput = input({
       today: WED,
       blocks: [
@@ -3409,21 +3221,13 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
 // A resize crosses the lunch break, and may reach into the margins
 // ---------------------------------------------------------------------------
 //
-// The owner's report B, in their own words: "al aumentar de tamaño o empequeñecer un bloque
-// este no pasa de las horas de comer y las de margen, debería dejarme hacerlo más grande, y
-// que ignore la hora de comer, ejemplo arrastro hasta las 17:30 una tarea que empezaba a las
-// 10, en vez de la hora del medio sumarla, ignorarla y sería de 10 a 14 y de 15:30 a 17:30."
-//
-// So `durationMinutes` is NET working minutes over the day's MANUAL WINDOWS, and the result
-// is stored in segments by the same splitter a drop uses. The drag layer's half of it —
-// turning a pointer position into those net minutes — is `durationTo` in
-// src/components/calendar/geometry.ts, with the same worked example as its test.
+// `durationMinutes` is NET working minutes over the day's MANUAL WINDOWS, and the result is stored
+// in segments by the same splitter a drop uses. The drag layer's half — turning a pointer position
+// into those net minutes — is `durationTo` in src/components/calendar/geometry.ts.
 
 describe('a resize crosses the lunch break', () => {
-  /**
-   * A padlocked morning row starting at 10:00 — the only kind the edge sizes — with
-   * another job in front of it and a Thursday row behind it to pay the transfer.
-   */
+  /** A padlocked 10:00 morning row — the only kind the edge sizes — with a Thursday row to pay the
+   * transfer and another job in front of it. */
   const job = (): Block[] => [
     block({ id: 'antes', project: 'porton', date: WED, from: '08:00', hours: 2 }),
     block({ id: 'mie', project: 'barandilla', date: WED, from: '10:00', hours: 4, locked: true }),
@@ -3439,8 +3243,7 @@ describe('a resize crosses the lunch break', () => {
       `${WED} 15:30-17:30 [locked]`,
       `${THU} 08:00-10:00`,
     ]);
-    // The row the segmentation had to create carries the same padlock: half a stretch
-    // given back to the engine would come apart on the next pass.
+    // The created row carries the same padlock: half a stretch left to the engine comes apart.
     expect(lockedIds(edit.blocks)).toEqual(['mie', 'resize-1']);
     expect(edit.totalMinutesDelta).toBe(0);
     expect(edit.deletedBlockIds).toEqual([]);
@@ -3451,8 +3254,7 @@ describe('a resize crosses the lunch break', () => {
       `${WED} 08:00-10:00 porton`,
       `${WED} 10:00-14:00 barandilla [locked]`,
       `${WED} 15:30-17:30 barandilla [locked]`,
-      // The 2 h left of the job take what Wednesday still has, and the rest of the day is
-      // genuinely used: the padlocked stretch holds its own hours and nothing else.
+      // The 2 h left take what Wednesday still has: the padlocked stretch holds only its own hours.
       `${WED} 17:30-19:30 barandilla`,
     ]);
     expectMinutesConserved(composeInput, result);
@@ -3475,8 +3277,7 @@ describe('a resize crosses the lunch break', () => {
       resizeBlock(job(), resizing({ blockId: 'mie', durationMinutes: 6 * 60, today: WED })),
     );
 
-    // Dragging the SAME edge back up to 12:00. The afternoon half is where the new
-    // segments used to reach, so the stretch takes it back in and it goes.
+    // The same edge dragged back to 12:00: the afternoon half is where the segments reached, so it goes.
     const shrunk = expectEdited(
       resizeBlock(stretched.blocks, resizing({ blockId: 'mie', durationMinutes: 2 * 60, today: WED })),
     );
@@ -3490,9 +3291,8 @@ describe('a resize crosses the lunch break', () => {
   });
 
   it('reuses the row already sitting after the break instead of stacking one on it', () => {
-    // The morning half of a padlocked unit, dragged past the break onto its own afternoon
-    // half. The new segments land exactly where that row sits, so the stretch takes it over
-    // — nothing is stacked at 15:30 and no id is minted.
+    // Dragged past the break onto its own afternoon half: the new segments land exactly where that row
+    // sits, so the stretch takes it over — nothing is stacked at 15:30 and no id is minted.
     const unit = [
       block({ id: 'am', project: 'barandilla', date: WED, from: '08:00', hours: 6, locked: true }),
       block({ id: 'pm', project: 'barandilla', date: WED, from: '15:30', hours: 4, locked: true }),
@@ -3517,9 +3317,8 @@ describe('a resize crosses the lunch break', () => {
   });
 
   it('leaves an AUTOMATIC row the stretch does not reach to the engine', () => {
-    // The other side of the rule. The afternoon row here is the engine's, so shrinking the
-    // padlocked morning row does not take it in: its hours are placed by the reflow, and
-    // absorbing them would read "this row is shorter" as "this job is smaller".
+    // The afternoon row here is the ENGINE's, so shrinking the padlocked morning row does not take it
+    // in: absorbing it would read "this row is shorter" as "this job is smaller".
     const oneDay = [
       block({ id: 'am', project: 'barandilla', date: WED, from: '08:00', hours: 6, locked: true }),
       block({ id: 'pm', project: 'barandilla', date: WED, from: '15:30', hours: 2 }),
@@ -3533,8 +3332,7 @@ describe('a resize crosses the lunch break', () => {
       `${WED} 15:30-17:30`,
       `${THU} 08:00-13:00`,
     ]);
-    // Hours conserved, and the 7 h the engine still owns are ONE queue item, so they fill
-    // Wednesday round the padlocked row rather than staying where they were.
+    // The 7 h the engine still owns are ONE queue item, so they fill Wednesday round the padlock.
     expect(minutesByProject(edit.blocks)).toEqual({ barandilla: 540 });
     expect(rows(compose(input({ today: WED, blocks: edit.blocks })))).toEqual([
       `${WED} 08:00-10:00 barandilla [locked]`,
@@ -3544,9 +3342,8 @@ describe('a resize crosses the lunch break', () => {
   });
 
   it('lets a padlocked row be sized into a visual margin, and keeps it there', () => {
-    // Report C for the resize: the margins are hand time and the engine's index space has
-    // no minutes of them. It needs no extra padlock now — the row already carries the one
-    // that lets it be sized at all, which is exactly why the second mark was not needed.
+    // The margins are hand time and the engine's index space has no minutes of them. No extra padlock
+    // is needed: the row already carries the one that lets it be sized at all.
     const blocks = [
       block({ id: 'tarde', project: 'barandilla', date: WED, from: '15:30', hours: 4, locked: true }),
       block({ id: 'jue', project: 'barandilla', date: THU, from: '08:00', hours: 4 }),
@@ -3598,21 +3395,15 @@ describe('a resize crosses the lunch break', () => {
 // Manual placement — the overlap a drop creates
 // ---------------------------------------------------------------------------
 //
-// The rows `compose` is forbidden to move (weekend, frozen past, locked) come back
-// untouched, so two of them can overlap for ever and the reflow will never notice.
-// A hand drop is what creates that, and it used to be silent: splitting 2 h onto a
-// Saturday the job already occupied left two rows overlapping by an hour, drawn as
-// two lanes side by side.
-//
-// The rules, from the review with the owner:
+// The rows `compose` may not move (weekend, frozen past, locked) come back untouched, so two of them
+// can overlap for ever and the reflow will never notice. A hand drop is what creates that:
 //   SAME JOB  -> one row, start = min(starts), duration = SUM(durations).
 //   OTHER JOB -> cut it at the drop's start and push its tail past the drop's end.
 //   A LOCK    -> refuse; never cut, grow or absorb a locked row.
 
 describe('manual placement — the same job merges, and the hours are SUMMED', () => {
   it('turns Sat 09:00-11:00 plus a 2 h drop at 10:00 into one 09:00-13:00 row of 4 h', () => {
-    // THE VERIFIED BUG. Both rows are on a weekend, so both are outside the movable
-    // pool the instant they are written and `compose` hands them straight back.
+    // Both rows are on a weekend, so both are outside the pool the instant they are written.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -3624,18 +3415,15 @@ describe('manual placement — the same job merges, and the hours are SUMMED', (
     const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('soltado')));
 
     expect(calendarRows(resolved.blocks)).toEqual([`${SAT} 09:00-13:00 urgencia`]);
-    // The earlier row survives, so the write is an UPDATE and not a DELETE plus an
-    // INSERT — the same convention rule 12's auto-merge follows.
+    // The earlier row survives, so the write is an UPDATE: the same convention auto-merge follows.
     expect(resolved.blocks[0].id).toBe('ya-estaba');
     expect(resolved.mergedBlockIds).toEqual(['soltado']);
     expect(resolved.displacedProjectIds).toEqual([]);
   });
 
   it('sums the durations instead of taking the interval union, so no hour is lost', () => {
-    // THE TEST THAT FAILS ON AN INTERVAL UNION. 09:00-11:00 and a 1 h drop at 10:00
-    // share an hour. `union` would answer 09:00-11:00 — one row of 2 h — and the
-    // third hour the owner had on the calendar would simply be gone. The rule is
-    // `min(start)` plus the SUM: 3 h, 09:00-12:00.
+    // The case an interval union fails: 09:00-11:00 plus a 1 h drop at 10:00 would answer 09:00-11:00
+    // and lose an hour. The rule is `min(start)` plus the SUM: 3 h, 09:00-12:00.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -3685,8 +3473,7 @@ describe('manual placement — the same job merges, and the hours are SUMMED', (
   });
 
   it('leaves a drop the reflow will settle alone — there is nothing to repair', () => {
-    // An unlocked weekday row IS in the movable pool: the reflow puts it somewhere it
-    // overlaps nothing, so resolving here would cut a job for no reason.
+    // An unlocked weekday row IS movable: the reflow puts it somewhere it overlaps nothing.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -3705,9 +3492,8 @@ describe('manual placement — the same job merges, and the hours are SUMMED', (
   });
 
   it('is not rule 12: two weekend rows of one job that merely TOUCH stay two rows', () => {
-    // Rule 12 joins rows that touch inside one period, and it deliberately never runs
-    // on the weekend. This mechanism is about an OVERLAP, so touching is not its
-    // business either — otherwise the weekend would start tidying itself.
+    // Auto-merge joins rows that TOUCH and never runs on the weekend; this is about an OVERLAP, so
+    // touching is not its business either.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -3746,8 +3532,7 @@ describe('manual placement — another job is cut and its tail pushed past the d
       `${SAT} 10:00-11:00 porton`,
       `${SAT} 11:00-12:00 barandilla`,
     ]);
-    // "If the user does not want it, they move it again" — so the job must not lose
-    // hours in the meantime.
+    // The drop may be undone by another drop, so the job must not lose hours in the meantime.
     expect(minutesByProject(resolved.blocks)).toEqual(minutesByProject(composeInput.blocks));
     expect(resolved.displacedProjectIds).toEqual(['barandilla']);
     expect(resolved.mergedBlockIds).toEqual([]);
@@ -3768,8 +3553,7 @@ describe('manual placement — another job is cut and its tail pushed past the d
       `${SAT} 09:00-10:00 porton`,
       `${SAT} 10:00-12:00 barandilla`,
     ]);
-    // Nothing was left in front of the drop, so there is no head to keep and the row
-    // is rewritten rather than deleted and inserted.
+    // Nothing in front of the drop, so there is no head to keep and the row is rewritten.
     expect(resolved.blocks.find((row) => row.projectId === 'barandilla')?.id).toBe('a');
   });
 
@@ -3784,8 +3568,7 @@ describe('manual placement — another job is cut and its tail pushed past the d
 
     const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
 
-    // 1 h in front, the drop, then the 2 h left cannot run through lunch: 13:00-14:00
-    // and 15:30-16:30, two rows of one job — exactly what auto-fill would have done.
+    // 1 h in front, the drop, then the 2 h left cut at the break: exactly what auto-fill would do.
     expect(calendarRows(resolved.blocks)).toEqual([
       `${SAT} 11:00-12:00 barandilla`,
       `${SAT} 12:00-13:00 porton`,
@@ -3796,8 +3579,7 @@ describe('manual placement — another job is cut and its tail pushed past the d
   });
 
   it('carries a Saturday tail that does not fit onto SUNDAY, never onto Monday', () => {
-    // The engine never moves weekend work: pushing the remainder into the week would
-    // be the engine deciding the shop does not work Saturdays after all.
+    // Pushing the remainder into the week would decide the shop does not work Saturdays.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -3826,8 +3608,7 @@ describe('manual placement — another job is cut and its tail pushed past the d
 
     const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
 
-    // Last Friday has no room after 19:30, and the weekend is not this row's to use,
-    // so the hour lands on the first weekday the engine may write to: today.
+    // Last Friday has no room and the weekend is not this row's to use, so the hour lands on today.
     expect(calendarRows(resolved.blocks)).toEqual([
       `${LAST_FRI} 18:30-19:30 revision`,
       `${MON} 08:00-09:00 historial`,
@@ -3905,11 +3686,8 @@ describe('manual placement — a locked row is never overlapped', () => {
   });
 
   it('still MERGES onto the SAME job\'s padlocked row, and the merged row keeps the padlock', () => {
-    // This refused until 2026-08-14, to keep a merge from moving a lock's start. Once the
-    // padlock became the mark every weekend and margin drop leaves, that refusal fired on
-    // the ordinary gesture — stacking more of the same job on the Saturday it already sits
-    // on — and named the owner's own row at them. The hours are theirs, the fold is theirs,
-    // and the one row they become is padlocked, so nothing is freed.
+    // A refusal here would fire on the ordinary gesture — stacking more of one job on the Saturday it
+    // already sits on — and name the owner's own row at them. The folded row keeps the padlock.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -3926,8 +3704,7 @@ describe('manual placement — a locked row is never overlapped', () => {
   });
 
   it('carries the padlock the other way too: a padlocked DROP onto an unlocked row', () => {
-    // The survivor is the earlier row, so without this the fold would quietly hand the
-    // owner's pinned hours back to the engine.
+    // The survivor is the earlier row, so without this the fold would hand pinned hours back.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -3972,9 +3749,8 @@ describe('manual placement — a locked row is never overlapped', () => {
   });
 
   it('refuses a merge whose sum would run past midnight, rather than clipping it', () => {
-    // A row is a solid rectangle inside ONE day, so there is nowhere for the rest of
-    // the hours to go — and clipping them would be the one thing the sum rule exists
-    // to prevent.
+    // A row is a solid rectangle inside ONE day, so there is nowhere for the rest of the hours to go —
+    // and clipping them is the one thing the sum rule exists to prevent.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -3993,8 +3769,7 @@ describe('manual placement — a locked row is never overlapped', () => {
   });
 
   it('refuses when the displaced hours have nowhere left inside the horizon', () => {
-    // One week of horizon: the Saturday tail may only try Saturday and Sunday, and
-    // Sunday is full. Nothing is written, exactly like the horizon failure.
+    // One week of horizon: the Saturday tail may only try Saturday and Sunday, and Sunday is full.
     const composeInput = input({
       today: MON,
       horizonWeeks: 1,
@@ -4026,12 +3801,10 @@ describe('manual placement — a locked row is never overlapped', () => {
 });
 
 describe('manual placement — a drop the engine still owns is never refused', () => {
-  // The owner's «aún no cabe». Every refusal above answers "does the footprint fit here as
-  // the calendar stands right now", and where the reflow decides the layout that question
-  // is not only wrong but circular: the room on the target day is made BY the move. A drop
-  // that PADLOCKS lands literally, so it keeps its day and gives up the exact minute — and
-  // when the day has no clear slot the refusal stands, because the pin is now the owner's
-  // padlock and cannot be quietly taken off again.
+  // Every refusal above answers "does the footprint fit here as the calendar stands right now", which
+  // where the reflow decides the layout is circular: the room on the target day is made BY the move.
+  // A drop that PADLOCKS lands literally, so it keeps its day and gives up the exact minute — and
+  // where the day has no clear slot the refusal stands, because the pin cannot be taken off quietly.
 
   it('knows which days it lays out: Mon-Thu and the buffer, from today on', () => {
     const config = createDayConfigResolver(SHAPE, [closedDay(WED)]);
@@ -4045,9 +3818,8 @@ describe('manual placement — a drop the engine still owns is never refused', (
   });
 
   it('slides a pinned Friday drop clear of a gap instead of refusing it', () => {
-    // A drop onto the buffer PINS, so it cannot share the gap's minutes — and a rank would
-    // be worthless there (the reflow pulls the row back into Mon-Thu). Keeping the day and
-    // giving up the exact minute is the only answer that honours the gesture.
+    // A drop onto the buffer PINS, so it cannot share the gap's minutes, and a rank would be worthless
+    // there. Keeping the day and giving up the exact minute is the only answer that honours it.
     const composeInput = input({
       today: MON,
       gaps: [gap({ date: FRI, from: '10:00', hours: 1, reason: 'Avería' })],
@@ -4062,8 +3834,7 @@ describe('manual placement — a drop the engine still owns is never refused', (
   });
 
   it('slides past a LOCKED row on the buffer, and stores the result in segments', () => {
-    // The lock keeps every minute it had; the drop takes the first ones it can, and the
-    // stretch it lands on crosses the lunch break, so it comes back as two rows.
+    // The lock keeps its minutes; the drop takes the first it can, across the break, so two rows.
     const composeInput = input({
       today: MON,
       blocks: [
@@ -4083,9 +3854,8 @@ describe('manual placement — a drop the engine still owns is never refused', (
   });
 
   it('refuses, naming the gap, when the day has no clear slot left', () => {
-    // The gap runs to the end of Friday, so there is nowhere to slide to. The drop is
-    // padlocked — that is what pinned it to the buffer at all — so the answer is a refusal
-    // the owner can act on, not a silent unlocking that would move the row to Monday.
+    // The gap runs to the end of Friday, so there is nowhere to slide, and the drop is padlocked: the
+    // answer is a refusal the owner can act on, not a silent unlocking.
     const composeInput = input({
       today: MON,
       gaps: [gap({ date: FRI, from: '09:00', hours: 11, reason: 'Puente' })],
@@ -4101,9 +3871,8 @@ describe('manual placement — a drop the engine still owns is never refused', (
   });
 
   it('never slides a row past the end of the day to get clear', () => {
-    // The slide is forward only, and the end of the day is a line no write may cross: the
-    // first slot clear of this gap is 19:00, where a 2 h row would reach 21:00. So there is
-    // no slot, and the drop is refused rather than hung below the grid's last rule.
+    // Forward only, and the end of the day is a line no write may cross: the first slot clear of this
+    // gap is 19:00, where a 2 h row would reach 21:00. So there is no slot.
     const composeInput = input({
       today: MON,
       gaps: [gap({ date: FRI, from: '18:00', hours: 1, reason: 'Limpieza' })],
@@ -4133,10 +3902,8 @@ describe('manual placement — a drop the engine still owns is never refused', (
   });
 
   it('slides a locked row being DRAGGED too, on a day that reflows', () => {
-    // The padlock says "the engine does not move this row"; it does not say the owner may
-    // not aim it. On a day the engine lays out, keeping the day and giving up the exact
-    // minute is the same answer a drop onto the buffer gets — and it has to be, because
-    // since 2026-08-14 a drop onto the buffer IS a padlocked drop.
+    // The padlock says "the engine does not move this row", not "the owner may not aim it". On a day
+    // the engine lays out it gets the same answer as a drop onto the buffer, which IS a padlocked drop.
     const composeInput = input({
       today: MON,
       gaps: [gap({ date: FRI, from: '10:00', hours: 1, reason: 'Avería' })],
@@ -4149,8 +3916,7 @@ describe('manual placement — a drop the engine still owns is never refused', (
   });
 
   it('refuses that same drag where the day is NOT the engine\'s: the weekend', () => {
-    // No slide there: the minute is the whole promise, and nothing will ever come along
-    // and separate the row from what it landed on.
+    // No slide there: the minute is the whole promise, and nothing will ever separate the rows.
     const composeInput = input({
       today: MON,
       gaps: [gap({ date: SAT, from: '10:00', hours: 1, reason: 'Avería' })],
@@ -4195,12 +3961,9 @@ describe('manual placement — what it hands to the engine is already settled', 
 // A drop onto a row the reflow WILL settle
 // ---------------------------------------------------------------------------
 //
-// The other half of the same resolver, and the fix for the second reproduced
-// defect. Dropping Porton at Wednesday 10:00, inside Barandilla's 08:00-14:00 row,
-// used to land Porton at 15:30 — after the whole block — and push Barandilla to
-// Thursday, because nothing cut the row and the queue therefore read `A, B`. The cut
-// makes it read `A, B, A`, and the forward fill does the rest by itself: no hours are
-// placed here, only ranked.
+// Dropping Porton at Wednesday 10:00, inside Barandilla's 08:00-14:00 row, used to land it at 15:30
+// and push Barandilla to Thursday, because nothing cut the row and the queue read `A, B`. The cut
+// makes it read `A, B, A`, and the forward fill does the rest: no hours are placed here, only ranked.
 
 describe('a drop onto a movable row is cut too, so the queue reads A, B, A', () => {
   const dropped = (): Block[] => [
@@ -4212,8 +3975,7 @@ describe('a drop onto a movable row is cut too, so the queue reads A, B, A', () 
   it('cuts the row at the drop and the engine draws A, B, A', () => {
     const composeInput = input({ today: WED, blocks: dropped() });
 
-    // Without the cut the queue reads `barandilla, porton` and Porton lands after the
-    // whole 6 h block — the defect, stated as the behaviour it replaces.
+    // Without the cut the queue reads `barandilla, porton` and Porton lands after the whole 6 h block.
     expect(rows(compose(composeInput))).toEqual([
       `${WED} 08:00-14:00 barandilla`,
       `${WED} 15:30-17:30 porton`,
@@ -4262,9 +4024,8 @@ describe('a drop onto a movable row is cut too, so the queue reads A, B, A', () 
   });
 
   it('goes BEFORE a row it landed exactly on the start of, and cuts nothing', () => {
-    // Landing on a start means "put me before this one" (decided 2026-08-13). The rank
-    // TIES there, and a tie is broken by `created_at` — so the drop lost to the older row
-    // and the drag looked ignored. Barandilla is deliberately the older of the two.
+    // Landing on a start means "put me before this one". The rank TIES there and a tie goes to
+    // `created_at`, so the drop lost to the older row: Barandilla is deliberately the older.
     const composeInput = input({
       today: WED,
       blocks: [
@@ -4289,8 +4050,7 @@ describe('a drop onto a movable row is cut too, so the queue reads A, B, A', () 
   });
 
   it('never cuts a locked row, and never refuses the drop over one', () => {
-    // Flexible work flows around a lock, so the reflow settles this with no help and
-    // the drop must not be turned into a 409 the way a weekend drop is.
+    // Flexible work flows around a lock, so this must not become the 409 a weekend drop gets.
     const composeInput = input({
       today: WED,
       blocks: [
@@ -4311,8 +4071,7 @@ describe('a drop onto a movable row is cut too, so the queue reads A, B, A', () 
   });
 
   it('leaves a drop onto the job\'s OWN movable row to the reflow', () => {
-    // Two movable rows of one job are laid out contiguously and joined by rule 12, so
-    // folding them here would be tidying rather than repairing.
+    // Two movable rows of one job are laid out contiguously and joined by auto-merge anyway.
     const composeInput = input({
       today: WED,
       blocks: [
@@ -4335,11 +4094,8 @@ describe('a drop onto a movable row is cut too, so the queue reads A, B, A', () 
 // A dropped row is stored in segments, like every other row
 // ---------------------------------------------------------------------------
 //
-// THE REPRODUCED DEFECT. Dropping a 360 min block onto a past Monday at 10:00 stored
-// ONE row of 10:00 + 360 min, which runs straight through the 14:00-15:30 lunch.
-// A hand drop is the one placement that does not go through `toClockSegments`, so it
-// was the one way to get a stored row straddling a non-working interval — and the
-// grid, the overlap arithmetic and auto-merge all assume that never happens.
+// A hand drop is the one placement that does not go through `toClockSegments`, so dropping 360 min at
+// 10:00 stored ONE row straight through the break — the one way to get a straddling stored row.
 
 describe('a dropped row never straddles the lunch break', () => {
   it('cuts a 6 h drop onto a frozen past Monday into 10:00-14:00 and 15:30-17:30', () => {
@@ -4415,15 +4171,13 @@ describe('a dropped row never straddles the lunch break', () => {
       `${SAT} 15:30-17:30 urgencia`,
     ]);
     expect(minutesByProject(resolved.blocks)).toEqual({ urgencia: 4 * 60 });
-    // The absorbed row's id is reused for the second segment rather than being deleted
-    // and a new one inserted.
+    // The absorbed row's id is reused for the second segment rather than deleted and re-inserted.
     expect(resolved.mergedBlockIds).toEqual([]);
     expect(sortedIds(resolved.blocks)).toEqual(['ya-estaba', 'soltado']);
   });
 
   it('leaves a drop into the visual margins exactly as it was made', () => {
-    // Margins are outside the ruler and accept a hand drop as-is, so there is no
-    // period boundary inside such a row to cut it at.
+    // Margins are outside the ruler and take a hand drop as-is: no boundary inside to cut at.
     const composeInput = input({
       today: MON,
       blocks: [block({ id: 'soltado', project: 'urgencia', date: SAT, from: '19:00', hours: 2 })],
@@ -4515,16 +4269,10 @@ describe('the summary strip is arithmetic, not wording', () => {
 // The rules as properties, over generated calendars
 // ---------------------------------------------------------------------------
 //
-// Every case above is a scenario someone thought of. This one is not: it builds
-// calendars from a seeded generator and asserts the invariants that must hold
-// whatever the input, including deliberately impossible rows (a block straddling
-// lunch, two locked blocks on top of each other) so the engine is never trusted
-// to have been handed tidy data. Both bugs this file now regresses against — the
-// grouping drift and the buffer slipping onto Friday on the second save — were
-// found here first, by the idempotence property, not by reading the code.
-//
-// The seed is printed with every failure, and `describe.each` on that seed alone
-// reproduces it.
+// Calendars from a seeded generator, including deliberately impossible rows (a block straddling
+// lunch, two locked blocks on top of each other), so the engine is never trusted to have been handed
+// tidy data. The grouping drift and the buffer slipping onto Friday were both found here first, by
+// the idempotence property. The seed is printed with every failure.
 
 function seededRandom(seed: number): () => number {
   let state = seed >>> 0;
@@ -4561,13 +4309,10 @@ function generateInput(seed: number): ComposeInput {
   const random = seededRandom(seed);
   const pick = <T,>(values: readonly T[]): T => values[Math.floor(random() * values.length)];
   /**
-   * MINUTES OFF THE QUARTER HOUR, on a quarter of the generated calendars. Nothing a
-   * gesture can ask for is off the grid, but the calendar can get there — the one
-   * sub-quarter row a drop may leave behind, deleted, takes those minutes off a job's
-   * total — and once a day is allowed to take PART of an item, off-grid quantities are
-   * where "no row shorter than a quarter of an hour" is actually at risk. They also
-   * produce free runs of five and ten minutes, which is the hole `takeableFrom` must step
-   * over rather than fill.
+   * MINUTES OFF THE QUARTER HOUR, on a quarter of the calendars. Nothing a gesture asks for is off
+   * the grid, but a deleted sub-quarter row takes those minutes off a job's total — and once a day
+   * can take PART of an item, off-grid quantities are where the quarter-hour floor is at risk. They
+   * also produce five- and ten-minute runs, the holes `takeableFrom` must step over.
    */
   const skew = (): number => (random() < 0.25 ? pick([5, 10, 20, 25]) : 0);
 
@@ -4579,9 +4324,8 @@ function generateInput(seed: number): ComposeInput {
         date: pick(GENERATED_DAYS),
         from: minutesToHHmm(t('08:00') + Math.floor(random() * 20) * 30 + skew()),
         hours: (30 + Math.floor(random() * 8) * 30 + skew()) / 60,
-        // The padlock, whether the owner pressed it or a drop onto the buffer, the
-        // weekend or a margin set it for them: the engine may never move this row, on
-        // any day, and it must come back out untouched.
+        // The padlock, however it was set: the engine may never move this row, and it must come
+        // back untouched.
         locked: random() < 0.25,
       }),
     );
@@ -4630,18 +4374,9 @@ function periodUnion(composeInput: ComposeInput, date: string): { start: number;
 }
 
 /**
- * True when a row holds minutes on BOTH sides of a non-working interval between two
- * periods — the lunch break. That is the one shape a stored row may never have, since
- * `duration` is net working time and the grid draws a row as one solid rectangle.
- * Running into a visual margin is not this: the margins are outside the ruler and a
- * hand drop is allowed to sit in them.
- */
-/**
- * The rows a resolution PLACED: the drop's own rows, whatever their id after a merge,
- * and every row it created. Deliberately not the head of a row the cut merely
- * SHORTENED — that is somebody else's pre-existing row, and if it holds minutes on both
- * sides of the lunch break it did so before the drop. Repairing it would be the tidying
- * rule 6 forbids, and the generator produces that shape on purpose.
+ * The rows a resolution PLACED: the drop's own rows, whatever their id after a merge, and every row
+ * it created. Deliberately not the head of a row the cut merely SHORTENED — that is somebody else's
+ * pre-existing row, and repairing it would be tidying the weekend rule forbids.
  */
 function rowsPlaced(
   composeInput: ComposeInput,
@@ -4681,10 +4416,8 @@ function straddlesABreak(
     if (next === undefined) return false;
     // Minutes on BOTH sides of the hole.
     if (row.startMinutes < period.end && end > next.start) return true;
-    // Or a start INSIDE the hole, running out of it. This half was missing, and it is the
-    // shape a drop released in the lunch band used to store: no period covers 14:00, so
-    // `startMinutes < period.end` is false for `14:00 +120m -> 16:00` and the test above
-    // said nothing about a row holding ninety minutes of lunch.
+    // Or a start INSIDE the hole, running out of it: no period covers 14:00, so the test above said
+    // nothing about `14:00 +120m -> 16:00` holding ninety minutes of lunch.
     return row.startMinutes >= period.end && row.startMinutes < next.start && end > next.start;
   });
 }
@@ -4775,14 +4508,9 @@ describe('the rules hold over generated calendars', () => {
       }
 
       /*
-       * INVARIANT 4 — NO ROW SHORTER THAN A QUARTER OF AN HOUR, which is the sharp edge of
-       * *fill and overflow*: filling a ten-minute hole must not produce a ten-minute row.
-       *
-       * Stated as an implication rather than a flat ban, because the honest boundary is
-       * still there: with fewer than two real rows' worth left there is no split that
-       * avoids a short row, and drawing it beats refusing to place it. So a sliver is only
-       * allowed to exist where some queue item was itself under two quarters — every other
-       * one is a defect.
+       * INVARIANT 4 — NO ROW SHORTER THAN A QUARTER OF AN HOUR, the sharp edge of *fill and
+       * overflow*. An implication rather than a flat ban: with fewer than two rows' worth left there
+       * is no split that avoids a short row, and drawing it beats refusing to place it.
        */
       const slivers = result.blocks.filter(
         (placed) => !isFixed(placed.id) && placed.durationMinutes < MIN_ROW_MINUTES,
@@ -4823,10 +4551,8 @@ describe('the rules hold over generated calendars', () => {
 
       const queue = buildQueue(composeInput);
 
-      // Rule 5, the other half — a padlocked row is never recovered, wherever it sits and
-      // whichever gesture padlocked it. It is in `fixed` above, which already pins its
-      // date, slot and length; what is left to say is that it never joins the queue and
-      // never loses its padlock.
+      // Rule 5, the other half — a padlocked row is never recovered, wherever it sits. `fixed` above
+      // pins its date, slot and length; what is left is that it never joins the queue or loses the mark.
       for (const before of composeInput.blocks.filter((candidate) => candidate.locked)) {
         expect(
           queue.some((item) => item.blockIds.includes(before.id)),
@@ -4838,10 +4564,8 @@ describe('the rules hold over generated calendars', () => {
         ).toBe(true);
       }
 
-      // Rule 9 — strict order: the queue's projects come out in the queue's order, on
-      // EVERY seed. It used to carry one exemption — a hand-set stretch let the jobs behind
-      // it overtake its own remainder — and that went with `manual_duration` (2026-08-18).
-      // Strict order is unconditional again.
+      // Rule 9 — strict order: the queue's projects come out in the queue's order, on EVERY seed and
+      // with no exemption.
       const collapse = (projects: readonly string[]): string[] =>
         projects.filter((project, index) => project !== projects[index - 1]);
       expect(
@@ -4855,19 +4579,16 @@ describe('the rules hold over generated calendars', () => {
   });
 
   it('generates the padlocked rows and the split work these properties are about', () => {
-    // A guard on the GENERATOR, not on the engine: if it stopped producing padlocked rows
-    // or work that has to span two days, everything above would still be green and would be
-    // proving nothing about them.
+    // A guard on the GENERATOR, not the engine: if it stopped producing padlocked rows or work that
+    // spans two days, everything above would still be green and would prove nothing about them.
     let withLocked = 0;
     let withSplit = 0;
     for (let seed = 1; seed <= 2000; seed += 1) {
       sequence = 0;
       const composeInput = generateInput(seed);
       if (composeInput.blocks.some((candidate) => candidate.locked)) withLocked += 1;
-      // A calendar where at least one item's hours must land on more than one DAY: the
-      // shape *fill and overflow* made ordinary, and the one every property above is
-      // really about. It replaces the count of `continuation` items, which was the same
-      // population seen from the flag that no longer exists.
+      // A calendar where some item's hours must land on more than one DAY: the shape *fill and
+      // overflow* made ordinary, and what every property above is really about.
       const result = compose(composeInput);
       if (result.ok && spansTwoDays(result.blocks)) withSplit += 1;
     }
@@ -4877,12 +4598,9 @@ describe('the rules hold over generated calendars', () => {
 });
 
 describe('manual placement holds over the same generated calendars', () => {
-  // The generator deliberately produces impossible input — rows straddling lunch,
-  // two locked rows on top of each other — which is exactly the state a drop has to
-  // survive. The property that matters is that the resolution is a FIXED POINT:
-  // resolving the same drop twice must change nothing the second time, which is the
-  // only way to say "no overlap was left around the dropped row" without restating
-  // the algorithm in the test.
+  // The generator produces impossible input on purpose, which is the state a drop has to survive. The
+  // property that matters is that the resolution is a FIXED POINT: resolving the same drop twice
+  // changes nothing, which is how to say "no overlap was left" without restating the algorithm.
   it('resolves a drop on every generated calendar without losing an hour', () => {
     let resolvedCount = 0;
     let mergedCount = 0;
@@ -4924,30 +4642,19 @@ describe('manual placement holds over the same generated calendars', () => {
         );
       }
 
-      // The drop is stored in SEGMENTS: no row the resolution WROTE holds minutes on
-      // both sides of the lunch break. Rows it left alone are out of scope — the
-      // generator produces impossible input on purpose, and repairing a row nobody
-      // touched is the tidying rule 6 forbids.
+      // The drop is stored in SEGMENTS: no row the resolution WROTE holds minutes on both sides of the
+      // break. Rows it left alone are out of scope — repairing one nobody touched is tidying.
       for (const row of rowsPlaced(composeInput, result, dropped.projectId)) {
         expect(straddlesABreak(composeInput, row), `${where}: a placed row straddles the break`).toBe(
           false,
         );
       }
 
-      // Rows the resolution CREATED come in two kinds, and they answer for different
-      // things.
-      //
-      // A DISPLACED TAIL was placed: it sits inside one working period and touches
-      // nothing at all on its day, because nothing will move it afterwards.
-      //
-      // A SEGMENT OF THE DROP ITSELF only keeps the slot the owner chose — margins
-      // included — so an overlap is fine wherever the REFLOW WILL REPAIR IT, which needs
-      // only one of the two rows to be movable: either the row underneath is laid out
-      // around the drop, or the drop itself is (a drop onto a day the engine reflows that
-      // could not keep its exact slot gives up the PIN and becomes an ordinary queue rank,
-      // and `compose` then places it clear of every obstacle). What may never overlap is
-      // two rows that are BOTH outside the pool: one of another job was cut above, one of
-      // the drop's own was merged above.
+      // Rows the resolution CREATED answer for different things. A DISPLACED TAIL was placed: inside
+      // one working period, touching nothing, because nothing will move it afterwards. A SEGMENT OF
+      // THE DROP only keeps the slot the owner chose, margins included, so an overlap is fine wherever
+      // the REFLOW WILL REPAIR IT — which needs only one of the two rows to be movable. What may never
+      // overlap is two rows BOTH outside the pool.
       const created = result.blocks.filter((row) => row.id.startsWith('cola-'));
       for (const row of created) {
         const isSegmentOfTheDrop = row.projectId === dropped.projectId;
@@ -4977,8 +4684,7 @@ describe('manual placement holds over the same generated calendars', () => {
         }
       }
 
-      // THE FIXED POINT. Nothing overlaps the drop any more, so there is nothing left
-      // for a second pass to merge, cut or push.
+      // THE FIXED POINT: nothing overlaps the drop, so a second pass has nothing to merge or cut.
       const again = expectPlaced(
         resolveManualPlacement({ ...composeInput, blocks: result.blocks }, dropOf(result.placedBlockId)),
       );
@@ -4998,9 +4704,8 @@ describe('manual placement holds over the same generated calendars', () => {
       expectSettled({ ...composeInput, blocks: result.blocks }, placement);
     }
 
-    // Guards on the GENERATOR rather than on the engine: a property test that
-    // quietly stopped reaching the merge or the cut would still be green, and the
-    // fixed point above would then be proving nothing.
+    // Guards on the GENERATOR: a property test that quietly stopped reaching the merge or the cut
+    // would still be green, and the fixed point above would prove nothing.
     expect(resolvedCount, 'the generator stopped producing resolvable drops').toBeGreaterThan(500);
     expect(mergedCount, 'the generator stopped producing same-job overlaps').toBeGreaterThan(0);
     expect(displacedCount, 'the generator stopped producing other-job overlaps').toBeGreaterThan(0);
@@ -5008,10 +4713,9 @@ describe('manual placement holds over the same generated calendars', () => {
 });
 
 describe('a drop the reflow WILL settle holds over the same generated calendars', () => {
-  // The other side of the resolver, over the same impossible input. It writes ranks
-  // rather than placements, so what has to hold is different: the drop itself is never
-  // touched, the hours are all still there, the cut is a fixed point, and the calendar
-  // it hands to the engine settles in one pass.
+  // The other side of the resolver, over the same impossible input. It writes ranks rather than
+  // placements, so what holds is different: the drop is never touched, the hours are all there, the
+  // cut is a fixed point, and the calendar it hands the engine settles in one pass.
   it('cuts, keeps every hour and settles, on every generated calendar', () => {
     let resolvedCount = 0;
     let cutCount = 0;
@@ -5027,8 +4731,7 @@ describe('a drop the reflow WILL settle holds over the same generated calendars'
       const dropped = movable[seed % movable.length];
       const result = resolveManualPlacement(composeInput, dropOf(dropped.id));
 
-      // There is nothing here to refuse: a lock is flowed around rather than cut, and
-      // no hours are placed, so none can fail to fit.
+    // Nothing here to refuse: a lock is flowed around rather than cut, and no hours are placed.
       const resolved = expectPlaced(result);
       resolvedCount += 1;
       if (resolved.displacedProjectIds.length > 0) cutCount += 1;
@@ -5039,15 +4742,10 @@ describe('a drop the reflow WILL settle holds over the same generated calendars'
         minutesByProject(composeInput.blocks),
       );
 
-      // The dropped row keeps the slot the owner dropped it in; only what it landed in
-      // moves. Its LENGTH may be cut at the lunch break — a stored row never straddles
-      // one — so the hours are checked as a total over its segments.
-      //
-      // "The slot it was dropped in" is the first minute of it that is WORKING TIME: a start
-      // inside the break is read as the next minute the shop can start at, here as everywhere
-      // else. On this side that minute is only a queue RANK, so nothing is being pinned by
-      // it — but it has to be the same minute `segmentDroppedRow` uses, or the cut below and
-      // the rank would be measured from two different places.
+      // The dropped row keeps its slot; only what it landed in moves. Its LENGTH may be cut at the
+      // break, so the hours are checked as a total over its segments. "The slot it was dropped in" is
+      // the first WORKING minute of it, which has to be the same minute `segmentDroppedRow` uses or
+      // the cut and the rank would be measured from two different places.
       const after = resolved.blocks.find((row) => row.id === dropped.id);
       const droppedStart = firstWorkingMinute(
         composeInput.getDayConfig(dropped.date).manualWindows,
@@ -5057,12 +4755,9 @@ describe('a drop the reflow WILL settle holds over the same generated calendars'
         `${after?.date} ${after?.startMinutes} ${after?.locked}`,
         `${where}: the drop itself was moved`,
       ).toBe(`${dropped.date} ${droppedStart} ${dropped.locked}`);
-      // Only the DROP's own rows: on this side a cut victim's tail is a queue RANK and
-      // not a placement — one row carrying the tail's hours, ranked just behind the drop —
-      // so it may well read `13:30 + 150 min` across the break. `compose` re-lays it out
-      // and cuts it, which is what `expectSettled` at the end of this loop proves; storing
-      // it as it stands never happens, because the resolver's output only ever reaches the
-      // table through the engine.
+      // Only the DROP's own rows: on this side a cut victim's tail is a queue RANK carrying the tail's
+      // hours, so it may read `13:30 + 150 min` across the break. `compose` re-lays it out and cuts
+      // it, which `expectSettled` below proves; the resolver's output only reaches the table that way.
       for (const row of rowsPlaced(composeInput, resolved, dropped.projectId)) {
         if (row.projectId !== dropped.projectId) continue;
         expect(straddlesABreak(composeInput, row), `${where}: a placed row straddles the break`).toBe(
@@ -5098,19 +4793,15 @@ describe('a drop the reflow WILL settle holds over the same generated calendars'
       expectSettled({ ...composeInput, blocks: resolved.blocks }, placement, where);
     }
 
-    // Guards on the GENERATOR: without a drop that actually lands inside another job's
-    // row, the fixed point above would be proving nothing.
+    // Guards on the GENERATOR: without a drop that lands inside another job's row, this proves nothing.
     expect(resolvedCount, 'the generator stopped producing movable drops').toBeGreaterThan(500);
     expect(cutCount, 'the generator stopped producing movable overlaps').toBeGreaterThan(0);
   });
 });
 
 describe("editing a job's hours holds over the same generated calendars", () => {
-  // The property the worst defect in the app would have failed on every seed that put a
-  // job's last row in the past, on a weekend or under a mark. It is stated over the
-  // ROWS rather than over the placement, because that is where the damage was done:
-  // hours were written onto a row nothing would ever settle, and the calendar then
-  // carried a rectangle that lied about the day — or one that could not be drawn at all.
+    // Stated over the ROWS rather than the placement, because that is where the damage was: hours
+    // written onto a row nothing would ever settle, drawn as a rectangle that lied about the day.
   const HOURS = [30, 60, 150, 8 * 60];
 
   it('never grows a row outside the movable pool, and never overruns a day', () => {
@@ -5152,11 +4843,9 @@ describe("editing a job's hours holds over the same generated calendars", () => 
       );
       if (added.blocks.some((row) => row.id === 'nueva')) createdCount += 1;
 
-      // A row the engine will NOT re-place has to be inside its day already, because the
-      // draft's own numbers are what get stored for it. (For a movable row the start is a
-      // queue RANK, not a position — 17:30 + 8 h is a legitimate draft, and the reflow is
-      // what turns it into hours on the clock. So the bound is asserted twice, on the two
-      // different things it means.)
+      // A row the engine will NOT re-place has to be inside its day already, because the draft's own
+      // numbers are what get stored. For a movable row the start is a queue RANK, not a position, so
+      // the bound is asserted twice, on the two different things it means.
       for (const row of added.blocks.filter((candidate) => !isMovable(candidate, composeInput.today))) {
         expect(
           row.startMinutes + row.durationMinutes,
@@ -5164,8 +4853,7 @@ describe("editing a job's hours holds over the same generated calendars", () => 
         ).toBeLessThanOrEqual(MINUTES_PER_DAY);
       }
 
-      // ...and the engine settles the result, once, with every PLACED row inside its day:
-      // that is the shape that took the whole calendar page down.
+      // ...and the engine settles it once, with every PLACED row inside its day.
       const placement = compose({ ...composeInput, blocks: added.blocks, grownProjectIds: [projectId] });
       if (placement.ok) {
         for (const placed of placement.blocks) {
@@ -5180,8 +4868,7 @@ describe("editing a job's hours holds over the same generated calendars", () => 
         expect(placement.error.code, where).toBe('horizon-exceeded');
       }
 
-      // REMOVING hours is the asymmetry, and it must still reach every row: shrinking one
-      // frees space rather than claiming it, so a past or weekend row is fair game.
+      // REMOVING hours must still reach every row: shrinking frees space rather than claiming it.
       const total = minutesByProject(own)[projectId];
       const removal = Math.min(total, HOURS[(seed + 1) % HOURS.length]);
       const removed = changeProjectMinutes(composeInput.blocks, { ...change, deltaMinutes: -removal });
@@ -5200,9 +4887,8 @@ describe("editing a job's hours holds over the same generated calendars", () => 
       );
     }
 
-    // Guards on the GENERATOR: the whole point is the rows the engine cannot settle, so
-    // if it stopped producing them, or stopped needing a row of their own, the property
-    // above would be green and would be proving nothing.
+    // Guards on the GENERATOR: the point is the rows the engine cannot settle, so if it stopped
+    // producing them the property above would be green and would prove nothing.
     expect(grewCount, 'the generator stopped producing jobs to grow').toBeGreaterThan(1000);
     expect(createdCount, 'no job ever needed a row of its own').toBeGreaterThan(100);
     expect(shrankCount, 'the generator stopped producing jobs to shrink').toBeGreaterThan(500);
@@ -5211,10 +4897,8 @@ describe("editing a job's hours holds over the same generated calendars", () => 
 
 describe('shrinking a row holds over the same generated calendars', () => {
   /**
-   * The gesture that used to have one answer for four situations — 409 `shrink-last-block`
-   * — now has two: a transfer, or a QUESTION. Both are stated here as arithmetic, because
-   * that is what a wrong answer would break: hours conserved against the total the caller
-   * is told to write, and a refusal that is always answerable.
+   * A shrink has two answers, a transfer or a QUESTION, and both are stated as arithmetic: hours
+   * conserved against the total the caller is told to write, and a refusal that is always answerable.
    */
   it('either transfers the hours or asks, and every answer it offers works', () => {
     let transferred = 0;
@@ -5246,9 +4930,8 @@ describe('shrinking a row holds over the same generated calendars', () => {
 
       const asIs = shrink();
 
-      // THE PRECONDITION, on every seed: the edge only sizes a row the ENGINE DOES NOT LAY
-      // OUT. On one it does, the length is the room the row has and the request is refused
-      // with nothing written — there is no third answer.
+      // THE PRECONDITION, on every seed: the edge only sizes a row the ENGINE DOES NOT LAY OUT. On one
+      // it does, the request is refused with nothing written — there is no third answer.
       if (isMovable(target, composeInput.today)) {
         refused += 1;
         expect(asIs.ok, where).toBe(false);
@@ -5257,8 +4940,7 @@ describe('shrinking a row holds over the same generated calendars', () => {
       }
 
       if (!asIs.ok) {
-        // The ONLY refusal a shrink may produce, and it must be actionable: the hours it
-        // is about, and at least one way out.
+        // The only refusal a shrink may produce, and it must carry the hours and a way out.
         asked += 1;
         expect(asIs.error.code, where).toBe('shrink-needs-choice');
         expect(asIs.error.freedMinutes, where).toBeGreaterThan(0);
@@ -5293,8 +4975,7 @@ describe('shrinking a row holds over the same generated calendars', () => {
       expectPlaceable(composeInput, asIs, where);
     }
 
-    // Guards on the generator: both halves of the rule have to be reached, or this proves
-    // nothing about either.
+    // Guards on the generator: both halves of the rule have to be reached.
     expect(transferred, 'no shrink ever found a counterparty').toBeGreaterThan(100);
     expect(asked, 'no shrink ever reached the dead end').toBeGreaterThan(100);
     expect(refused, 'no shrink ever aimed at a row the engine lays out').toBeGreaterThan(200);
@@ -5377,14 +5058,11 @@ describe('creating a job with no blocks yet', () => {
 
 describe('the horizon is a wall in both directions — a sharp edge worth knowing', () => {
   it('fails the whole recomposition when existing work no longer fits inside it', () => {
-    // Not a bug in the placement, but the consequence of two rules meeting, and
-    // the one failure mode a caller has to design for: the movable pool includes
-    // work parked beyond the horizon ("the horizon bounds where work sits, not
-    // which work is considered"), while auto-placement may not write past it. So
-    // a backlog longer than `planningHorizonWeeks` cannot be recomposed at all —
-    // and since every mutating operation recomposes, even DELETING a job fails
-    // until the horizon is widened. The UI must surface `horizonEndDate` and
-    // point at Settings rather than swallow the error.
+    // Two rules meeting, and the one failure mode a caller has to design for: the movable pool includes
+    // work parked beyond the horizon, while auto-placement may not write past it. So a backlog longer
+    // than `planningHorizonWeeks` cannot be recomposed at all — and since every mutating operation
+    // recomposes, even DELETING a job fails until it is widened. The UI must surface `horizonEndDate`
+    // and point at Settings rather than swallow the error.
     const composeInput = input({
       today: MON,
       shape: withCapacity(4),

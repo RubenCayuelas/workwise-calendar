@@ -1,27 +1,9 @@
 'use client';
 
 /**
- * The week grid: a time axis and seven day columns, everything inside a column
- * absolutely positioned from `date + startMinutes + durationMinutes`.
- *
- * Three things this component is the only owner of:
- *
- * - MEASUREMENT. The drag layer cannot read the DOM, so the grid publishes a `measure()`
- *   through `metricsRef`: the client Y of the timeline's top, every column's box, and the
- *   visible frame the edge zones are measured from. Measured live rather than cached, so
- *   scrolling mid-drag cannot offset the pointer.
- * - THE EDGE RAILS. Holding a block near either end of the grid pages the week; the rails
- *   are how that is discovered before it is triggered, and how the wait is made legible
- *   while it runs. The rule itself lives in `edgePaging.ts` and the timing in
- *   `useBlockDrag`; this draws it.
- * - THE WEEK CHANGE ITSELF. Which way the calendar just travelled is a fact only this
- *   component can see (it is the only place two consecutive weeks are ever compared), so it
- *   owns `useWeekSlide` and the class that draws it.
- * - THE SETTLE. A drop writes a queue rank, so a row lands where the reflow put it. The
- *   grid knows both the released position and the settled one, so it is where the row
- *   is animated from one to the other.
- * - PLACEMENT MODE. While a split fragment is waiting for a target, the columns take the
- *   click instead of the blocks under them.
+ * The week grid: a time axis and seven day columns. Sole owner of MEASUREMENT (`metricsRef`,
+ * read live rather than cached so scrolling mid-drag cannot offset the pointer), the edge
+ * rails, the week-change direction, the settle animation and placement mode.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -72,19 +54,15 @@ export interface PlacingFragment {
 }
 
 /**
- * THE DROP AS THE REFLOW WILL LAY IT OUT — the ghost of a drop that is a queue RANK, which
- * since *Fill and Overflow, Always* is a set of rows across DAYS rather than one rectangle on
- * one column.
- *
- * `null` (see `ghost` in `WeekGrid`) for every gesture whose minute is the promise: a resize,
- * and a drop that lands literally. Those keep the literal drawing, the roll and the clamp.
+ * The drop as the reflow will lay it out: rows across DAYS, not one rectangle on one column.
+ * `null` for a gesture whose minute is the promise, which keeps the literal drawing.
  */
 interface GhostPlan {
   /** The day the pointer released on — which may take none of the hours. */
   date: string;
   /** Every row the hours will be stored as, in calendar order, over every column. */
   pieces: readonly { date: string; startMinutes: number; durationMinutes: number }[];
-  /** The same, one entry per DAY: what the label's «4 h el lunes · 2 h el martes» reads. */
+  /** The same, one entry per DAY, which is what the ghost's label reads. */
   byDay: readonly { date: string; minutes: number }[];
   /** Hours that carry on past the week on screen. */
   beyondMinutes: number;
@@ -98,12 +76,9 @@ export interface SettleRequest {
   date: string;
   startMinutes: number;
   /**
-   * The week as it was WHEN THE ROW WAS RELEASED.
-   *
-   * The animation has to run against the SETTLED layout, and the mutation's refetch is
-   * still in flight when the request is made — so the grid waits until `view` is no
-   * longer this object. Without it the row slides from the drop point back to where it
-   * already was, which reads as "the drop was rejected" when in fact it worked.
+   * The week as it was WHEN THE ROW WAS RELEASED: the animation runs against the SETTLED layout,
+   * so the grid waits until `view` is no longer this object. Without it the row slides from the
+   * drop point back to where it already was, which reads as a rejection.
    */
   after: WeekView | null;
 }
@@ -122,25 +97,13 @@ export interface WeekGridProps {
   /** Wired only when the gap form exists; without it gaps are labels. */
   onOpenGap?: (gap: Gap) => void;
   onToggleLock: (block: WeekBlock) => void;
-  /**
-   * "Stop the day here". Wired only when the gap form exists — it opens that form
-   * pre-filled, since the gap is what makes the day hold fewer hours.
-   */
+  /** "Stop the day here": opens the gap form pre-filled. Wired only when that form exists. */
   onCloseDay?: (request: CloseDayRequest) => void;
   onSplit: (block: WeekBlock) => void;
   onDelete: (block: WeekBlock) => void;
   /**
-   * A press the grid cannot turn into a gesture, saying why — the same sentence a press on
-   * a block gets, for the two things on the grid that are not blocks.
-   *
-   * `gap`: gaps have no drop rules (their date and time live in their form), so a drag of
-   * one has nothing to start. `busy`: a save is in flight, and the gap's form is withheld
-   * until it lands — which used to be a `disabled` button, i.e. a press that did nothing at
-   * all and said nothing, in the second right after every mutation.
-   *
-   * The TARGET is optional because neither of those two is about a row: a block's own inert
-   * presses reach the same handler through the drag controller (`onInert`), and one of them
-   * — `automatic`, the bottom edge of a row the engine sizes — answers about that row.
+   * A press the grid cannot turn into a gesture, saying why. The TARGET is optional because
+   * neither of these two is about a row; a block's own inert presses arrive via `onInert`.
    */
   onPressHint: (reason: InertReason, target?: DragTarget) => void;
   metricsRef: React.MutableRefObject<(() => GridMetrics | null) | null>;
@@ -170,15 +133,12 @@ export function WeekGrid({
   const { t } = useTranslation();
   const format = useFormat();
   const gridRef = useRef<HTMLDivElement | null>(null);
-  // The visible box: the grid can be WIDER than this and scroll inside it on a narrow
-  // window, which is exactly why the edge zones are measured from the frame and not from
-  // the first and last columns. See `GridMetrics.frame`.
+  // The visible box: the grid can be WIDER and scroll inside it on a narrow window, which is
+  // why the edge zones are measured from the frame. See `GridMetrics.frame`.
   const frameRef = useRef<HTMLDivElement | null>(null);
-  // Two hints for the one thing on the grid that is not a block. Which one a gap arms
-  // depends on why it cannot be dragged right now; both are the same promise as a block's.
+  // Which hint a gap arms depends on why it cannot be dragged right now.
   const onPressGap = usePressHint(() => onPressHint('gap'));
-  // Every press answers, travelled or not: while a save is in flight the gap's form is
-  // withheld, so there is no click to fall back on.
+  // Travelled or not: while a save is in flight there is no click to fall back on.
   const onPressGapBusy = usePressHint(() => onPressHint('busy'), true);
 
   const measure = useCallback((): GridMetrics | null => {
@@ -193,8 +153,7 @@ export function WeekGrid({
     });
     const frameBox = frameRef.current?.getBoundingClientRect();
     const last = columns[columns.length - 1];
-    // The frame if it has been measured; the columns' own span before that, which is the
-    // same number whenever the week fits without scrolling.
+    // The frame if it has been measured; the columns' own span before that.
     const left = frameBox === undefined ? columns[0].left : frameBox.left;
     const right = frameBox === undefined ? last.left + last.width : frameBox.right;
     return {
@@ -203,9 +162,8 @@ export function WeekGrid({
       frame: {
         left,
         right,
-        // The time-axis gutter, which belongs to no day — so the strip may as well be all
-        // of it, and has to be: a narrower one leaves the hour labels sliced down the
-        // middle for the whole drag. `.edgePrevious` draws itself over the same width.
+        // The gutter belongs to no day, and a narrower strip leaves the hour labels sliced
+        // down the middle for the whole drag. `.edgePrevious` draws over the same width.
         leftZone: Math.max(EDGE_ZONE_PX, columns[0].left - left),
         rightZone: EDGE_ZONE_PX,
       },
@@ -221,23 +179,17 @@ export function WeekGrid({
 
   const columnWidths = useColumnWidths(gridRef, measure, view.week.dates.join());
 
-  // Which way the calendar just travelled, or `null` on the first week and on any render
-  // that is not a page turn. The columns and the headers slide in from that side.
+  // Which way the calendar just travelled, or `null` when this is not a page turn.
   const slide = useWeekSlide(view.week.startDate);
 
-  // One pass over the week: the rows of each day, grouped into units and packed into
-  // lanes so hand-made overlaps (allowed on the weekend and in the past) stay visible.
+  // One pass: each day's rows grouped into units and packed into lanes, so a hand-made
+  // overlap (allowed on the weekend and in the past) stays visible.
   const layout = useMemo(() => buildLayout(view), [view]);
   const ticks = useMemo(() => axisTicks(view.shape.periods, timeline), [view.shape.periods, timeline]);
 
-  /**
-   * THE QUEUE, so a re-ranking drop can say what it really means.
-   *
-   * On Monday-Thursday a drop writes a place in this order and the reflow decides the
-   * clock, so the only true thing a ghost can print is the row it will fall in behind. Built
-   * once for the whole week rather than per column, because the row a Thursday drop ranks
-   * itself after is usually on Wednesday.
-   */
+  // The queue, so a re-ranking drop can name the row it will fall in behind — the only true
+  // thing its ghost can print. Built for the whole week: a Thursday drop usually ranks after
+  // a row on Wednesday.
   const queue = useMemo<QueueRow[]>(() => {
     const reflowing = new Set(
       view.days.filter((day) => !day.isPast && !day.isWeekend).map((day) => day.date),
@@ -246,20 +198,8 @@ export function WeekGrid({
   }, [view.blocks, view.days]);
 
   /**
-   * WHERE THE DROP'S HOURS WILL REALLY GO, while the pointer is still down — *Fill and
-   * Overflow, Always* drawn instead of described.
-   *
-   * A drop that is only a queue RANK has no footprint to fit any more: the engine takes what
-   * the day has left from the work in front of it and carries the rest to the next day it can
-   * use. So the ghost is not one rectangle on one column — it is the ROWS the gesture will be
-   * stored as, and for a 6 h release into a 4 h afternoon that is 4 h here and 2 h on the next
-   * column. Everything the drag layer used to say instead («6 h no pueden empezar después de
-   * las 13:00», «no caben en un solo día») was the deleted rule talking.
-   *
-   * Computed once for the WEEK rather than per column, because the answer spans columns, and
-   * `null` for every gesture whose minute really is the promise — a resize, and a drop that
-   * lands LITERALLY (the buffer, the weekend, a margin, a padlocked row). There the roll, the
-   * clamp and the end-of-day refusal still apply and the old drawing is exactly right.
+   * Where the drop's hours will really go while the pointer is down. Computed for the WEEK,
+   * because the answer spans columns.
    */
   const planDrop = useCallback(
     (input: {
@@ -272,31 +212,27 @@ export function WeekGrid({
       const released = view.days.find((day) => day.date === input.date);
       if (released === undefined) return null;
 
-      // The run in the air is not an obstacle to itself, and the hours it frees on its old day
-      // are hours the reflow may use.
+      // The run in the air is not an obstacle to itself.
       const moving = new Set(input.movingBlockIds);
       const rowsOn = (date: string): WeekBlock[] =>
         view.blocks.filter((block) => block.date === date && !moving.has(block.id));
       const gapsOn = (date: string): Gap[] => view.gaps.filter((gap) => gap.date === date);
-      // What nothing will move out of the way, which is exactly what the engine treats as an
-      // obstacle: a gap and a padlocked row. Ordinary work is ranked BEHIND the drop now, so it
-      // is laid out after these hours rather than costing them room.
+      // What nothing will move out of the way, which is what the engine treats as an obstacle:
+      // a gap and a padlocked row. Ordinary work is ranked BEHIND the drop, so it costs nothing.
       const immovableOn = (date: string) =>
         [...gapsOn(date), ...rowsOn(date).filter((row) => row.locked)].map((row) => ({
           startMinutes: row.startMinutes,
           durationMinutes: row.durationMinutes,
         }));
 
-      // The hours begin where the work in FRONT of them ends — see `fillStartFor`. Measured
-      // against everything on the day, because strict queue order keeps all of it in front.
+      // The hours begin where the work in FRONT of them ends — see `fillStartFor`.
       const fromMinutes = fillStartFor(
         released.periods,
         [...gapsOn(input.date), ...rowsOn(input.date)],
         input.startMinutes,
       );
-      // The day's stop-line less what the work ahead of the drop has already spent of it.
-      // `plannableMinutes` has the gaps and the locks out of it already; ordinary rows are what
-      // is left to account for, and only the part of them above the fill start.
+      // The day's stop-line less what the work ahead has spent of it. `plannableMinutes` has
+      // the gaps and the locks out already, so only ordinary rows above the fill start count.
       const spentAhead = rowsOn(input.date)
         .filter((row) => !row.locked)
         .reduce(
@@ -313,9 +249,8 @@ export function WeekGrid({
           budgetMinutes: Math.max(0, released.plannableMinutes - spentAhead),
           fromMinutes,
         },
-        // The days the overflow may use: the ones the engine lays out, and not the colchón —
-        // the buffer takes overflow only from work that GREW (`acceptsItem`), so a moved run's
-        // remainder skips Friday exactly as a new job's tail does.
+        // The days the overflow may use: the ones the engine lays out, minus the colchón, which
+        // takes overflow only from work that GREW (`acceptsItem`).
         ...view.days
           .filter((day) => day.date > input.date && dayReflowsOn(day) && day.role !== 'buffer')
           .map((day) => ({
@@ -354,23 +289,16 @@ export function WeekGrid({
 
   useSettleAnimation({ gridRef, settle, timeline, view, onSettled });
 
-  // Where the fragment would land. Only tracked while placing, so the grid does not
-  // re-render on every mouse move the rest of the time.
+  // Where the fragment would land. Only tracked while placing, so the grid does not re-render
+  // on every mouse move the rest of the time.
   const [hover, setHover] = useState<{ date: string; startMinutes: number } | null>(null);
   useEffect(() => {
     if (placing === null) setHover(null);
   }, [placing]);
 
   /**
-   * THE SAME ANSWER FOR THE SCISSORS' SECOND CLICK. A fragment is a drop: on a day the engine
-   * lays out it takes a queue rank, so its hours fill what the day has left and the rest
-   * carries on, and the preview has to draw that rather than one rectangle running into the
-   * bottom margin — which is what capping it at the day's manual window produced once the
-   * clamp stopped pulling it up the column.
-   *
-   * `movingBlockIds` is EMPTY here, and that is the difference from a drag: the source row does
-   * not leave the calendar, it only gets shorter, so it is still in front of the fragment in
-   * the queue and still holds its minutes.
+   * The same answer for the scissors' second click, a fragment being a drop. `movingBlockIds` is
+   * EMPTY: the source row does not leave the calendar, so it is still in front of the fragment.
    */
   const placingGhost = useMemo<GhostPlan | null>(() => {
     if (placing === null || hover === null) return null;
@@ -405,16 +333,10 @@ export function WeekGrid({
       const day = view.days.find((candidate) => candidate.date === hit.date);
       const durationMinutes = placing?.durationMinutes ?? 0;
       /*
-       * CLAMPED OVER THE DAY ONLY WHERE THE FRAGMENT LANDS LITERALLY — the weekend, the
-       * colchón, a visual margin (2026-08-17).
-       *
-       * There the fragment is a row stored exactly where it is put, and a row ends inside its
-       * day: both the ghost and the click that commits it read this one answer, so the
-       * scissors cannot promise 19:45 and then store a row running to 20:45. On a day the
-       * engine lays out the click is a queue RANK, and pulling it up to "the latest start that
-       * fits" is the deleted rule — it would rank a 6 h fragment aimed at the afternoon back
-       * inside the morning, cutting a row nobody aimed at, when the reflow would have filled
-       * the afternoon and carried the rest to the next day.
+       * Clamped over the day only where the fragment lands LITERALLY, where it is stored exactly
+       * as put. On a day the engine lays out the click is a RANK, and pulling it up to "the
+       * latest start that fits" would rank a 6 h fragment aimed at the afternoon back inside the
+       * morning, cutting a row nobody aimed at.
        */
       const literal =
         day === undefined ||
@@ -438,17 +360,8 @@ export function WeekGrid({
 
   return (
     <div className={styles.frame} ref={frameRef}>
-      {/*
-       * THE TWO EDGE RAILS, drawn for as long as a block is in the air and never otherwise.
-       *
-       * This is the whole answer to "how does anyone find out the gesture exists": the
-       * first time the owner picks a block up, both ends of the calendar name the week
-       * they lead to. Nothing has to be triggered by accident first, and nothing is on
-       * screen when there is nothing to drag.
-       *
-       * Not drawn for a RESIZE: its edge belongs to one row on one day, and another week
-       * has nothing to offer it.
-       */}
+      {/* Drawn while a MOVE is in the air and never otherwise, so the gesture is discovered
+          rather than fallen into. Not for a RESIZE, whose edge is one row on one day. */}
       {drag.kind !== 'move' ? null : (
         <>
           <EdgeRail side="previous" week={view.week} hold={drag.edge} />
@@ -488,15 +401,8 @@ export function WeekGrid({
             {ticks.map((tick) => (
               <span
                 key={tick.minutes}
-                /*
-                 * The two hanging classes are keyed on the MINUTE, not on the tick's index in
-                 * the list. `axisTicks` may now drop either end of the axis when a period
-                 * edge is too close to it to share the room (see its precedence note), and
-                 * by index the label that inherited position 0 would be hung below its rule
-                 * while `labelBox` had measured it as centred — the collision arithmetic and
-                 * the paint disagreeing by a whole label. `labelBox` tests the minute
-                 * against the axis bounds, so this tests exactly the same thing.
-                 */
+                // Keyed on the MINUTE, never on the tick's index: `axisTicks` may drop either
+                // end, and `labelBox` tests the minute against the axis bounds too.
                 className={[
                   styles.tick,
                   tick.boundary ? styles.tickBoundary : '',
@@ -547,31 +453,13 @@ export function WeekGrid({
   );
 }
 
-// ---------------------------------------------------------------------------
-// The edge rails
-// ---------------------------------------------------------------------------
+// --- The edge rails ---
 
 /**
- * ONE END OF THE CALENDAR, while a block is in hand: the strip that pages the week when
- * the block is held over it.
- *
- * It does three jobs, and the gesture is unusable without any of them:
- *
- * - IT SAYS THE AFFORDANCE EXISTS, before it is triggered and without a legend. The owner
- *   reported the gesture as missing («no sé cómo funciona o no lo he conseguido hacer
- *   funcionar») when it had never been built — but a hot zone with nothing drawn over it
- *   is indistinguishable from that, because it can only be discovered by falling into it.
- * - IT NAMES THE DESTINATION. Not "next week" but the dates themselves, so the owner reads
- *   where they are going before they commit and again while the calendar pages under them.
- * - IT MAKES THE WAIT LEGIBLE. The fill takes exactly as long as the countdown running in
- *   the drag layer (`EdgeHold.delayMs`, published rather than re-derived here), so half a
- *   second of holding still reads as progress instead of as an app that has stopped
- *   listening. It restarts on every turn because the element is keyed on the turn count.
- *
- * It is `pointer-events: none`, and it is exactly as wide as the zone it draws — the
- * minimum on the right, the time-axis gutter on the left, the same two numbers `measure()`
- * hands the drag layer. The rail must cover its own trigger and nothing else, and it must
- * never take the pointer: a release on the rail is still a drop on the column under it.
+ * One end of the calendar while a block is in hand: the strip that pages the week. It names the
+ * destination by DATES, and its fill runs exactly as long as the drag layer's countdown
+ * (`EdgeHold.delayMs`, published rather than re-derived). `pointer-events: none` and exactly as
+ * wide as the zone it draws: a release on the rail is still a drop on the column under it.
  */
 function EdgeRail({
   side,
@@ -598,18 +486,14 @@ function EdgeRail({
       ]
         .filter(Boolean)
         .join(' ')}
-      // The width the zone really has: the minimum on the right, and on the left whatever
-      // the time-axis gutter is (`.edgePrevious` takes the max, from the same variable the
-      // grid's own column template uses). The rail must cover its trigger exactly.
+      // The width the zone really has, from the same variable the column template uses.
       style={{ '--ww-edge-zone': `${EDGE_ZONE_PX}px` } as React.CSSProperties}
-      // The paging it offers is also on two named buttons in the header, so nothing is
-      // lost by keeping a decorative strip out of the accessibility tree.
+      // The same paging is on two named buttons in the header.
       aria-hidden="true"
     >
       {!active ? null : (
         <span
-          // Keyed on the turn, so the fill restarts from empty for each page turn of a
-          // long hold instead of freezing full after the first.
+          // Keyed on the turn, so the fill restarts from empty for each turn of a long hold.
           key={`${hold.turns}-${hold.waiting}`}
           className={[styles.edgeFill, hold.waiting ? styles.edgeWaiting : ''].filter(Boolean).join(' ')}
           style={hold.waiting ? undefined : { animationDuration: `${hold.delayMs}ms` }}
@@ -629,16 +513,13 @@ function EdgeRail({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Day header
-// ---------------------------------------------------------------------------
+// --- Day header ---
 
 function DayHeader({ day, slide }: { day: WeekDay; slide: WeekSlide }): React.JSX.Element {
   const { t } = useTranslation();
   const format = useFormat();
 
-  // One word, the way the wireframe writes it: "Lun 10 · congelado", "Vie 14 · colchón".
-  // Past wins over everything, because a frozen Friday is not a buffer any more.
+  // Past wins over everything: a frozen Friday is not a buffer any more.
   const state = day.isPast
     ? t('day.frozen')
     : day.isClosed
@@ -681,8 +562,7 @@ function DayHeader({ day, slide }: { day: WeekDay; slide: WeekSlide }): React.JS
         styles.head,
         day.isWeekend ? styles.headWeekend : '',
         day.isPast ? styles.headPast : '',
-        // The header carries the DATE, which is what a page turn really changes, so it
-        // travels with the columns rather than being the one thing that jumps.
+        // The header carries the DATE, so it travels with the columns rather than jumping.
         slideHeadClass(slide),
       ]
         .filter(Boolean)
@@ -696,9 +576,7 @@ function DayHeader({ day, slide }: { day: WeekDay; slide: WeekSlide }): React.JS
   );
 }
 
-// ---------------------------------------------------------------------------
-// Day column
-// ---------------------------------------------------------------------------
+// --- Day column ---
 
 interface DayColumnProps {
   day: WeekDay;
@@ -707,37 +585,25 @@ interface DayColumnProps {
   lanes: Map<string, { lane: number; lanes: number }>;
   /** The whole week's runs, keyed by group id: what a drag of a unit picks up. */
   runs: Map<string, BlockRun>;
-  /**
-   * This column's measured width in pixels, or `null` before the first measurement. Only
-   * the hover action bar reads it — see `CalendarBlockProps.blockWidth`.
-   */
+  /** Measured width in pixels, `null` before the first measurement. Read only by the bar. */
   columnWidth: number | null;
   ticks: { minutes: number; boundary: boolean }[];
   timeline: Timeline;
   /** Which way the calendar just travelled, for the entry animation. */
   slide: WeekSlide;
   gapColor: string;
-  /**
-   * NOTHING CAN BE WRITTEN RIGHT NOW: a mutation is in flight, or the week is reloading.
-   * It disables the action bar, and it is the reason a press on a block explains itself
-   * (`InertReason.busy`) instead of quietly doing nothing.
-   */
+  /** Nothing can be written right now: a mutation is in flight, or the week is reloading. */
   busy: boolean;
   /**
-   * THE WHOLE GESTURE'S GHOST, or `null` when it is a literal placement — see `GhostPlan`.
-   * Every column reads it, because a drop's hours now land on more than one of them: the
-   * column draws the pieces that are its own and nothing else.
+   * The whole gesture's ghost, or `null` for a literal placement. Every column reads it, because
+   * a drop's hours land on more than one, and draws only the pieces that are its own.
    */
   ghost: GhostPlan | null;
   drag: DragController;
   placing: PlacingFragment | null;
   /** The slot the pointer is over while placing a fragment. */
   placingSlot: { date: string; startMinutes: number } | null;
-  /**
-   * The fragment's hours as the reflow will lay them out, or `null` when it lands literally
-   * (the weekend, the colchón, a margin) and the slot itself is the promise. Same shape and
-   * same arithmetic as a drag's `ghost`, because a fragment is a drop.
-   */
+  /** The fragment's hours as the reflow will lay them out, or `null` where it lands literally. */
   placingGhost: GhostPlan | null;
   onOpenJob: (projectId: string) => void;
   onOpenGap?: (gap: Gap) => void;
@@ -784,116 +650,62 @@ function DayColumn({
 
   const bands = nonWorkingBands(day.periods, timeline);
   const preview = drag.preview?.date === day.date ? drag.preview : null;
-  /**
-   * THE GESTURE ITSELF, whichever column it was released over.
-   *
-   * `preview` is this column's own view of it and is null on every other column. The ghost's
-   * COLOUR and its TOTAL HOURS belong to the whole drag, and since a drop's hours now land on
-   * the next column too (`GhostPlan`), they are needed where there is no `preview` at all.
-   */
+  // The gesture itself, whichever column it was released over: `preview` is null on every other
+  // one, while the ghost's colour and total hours are needed wherever its hours land.
   const gesture = drag.preview;
 
   /*
-   * IS THIS COLUMN'S CONTENT TRAVELLING RIGHT NOW? True from the mount of a column that
-   * arrived with a page turn until its entry animation ends, and false for ever after.
+   * Is this column's content travelling right now? It makes the sideways clip (`.columnSliding`)
+   * last exactly as long as the slide — permanently would hide most of the SETTLE, which crosses
+   * a whole column. `slide` cannot serve: it stays non-null for the rest of the session.
    *
-   * It exists so the sideways clip that keeps the slide inside the grid (`.columnSliding`,
-   * and the note on `.column`) lasts exactly as long as the slide does. The clip may NOT be
-   * permanent: the SETTLE animates a row in from the column it was released over, so `dx` is
-   * a whole column width, and a column that clipped for ever would hide most of that
-   * journey — trading one animation for another.
-   *
-   * `slide` cannot be used directly for this. It is the direction of the LAST page turn and
-   * stays non-null for the rest of the session, which is what makes it correct for the
-   * animation (a column is remounted by a page turn, so the class is present exactly when a
-   * fresh element needs it) and useless as "is it moving now".
-   *
-   * `animationend` always arrives: the animation has a non-zero duration and one iteration,
-   * and `prefers-reduced-motion` shortens it to 0.01 ms rather than removing it.
+   * `animationend` is the ONLY thing that clears this (and the settle): globals.css shortens a
+   * `prefers-reduced-motion` animation to 0.01 ms rather than removing it, so the event always
+   * arrives. Tidying that CSS to `animation: none` would leave the sideways clip on for ever.
    */
   const [sliding, setSliding] = useState(slide !== null);
 
   /**
-   * DOES THE GHOST DRAW A PLACE OR A RANK?
-   *
-   * The whole reason the drag felt broken. A move onto Monday-Thursday writes a place in
-   * the queue and the reflow picks the clock — often another day entirely — so a ghost
-   * reading `09:00–14:00` over Thursday was promising something the drop could not
-   * produce, and the row settling on Wednesday at 12:00 read as the app ignoring the drag.
-   *
-   * So the two are drawn as different things. A PINNED drop (the weekend, the colchón, a
-   * locked unit) keeps the minute it was released on, so its rectangle is the answer and
-   * the clock range is a promise. A RE-RANKED drop is an INSERTION POINT: the rectangle is
-   * only where the owner is aiming, and what it says is the row it will fall in behind.
-   *
-   * A resize is neither — it sizes its own row in place — so it keeps the literal reading.
-   */
-  /**
-   * WHAT THE SERVER WILL ACTUALLY DO WITH THIS DROP — the minute it will be stored at,
-   * whether that minute is a promise, and what it does to the row underneath.
-   *
-   * All three come from one call because the server decides them together: a pinned drop
-   * that lands on a gap or a lock is SLID forward on the day the owner named, and if the
-   * day has no clear slot it gives up the pin and becomes a queue rank. Computed here
-   * rather than in the gesture because only the grid has the day's rows and gaps.
+   * What the server will do with this drop: the minute it will be stored at, whether that minute
+   * is a promise, and what it does to the row underneath. One call, because the server decides
+   * them together. Computed here: only the grid has the day's rows and gaps.
    */
   const resolution = useMemo<DropResolution | null>(() => {
-    // Nothing to promise about a drop that will not be accepted (a past day), and a
-    // resize touches only its own row.
+    // Nothing to promise about a drop that will not be accepted; a resize touches its own row.
     if (preview === null || !preview.allowed || preview.kind !== 'move') return null;
     if (drag.target === null) return null;
     return resolveDropPreview({
       rows: groups.flatMap((group) => group.blocks),
-      // Gaps are occupancy too: on a day that pins AND does not reflow a drop onto one is
-      // refused, and on a day that reflows it is what the drop is slid past.
+      // Gaps are occupancy too: what a drop is refused by, or slid past.
       gaps,
       movingBlockIds: drag.target.blockIds,
       projectId: drag.target.projectId,
       dayIsWeekend: day.isWeekend,
-      // The gesture asked the whole pin question — the day AND the slot — so it is not
-      // re-derived here. See `DragPreview.pinned`.
+      // The gesture asked the whole pin question, day AND slot. See `DragPreview.pinned`.
       pinned: preview.pinned === true,
       // The engine lays this day out, so a collision here can never refuse the drop.
       dayReflows: dayReflowsOn(day),
       locked: drag.target.locked,
-      // The drop is cut at this day's own break, so its footprint is measured against
-      // this day's MANUAL WINDOWS rather than the rectangle the pointer drew — the
-      // margins are hand time, and the server cuts the drop over the same view.
+      // Measured against this day's MANUAL WINDOWS, the same view the server cuts the drop over.
       manualWindows: day.manualWindows,
       startMinutes: preview.startMinutes,
       durationMinutes: preview.durationMinutes,
     });
   }, [preview, drag.target, groups, gaps, day]);
 
-  /**
-   * A RANK, NOT A PLACE. One question, asked of the whole gesture rather than of this column:
-   * `ghost` is non-null exactly when the drop is a queue rank, which is exactly when the
-   * ghost's minutes are an aim and its clock range would be a promise nothing made.
-   */
+  /** A rank, not a place: `ghost` is non-null exactly when the drop is a queue rank. */
   const ranked = ghost !== null;
 
   /** Where the ghost is really drawn: the release point, or the slid one. */
   const ghostStartMinutes = resolution?.startMinutes ?? preview?.startMinutes ?? 0;
 
-  /**
-   * The row a re-ranked drop lands behind, if the week on screen can see it. `null` says
-   * the queue reaches back further than this week, and the ghost falls back to naming the
-   * rank without naming a neighbour rather than claiming a first place it cannot check.
-   *
-   * Read off the plan rather than recomputed here, because the rank belongs to the RELEASE and
-   * the label may be drawn on another column — a drop into ten free minutes takes none of them
-   * and its first row is on the next day.
-   */
+  // The row a re-ranked drop lands behind, or `null` when the queue reaches further back than
+  // this week. Read off the plan: the rank belongs to the RELEASE, while the label may be
+  // drawn on another column.
   const rankAfter = ghost?.rankAfter ?? null;
 
-  /**
-   * THE PIECES OF THE GESTURE THAT LAND ON THIS COLUMN, and the one that carries the label.
-   *
-   * A drop's hours fill what the day has left and carry on, so the ghost is drawn on every
-   * column they reach: the release column, the day after it, sometimes the day after that.
-   * The FIRST piece of the whole gesture carries the sentence — normally on the release
-   * column, and on the next one when the release day could not take a single legal row.
-   */
+  // The pieces that land on this column. The label goes on the FIRST piece of the whole
+  // gesture: the release column, unless that day could not take a single legal row.
   const spillPieces = ghost === null ? [] : ghost.pieces.filter((piece) => piece.date === day.date);
   const carriesLabel =
     ghost === null
@@ -902,68 +714,35 @@ function DayColumn({
   /** This column's own share of the hours, for the bare "…sigue" label on a continuation. */
   const spillMinutes = spillPieces.reduce((total, piece) => total + piece.durationMinutes, 0);
 
-  /**
-   * What the drop hovering over this column will do to the row underneath it — a cut,
-   * a displacement, a merge, or a refusal. `null` for a resize (which touches only its
-   * own row) and whenever the ghost is over free time.
-   */
+  /** What the drop will do to the row underneath: a cut, a displacement, a merge, a refusal. */
   const dropEffect: DropEffect | null = resolution?.effect ?? null;
 
   /**
-   * The rectangles the ghost is drawn as: one per row the gesture will be STORED as.
-   *
-   * A move crossing the lunch break comes back from the server as two rows (CLAUDE.md,
-   * *A Drop Is Stored In Segments*), so drawing one rectangle straight through the grey
-   * band promises a shape that will never exist. SINCE 2026-08-13 A RESIZE CROSSES THE
-   * BREAK TOO — dragging a 10:00 row to 17:30 stores `10:00-14:00` plus `15:30-17:30` —
-   * so both gestures are drawn through the same segmentation, and a resize past the break
-   * shows the two rectangles with the lunch band left clear rather than one tall block
-   * swallowing it.
-   *
-   * `footprintWithinDay` rather than `dropFootprint`: a RUN longer than the day has no
-   * storable footprint here, and the storage answer for that case is one UNCUT segment —
-   * which drew a single rectangle over the whole column, hatched lunch band included, for
-   * every multi-day run the owner picked up. Capped at what the day holds, the shape is a
-   * shape that can exist again.
-   *
-   * A DROP THAT IS A RANK IS DRAWN FROM THE PLAN INSTEAD (2026-08-17), because the day no
-   * longer takes all of it or none of it: `GhostPlan.pieces` are the rows the reflow will
-   * store, so they are cut at the break, stop where the day's periods do, skip what nothing
-   * will move out of the way, and are never shorter than a quarter of an hour — every rule the
-   * old single rectangle had to be capped and clamped into obeying.
+   * The rectangles the ghost is drawn as: one per row the gesture will be STORED as, for a move
+   * and a resize alike, since one rectangle through the grey band promises a shape that will
+   * never exist. `footprintWithinDay` rather than `dropFootprint`, because a RUN longer than the
+   * day is stored UNCUT and drew one rectangle over the whole column. A drop that is a RANK is
+   * drawn from the plan instead, `GhostPlan.pieces` already obeying every rule.
    */
   const ghostRows: readonly { startMinutes: number; durationMinutes: number }[] =
-    // The exotic case where not one of the days on screen can hold a legal row is left to the
-    // literal drawing: something has to be under the pointer, and the label then says where
-    // the hours really carry on to.
+    // Where not one day on screen can hold a legal row the literal drawing stands: something
+    // has to be under the pointer, and the label says where the hours carry on to.
     ghost !== null && ghost.pieces.length > 0
       ? spillPieces
       : preview === null
         ? []
         : footprintWithinDay({
             manualWindows: day.manualWindows,
-            // The SLID minute, not the released one: on a reflowing day a pinned drop over
-            // a gap or a lock is moved forward by the server, and a ghost that stayed under
-            // the pointer would promise a slot the row never takes.
+            // The SLID minute, not the released one: a ghost left under the pointer would
+            // promise a slot the row never takes.
             startMinutes: ghostStartMinutes,
             durationMinutes: preview.durationMinutes,
           });
 
   /**
-   * Where the whole gesture ends on the clock — its last segment's end, lunch included —
-   * or `null` when it does not end on this day at all.
-   *
-   * A MOVE'S `durationMinutes` IS THE WHOLE RUN'S, ACROSS DAYS (`DragTarget`,
-   * `BlockRun.totalMinutes`), and a run does not end at a time of day: it ends on a later
-   * DAY. Adding it to a start and printing the sum as an end-of-day produced `420 + 1080 =
-   * 1500` for an 18 h run released at 07:00 — 25:00 — which `formatTime` rendered `--:--`
-   * and complained about once per pointer move, forty times in one drag. Shorter overruns
-   * were worse for being quiet: 13 h at 07:00 read as `21:30`, an hour past every rule the
-   * grid draws.
-   *
-   * `footprintEnd` is the one place the question is answered, against the same line no
-   * stored row may cross. A resize is unaffected — its duration is one stretch's, on this
-   * day, already capped at the day's end — so the range it prints is as literal as before.
+   * Where the whole gesture ends on the clock, or `null` when it does not end on this day at all.
+   * A move's `durationMinutes` is the whole RUN's, across days, so `start + duration` is not a
+   * time of day; `footprintEnd` is the one place that is answered. A resize is unaffected.
    */
   const ghostEndMinutes =
     preview === null
@@ -974,27 +753,15 @@ function DayColumn({
           durationMinutes: preview.durationMinutes,
         });
 
-  /**
-   * NO START ON THIS DAY COULD HOLD THE GESTURE — its net minutes are more than the day's
-   * own. Only a multi-day run gets here, and it is why the clamp has nothing true to say:
-   * `latestStartFor` falls back to the first window's start when nothing fits, so the
-   * ghost's «no pueden empezar después de las 07:00» claimed 07:00 would do.
-   *
-   * ASKED ONLY OF A DROP THAT LANDS LITERALLY (2026-08-17). On a day the engine lays out, "these
-   * hours do not fit in one day" is the deleted rule speaking: the run takes what the day has
-   * and the rest carries on, so what the ghost has to say there is the DIVISION, which the plan
-   * draws and the label names. A resize keeps it — its length really is stored on one day.
-   */
+  // No start on this day could hold the gesture, which is why the clamp has nothing true to
+  // say: `latestStartFor` falls back to the first window's start when nothing fits. Asked only
+  // of a drop that lands LITERALLY — elsewhere the answer is the DIVISION the plan draws.
   const longerThanTheDay =
     preview !== null &&
     ghost === null &&
     !dayHoldsMinutes(day.manualWindows, preview.durationMinutes);
 
-  /**
-   * The day as the "stop the day here" planner reads it, or `null` where the action makes
-   * no sense: the weekend and a closed day have no plannable hours to cap, and the past
-   * is a record rather than a plan.
-   */
+  /** The day as the "stop the day here" planner reads it, `null` where the action makes no sense. */
   const closeDayInput = useMemo<CloseDayInput | null>(
     () =>
       onCloseDay === undefined
@@ -1007,20 +774,12 @@ function DayColumn({
     [onCloseDay, day, groups, gaps],
   );
 
-  /**
-   * «4 h el lun 17 · 2 h el mar 18» — WHAT BECOMES OF THE HOURS, named day by day, and the
-   * one sentence this whole round exists for.
-   *
-   * Said only when there is something to say: hours that leave the day the pointer is on. All
-   * of them staying here needs no sentence, because then the rectangle IS the answer — and the
-   * days are named rather than counted, since "se parte en dos" would not tell the owner which
-   * two days their week just changed on.
-   */
+  // What becomes of the hours, named day by day. Said only when some of them leave the day the
+  // pointer is on: all of them staying needs no sentence, the rectangle being the answer.
   const carryTextFor = (plan: GhostPlan | null): string | null => {
     if (plan === null) return null;
     const parts = plan.byDay.map((part) => format.hoursOnDay(part.date, part.minutes));
-    // The week on screen ran out before the hours did. The engine walks a whole planning
-    // horizon, so this is "they carry on further along", never "they do not fit".
+    // The week on screen ran out before the hours did — never "they do not fit".
     if (plan.beyondMinutes > 0) {
       parts.push(t('grid.dropCarriesLater', { hours: format.hourNumber(plan.beyondMinutes) }));
     }
@@ -1030,10 +789,7 @@ function DayColumn({
 
   const carrySentence = carriesLabel ? carryTextFor(ghost) : null;
 
-  /**
-   * The same three answers for the scissors' fragment: the rectangles that are this column's,
-   * whether this column carries the words, and what the words say about the other days.
-   */
+  /** The same three answers for the scissors' fragment. */
   const placingPieces =
     placingGhost === null ? [] : placingGhost.pieces.filter((piece) => piece.date === day.date);
   const placingRows: readonly { startMinutes: number; durationMinutes: number }[] =
@@ -1077,19 +833,14 @@ function DayColumn({
       {bands.map((band) => (
         <div
           key={`${band.kind}-${band.startMinutes}`}
-          /*
-           * The break between two periods is drawn COMPRESSED — a hatched seam a few pixels
-           * tall — while the margins keep the axis's ordinary scale, because the owner puts
-           * real work in a margin by hand and none in the comida. The two therefore have to
-           * read as different things, not as the same grey at two heights.
-           */
+          // The break is drawn COMPRESSED while the margins keep the axis's ordinary scale: the
+          // owner puts real work in a margin by hand and none in the comida.
           className={[styles.band, band.kind === 'lunch' ? styles.bandBreak : '']
             .filter(Boolean)
             .join(' ')}
           style={{
             top: `${timeline.yOf(band.startMinutes)}px`,
-            // Between two CLOCK times, so the band covers exactly the compressed segment
-            // the axis gave it.
+            // Between two CLOCK times, so it covers exactly the compressed segment.
             height: `${timeline.heightBetween(band.startMinutes, band.endMinutes)}px`,
           }}
           title={band.kind === 'lunch' ? t('grid.lunchBand') : t('grid.marginBand')}
@@ -1105,14 +856,9 @@ function DayColumn({
       ))}
 
       {/*
-       * EVERYTHING IN THIS COLUMN THAT BELONGS TO THE WEEK, and nothing that belongs to the
-       * gesture. The wrapper exists so the week-change animation has something to move that
-       * is NOT the ghost: a block held at the edge pages the calendar, and the one rectangle
-       * that must never slide out from under the pointer is the one promising where that
-       * block will land. The ghost and the placing preview are siblings of this, below.
-       *
-       * `inset: 0` makes it the same box as the column, so every child keeps the exact
-       * coordinates the timeline gave it.
+       * Everything in this column that belongs to the WEEK and nothing that belongs to the
+       * gesture: the week-change animation moves this, and the rectangle that must never slide
+       * out from under the pointer is the ghost, a sibling of this below.
        */}
       <div
         className={[styles.columnBody, slideClass(slide)].filter(Boolean).join(' ')}
@@ -1122,10 +868,8 @@ function DayColumn({
         }}
       >
         {emptyLabel === null ? null : (
-          // Placed on the day's own working time rather than at the column's midpoint,
-          // which with the documented shift is 13:45 — on the lip of the lunch band and
-          // a hair above the 14:00 rule, where the word read as debris. See
-          // `emptyLabelMinutes`.
+          // On the day's own working time, not the column's midpoint, which on the documented
+          // shift is 13:45 — the lip of the lunch band, where the word read as debris.
           <span
             className={styles.empty}
             style={{ top: `${timeline.yOf(emptyLabelMinutes(day.periods, timeline))}px` }}
@@ -1140,10 +884,8 @@ function DayColumn({
           const style = {
             '--ww-gap-color': gapColor,
             top: `${timeline.yOf(gap.startMinutes)}px`,
-            // A GAP'S DURATION IS CLOCK MINUTES, not net working ones — "stop the day here"
-            // runs one from a moment to the end of the last period, straight across the
-            // lunch break — so it is the one occupancy on the grid that can contain the
-            // compressed band, and it has to be measured between two times to cover it.
+            // A GAP'S DURATION IS CLOCK MINUTES, not net working ones, so it is the one
+            // occupancy that can contain the compressed band and must be measured between times.
             height: `${timeline.heightBetween(gap.startMinutes, gap.startMinutes + gap.durationMinutes)}px`,
             left: `calc(${(lane.lane / lane.lanes) * 100}% + 2px)`,
             width: `calc(${100 / lane.lanes}% - 4px)`,
@@ -1160,22 +902,13 @@ function DayColumn({
               type="button"
               className={`${styles.gap} ${styles.gapButton}`}
               style={style}
-              // The third line is the gesture vocabulary of a gap, which is short: it opens,
-              // it does not drag. Said on the hover as well as on the failed drag, so the
-              // owner can learn it without having to fail first.
+              // The third line is a gap's whole gesture vocabulary: it opens, it does not drag.
               title={`${reason}\n${label}\n${t('grid.gapOpensHint')}`.trim()}
-              /*
-               * NOT `disabled` WHILE A SAVE IS IN FLIGHT, which is what this used to be. A
-               * disabled button takes the press and drops it: no form, no drag, no message,
-               * and nothing on screen even looks different — in the second right after every
-               * mutation, which is exactly when the next press lands. The form is still
-               * withheld; the press now says why.
-               */
+              // `aria-disabled`, not `disabled`: a disabled button takes the press and drops it
+              // — no form, no drag, no message. The form is still withheld; the press says why.
               aria-disabled={busy}
-              // A press that turns into a drag has nothing to start here, so it says so —
-              // otherwise the gesture ends with no click and no message. While busy the same
-              // handler answers every press, so the click below stays silent rather than
-              // repeating the sentence. See `usePressHint`.
+              // A press that turns into a drag has nothing to start here, so it says so. While
+              // busy the same handler answers every press. See `usePressHint`.
               onPointerDown={busy ? onPressGapBusy : onPressGap}
               onClick={() => {
                 if (!busy) onOpenGap(gap);
@@ -1191,32 +924,14 @@ function DayColumn({
           const target = targetFor(segment.group, day, runFor(runs, segment.group));
           const closeDay = closeDayAfter(closeDayInput, segment.block);
           const lane = lanes.get(segment.group.id) ?? SINGLE_LANE;
-          /*
-           * WHY THIS PRESS CANNOT WRITE, when it cannot — and the press is still tracked, so
-           * a CLICK still opens the job. `undefined` is the ordinary row.
-           *
-           * The past comes first because it is the stronger rule: a frozen day is a record of
-           * what the shop did, so no gesture rewrites it (spec, 2026-08-13 — "on a past day:
-           * no drag, no resize, no split"). It also closes a hole: `allowed` is worked out for
-           * the day the ghost is OVER, so a past row dragged onto a future day was accepted
-           * and history moved.
-           */
+          // Why this press cannot write; it is still tracked, so a CLICK still opens the job.
+          // The past comes first because `allowed` is worked out for the day the ghost is OVER
+          // — a past row dragged onto a future day was accepted and history moved.
           const inert = day.isPast ? ('past' as const) : busy ? ('busy' as const) : undefined;
           /*
-           * DOES THE ENGINE LAY THIS ROW OUT? The mirror of `isMovable` (unlocked, not
-           * past, not a weekend), and the same three questions the server's resize asks
-           * before it refuses with `resize-needs-padlock`. A row it owns has no length of
-           * its own: it is exactly as big as the room it has, so the bottom edge SIZES
-           * NOTHING there — the padlock is what gives a row a length, and a GAP is what
-           * ends a day early.
-           *
-           * THE EDGE IS STILL THERE, AND IT IS STILL PRESSABLE, because the failure mode
-           * this project keeps repeating is a gesture that goes quiet. Withholding the strip
-           * would have been worse than quiet: the press falls through to the block's body
-           * and starts a MOVE, so reaching for a length would have re-ranked the queue. It
-           * is handed to the drag as an INERT press instead — no ghost, nothing written, a
-           * click still opens the job, and the first real travel says what does change the
-           * shape of a day (`InertReason.automatic`).
+           * Does the engine lay this row out? The mirror of `isMovable`, and the questions the
+           * server's resize asks before `resize-needs-padlock`. The edge is still drawn and still
+           * pressable — withholding it let the press fall through to the body and start a MOVE.
            */
           const engineLaysOut = !segment.block.locked && !day.isPast && !day.isWeekend;
           return (
@@ -1225,8 +940,7 @@ function DayColumn({
               segment={segment}
               timeline={timeline}
               lane={lane}
-              // The block's own width, not the column's: `.block` is inset 2 px on each side
-              // of its lane's share (see its inline `left`/`width`).
+              // The block's own width: `.block` is inset 2 px each side of its lane's share.
               blockWidth={columnWidth === null ? null : columnWidth / lane.lanes - 4}
               overflow={isOverflow(segment.group, day)}
               frozen={day.isPast}
@@ -1238,37 +952,27 @@ function DayColumn({
               }
               busy={busy}
               onPointerDownBody={(event) => drag.beginMove(event, target, { inert })}
-              // The hover bar is over the block, so it drags the block too — see
-              // `BeginOptions.overlay` for the two things that keeps working.
+              // The hover bar is over the block, so it drags it too. See `BeginOptions.overlay`.
               onPointerDownActions={(event) => drag.beginMove(event, target, { overlay: true, inert })}
-              // WHAT THE SERVER WOULD ACCEPT: a row it does not lay out, and not one in the
-              // frozen past — there `resizeBlock` refuses first and for its own reason
-              // (`past-block-frozen`), and the block draws no edge at all.
+              // What the server would accept. A past row draws no edge at all: `resizeBlock`
+              // refuses it first and for its own reason (`past-block-frozen`).
               resizable={!engineLaysOut && !day.isPast}
               onPointerDownResize={(event) =>
                 drag.beginResize(
                   event,
                   {
                     ...target,
-                    // A move is the whole unit; a resize is the STRETCH THAT BEGINS AT THIS
-                    // ROW — this row plus the rows of the unit that continue it after the
-                    // break, which is the same stretch `resizeBlock` sizes on the server.
-                    // Each row of a unit is its own rectangle with its own bottom edge, so
-                    // the morning half's edge sizes "from 10:00 to wherever I let go" and
-                    // the afternoon half's edge sizes only itself.
+                    // A move is the whole unit; a resize is the STRETCH THAT BEGINS AT THIS ROW
+                    // — this row plus the rows of the unit continuing it after the break, the
+                    // same stretch `resizeBlock` sizes on the server.
                     blockId: segment.block.id,
                     startMinutes: segment.block.startMinutes,
                     durationMinutes: segment.group.blocks
                       .slice(segment.index)
                       .reduce((total, row) => total + row.durationMinutes, 0),
                   },
-                  /*
-                   * WHY THIS PRESS CANNOT SIZE, most binding reason first. The past and a
-                   * save in flight are the row's own reasons and they carry over from the
-                   * move — a resize of a past row rewrites the record just as much as a
-                   * drag of it does — and `automatic` is the RULE underneath: on a row the
-                   * engine lays out there is no length to drag.
-                   */
+                  // Most binding reason first. The past and a save in flight carry over from
+                  // the move; `automatic` is the rule underneath — no length to drag.
                   { inert: inert ?? (engineLaysOut ? 'automatic' : undefined) },
                 )
               }
@@ -1293,17 +997,12 @@ function DayColumn({
               key={row.startMinutes}
               className={[
                 styles.ghost,
-                // An insertion point rather than a placement: hollow, with a rule on the
-                // edge the drop ranks itself at. See `ranked` above.
+                // An insertion point rather than a placement. See `ranked` above.
                 ranked ? styles.ghostRanked : '',
-                // ONE INSERTION POINT PER GESTURE, however many rectangles the hours land in
-                // and on however many columns: the heavy rule marks the drop's own first row,
-                // everything after it is a continuation. Asked of the whole gesture rather
-                // than of this column, or the hours carried to the next day would draw a
-                // second rank on a day the owner never released over.
+                // ONE insertion point per gesture, however many rectangles and columns the
+                // hours land in — asked of the whole gesture, never of this column.
                 index === 0 && carriesLabel ? '' : styles.ghostContinued,
-                // A refusal is drawn like a forbidden day: the save writes nothing either
-                // way. (`dropEffect` is null unless `allowed`, so this reads as one test.)
+                // A refusal is drawn like a forbidden day: the save writes nothing either way.
                 gesture.allowed && dropEffect?.kind !== 'blocked' ? '' : styles.ghostDenied,
               ]
                 .filter(Boolean)
@@ -1311,22 +1010,12 @@ function DayColumn({
               style={{
                 '--ww-block-color': gesture.color,
                 top: `${timeline.yOf(row.startMinutes)}px`,
-                // Both edges through the axis, which clamps: a long unit dropped late in the
-                // day genuinely runs past the last period once the lunch break is added
-                // back, and the ghost must not escape the grid to say so.
+                // Both edges through the axis, which clamps, so the ghost never escapes the grid.
                 height: `${timeline.heightBetween(row.startMinutes, row.startMinutes + row.durationMinutes)}px`,
               } as React.CSSProperties}
             >
-              {/*
-               * ONE LABEL PER GESTURE, on its FIRST rectangle wherever that is — normally
-               * the release column, and the next one when the release day could not take a
-               * single legal row. Every other rectangle of the drop is bare, exactly as a
-               * stored unit puts its name and hours on its first row: per-rectangle labels
-               * would read as two separate drops, which is the one thing this is not.
-               *
-               * A column that only holds the CARRIED hours says just that, so the owner can
-               * see how much landed there without reading the sentence on the other column.
-               */}
+              {/* One label per gesture, on its FIRST rectangle wherever that is; every other is
+                   bare. A column holding only the CARRIED hours says just that. */}
               {index === 0 && !carriesLabel ? (
                 <div className={styles.ghostLabel}>
                   <span className={styles.ghostMeta}>
@@ -1335,24 +1024,11 @@ function DayColumn({
                 </div>
               ) : null}
               {index === 0 && carriesLabel ? (
-                /*
-                 * The words sit on their own backing. The ghost itself is translucent so the
-                 * row or the reserved gap underneath stays visible — which is the whole point
-                 * of hovering there — and on a 128 px weekend column that left the ghost's
-                 * sentence and the block's own name printed on top of one another.
-                 */
+                // The words sit on their own backing: the ghost is translucent so what is
+                // underneath stays visible, and on a 128 px column the two sentences collided.
                 <div className={styles.ghostLabel}>
-                  {/*
-                   * THE CLOCK RANGE IS PRINTED ONLY WHERE IT IS A PROMISE — a pinned drop
-                   * and a resize. On a re-ranked drop the hours are the only true number,
-                   * and what takes the range's place is the rank itself: the row this will
-                   * fall in behind, which is what the drop actually writes.
-                   *
-                   * AND ONLY WHERE THERE IS AN END TO PRINT. A run's minutes can be more
-                   * than the day holds, and then it has no end on this day's clock
-                   * (`ghostEndMinutes === null`); the START is still exactly where the row
-                   * begins, so that is what is said, with the hours on the line below.
-                   */}
+                  {/* Printed only where the range is a PROMISE — a pinned drop, a resize — and
+                       only where there is an end at all. Otherwise the START, still exact. */}
                   {ranked ? null : (
                     <span className={styles.ghostMeta}>
                       {ghostEndMinutes === null
@@ -1360,15 +1036,8 @@ function DayColumn({
                         : format.timeRange(ghostStartMinutes, ghostEndMinutes)}
                     </span>
                   )}
-                  {/*
-                   * THE HOURS — or, when they do not all land on this day, WHERE THEY GO.
-                   *
-                   * Since *Fill and Overflow, Always* a drop on a day the engine lays out is
-                   * not "it fits" or "it does not": it fills what is left and the rest carries
-                   * on, so the honest thing to say is which day gets how much. It REPLACES the
-                   * bare total rather than being added under it — the total is the sum of the
-                   * parts, and on a 155 px column a 1,5 h rectangle holds four lines, not six.
-                   */}
+                  {/* The hours — or, when they do not all land here, WHERE THEY GO. It REPLACES
+                       the bare total: a 1,5 h rectangle holds four lines, not six. */}
                   {carrySentence === null ? (
                     <span className={styles.ghostMeta}>{format.hours(gesture.durationMinutes)}</span>
                   ) : (
@@ -1381,40 +1050,16 @@ function DayColumn({
                         : t('grid.dropAfter', { name: rankAfter.project.name })}
                     </span>
                   )}
-                  {/*
-                   * WHY THE GHOST STOPPED FOLLOWING THE POINTER. The unit is too long to
-                   * start where the hand is and still end inside the day, so the release
-                   * point is pulled up to the last minute that fits — and on a 6 h unit
-                   * that is 13:00, which leaves the whole afternoon meaning one thing and
-                   * the ghost sitting still while the pointer keeps going. The rule is
-                   * real; the silence was the defect.
-                   *
-                   * BOTH OF THESE ARE NOW ABOUT A DROP THAT LANDS LITERALLY ONLY — the
-                   * buffer, the weekend, a margin, a padlocked row. On Monday-Thursday a
-                   * release below what the day holds is neither rolled nor clamped, so
-                   * `preview.rolled` and `preview.clamped` are false there by construction
-                   * and the sentence above is what answers instead.
-                   */}
-                  {/*
-                   * THE DROP MOVED TO THIS DAY because the one the pointer is over cannot
-                   * hold the run from where the hand is — which is what aiming past the
-                   * bottom of a column means in any calendar. The ghost is already HERE, so
-                   * this only names the reason; without it the jump to the next column is
-                   * the app appearing to lose the drag.
-                   */}
+                  {/* This and the clamp below are for a drop that lands LITERALLY only. */}
+                  {/* The drop moved to THIS day, the one the pointer is over not holding the run
+                       from where the hand is. The ghost is already here; this names the reason. */}
                   {preview?.rolled !== true ? null : (
                     <span className={styles.ghostClamped}>
                       {t('grid.dropNextDay', { day: format.dayHeader(day.date) })}
                     </span>
                   )}
-                  {/*
-                   * A RUN NO DAY CAN HOLD SAYS THAT INSTEAD, and says it whether or not the
-                   * clamp fired: at the very top of the axis nothing was pulled up, so
-                   * `clamped` is false and the ghost would otherwise explain nothing at all
-                   * about why it has no end time. The day's own hours are named because
-                   * that is the number the owner has to act on — the run has to be split
-                   * with another job, or shortened, before it can be dragged anywhere.
-                   */}
+                  {/* A run no day can hold says that instead, clamp or no clamp: at the top of
+                       the axis nothing was pulled up and `clamped` is false. */}
                   {longerThanTheDay ? (
                     <span className={styles.ghostClamped}>
                       {t('grid.dropLongerThanDay', {
@@ -1430,12 +1075,8 @@ function DayColumn({
                       })}
                     </span>
                   )}
-                  {/*
-                   * WHY THE GHOST IS NOT UNDER THE POINTER. A pinned drop that lands on a
-                   * gap or a locked row is not refused on a day the engine reflows — it is
-                   * slid down to the first clear slot. The rectangle already draws where
-                   * the row will really be; this says who moved it.
-                   */}
+                  {/* Why the ghost is not under the pointer: a pinned drop onto a gap or a lock
+                       is slid to the first clear slot. The rectangle already draws where. */}
                   {resolution?.slid !== true ? null : (
                     <span className={styles.ghostClamped}>
                       {t('grid.dropSlid', { time: format.time(ghostStartMinutes) })}
@@ -1451,9 +1092,8 @@ function DayColumn({
             </div>
           ))}
 
-      {/* A split fragment waiting for its target. It is a drop like any other, so it is
-          previewed exactly like one: in segments where it lands literally, and as the rows the
-          reflow will lay it out in — this day's share and the next day's — where it is a rank. */}
+      {/* A split fragment waiting for its target, previewed exactly like the drop it is: in
+          segments where it lands literally, as the reflow's own rows where it is a rank. */}
       {placing === null || placingSlot === null ? null : placingRows.map((row, index) => (
             <div
               key={row.startMinutes}
@@ -1498,31 +1138,16 @@ function DayColumn({
   );
 }
 
-// ---------------------------------------------------------------------------
-// The week change, drawn
-// ---------------------------------------------------------------------------
+// --- The week change, drawn ---
 
 /** Which way the calendar last travelled. `null` on the first week and on any other render. */
 type WeekSlide = 'next' | 'previous' | null;
 
 /**
- * WHICH WAY THE WEEK JUST MOVED, so the calendar can slide in from that side.
- *
- * The owner asked for it after using the pager and the edge hold: «estaría bien alguna
- * animación fluida que indique visualmente que se ha cambiado de semana tanto adelante como
- * hacia atrás». The direction is the whole point — an animation that looks the same both ways
- * says "something changed", which the owner already knew, rather than "you went forward".
- *
- * Two decisions worth keeping:
- *
- * - **It is derived, not passed in.** No caller has to remember to say which way it paged, so
- *   `goToday`, the arrow keys, the two header buttons and the edge hold all get it for free —
- *   and none of them can get it wrong. ISO dates compare lexicographically, which for
- *   `YYYY-MM-DD` is chronologically.
- * - **The FIRST week never slides.** `direction` starts `null`, so opening the app is not
- *   dressed up as a page turn. It stays whatever it last was after that, which is harmless:
- *   the class only ever animates something that has just been remounted, and only a date
- *   change remounts anything.
+ * Which way the week just moved, so the calendar can slide in from that side. DERIVED rather
+ * than passed in, so `goToday`, the arrow keys, the header buttons and the edge hold all get it
+ * for free (ISO dates compare chronologically). The FIRST week never slides; after that it stays
+ * whatever it last was, harmlessly — only a date change remounts anything.
  */
 function useWeekSlide(startDate: string): WeekSlide {
   const previous = useRef(startDate);
@@ -1539,18 +1164,12 @@ function slideClass(slide: WeekSlide): string {
   return slide === null ? '' : slide === 'next' ? styles.slideNext : styles.slidePrevious;
 }
 
-/**
- * The same, for a day HEADER, which travels its words rather than its box — see the CSS. A
- * separate class rather than a flag because what differs is the SELECTOR, and a selector is a
- * stylesheet's business.
- */
+/** The same for a day HEADER, which travels its words rather than its box — see the CSS. */
 function slideHeadClass(slide: WeekSlide): string {
   return slide === null ? '' : slide === 'next' ? styles.slideHeadNext : styles.slideHeadPrevious;
 }
 
-// ---------------------------------------------------------------------------
-// Derived state
-// ---------------------------------------------------------------------------
+// --- Derived state ---
 
 /** What the ghost says about the row it is over. One key per branch of the resolver. */
 const DROP_EFFECT_KEYS: Record<DropEffect['kind'], string> = {
@@ -1565,10 +1184,7 @@ interface WeekLayout {
   groups: Map<string, BlockGroup[]>;
   gaps: Map<string, Gap[]>;
   lanes: Map<string, Map<string, { lane: number; lanes: number }>>;
-  /**
-   * The RUN each unit belongs to, keyed by group id — what a drag of it moves. Built for
-   * the whole week at once because a run's other half is usually on another day.
-   */
+  /** The RUN each unit belongs to, keyed by group id. Built for the whole week at once. */
   runs: Map<string, BlockRun>;
 }
 
@@ -1591,21 +1207,15 @@ function buildLayout(view: WeekView): WeekLayout {
   const lanes = new Map<string, Map<string, { lane: number; lanes: number }>>();
 
   for (const day of view.days) {
-    // Grouped over the MANUAL WINDOWS: two rows are one unit when nothing WORKABLE
-    // separates them, and half an hour of margin between two rows is workable by hand.
-    // Read against the periods alone, a row in the top margin and one starting at 08:00
-    // would be drawn as a single unit with a phantom seam between them.
+    // Grouped over the MANUAL WINDOWS: two rows are one unit when nothing WORKABLE separates
+    // them, and half an hour of margin between two rows is workable by hand.
     const dayGroups = groupBlocks(blocksByDate.get(day.date) ?? [], day.manualWindows);
     groups.set(day.date, dayGroups);
     lanes.set(day.date, packDay(dayGroups, gapsByDate.get(day.date) ?? []));
   }
 
-  /*
-   * THE MOVABLE POOL, as this side of the app can see it — the mirror of `isMovable` in
-   * src/lib/composition.ts: unlocked, not in the past, not on a weekend. It is what tells
-   * a run where to stop, because work the engine never moves is an obstacle it flows
-   * around rather than a division the owner made.
-   */
+  // The movable pool as this side can see it — the mirror of `isMovable` in composition.ts.
+  // It is what tells a run where to stop.
   const dayByDate = new Map(view.days.map((day) => [day.date, day]));
   const runs = buildRuns(
     view.days.flatMap((day) => groups.get(day.date) ?? []),
@@ -1619,12 +1229,8 @@ function buildLayout(view: WeekView): WeekLayout {
 }
 
 /**
- * WHAT A PRESS ON THIS UNIT PICKS UP: the whole RUN it belongs to, in queue order.
- *
- * The unit on screen is where the gesture STARTS — its date and start are what "the drag
- * came to nothing" and the outcome sentence are measured against — but what MOVES is the
- * run: every consecutive unit of this job with no other job's work between them, across
- * days. That is the owner's own rule and the engine's own `QueueItem`; see `BlockRun`.
+ * What a press on this unit picks up: the whole RUN it belongs to. The unit on screen is where
+ * the gesture STARTS — what the outcome sentence is measured against — but the run is what MOVES.
  */
 function targetFor(group: BlockGroup, day: WeekDay, run: BlockRun): DragTarget {
   const first = group.blocks[0];
@@ -1656,41 +1262,21 @@ function runFor(runs: ReadonlyMap<string, BlockRun>, group: BlockGroup): BlockRu
 }
 
 /**
- * Friday's `desborde` label: hours the ENGINE parked on the colchón.
- *
- * Derived from the buffer rule itself — the colchón "receives only overflow generated by
- * the growth of already-placed work", so anything the engine could have put there IS
- * overflow. Everything the engine could NOT have put there is excluded, and that is two
- * things: a past Friday, which is a record, and a PADLOCK, which is the owner saying "do
- * this on Friday" — whether they pressed it or a drop onto the buffer put it there for
- * them.
- *
- * That distinction has to read differently from `desborde 2 h` on the very same column
- * (CLAUDE.md): one means the week overran, the other means the owner planned it. `some`
- * rather than `every`, because a unit with any padlocked row in it is not something the
- * engine decided.
+ * Friday's `desborde` label: hours the ENGINE parked on the colchón. Anything it could have put
+ * there IS overflow, so the exclusions are a past Friday and a PADLOCK. `some` rather than
+ * `every`: a unit with any padlocked row in it is not something the engine decided.
  */
 function isOverflow(group: BlockGroup, day: WeekDay): boolean {
   if (day.role !== 'buffer' || day.isPast) return false;
   return !group.blocks.some((block) => block.locked);
 }
 
-// ---------------------------------------------------------------------------
-// Column widths
-// ---------------------------------------------------------------------------
+// --- Column widths ---
 
 /**
- * EVERY COLUMN'S WIDTH IN PIXELS, kept current.
- *
- * Needed for exactly one decision, and it is a decision no stylesheet can take: whether the
- * hover action bar — a fixed number of 24 px buttons — still leaves any of a block to press
- * (`blockHoldsActions`). Percentages cannot compare themselves to pixels, and a container
- * query on the block would make it a containment context, which creates a stacking context
- * and would trap the bar that hangs OUTSIDE a narrow block behind the row next to it.
- *
- * Measured from the same `measure()` the drag layer uses, so there is one answer about where
- * the columns are, and re-read on resize only — never during a drag, which reads `measure()`
- * itself on every pointer event.
+ * Every column's width in pixels, for one decision no stylesheet can take: whether the hover
+ * action bar still leaves any of a block to press (`blockHoldsActions`). From the same
+ * `measure()` the drag layer uses, and re-read on resize only.
  */
 function useColumnWidths(
   gridRef: React.MutableRefObject<HTMLDivElement | null>,
@@ -1708,8 +1294,8 @@ function useColumnWidths(
       const columns = measure()?.columns;
       if (columns === undefined) return;
       setWidths((current) => {
-        // Rounded, and only replaced when something really changed: a ResizeObserver fires
-        // on sub-pixel jitter, and a new Map every time would re-render the whole week.
+        // Rounded, and replaced only on a real change: a ResizeObserver fires on sub-pixel
+        // jitter, and a new Map every time would re-render the whole week.
         const next = new Map(columns.map((column) => [column.date, Math.round(column.width)]));
         if (next.size === current.size && [...next].every(([date, width]) => current.get(date) === width)) {
           return current;
@@ -1722,16 +1308,14 @@ function useColumnWidths(
     const observer = new ResizeObserver(read);
     observer.observe(root);
     return () => observer.disconnect();
-    // `dates` is a dependency because paging the week changes the keys without changing
-    // any size, so the observer alone would never fire and every column would read `null`.
+    // `dates` is a dependency because paging changes the keys without changing any size, so
+    // the observer alone would never fire and every column would read `null`.
   }, [gridRef, measure, dates]);
 
   return widths;
 }
 
-// ---------------------------------------------------------------------------
-// The settle
-// ---------------------------------------------------------------------------
+// --- The settle ---
 
 function useSettleAnimation({
   gridRef,
@@ -1779,7 +1363,7 @@ function useSettleAnimation({
     };
     element.addEventListener('animationend', done, { once: true });
     return () => element.removeEventListener('animationend', done);
-    // `view` is a dependency because the animation must run against the SETTLED layout,
-    // which only exists after the refetch has re-rendered the grid.
+    // `view` is a dependency: the animation must run against the SETTLED layout, which only
+    // exists once the refetch has re-rendered the grid.
   }, [settle, view, timeline, gridRef, onSettled]);
 }

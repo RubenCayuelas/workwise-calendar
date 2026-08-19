@@ -1,16 +1,9 @@
 'use client';
 
 /**
- * Transient messages. `ToastProvider` is already mounted in `app/layout.tsx`, so a
- * screen only needs `useToast()`.
- *
- *     const toast = useToast();
- *     toast.success(t('jobPanel.saved'));
- *     toast.error(apiErrorMessage(error, t, language));
- *
- * Errors do NOT auto-dismiss: a refused save is something the owner has to read, and
- * a message that vanishes is a message that was never delivered. Everything else
- * clears itself after a few seconds.
+ * Transient messages. `ToastProvider` is already mounted in `app/layout.tsx`, so a screen
+ * only needs `useToast()`. Errors do not auto-dismiss — a refused save has to stay until
+ * it is read; everything else clears itself.
  */
 
 import {
@@ -134,10 +127,7 @@ export function ToastProvider({ children }: { children: ReactNode }): React.JSX.
   );
 }
 
-/**
- * Throws when no provider is above it, rather than silently doing nothing — a
- * swallowed error toast is exactly the bug this component exists to prevent.
- */
+/** Throws rather than no-op: a swallowed error toast is the bug this exists to prevent. */
 export function useToast(): ToastApi {
   const api = useContext(ToastContext);
   if (api === undefined) {

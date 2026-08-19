@@ -1,25 +1,10 @@
 /**
- * The shift arithmetic the Settings form needs while the owner is still typing.
+ * The shift arithmetic the Settings form needs while the owner is still typing, MIRRORING
+ * src/lib/settings.ts because that module cannot be imported into a client component (better-sqlite3 at
+ * module level). Nothing here decides whether a save is legal, or adjusts the capacity.
  *
- * WHY THIS MIRRORS src/lib/settings.ts INSTEAD OF IMPORTING IT: that module imports
- * src/lib/db.ts (better-sqlite3) at module level, so it cannot be pulled into a client
- * component. And the form genuinely needs the arithmetic client-side, on the DRAFT: the
- * auto-fill capacity's ceiling is the sum of the enabled periods, so it has to follow
- * the period times as they are edited, before anything is saved.
- *
- * The server remains the authority. Every value goes through `validateSettings()` on
- * save, which rejects out-of-range input with the offending `field` attached —
- * `defaultDayCapacity` above the shift included. Nothing here decides whether a save is
- * legal; it exists so the form can tell the owner what a change implies BEFORE it sends
- * anything, which is the only way to ask them about the capacity in one round trip.
- *
- * NOTHING HERE ADJUSTS THE CAPACITY EITHER. `applySettingsPatch` used to clamp it to the
- * draft's shift, so the number moved under the owner's cursor as they edited a period —
- * the same trap as the server's old re-cap, one layer up. See CLAUDE.md, *The Capacity Is
- * Never Touched Alone*.
- *
- * KEEP IN SYNC with src/lib/settings.ts: `MIN/MAX_MARGIN_HOURS`, `MIN/MAX_HORIZON_WEEKS`,
- * `workPeriodsOf`, `maxDayCapacityHours`, `dayShapeFromSettings`.
+ * KEEP IN SYNC: `MIN/MAX_MARGIN_HOURS`, `MIN/MAX_HORIZON_WEEKS`, `workPeriodsOf`,
+ * `maxDayCapacityHours`, `dayShapeFromSettings` in src/lib/settings.ts.
  */
 
 import { MINUTES_PER_DAY, hoursToMinutes, minutesToHours } from '../../lib/dates';
@@ -58,10 +43,9 @@ const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 // ---------------------------------------------------------------------------
 
 /**
- * Minutes from midnight, or `undefined` while the input holds something unusable.
- *
- * The parse itself lives with the time control (`src/components/ui/timeOptions.ts`),
- * which is where the option list is built from it — one safe parse for the whole UI.
+ * Minutes from midnight, or `undefined` while the input holds something unusable. The parse itself lives
+ * with the time control (`../ui/timeOptions`), which builds its option list from it — one safe parse for
+ * the whole UI.
  */
 export function timeMinutes(value: string): number | undefined {
   return clockMinutes(value);
@@ -88,9 +72,9 @@ function intervalOf(start: string, end: string): WorkPeriod | undefined {
 // ---------------------------------------------------------------------------
 
 /**
- * The working periods a draft would produce, in order. Unlike the server's
- * `workPeriodsOf`, this one drops what it cannot make sense of instead of throwing, so
- * the preview and the capacity ceiling keep working while a time is being retyped.
+ * The working periods a draft would produce, in order. Unlike the server's `workPeriodsOf` this drops
+ * what it cannot make sense of instead of throwing, so the preview and the capacity ceiling keep
+ * working while a time is being retyped.
  */
 export function periodsOf(settings: Settings): WorkPeriod[] {
   const periods: WorkPeriod[] = [];
@@ -99,8 +83,7 @@ export function periodsOf(settings: Settings): WorkPeriod[] {
 
   if (settings.period2Enabled) {
     const afternoon = intervalOf(settings.period2Start, settings.period2End);
-    // An afternoon that would start before the morning ends is not a second period,
-    // it is an invalid draft: leave it out rather than drawing overlapping bands.
+    // An afternoon starting before the morning ends is an invalid draft, not a second period.
     if (afternoon !== undefined && (morning === undefined || afternoon.startMinutes >= morning.endMinutes)) {
       periods.push(afternoon);
     }
@@ -138,29 +121,22 @@ export function minCapacityHours(settings: Settings): number {
 }
 
 /**
- * Capacity clamped into the draft's shift — FOR DRAWING ONLY.
- *
- * The stop line and the preview have to point somewhere inside the day even while the
- * draft holds a capacity the shift cannot buy (which it now can: the form no longer
- * lowers it). This never touches the draft; `applySettingsPatch` leaves the owner's
- * number exactly as they left it.
+ * Capacity clamped into the draft's shift — FOR DRAWING ONLY. The stop line and the preview have to
+ * point somewhere inside the day even while the draft holds a capacity the shift cannot buy, which it
+ * now can. This never touches the draft.
  */
 export function capCapacityHours(hours: number, settings: Settings): number {
   const shiftHours = maxCapacityHours(settings);
-  // A draft with no usable period yet (a time mid-retype) must not silently zero the
-  // number the owner typed. Leave it alone; the shift will come back.
+  // A draft with no usable period yet (a time mid-retype) must not zero the owner's number.
   if (shiftHours <= 0) return hours;
   const clamped = Math.min(Math.max(Number.isFinite(hours) ? hours : shiftHours, Math.min(1, shiftHours)), shiftHours);
   return Math.round(clamped * 60) / 60;
 }
 
 /**
- * Working minutes a day the stop line will not fill, because the capacity sits below the
- * shift. 0 when auto-fill runs to the end of the periods.
- *
- * "Six hours of a ten hour shift" is a legitimate choice, and an invisible one — every
- * afternoon simply stays empty. This is the number the Settings field and the header strip
- * state so it is never a mystery, from either direction.
+ * Working minutes a day the stop line will not fill, because the capacity sits below the shift; 0 when
+ * auto-fill runs to the end of the periods. Six hours of a ten hour shift is a legitimate choice and an
+ * invisible one, so the Settings field and the header strip both state this number.
  */
 export function capacitySlackMinutes(settings: Settings): number {
   const shiftMinutes = shiftMinutesOf(settings);
@@ -182,11 +158,9 @@ export function timelineOf(settings: Settings): WorkPeriod | undefined {
 }
 
 /**
- * The clock time where auto-fill stops on an empty day.
- *
- * This is the whole point of `defaultDayCapacity` made visible: with 10 h of shift and
- * a capacity of 8 h, the engine fills the morning and then stops at 17:30 instead of
- * running to the end of the afternoon. `undefined` when the draft has no usable period.
+ * The clock time where auto-fill stops on an empty day — `defaultDayCapacity` made visible: with a 10 h
+ * shift and an 8 h capacity, 17:30 rather than the end of the afternoon. `undefined` when the draft has
+ * no usable period.
  */
 export function autoFillStopMinutes(settings: Settings): number | undefined {
   const periods = periodsOf(settings);
@@ -206,11 +180,10 @@ export function autoFillStopMinutes(settings: Settings): number | undefined {
 // ---------------------------------------------------------------------------
 
 /**
- * Applies a field change to the draft. A plain merge, and that is the point: the ONE
- * field it would be tempting to adjust here is `defaultDayCapacity`, and adjusting it is
- * what left the shop at half a day for ever. Shortening the shift leaves the capacity
- * where the owner put it, above the new ceiling, until they confirm the lower number on
- * save — `capacityReductionOf` below is how the screen knows to ask.
+ * Applies a field change to the draft. A plain merge, and that is the point: adjusting
+ * `defaultDayCapacity` here is what left the shop at half a day for ever, so shortening the shift
+ * leaves the capacity where the owner put it until they confirm the lower number on save —
+ * `capacityReductionOf` is how the screen knows to ask.
  */
 export function applySettingsPatch(draft: Settings, patch: Partial<Settings>): Settings {
   return { ...draft, ...patch };
@@ -235,12 +208,9 @@ export interface CapacityReduction {
 }
 
 /**
- * The capacity this draft cannot afford, or `undefined` when it fits.
- *
- * This is the question the Settings screen has to answer BEFORE it saves, and answering
- * it client-side is what keeps the whole exchange to one round trip: the server would
- * refuse the save, but a refusal is not a choice. `undefined` for a draft with no usable
- * period (a time mid-retype), which cannot be saved anyway.
+ * The capacity this draft cannot afford, or `undefined` when it fits. Answered client-side because the
+ * server would refuse the save and a refusal is not a choice — this is what keeps the exchange to one
+ * round trip. `undefined` for a draft with no usable period, which cannot be saved anyway.
  */
 export function capacityReductionOf(draft: Settings): CapacityReduction | undefined {
   const ceiling = maxCapacityHours(draft);
@@ -253,13 +223,9 @@ export function capacityReductionOf(draft: Settings): CapacityReduction | undefi
 }
 
 /**
- * What the Save button would send: the changed fields, plus the lowered capacity when the
- * draft's shift can no longer buy the one on screen.
- *
- * The lowered capacity ONLY ever enters a patch here, so a confirmation the owner cancels
- * sends nothing at all — there is no other path that could carry it. Without the explicit
- * field the server refuses the whole save, which is exactly what makes this the single
- * place the number can change.
+ * What the Save button would send: the changed fields, plus the lowered capacity when the draft's shift
+ * can no longer buy the one on screen. The lowered capacity ONLY ever enters a patch here, which is what
+ * makes "a cancelled confirmation sends nothing" true by construction.
  */
 export function patchToSave(saved: Settings, draft: Settings): Partial<Settings> {
   const patch = changedFields(saved, draft);
@@ -321,9 +287,8 @@ export function draftIssues(draft: Settings): SettingsIssues {
   ) {
     issues.planningHorizonWeeks = 'range';
   }
-  // Zero or nonsense is an issue. A capacity ABOVE the draft's shift deliberately is
-  // NOT: that draft is savable — it saves with the lower capacity the owner confirms —
-  // and flagging it would disable the Save button that raises the question.
+  // Zero or nonsense is an issue; a capacity ABOVE the draft's shift deliberately is not — that draft
+  // saves with the lower capacity the owner confirms, and flagging it would disable the Save button.
   if (!Number.isFinite(draft.defaultDayCapacity) || draft.defaultDayCapacity <= 0) {
     issues.defaultDayCapacity = 'range';
   }

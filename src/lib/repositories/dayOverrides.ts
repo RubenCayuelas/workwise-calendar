@@ -2,8 +2,8 @@
  * The `day_overrides` table — whole-day exceptions: a holiday, a closed week, a
  * one-off day with different hours.
  *
- * Per CLAUDE.md's implementer defaults there is NO Settings UI for this in v0.2,
- * on purpose: the table and the engine support ship now so a holiday is a row away
+ * There is deliberately NO Settings UI for this:
+ * the table and the engine support ship now so a holiday is a row away
  * instead of a migration away. The scheduler reads every day through
  * `getDayConfig(date)` (global settings -> weekday rule -> override), so this
  * repository has no other caller yet.

@@ -13,7 +13,6 @@ function settings(patch: Partial<Settings> = {}): Settings {
   return { ...DEFAULT_SETTINGS, ...patch };
 }
 
-/** A block on the calendar, in the engine's integer minutes. */
 function scheduled(
   id: string,
   date: string,
@@ -113,7 +112,6 @@ describe('assessRisk', () => {
     );
     expect(risk.narrowsHorizon).toBe(true);
     expect(risk.lowersCapacity).toBe(true);
-    // Neither strands a block: the reflow simply places work later.
     expect(needsBlockCheck(risk)).toBe(false);
   });
 });
@@ -139,7 +137,6 @@ describe('findAffectedBlocks', () => {
   });
 
   it('names a block that would only partly lose its time', () => {
-    // The morning ends at 13:00: the last hour of an 08:00-14:00 block is gone.
     const affected = findAffectedBlocks(settings(), settings({ period1End: '13:00' }), [morningWork]);
     expect(affected.map((entry) => entry.block.id)).toEqual(['b']);
   });
@@ -164,7 +161,6 @@ describe('findAffectedBlocks', () => {
       settings({ period2Enabled: false }),
       [saturday, past],
     );
-    // Sorted in calendar order, so the list reads like the calendar.
     expect(affected.map((entry) => entry.block.id)).toEqual(['e', 'd']);
   });
 

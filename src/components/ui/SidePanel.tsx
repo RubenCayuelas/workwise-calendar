@@ -3,13 +3,9 @@
 /**
  * The right-hand panel shell: the job panel and the gap form both live in one.
  *
- * No scrim by default, on purpose. The panel exists to edit something that is on the
- * calendar, and the owner needs to keep seeing the calendar while doing it — so it is
- * `aria-modal="false"` and the grid stays live behind it. Pass `scrim` for the rare
- * case that must be modal.
- *
- * Rendered through a portal on `document.body` so a `transform` or `overflow` on the
- * grid can never clip it.
+ * `aria-modal="false"` and no scrim by default, on purpose — the owner edits while still
+ * watching the calendar, and the grid stays live behind it. Portalled onto `document.body`
+ * so a `transform` or `overflow` on the grid cannot clip it.
  */
 
 import { useEffect, useRef, type ReactNode } from 'react';
@@ -67,8 +63,7 @@ export function SidePanel({
 
   useEffect(() => {
     if (!open) return;
-    // Move focus into the panel so the keyboard follows the eye, but pick the first
-    // real field rather than the close button — the panel is opened to edit.
+    // The first real field, not the close button — the panel is opened to edit.
     const first = panelRef.current?.querySelector<HTMLElement>(
       'input, textarea, select, [tabindex]:not([tabindex="-1"])',
     );

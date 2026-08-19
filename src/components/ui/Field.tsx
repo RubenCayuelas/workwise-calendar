@@ -1,20 +1,10 @@
 'use client';
 
 /**
- * The form primitives: `Field` and the controls it labels.
+ * `Field` owns the generated id and the `aria-describedby` / `aria-invalid` wiring; every
+ * control below inherits it through context. Pass an explicit `id` to opt out.
  *
- * `Field` generates the id, wires `<label for>`, and links the hint or the error with
- * `aria-describedby` / `aria-invalid`. Any control from this file that sits inside a
- * `Field` picks all of that up from context, so a screen writes
- *
- *     <Field label={t('jobPanel.name')} hint={...} error={...}>
- *       <Input value={name} onChange={...} />
- *     </Field>
- *
- * and never has to invent an id. Pass an explicit `id` to opt out.
- *
- * The `error` prop is where `ApiError.field` lands: on a 400 the Settings form and the
- * job form point at the offending input with it.
+ * `error` is where `ApiError.field` lands on a 400.
  */
 
 import {
@@ -41,12 +31,9 @@ interface FieldContextValue {
 const FieldContext = createContext<FieldContextValue | undefined>(undefined);
 
 export interface FieldProps {
-  /** Already translated. Every label in this app comes from public/locales. */
+  /** Already translated. */
   label: string;
-  /**
-   * The helper line under the control. This is where the auto-fill capacity is
-   * explained ("a stop line for auto-fill only, never a limit on manual placement").
-   */
+  /** The helper line under the control. */
   hint?: ReactNode;
   /** Replaces the hint and marks the control invalid. */
   error?: string;
@@ -247,18 +234,8 @@ export interface NumberStepperProps {
 }
 
 /**
- * `Horas totales` and every numeric setting.
- *
- * Snapped to `step` and then bounded by `min`/`max`, and it never emits `NaN`: an empty
- * or half-typed input keeps the last valid value, so a job can never be saved with no
- * hours because the owner was mid-keystroke.
- *
- * THE ORDER OF THOSE TWO IS LOAD-BEARING. It used to bound first and snap second, so a
- * bound that is not itself a multiple of the step got rounded straight back past itself:
- * on a 9.75 h shift the Settings capacity has max 9.75, and merely focusing the field and
- * clicking away turned 9.75 into 10 — the capacity moving on its own, which is the one
- * thing CLAUDE.md's *The Capacity Is Never Touched Alone* forbids. Bounds win over the
- * grid; a limit is always a legal value.
+ * Snapped to `step`, then bounded — that order is load-bearing, see `snapWithinBounds`.
+ * Never emits `NaN`: an empty or half-typed input keeps the last valid value.
  */
 export function NumberStepper({
   value,
@@ -347,7 +324,7 @@ export interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement
   hint?: ReactNode;
 }
 
-/** `Trabajar por la tarde` — a labelled checkbox that owns its own label element. */
+/** A labelled checkbox that owns its own label element. */
 export function Checkbox({ label, hint, className, disabled, ...rest }: CheckboxProps): React.JSX.Element {
   return (
     <label

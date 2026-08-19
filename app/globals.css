@@ -182,7 +182,7 @@ body {
   font-family: var(--ww-font-sans);
   font-size: var(--ww-text-md);
   line-height: var(--ww-line);
-  /* Desktop only, mouse driven — no touch or narrow layout (CLAUDE.md). */
+  /* Desktop only, mouse driven — no touch or narrow layout. */
   min-width: 1024px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -381,6 +381,8 @@ hr {
    Motion
    -------------------------------------------------------------------------- */
 
+/* SHORTENED, never `animation: none`: the week slide and the settle clear themselves from
+   `animationend`, which a removed animation never fires — the sideways clip would stay on. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

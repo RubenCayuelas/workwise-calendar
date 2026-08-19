@@ -1,19 +1,12 @@
 /**
- * `/api/gaps` — breaks and holes: maintenance, a breakdown, admin time.
- *
  * GET  ?from=YYYY-MM-DD&to=YYYY-MM-DD   -> { gaps: Gap[] }   (both or neither)
  * POST { date, startTime | startMinutes, durationHours | durationMinutes, reason? }
  *      -> { gap, summary }
  *
- * A gap is TIME: it consumes the day's plannable hours exactly like locked work
- * does, so saving one recomposes and pushes the unlocked work forward in the same
- * transaction. If the space is held by a row the engine may not move — locked, in
- * the frozen past, or on a weekend — the save is refused with `gap-over-fixed-block`
- * rather than an overlap being written. The error's `details` name the job, the day
- * and the times so the message can say which block is in the way.
+ * Saving recomposes. Space held by a row the engine may not move is refused with
+ * `gap-over-fixed-block`, whose `details` name the job, the day and the times.
  *
- * The lunch break is NOT a gap. It is the implicit hole between the two periods in
- * Settings.
+ * The lunch break is NOT a gap — it is the implicit hole between the two periods.
  */
 
 import type { NextRequest } from 'next/server';

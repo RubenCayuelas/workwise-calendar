@@ -1,28 +1,16 @@
 /**
- * `/api/settings` — the workshop's configuration.
- *
  * GET   -> { settings, shape, maxDayCapacityHours }
- * PATCH    any subset of Settings
- *       -> { settings, shape, maxDayCapacityHours, summary }
+ * PATCH    any subset of Settings -> { settings, shape, maxDayCapacityHours, summary }
  *
- * `settings` mirrors the form: `HH:mm` times and decimal hours. `shape` is the same
- * thing in the minutes the grid draws with — the two periods, the auto-fill stop
- * line, and the margin-to-margin timeline (07:00-20:30 by default).
+ * `settings` is the form's shape (`HH:mm`, decimal hours); `shape` the same in the minutes the
+ * grid draws with.
  *
- * TWO THINGS THE SETTINGS SCREEN MUST DO:
+ * Two caller obligations: a patch that SHORTENS the shift must carry the capacity it wants in
+ * the same request, because a capacity above the enabled periods is refused rather than
+ * re-capped; and `error.field` names the input to highlight on a 400.
  *
- * 1. Send the capacity it wants whenever it shortens the shift. `defaultDayCapacity`
- *    may not exceed the hours the enabled periods cover, and a patch that would leave
- *    it above them is REFUSED naming `defaultDayCapacity` — never quietly re-capped.
- *    The screen therefore asks the owner before it saves, and cancelling sends nothing
- *    (CLAUDE.md, *The Capacity Is Never Touched Alone*).
- * 2. Surface `error.field` on a 400. Every value is rejected rather than repaired, and
- *    `field` names the input to highlight.
- *
- * A save recomposes, because periods and capacity decide every day's plannable
- * hours. So NARROWING `planningHorizonWeeks` can fail with `horizon-exceeded` if the
- * queued work no longer fits, and that failure rolls the settings change back with
- * it.
+ * A save recomposes, so narrowing `planningHorizonWeeks` can fail with `horizon-exceeded`, which
+ * rolls the settings change back with it.
  */
 
 import type { NextRequest } from 'next/server';
@@ -56,11 +44,7 @@ export async function PATCH(request: NextRequest): Promise<Response> {
   });
 }
 
-/**
- * Only checks that the value IS a number — the ranges, the cross-field rules and the
- * capacity ceiling all belong to `validateSettings`, which throws with the offending
- * `field` attached. Duplicating a bound here would give it two owners.
- */
+/** Only that it IS a number: every bound belongs to `validateSettings`, or it gets two owners. */
 function readSettingsNumber(body: JsonBody, key: keyof Settings): number | undefined {
   if (!Object.prototype.hasOwnProperty.call(body, key) || body[key] === undefined) return undefined;
   const value = body[key];

@@ -1,15 +1,9 @@
 /**
- * The `projects` table.
+ * The `projects` table. `total_hours` is decimal hours on disk and `Project.totalMinutes`
+ * an integer above it; `mapProjectRow` converts, so nothing here hands out a raw row.
  *
- * The boundary this module owns: `total_hours` is decimal hours on disk and
- * `Project.totalMinutes` is an integer above it. `mapProjectRow` does the
- * conversion, so nothing here hands a caller a raw row.
- *
- * There is no `sort_index` and no `status`: a job's queue position is the position
- * of its blocks on the calendar, so ordering questions belong to the blocks
- * repository, not here. `created_at` is still the tie-breaker the engine uses when
- * two blocks share a rank, which is why the default listing order is creation
- * order rather than name.
+ * The default listing order is creation order rather than name: `created_at` is the
+ * tie-breaker the engine uses when two blocks share a rank.
  */
 
 import { getDb, type Db } from '../db';
@@ -48,11 +42,7 @@ export interface ProjectLabel {
   color: string;
 }
 
-/**
- * Every job's label and colour. The week view joins this onto its blocks; loading
- * whole `Project` rows for it would carry estimates and timestamps the grid never
- * reads.
- */
+/** Every job's label and colour — what the week view joins onto its blocks. */
 export function listProjectLabels(db: Db = getDb()): ProjectLabel[] {
   return prepared<ProjectLabel>(db, 'SELECT id, name, color FROM projects').all();
 }
@@ -79,11 +69,9 @@ export function insertProject(project: NewProject, db: Db = getDb()): Project {
 }
 
 /**
- * Applies only the keys present in `patch`. Returns `undefined` when the row is
- * gone, so a route can answer 404 without a second SELECT.
- *
- * `updated_at` is left to the table's trigger: it fires because this UPDATE does
- * not mention the column, so `OLD.updated_at = NEW.updated_at` holds.
+ * Applies only the keys present in `patch`; `undefined` when the row is gone, so a route
+ * can answer 404 without a second SELECT. `updated_at` is left to the table's trigger,
+ * which only fires because this UPDATE does not mention the column.
  */
 export function updateProject(id: string, patch: ProjectPatch, db: Db = getDb()): Project | undefined {
   const assignments: string[] = [];
@@ -118,10 +106,9 @@ export function deleteProject(id: string, db: Db = getDb()): boolean {
 }
 
 /**
- * Every project's estimate, in integer minutes — one half of the invariant
- * `SUM(blocks.duration) == projects.total_hours` that the scheduler asserts before
- * committing. Converting each row on its own keeps the comparison exact: summing
- * decimal hours in SQL and converting once would let 0.1 h drift into the total.
+ * Every project's estimate in integer minutes, one half of the invariant the scheduler
+ * asserts. Each row is converted on its own to keep the comparison exact: summing decimal
+ * hours in SQL and converting once would let 0.1 h drift into the total.
  */
 export function totalMinutesByProject(db: Db = getDb()): Map<string, number> {
   const rows = prepared<{ id: string; total_hours: number }>(
@@ -136,8 +123,7 @@ export function totalMinutesByProject(db: Db = getDb()): Map<string, number> {
 function requireStored(id: string, db: Db): Project {
   const project = findProject(id, db);
   if (project === undefined) {
-    // Only reachable if the row vanished between two statements of one
-    // transaction, which cannot happen in a single-user app.
+    // Only reachable if the row vanished between two statements of one transaction.
     throw new Error(`Project "${id}" disappeared while being written`);
   }
   return project;

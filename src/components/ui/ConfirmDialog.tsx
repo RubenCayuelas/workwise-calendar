@@ -3,9 +3,8 @@
 /**
  * The confirmation every destructive action needs.
  *
- * CLAUDE.md requires it for deleting a job ("Confirmation required. Blocks deleted in
- * cascade"), and there is no undo anywhere in the app, so removing a block or a gap
- * goes through it too.
+ * Required for deleting a job, and since there is no undo anywhere in the app, removing a
+ * block or a gap goes through it too.
  *
  * Modal, unlike `SidePanel`: focus starts on CANCEL, not on the destructive button,
  * so a stray Enter cannot delete a job.

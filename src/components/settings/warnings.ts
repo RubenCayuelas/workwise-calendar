@@ -1,14 +1,6 @@
 /**
- * What a settings change would do to work that already exists.
- *
- * CLAUDE.md's Settings brief: warn, do not silently discard. Shortening the shift or
- * switching the afternoon off does not delete anything — the write and the reflow share
- * one transaction, so the blocks survive — but hours can end up sitting in time that is
- * no longer a working period, or outside the drawn timeline altogether. The owner has to
- * be told which ones before the save, not discover it on the grid afterwards.
- *
- * Pure: interval arithmetic over blocks that are handed in. The fetching lives in
- * ./scheduleData.ts so this file can be unit tested without a server.
+ * What a settings change would do to work that already exists. Pure interval arithmetic
+ * over blocks handed in; the fetching lives in ./scheduleData.ts.
  */
 
 import type { Block, Settings, WorkPeriod } from '../../types';
@@ -22,8 +14,7 @@ export interface ScheduledBlock {
 
 /**
  * `outside-periods`: the block sits in time the change stops being a working period.
- * `outside-timeline`: the block would fall outside the axis the calendar draws, i.e. a
- * shrunk visual margin would clip it off the screen entirely.
+ * `outside-timeline`: a shrunk visual margin would clip it off the drawn axis entirely.
  */
 export type AffectedReason = 'outside-periods' | 'outside-timeline';
 
@@ -62,22 +53,15 @@ export function assessRisk(saved: Settings, draft: Settings): ChangeRisk {
   };
 }
 
-/**
- * True when the draft can strand existing work, and therefore worth the round trip that
- * loads every block. A wider shift, a colour, the language or the capacity alone never
- * needs it.
- */
+/** True when the draft can strand work, so worth the round trip that loads every block. */
 export function needsBlockCheck(risk: ChangeRisk): boolean {
   return risk.narrowsPeriods || risk.narrowsTimeline;
 }
 
 /**
- * The blocks the change would leave stranded, in calendar order.
- *
- * Every block is considered, including the past and the weekend: the engine will not
- * move those (the past is frozen, the weekend is outside the engine), which makes them
- * the ones the owner most needs to hear about — they are the blocks that will still be
- * sitting in dead time after the reflow.
+ * The blocks the change would leave stranded, in calendar order. The past and the weekend
+ * are included deliberately: the engine will not move those, so they are the rows that
+ * really do stay sitting in dead time after the reflow.
  */
 export function findAffectedBlocks(
   saved: Settings,
@@ -114,9 +98,8 @@ export function findAffectedBlocks(
 // ---------------------------------------------------------------------------
 
 /**
- * `minuend` minus `subtrahend`, as a set of intervals: the working time the draft takes
- * away. Both inputs are the short, ordered, non-overlapping lists `periodsOf` returns,
- * so the naive sweep is the right amount of machinery here.
+ * `minuend` minus `subtrahend`: the working time the draft takes away. Both inputs are the
+ * short, ordered, non-overlapping lists `periodsOf` returns.
  */
 export function subtractIntervals(
   minuend: readonly WorkPeriod[],

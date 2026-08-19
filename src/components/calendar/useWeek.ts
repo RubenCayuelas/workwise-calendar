@@ -1,20 +1,9 @@
 'use client';
 
 /**
- * The week view's data: one snapshot, one loading state, one paging control.
- *
- * `GET /api/week` is deliberately a single call — the grid needs the days, the blocks
- * with their job's colour, the gaps and the summary to AGREE with each other, and a
- * recomposition rewrites all of them at once. So this hook never merges a mutation's
- * response into local state; it refetches. The API layer is explicit about why: "a
- * recomposition can rewrite rows in any week, so mutation responses deliberately
- * return only the touched entity plus the summary".
- *
- * Paging is a GET. Nothing here can trigger a recomposition, which is what makes
- * moving through the weeks safe to hold an arrow key down on — and what makes it safe
- * to do WITH A BLOCK IN HAND, which is what holding the block at the edge of the grid
- * does (`useBlockDrag`). The week under the pointer changes; nothing is written until
- * the release, and the release is resolved against whatever week is then on screen.
+ * The week view's data. A recomposition can rewrite rows in ANY week, so this hook never merges
+ * a mutation's response into local state — it refetches. Paging is a GET, which is what makes
+ * it safe to do with a block in hand.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -31,13 +20,10 @@ export interface WeekController {
   /** A mutation is in flight: the grid stops accepting gestures. */
   busy: boolean;
   /**
-   * The same fact as `busy`, readable WITHOUT waiting for a render.
-   *
-   * `busy` is state, so it reaches the grid one render late — and the gap is exactly where
-   * the owner's next press lands, a few milliseconds after the last one. A press in that
-   * frame started a real drag against a calendar that was already being rewritten. The
-   * gesture layer therefore asks this at the moment the pointer goes down; see
-   * `BeginOptions.inert`.
+   * The same fact as `busy`, readable WITHOUT waiting for a render. `busy` is state, so it
+   * reaches the grid one render late — and that gap is exactly where the owner's next press
+   * lands, starting a real drag against a calendar already being rewritten. The gesture
+   * layer asks this at the moment the pointer goes down; see `BeginOptions.inert`.
    */
   mutating: React.MutableRefObject<boolean>;
   /** The week could not be loaded. Translated; the banner offers a retry. */
@@ -50,23 +36,15 @@ export interface WeekController {
   goPrevious: () => void;
   goNext: () => void;
   /**
-   * SHOW THE WEEK THIS DATE IS IN, cancelling a page turn that has not landed yet.
-   *
-   * It exists for one moment, and it is the only half state edge paging can produce: the
-   * pointer holds at the edge, the turn fires, and the owner releases the block BEFORE the
-   * new week has arrived. The drop is resolved against the week that is on screen — which
-   * is right, it is the one they were looking at — but `reference` is already pointing at
-   * the next one, so the refetch every mutation ends with would land the owner on a week
-   * their block is not in.
-   *
-   * A no-op whenever the week asked for is the one already being shown or fetched, so the
-   * ordinary drop does not pay a second GET for a correction it does not need.
+   * Show the week this date is in, cancelling a page turn that has not landed yet — the one
+   * half state edge paging can produce. A no-op when that week is already shown or in
+   * flight.
    */
   showWeekOf: (date: string) => void;
   /**
-   * Runs one mutation, then refetches the week — on success AND on failure, because a
-   * refusal means the server's state is the one to trust. Resolves to `undefined` when
-   * it failed, having put the translated message in `actionError`.
+   * Runs one mutation, then refetches — on success AND on failure, since a refusal means
+   * the server's state is the one to trust. `undefined` when it failed, with the translated
+   * message in `actionError`.
    */
   mutate: <T>(work: () => Promise<T>) => Promise<T | undefined>;
 }
@@ -76,8 +54,8 @@ export function useWeek(): WeekController {
   const resolved = i18n.resolvedLanguage ?? i18n.language;
   const language = isLanguage(resolved) ? resolved : DEFAULT_LANGUAGE;
 
-  // `null` means "the week the server calls current". Kept null until the owner pages,
-  // so the first request does not have to guess the shop's timezone.
+  // `null` means "the week the server calls current", so the first request does not have
+  // to guess the shop's timezone.
   const [reference, setReference] = useState<string | null>(null);
   const [view, setView] = useState<WeekView | null>(null);
   const [loading, setLoading] = useState(true);
@@ -85,8 +63,7 @@ export function useWeek(): WeekController {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
-  // Set and cleared synchronously around the request, so a press can ask "is anything in
-  // flight?" in the same tick rather than a render later.
+  // Set and cleared synchronously around the request, so a press can ask in the same tick.
   const mutating = useRef(false);
 
   useEffect(() => {
@@ -132,8 +109,8 @@ export function useWeek(): WeekController {
     [t, language],
   );
 
-  // Paging needs a concrete Monday, which only the first response can supply: the
-  // shop's "today" is a server fact (Europe/Madrid), never the browser's clock.
+  // Paging needs a concrete Monday, which only the first response can supply: the shop's
+  // "today" is a server fact, never the browser's clock.
   const startDate = view?.week.startDate ?? null;
   const today = view?.today ?? null;
 
@@ -151,17 +128,16 @@ export function useWeek(): WeekController {
 
   const goToday = useCallback(() => {
     setActionError(null);
-    // `null` is "the current week" to the server, which is the honest answer when the
-    // page has been open across midnight.
+    // `null` is "the current week" to the server — the honest answer when the page has
+    // been open across midnight.
     setReference(today === null ? null : startOfWeek(today));
   }, [today]);
 
   const showWeekOf = useCallback(
     (date: string) => {
       const monday = startOfWeek(date);
-      // Already the week in flight, or the week on screen while nothing is in flight.
-      // Setting `reference` for the first time would otherwise pin a screen that had
-      // deliberately left it null, and cost a GET to say what it already said.
+      // Setting `reference` for the first time would pin a screen that had deliberately
+      // left it null, and cost a GET to say what it already said.
       if (monday === reference) return;
       if (reference === null && monday === startDate) return;
       setReference(monday);

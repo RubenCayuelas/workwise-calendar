@@ -1,33 +1,7 @@
 /**
- * The composition engine.
- *
- * `src/lib/composition.test.ts` is the specification; every rule below names the
- * section of CLAUDE.md it comes from.
- *
- * The engine is a PURE FUNCTION OVER A SNAPSHOT: schedule state in, new
- * placement out. It never touches the database, never reads the clock (`today`
- * is an explicit input) and never returns user-facing text (only i18n keys —
- * translations live in public/locales/{lang}/common.json). That is what makes
- * every rule in CLAUDE.md's "Composition Engine Business Rules" testable, and
- * it is why this module must not import src/lib/db.ts.
- *
- * Every time is an INTEGER NUMBER OF MINUTES FROM MIDNIGHT. Decimal hours exist
- * only at the database boundary and in what the owner reads.
- *
- * THE ONE IDEA WORTH READING BEFORE THE CODE — a day is handled twice over:
- *
- * - On the CLOCK, where a row is drawn: `08:00-14:00`, lunch, `15:30-19:30`.
- * - On the WORKING TIMELINE, an index space in which the day is a single ruler
- *   of `shiftMinutes` minutes with the lunch break cut out. Index 0 is
- *   `period1Start`; index 360 is both `14:00` and `15:30`.
- *
- * Placement happens entirely in index space, which is what makes "a job flows
- * across lunch" and "a job never straddles a non-working interval" the same
- * statement: the job occupies one contiguous index range, and `toClockSegments`
- * cuts that range at the period boundaries when it turns it back into rows.
- * Obstacles (gaps, locked blocks, the frozen past, the weekend) are projected
- * into the same index space, so "plannable minutes" and "does this fit" are
- * plain integer arithmetic on one ruler.
+ * The composition engine: a pure function over a snapshot, schedule state in and placement out. It
+ * never touches the database, never reads the clock (`today` is an input) and returns i18n keys
+ * rather than prose, which is what makes the engine's rules testable. Integer minutes.
  */
 
 import type { Block, DayOverride, DayShape, Gap, WorkPeriod } from '../types';
@@ -42,15 +16,11 @@ import {
 } from './dates';
 import { overlapsSegments, segmentDroppedRow, type DropSegment } from './dropSegments';
 import { firstClearStart } from './dropSlide';
-// The quarter-hour floor on a SPLIT. It lives next to `segmentDroppedRow` and
-// `firstClearStart`, and for the same reason: the drag ghost draws the division a drop's
-// hours will really be stored in (`planDropSpill`), so the floor has one implementation and
-// both sides import it. See src/lib/dropSpill.ts.
+// The quarter-hour floor on a split. Shared with the drag ghost via src/lib/dropSpill.ts.
 import { takeableFrom } from './dropSpill';
 import { adjacentInWindows, clockEndOf, dayEndMinutes, type DayWindows } from './manualWindow';
 import { MIN_ROW_MINUTES } from './validation';
 
-/** The i18n key `compose` reports when the hours run past the planning horizon. */
 export const HORIZON_EXCEEDED_KEY = 'errors.horizonExceeded';
 
 const DAYS_PER_WEEK = 7;
@@ -62,33 +32,17 @@ const MAX_RANK_MINUTES = 1439;
 // The day
 // ---------------------------------------------------------------------------
 
-/**
- * How the engine is allowed to treat one calendar day.
- *
- * - `auto`   Monday-Thursday: filled sequentially with the movable pool.
- * - `buffer` Friday: the colchón. Absorbs work that grew beyond its estimate,
- *            never a new job (see `ComposeInput.newProjectIds`). It IS in the
- *            movable pool, so the buffer self-cleans when Mon-Thu frees up.
- * - `manual` Saturday and Sunday: outside the engine. Never auto-placed and
- *            never auto-recovered — work is only ever there because a human put
- *            it there, so the engine must not undo that decision.
- */
+/** How the engine may treat a day: `auto` Mon-Thu, `buffer` Friday, `manual` the weekend. */
 export type DayRole = 'auto' | 'buffer' | 'manual';
 
 /**
- * One day as the engine reads it: `getDayConfig(date)` is its only source.
- *
- * It carries BOTH views of the day (`DayWindows`), and which one a rule reads is the
- * rule: everything auto-fill does is stated over `periods`, everything a HAND action
- * does over `manualWindows`. See src/lib/manualWindow.ts.
+ * One day as the engine reads it; `getDayConfig(date)` is its only source. It carries BOTH views
+ * (`DayWindows`): auto-fill is stated over `periods`, every hand gesture over `manualWindows`.
  */
 export interface DayConfig extends DayWindows {
   /** Working periods, chronological and non-overlapping (morning, afternoon). */
   periods: readonly WorkPeriod[];
-  /**
-   * The periods plus the visual margins, fused where they touch. A drop, a resize and the
-   * scissors may use this whole stretch; auto-fill may not, and never sees it.
-   */
+  /** The periods plus the visual margins, fused where they touch. Auto-fill never sees it. */
   manualWindows: readonly WorkPeriod[];
   /** The auto-fill stop line for this day, in minutes. Never a limit on manual placement. */
   capacityMinutes: number;
@@ -98,14 +52,9 @@ export interface DayConfig extends DayWindows {
 }
 
 /**
- * The standard resolver: global settings, then the weekday rule
- * (Mon-Thu `auto`, Fri `buffer`, Sat/Sun `manual`), then `day_overrides`.
- * Pure — hand it the `DayShape` from `dayShapeFromSettings()` and the override
- * rows for the window being composed.
- *
- * An override's `capacityHours` replaces the global stop line but is still
- * capped at the shift: capacity exists to stop auto-fill early, never to book
- * hours the periods do not cover.
+ * The standard resolver: global settings, then the weekday rule, then `day_overrides`. Pure. An
+ * override's `capacityHours` is still capped at the shift — capacity stops auto-fill early, it
+ * never books hours the periods do not cover.
  */
 export function createDayConfigResolver(
   shape: DayShape,
@@ -142,16 +91,11 @@ export interface ComposeInput {
   today: string;
 
   /**
-   * The calendar as it stands, in any order. Pass every block from the window
-   * the caller intends to rewrite (at minimum today through the horizon);
-   * whatever is passed comes back in the result.
+   * The calendar as it stands, in any order; whatever is passed comes back in the result.
    *
-   * A block's `date`/`startMinutes` are its QUEUE RANK as much as its position:
-   * the queue order is `ORDER BY date, start_time` (see `buildQueue`). To insert
-   * work at a given point in the queue — a drop, or a brand-new job appended at
-   * the end — the caller writes a provisional block whose start sorts where the
-   * user aimed. The provisional block may carry the job's whole duration; the
-   * engine re-segments the movable pool anyway.
+   * A block's `date`/`startMinutes` are its QUEUE RANK as much as its position, so a caller inserts
+   * work by writing a provisional row whose start sorts where the user aimed. That row may carry the
+   * job's whole duration; the engine re-segments the movable pool anyway.
    */
   blocks: readonly Block[];
 
@@ -164,23 +108,15 @@ export interface ComposeInput {
   planningHorizonWeeks: number;
 
   /**
-   * Projects created in this same operation. Their work never targets the Friday
-   * buffer: if it does not fit Mon-Thu it skips Friday and lands on next week's
-   * Monday — wherever the caller happened to park the provisional row, including
-   * on a Friday itself.
+   * Projects created in this same operation. Their work never targets the Friday buffer, wherever
+   * the caller parked the provisional row — including on a Friday itself.
    */
   newProjectIds?: readonly string[];
 
   /**
-   * Projects whose hours THIS operation raised — the job's estimate went up, or a
-   * block was enlarged. CLAUDE.md: "Friday receives only overflow generated by the
-   * growth of already-placed work", so this is the ONLY way new hours reach the
-   * buffer. Leave it empty for a deletion, a drag, a gap, a capacity change or a
-   * rename: those must not eat the colchón.
-   *
-   * Work that is ALREADY on a Friday is not pushed off it by an unrelated save
-   * (see `QueueItem.originalDates`); it is only ever pulled back into Mon-Thu when
-   * room appears there, which is the "self-cleaning" half of the rule.
+   * Projects whose hours THIS operation raised: the ONLY way new hours reach the buffer, so leave it
+   * empty for a deletion, a drag, a gap, a capacity change or a rename. Work ALREADY on a Friday is
+   * not pushed off it by an unrelated save — see `QueueItem.originalDates`.
    */
   grownProjectIds?: readonly string[];
 }
@@ -192,9 +128,8 @@ export interface ComposeInput {
 /** One row of the recomposed calendar. */
 export interface PlacedBlock {
   /**
-   * The row this segment reuses, or `null` when the caller must INSERT it.
-   * An item's segments reuse the ids of the blocks it was built from, in order;
-   * ids left over appear in `deletedBlockIds`.
+   * The row this segment reuses, or `null` when the caller must INSERT it. An item's segments
+   * reuse the ids of the blocks it was built from, in order; ids left over are in `deletedBlockIds`.
    */
   id: string | null;
   projectId: string;
@@ -206,10 +141,7 @@ export interface PlacedBlock {
 
 export type ComposeErrorCode = 'horizon-exceeded';
 
-/**
- * The only way composition fails. A locked block can never cause a failure:
- * overflow always chains forward into following days and weeks.
- */
+/** The only way composition fails. */
 export interface ComposeError {
   code: ComposeErrorCode;
   /** i18n key, never a translated sentence. */
@@ -223,10 +155,7 @@ export interface ComposeError {
 
 export interface ComposeSuccess {
   ok: true;
-  /**
-   * The complete calendar after recomposition — including the locked, past and
-   * weekend blocks, unchanged. Sorted by `date`, then `startMinutes`.
-   */
+  /** The whole calendar after recomposition, fixed rows included. Sorted by date, then start. */
   blocks: PlacedBlock[];
   /** Input ids absent from `blocks`: rows the caller must DELETE. */
   deletedBlockIds: string[];
@@ -237,10 +166,6 @@ export interface ComposeFailure {
   error: ComposeError;
 }
 
-/**
- * Success carries a placement and failure carries none — there is no partial
- * placement to roll back by hand.
- */
 export type ComposeResult = ComposeSuccess | ComposeFailure;
 
 // ---------------------------------------------------------------------------
@@ -248,90 +173,36 @@ export type ComposeResult = ComposeSuccess | ComposeFailure;
 // ---------------------------------------------------------------------------
 
 /**
- * One unit of work the engine places as a single indivisible piece: a run of
- * consecutive movable blocks of the same project, with no OTHER MOVABLE project
- * between them in queue order. Two runs of the same project separated by a
- * movable block of another project are two items — that is how `B, A, C, A`
- * stays four items.
+ * One unit of work the engine places as a single indivisible piece: a run of consecutive movable
+ * blocks of the same project, with no OTHER MOVABLE project between them in queue order, so
+ * `B, A, C, A` stays four items. A fixed block (locked, past, weekend) does NOT break a run.
  *
- * A fixed block (locked, past, weekend) does NOT break a run, and that is load
- * bearing rather than incidental. Grouping has to be a function of something the
- * reflow preserves, because the reflow is derived from the grouping: if a fixed
- * block split a run, then moving the run to the other side of that block — which
- * the reflow does all the time — would regroup the queue and lay the same hours
- * out differently on the NEXT recomposition. The calendar would visibly reshape
- * itself on an unrelated save. Movable order is preserved by the reflow (strict
- * order, forward-only cursor), so grouping on it alone makes `compose` a fixed
- * point; see the regression test "recomposing twice is not a second reflow".
- *
- * The cost, worth knowing: a job the owner split by hand around a locked block on
- * the same day is rejoined into one item, so it may hop the lock whole and leave
- * the hole in front of it empty (rules 7 and 8 applied to the whole job). The
- * documented way to nail hours down is `locked`, on the half being kept.
- *
- * NOTHING BUT ANOTHER MOVABLE JOB BREAKS A RUN, and since 2026-08-18 nothing else can.
- * A HAND-SET DURATION used to: `Block.manualDuration` made the row the owner had sized
- * with the bottom-edge drag an item of its own, with the job's remaining hours as the item
- * behind it. The COLUMN IS GONE — a block is exactly as big as the room it has (*Fill and
- * Overflow, Always*), and the padlock is the only thing that fixes a row, its LENGTH
- * included, because the engine lays no locked row out at all. So grouping is a function of
- * MOVABLE ORDER ALONE, which is the strongest form of the paragraph above rather than an
- * exception to it: no stored flag is left for the queue to read, nothing can be derived
- * from the placement by mistake, and `compose` stays the fixed point the "recomposing
- * twice is not a second reflow" test and the 2000-seed harness pin down.
- *
- * THERE IS NO `continuation` FLAG ANY MORE (removed 2026-08-17). It said "this item is not
- * its job's first in the queue", and its ONLY reader was the exemption that let a displaced
- * tail fill forward while a job being placed for the first time moved whole or not at all.
- * Every item fills forward now, so the distinction guarded a rule that no longer exists —
- * see `compose`. Nothing else consulted it, which is why it went rather than being kept
- * "just in case": a flag with no reader is a rule the next reader will invent a use for.
+ * DO NOT DERIVE GROUPING FROM THE PLACEMENT. The reflow is derived from the grouping, so if a
+ * fixed block split a run, moving the run past that block — which the reflow does all the time —
+ * would regroup the queue and lay the same hours out differently on the NEXT recomposition.
+ * Movable order the reflow preserves, so grouping on it alone makes `compose` a fixed point; see
+ * the regression test "recomposing twice is not a second reflow".
  */
 export interface QueueItem {
   projectId: string;
   /** The blocks this item was built from, in queue order. */
   blockIds: string[];
   durationMinutes: number;
-  /** True when the project is listed in `ComposeInput.newProjectIds`. */
   isNew: boolean;
-  /** True when the project is listed in `ComposeInput.grownProjectIds`. */
   grown: boolean;
   /**
-   * The dates this item's rows already sit on. Only consulted for the Friday
-   * buffer, where it is what keeps an unrelated save from pushing absorbed
-   * overflow off Friday and into next week.
+   * The dates this item's rows already sit on. Only consulted for the Friday buffer, where it is
+   * what keeps an unrelated save from pushing absorbed overflow off Friday and into next week.
    */
   originalDates: string[];
 }
 
 /**
- * THE ROWS DRAWN AS ONE UNIT WITH `target` — the thing the owner actually grabs.
+ * The rows drawn as one unit with `target` — the RUN the owner actually grabs.
  *
- * THE UNIT OF A DRAG IS THE RUN (decided with the owner, 2026-08-14), which is this
- * function's whole subject. Their words are the rule: «Mueve el trabajo si este no ha sido
- * dividido. Si tengo pedazos de hoy por la mañana, hoy por la tarde y pasado por la mañana,
- * todo eso si no lo he dividido yo a mano (no hay ninguna tarea en medio) muevo todo hasta
- * la tarea que los separe.» So the lunch break does not break a unit, A NIGHT DOES NOT
- * EITHER, and another job does.
- *
- * It is built in the grid's two steps, in the grid's order, so a unit on screen and a unit
- * here cannot disagree — that identity is the point, and it is why this reads as a
- * transcription of `groupBlocks` + `buildRuns` rather than a second idea:
- *
- * 1. GROUPS — one job's rows on ONE day with nothing WORKABLE between them, joined by
- *    `adjacentInWindows`, the same predicate `groupBlocks` draws a rectangle with and
- *    `stretchFrom` sizes a stretch with. One rectangle, one drag handle.
- * 2. RUNS — consecutive groups of one job, exactly `buildQueue`'s items. A group the engine
- *    never moves (padlocked, weekend, past) is an OBSTACLE, not a separator: it is skipped
- *    without ending the run, and it drags alone because dragging it is a literal placement.
- *    Nothing else divides a run: the one stored flag that used to (a hand-set length) is
- *    gone, so a run is a job's consecutive movable groups and nothing more.
- *
- * The day filter this used to open with was the defect the drag layer measured on the
- * running app: an 11 h job stored Wed 08:00-14:00 + Wed 15:30-19:30 + Thu 08:00-09:00 drew
- * an 11 h ghost and moved 10 h, because the intersection in `moveBlock` discarded every id
- * on another day. The ghost promised more than the drop delivered for any job spanning
- * days, which is the common case.
+ * A transcription of the grid's two steps in the grid's order, so a unit on screen and a unit here
+ * cannot disagree: `groupBlocks` then `buildRuns`. It must NOT filter to the target's own date —
+ * that made every cross-day run move only its first day's part.
  */
 export function unitOf(
   blocks: readonly Block[],
@@ -378,11 +249,9 @@ export function unitOf(
 }
 
 /**
- * The movable pool in visual order: `ORDER BY date, start_time`, ties broken by
- * `createdAt` then `id` so the ordering is total and the engine deterministic.
- * Fixed blocks (locked, past, weekend) are obstacles, not queue items, and they
- * are skipped without breaking the run around them — see `QueueItem` for why the
- * grouping has to ignore them.
+ * Queue order is `date, start_time`, plus `createdAt` then `id` as tiebreakers so it is total and
+ * the engine deterministic. Fixed blocks are obstacles, not queue items, and are skipped without
+ * breaking the run around them — see `QueueItem` for why that has to be so.
  */
 export function buildQueue(input: ComposeInput): QueueItem[] {
   const newProjects = new Set(input.newProjectIds ?? []);
@@ -392,8 +261,7 @@ export function buildQueue(input: ComposeInput): QueueItem[] {
 
   for (const block of sortedByQueueRank(input.blocks)) {
     if (!isMovable(block, input.today)) continue;
-    // A run absorbs the next movable block of the same job. Only a movable block of
-    // ANOTHER job ends it, which is the whole of the grouping rule.
+    // Only a movable block of ANOTHER job ends a run, which is the whole of the grouping rule.
     if (open !== null && open.projectId === block.projectId) {
       open.blockIds.push(block.id);
       open.durationMinutes += block.durationMinutes;
@@ -419,23 +287,8 @@ export function buildQueue(input: ComposeInput): QueueItem[] {
 // ---------------------------------------------------------------------------
 
 /**
- * The movable pool. A block is moved by the engine iff it is UNLOCKED, dated today or
- * later, and not on a Saturday or Sunday. An engine-placed Friday row is movable — that
- * is the buffer self-cleaning.
- *
- * THE PADLOCK IS WHAT MAKES THE FRIDAY BUFFER WORK IN BOTH DIRECTIONS. Friday is in the
- * pool so the engine can put growth overflow there AND take it back when Mon-Thu frees
- * up; the cost was that a HAND drop onto Friday was pulled straight back, so the request
- * answered 200 and changed nothing and there was no way at all to put work on a Friday by
- * hand. Nothing on the row said who had put it there. Now the padlock does: a drop onto a
- * place the engine would never choose by itself sets it (see `pinsTheRow` in
- * operations/blocks.ts), and this predicate then gives the answer the weekend has always
- * given — work that is fixed is a fixed obstacle, and the engine flows around it.
- *
- * The mark that used to say this separately (`hand_placed`) is gone, deliberately: it was
- * a third state with no name the owner had, and it made "padlock = fixed, no padlock =
- * free" false. Which places earn a padlock is the CALLER's policy; the ENGINE's rule is
- * the single line below.
+ * The movable pool, and it is the single line below. Which places EARN a padlock is the
+ * CALLER's policy (`pinsTheRow` in operations/blocks.ts), never the engine's.
  */
 export function isMovable(block: Block, today: string): boolean {
   if (block.locked) return false;
@@ -444,23 +297,10 @@ export function isMovable(block: Block, today: string): boolean {
 }
 
 /**
- * WHETHER THE REFLOW LAYS THE DAY OUT AT ALL. Not "will it move this row" — that is
- * `isMovable`, a question about one row — but "does the engine decide what sits here".
- *
- * It is the question that says whether a drop onto this day may be REFUSED for a
- * collision, and the two must not be confused. On a day the engine reflows, a drop is
- * not a literal placement: it is a re-ranking of the queue, and the reflow is what finds
- * the room. Asking "does the footprint fit here as the calendar stands right now" gives
- * the wrong answer for a circular reason — moving the row off its current day frees the
- * space there, everything behind it shifts earlier, and THAT is what opens the room on
- * the target day. The owner's report, exactly: «si lo intento pasar al día siguiente en
- * el que ahora no hay hueco pero si lo muevo se recalcula y queda disponible, no lo
- * puedo asignar directamente porque "aún no cabe"».
- *
- * True for Monday-Thursday and for the Friday buffer (Friday IS in the movable pool —
- * that is how the colchón self-cleans), from today onwards. False for the weekend, for a
- * closed day and for the past: there the engine never lays anything out, so a drop lands
- * exactly where it was released and a collision is real.
+ * WHETHER THE REFLOW LAYS THE DAY OUT AT ALL — not "will it move this row", which is `isMovable`.
+ * The two must not be confused: this is what says whether a drop here may be REFUSED for a
+ * collision, and "does the footprint fit as the calendar stands right now" is circular on a day the
+ * engine reflows, since moving the row off its current day is what opens the room here.
  */
 export function dayReflows(config: DayConfig, date: string, today: string): boolean {
   if (config.isClosed || config.role === 'manual') return false;
@@ -468,12 +308,8 @@ export function dayReflows(config: DayConfig, date: string, today: string): bool
 }
 
 /**
- * The minutes the engine may fill on `date`:
- * `min(capacityMinutes, period minutes − minutes taken by gaps and locked blocks)`,
- * the occupied part computed as a UNION OF INTERVALS clipped to the periods, so
- * an overlapping gap and locked block are never counted twice.
- *
- * Zero for a closed day, for a `manual` day and for any date before `today`.
+ * The minutes the engine may fill on `date`. Zero for a closed day,
+ * a `manual` day and any date before today.
  */
 export function plannableMinutes(input: ComposeInput, date: string): number {
   return buildDayPlan(input, date).plannableMinutes;
@@ -481,9 +317,7 @@ export function plannableMinutes(input: ComposeInput, date: string): number {
 
 /** The last date auto-placement may use: `today + planningHorizonWeeks * 7 − 1` days. */
 export function horizonEndDate(today: string, planningHorizonWeeks: number): string {
-  // A horizon below one week would leave the engine with nowhere to write at
-  // all; `writeSettings` already floors it, and this keeps a hand-built input
-  // from turning into "nothing fits anywhere".
+  // Below one week the engine would have nowhere to write at all; `writeSettings` floors it too.
   const weeks = Math.max(1, Math.trunc(planningHorizonWeeks));
   return addDays(today, weeks * DAYS_PER_WEEK - 1);
 }
@@ -493,50 +327,9 @@ export function horizonEndDate(today: string, planningHorizonWeeks: number): str
 // ---------------------------------------------------------------------------
 
 /**
- * Reflows the movable pool in queue order, from `today` forward.
- *
- * FILL AND OVERFLOW, ALWAYS. A cursor walks forward and never goes back, and every day it
- * reaches gives the item at the head of the queue as much as that day can hold; whatever
- * the day cannot hold carries forward to the next day the item may use. So an item is cut
- * at a day boundary whenever the day runs out, and that is ORDINARY rather than
- * exceptional. The cursor's forward-only walk is what still guarantees the two rules that
- * did not change: a hole the queue has already walked past is never reclaimed (never
- * backfill), and once an item spills onto a later day the rest of the queue follows it
- * (strict order). Inside a day, work that crosses a non-working interval is emitted as
- * separate segments of the same project, since a stored block is always a solid rectangle
- * on the clock; touching segments of the same project inside the same period are merged
- * back into one row.
- *
- * "NEVER SPLIT A JOB TO MAKE IT FIT" IS GONE (decided by the owner, 2026-08-17), and the
- * whole "does the whole item fit here" question went with it — `findWholeFit`,
- * `takeExactly`, `ItemTarget` and `QueueItem.continuation`, which existed only to exempt a
- * displaced tail from the rule now deleted. The owner's report was a 6 h job dropped into
- * a Monday holding 4 h of free afternoon: the drop answered 200 and changed nothing,
- * because no day from the cursor could hold 6 h whole and the item was laid back down
- * exactly where it already was. It now stores 4 h on Monday and 2 h on the next day it can
- * use. The owner accepted the consequence in as many words: a job may end up in four or
- * five pieces.
- *
- * Two things fell out of it, both wanted: the hole in front of a locked row is FILLED by
- * whatever the cursor is carrying and the work continues after the lock, and a day whose
- * tail used to be left empty because the next job "did not fit" is filled to its stop
- * line.
- *
- * EVERY PIECE IS STILL A LEGAL ROW, and that is the sharp edge of the change —
- * `takeableFrom` is the whole of it. A ten-minute hole may not become a ten-minute row, so
- * a stretch of free time too short for a row is stepped over like an obstacle, and a take
- * that would leave a sliver behind leaves a full quarter of an hour instead.
- *
- * STRICT ORDER IS NEVER BROKEN NOW, and it used to be, in one place. A hand-set stretch
- * closed its job's day: no more of that job could be placed on the day the stretch landed
- * on, and the job's remainder was DEFERRED while the jobs behind it took the hours the
- * gesture had freed there. Both rules existed only to stop the reflow flowing the job's own
- * hours straight back into the space the hand-set row had just given up and auto-merge then
- * swallowing the gesture. `Block.manualDuration` is gone (2026-08-18) and with it the
- * closed day, the deferral, `acceptsItem`'s `closedDays` set and the one documented break
- * in strict order. Nothing replaces them: a length can only be held by the PADLOCK now, and
- * the engine neither places nor merges a locked row, so there is nothing left for a
- * closed day to protect.
+ * Reflows the movable pool in queue order, from `today` forward. A cursor walks forward and never goes back, which is what makes never-backfill and strict
+ * order fall out of the walk rather than being enforced anywhere; `takeableFrom` is what keeps every
+ * piece it cuts a legal row.
  */
 export function compose(input: ComposeInput): ComposeResult {
   const horizon = horizonEndDate(input.today, input.planningHorizonWeeks);
@@ -550,10 +343,9 @@ export function compose(input: ComposeInput): ComposeResult {
     return plan;
   };
 
-  // Everything outside the movable pool comes back exactly as it went in. Those
-  // rows are also never auto-merged: tidying two touching weekend rows would
-  // rewrite a decision the engine did not make, and merging a locked row would
-  // move it.
+  // Everything outside the movable pool comes back exactly as it went in, and is never
+  // auto-merged: tidying two touching weekend rows would rewrite a decision the engine did not
+  // make, and merging a locked row would move it.
   const fixed: PlacedBlock[] = [];
   for (const block of input.blocks) {
     if (isMovable(block, input.today)) continue;
@@ -577,25 +369,19 @@ export function compose(input: ComposeInput): ComposeResult {
   /** Places one item, or reports the engine's single failure without writing anything. */
   const placeItem = (item: QueueItem): ComposeError | null => {
     if (item.durationMinutes <= 0) {
-      // Defensive: a zero-length row is not valid data (the schema forbids it)
-      // and has no place on the calendar.
+      // Defensive: the schema forbids a zero-length row.
       deletedBlockIds.push(...item.blockIds);
       return null;
     }
 
-    // FILL AND OVERFLOW. Every day from the cursor gives what it can hold and the rest
-    // carries forward. There is no "does the whole item fit here" question to ask any
-    // more, so there is one path for every item — a brand-new job, a tail a drop cut off,
-    // and a job longer than a week all take exactly this one.
+    // FILL AND OVERFLOW: one path for every item — a brand-new job, a tail a drop cut off, and a
+    // job longer than a week all take exactly this one.
     const segments: Segment[] = [];
     let remaining = item.durationMinutes;
-    // TWICE OVER THE HORIZON, AND THE SECOND PASS IS THE LAST RESORT. The quarter-hour floor
-    // prefers to step over a stretch too short to hold a row, which is right whenever a
-    // bigger stretch exists further on and wrong when none does. Rather than guess, the walk
-    // is simply run again with the floor off — and only when the hours would otherwise be
-    // reported as unplaceable, which rolls the whole save back. It is safe to continue from
-    // where the first pass stopped: nothing was taken from the days it stepped over, so
-    // their cursors come back full.
+    // TWICE OVER THE HORIZON, THE SECOND PASS A LAST RESORT: the quarter-hour floor prefers to step
+    // over a stretch too short to hold a row, which is wrong only when no bigger one exists further
+    // on. Continuing from where the first pass stopped is safe — nothing was taken from the days it
+    // stepped over, so their cursors come back full.
     for (const lastResort of [false, true]) {
       for (
         let date = cursorDate;
@@ -635,8 +421,7 @@ export function compose(input: ComposeInput): ComposeResult {
         date: segment.date,
         startMinutes: segment.startMinutes,
         durationMinutes: segment.durationMinutes,
-        // A queue item is by definition movable, so nothing the reflow places is fixed:
-        // the padlock only ever travels on the fixed rows handed straight back above.
+        // A queue item is movable by definition, so nothing the reflow places is fixed.
         locked: false,
       });
     });
@@ -644,9 +429,6 @@ export function compose(input: ComposeInput): ComposeResult {
     return null;
   };
 
-  // ONE PASS, IN QUEUE ORDER, AND NOTHING WAITS. The deferral that used to sit here held a
-  // hand-set stretch's remainder back while the jobs behind it took the hours the gesture
-  // freed; it went with the mark, and strict order is now unbroken end to end.
   for (const item of buildQueue(input)) {
     const failure = placeItem(item);
     if (failure !== null) return { ok: false, error: failure };
@@ -662,6 +444,11 @@ export function compose(input: ComposeInput): ComposeResult {
 // ---------------------------------------------------------------------------
 // Internals — the working timeline
 // ---------------------------------------------------------------------------
+//
+// Placement happens entirely in INDEX SPACE: a day is one ruler of `shiftMinutes` minutes with the
+// breaks cut out, so index 360 is both 14:00 and 15:30. That is what makes "a job flows across
+// lunch" and "a job never straddles a non-working interval" the same statement — one contiguous
+// index range, cut back into rows by `toClockSegments`. Obstacles are projected into the same space.
 
 /** One working period, mapped onto the day's index ruler. */
 interface PeriodSpan {
@@ -685,9 +472,8 @@ interface Segment {
 }
 
 /**
- * A day's index ruler, plus the date its clock times belong to — everything
- * `toClockSegments` needs. Both `DayPlan` (auto-fill) and `ManualDayPlan` (a hand
- * drop displacing somebody else's row) are one.
+ * A day's index ruler plus the date its clock times belong to — everything `toClockSegments`
+ * needs. Both `DayPlan` (auto-fill) and `ManualDayPlan` (a hand drop displacing a row) are one.
  */
 interface ClockRuler {
   date: string;
@@ -699,9 +485,8 @@ interface DayPlan extends ClockRuler {
   role: DayRole;
   workingMinutes: number;
   /**
-   * Unoccupied stretches of the index ruler, in order. Two stretches are one run iff no
-   * obstacle AND no real break between two periods separates them — see `splitAtBreaks`,
-   * which is what makes a run and a stored ROW the same shape.
+   * Unoccupied stretches of the index ruler, in order. Two are one run iff no obstacle AND no
+   * real break between periods separates them — see `splitAtBreaks`.
    */
   freeRuns: IndexRange[];
   plannableMinutes: number;
@@ -748,9 +533,9 @@ function buildPeriodSpans(periods: readonly WorkPeriod[]): { spans: PeriodSpan[]
 }
 
 /**
- * Projects a clock interval onto the index ruler, dropping whatever falls
- * outside the working periods — an obstacle over the lunch break costs the day
- * nothing. This is what makes gaps and locked blocks ONE occupancy set.
+ * Projects a clock interval onto the index ruler, dropping whatever falls outside the working
+ * periods — an obstacle over the lunch break costs the day nothing. This is what makes gaps and
+ * locked blocks ONE occupancy set.
  */
 function toIndexRanges(spans: PeriodSpan[], startClock: number, endClock: number): IndexRange[] {
   const ranges: IndexRange[] = [];
@@ -784,19 +569,10 @@ function mergeRanges(ranges: IndexRange[]): IndexRange[] {
 }
 
 /**
- * CUTS THE FREE STRETCHES WHEREVER A ROW WOULD HAVE TO BE CUT ANYWAY — at a break between
- * two periods, and only at a REAL one (a shift configured with no lunch has none, so
- * nothing is cut and a full day comes back as one solid row).
- *
- * The index ruler is deliberately continuous across the break, which is what makes "a job
- * flows across lunch" free. The cost is that a stretch spanning the break is ONE stretch to
- * `takeableFrom` and TWO rows to `toClockSegments`, so the quarter-hour floor was being
- * applied to the pair and not to either row: an obstacle ending at 13:50 gave a free
- * stretch of `13:50` through the afternoon, and a piece taken from it was stored as a
- * TEN-MINUTE row plus the rest (found by the 2000-seed harness, seed 275). Cutting here
- * means every piece lies inside one period, so a piece and a stored row are the same thing
- * and the floor covers both. The sub-quarter tail of a period is then simply a stretch too
- * short to hold a row, and is stepped over like any other.
+ * Cuts the free stretches wherever a row would have to be cut anyway: at a REAL break between two
+ * periods. The index ruler is continuous across the break, so without this a stretch spanning it is
+ * ONE stretch to `takeableFrom` and TWO rows to `toClockSegments`, and the quarter-hour floor gets
+ * applied to the pair rather than to either row.
  */
 function splitAtBreaks(free: IndexRange[], spans: PeriodSpan[]): IndexRange[] {
   const breaks: number[] = [];
@@ -873,28 +649,9 @@ function openDay(plan: DayPlan): DayCursor {
 }
 
 /**
- * Rule 5, the Friday buffer — the one asymmetry in the engine.
- *
- * An `auto` day takes anything. A `buffer` day takes work only when one of two
- * things is true, and it is worth being precise about why both are needed:
- *
- * - the operation GREW that job, which is the only thing CLAUDE.md lets the
- *   colchón absorb ("Friday receives only overflow generated by the growth of
- *   already-placed work"); or
- * - the item is ALREADY on that Friday, so an unrelated save does not shove
- *   absorbed overflow into next week. Friday still self-cleans, because the
- *   cursor reaches Mon-Thu first and puts the hours there the moment they fit.
- *
- * A brand-new job is refused either way: the caller parks its provisional row
- * wherever the drop happened, and landing on a Friday is not evidence that the
- * job belongs on the buffer.
- *
- * Testing membership by DATE rather than by weekday is what makes the rule a
- * fixed point — the item's own rows are the evidence, and they are exactly what
- * the previous pass wrote.
- *
- * The buffer is the ONLY refusal left. A second one used to live here — a day a hand-set
- * stretch of this same job had already taken — and it went with `Block.manualDuration`.
+ * The Friday buffer — the one asymmetry in the engine.
+ * Membership by DATE rather than by weekday is what makes the rule a fixed point: the item's own
+ * rows are the evidence, and they are exactly what the previous pass wrote.
  */
 function acceptsItem(plan: DayPlan, item: QueueItem): boolean {
   if (!plan.fillable) return false;
@@ -904,14 +661,12 @@ function acceptsItem(plan: DayPlan, item: QueueItem): boolean {
 }
 
 /**
- * WHAT THIS DAY WOULD GIVE AN ITEM OF `remaining` MINUTES, run by run, without committing
- * anything. `takeFrom` is the one caller: it plans the whole helping first and then applies
- * it, so a day is never left half-taken.
+ * What this day would give an item of `remaining` minutes, run by run, without committing anything;
+ * `takeFrom` plans the whole helping first so a day is never left half-taken.
  *
- * Forward only: runs before the cursor are never considered, which is the whole of the
- * no-backfill rule. Every run is visited at most once, so a run whose take was reduced by
- * `takeableFrom` leaves the rest of itself unused rather than being immediately re-offered
- * the sliver it just avoided.
+ * Forward only — runs before the cursor are never considered, which is the whole of no-backfill —
+ * and every run is visited at most once, so a run whose take `takeableFrom` reduced leaves the rest
+ * of itself unused rather than being re-offered the sliver it just avoided.
  */
 function planTake(day: DayCursor, remaining: number, lastResort: boolean): TakePiece[] {
   const pieces: TakePiece[] = [];
@@ -937,10 +692,7 @@ function planTake(day: DayCursor, remaining: number, lastResort: boolean): TakeP
   return pieces;
 }
 
-/**
- * Fills the day from the cursor with as much of `remaining` as it can hold, run by run,
- * and leaves the cursor where the last piece ended.
- */
+/** Fills the day from the cursor with as much of `remaining` as it holds, leaving the cursor there. */
 function takeFrom(day: DayCursor, remaining: number, lastResort: boolean): Segment[] {
   const segments: Segment[] = [];
   for (const piece of planTake(day, remaining, lastResort)) {
@@ -953,9 +705,8 @@ function takeFrom(day: DayCursor, remaining: number, lastResort: boolean): Segme
 }
 
 /**
- * Turns one contiguous index range back into rows, cutting it at every period
- * boundary: a stored block is always a solid rectangle on the clock, so the two
- * halves around lunch are two rows of the same job.
+ * Turns one contiguous index range back into rows, cutting it at every period boundary: a stored
+ * block is always a solid rectangle on the clock.
  */
 function toClockSegments(ruler: ClockRuler, startIndex: number, minutes: number): Segment[] {
   const segments: Segment[] = [];
@@ -974,11 +725,9 @@ function toClockSegments(ruler: ClockRuler, startIndex: number, minutes: number)
 }
 
 /**
- * Auto-merge, rule 12, on the segments of one item: two that touch inside one
- * period are one row. The halves around lunch touch on the index ruler but not
- * on the clock, so they stay two rows — while a shift configured with no lunch
- * break (`period2Start === period1End`) has nothing to cut a row at and comes
- * back out as one solid rectangle.
+ * Auto-merge on the segments of one item: two that touch inside one period are one row. The halves
+ * around lunch touch on the index ruler but not on the clock, so they stay two rows — while a shift
+ * configured with no lunch break comes back out as one solid rectangle.
  */
 function mergeTouchingSegments(segments: Segment[]): Segment[] {
   const merged: Segment[] = [];
@@ -994,22 +743,10 @@ function mergeTouchingSegments(segments: Segment[]): Segment[] {
 }
 
 /**
- * The same rule one level up, across items: rows of the SAME job that touch on
- * the same day become one row. Only ever called with reflowed rows, so it can
- * never merge across jobs, never touch a locked row and never tidy the weekend
- * or the past.
- *
- * Two items of one job are normally kept apart by a movable item between them, so
- * this is the backstop rather than the common path — it fires when that separator
- * carried no hours at all and was dropped. It stays because it is the single place
- * that guarantees the calendar never shows two touching rows of one job.
- *
- * The surviving row keeps the first real id of the group so the caller writes an
- * UPDATE rather than a DELETE plus an INSERT; the ids it absorbed are the rows to
- * delete. `rows` must already be in calendar order.
- *
- * There is no padlock guard because a padlocked row cannot reach this function at all: it
- * is not in the pool, and every row the reflow produced carries `locked: false`.
+ * The same rule across items: rows of the SAME job that touch on one day become one row. Only ever
+ * called with reflowed rows, so it can never merge across jobs, touch a locked row, or tidy the
+ * weekend or the past. It is the backstop rather than the common path, and the survivor keeps the
+ * group's first real id so the caller writes an UPDATE, not a DELETE plus an INSERT.
  */
 function mergeTouchingRows(rows: PlacedBlock[], deletedBlockIds: string[]): PlacedBlock[] {
   const merged: PlacedBlock[] = [];
@@ -1061,19 +798,15 @@ function clamp(value: number, min: number, max: number): number {
 // Editing a job's hours — the transforms that feed `compose`
 // ---------------------------------------------------------------------------
 //
-// CLAUDE.md's engine rules cover two things: WHERE hours sit (everything above)
-// and HOW MANY hours each row carries (everything below). The two are separate
-// passes on purpose. These functions only move hours between the rows of ONE job;
-// they never place anything. The caller applies one of them, then hands the
-// result to `compose` in the same transaction:
+// These move hours between the rows of ONE job and never place anything. The caller applies one,
+// then hands the result to `compose` in the same transaction:
 //
 //     const edit = resizeBlock(blocks, { blockId, durationMinutes, today });
 //     if (!edit.ok) return edit.error;                  // nothing written
 //     const placement = compose({ ...input, blocks: edit.blocks });
 //
-// `totalMinutesDelta` is what the caller must add to `projects.total_hours` to
-// keep the invariant `SUM(blocks.duration) == projects.total_hours` true. It is
-// zero for every pure transfer.
+// `totalMinutesDelta` is what the caller adds to `projects.total_hours` to keep the hours invariant
+// true. Zero for every pure transfer.
 
 export type EditErrorCode =
   | 'unknown-block'
@@ -1083,7 +816,6 @@ export type EditErrorCode =
   | 'transfer-exceeds-job'
   | 'reduction-exceeds-job';
 
-/** i18n keys for the edit failures. Translations live in public/locales. */
 export const EDIT_MESSAGE_KEYS: Record<EditErrorCode, string> = {
   'unknown-block': 'errors.unknownBlock',
   'invalid-duration': 'errors.invalidDuration',
@@ -1094,12 +826,9 @@ export const EDIT_MESSAGE_KEYS: Record<EditErrorCode, string> = {
 };
 
 /**
- * THE TWO WAYS OUT when a shrink frees hours no block of the job can take (decided with
- * the owner, 2026-08-13). The third — cancel — is not a value: it is the caller not
- * asking again.
- *
- * - `reduce-total`  the job becomes smaller by those hours.
- * - `new-block`     the hours become a row of their own, for the owner to place.
+ * The two ways out when a shrink frees hours no block of the job can take: `reduce-total` makes the
+ * job smaller, `new-block` gives the hours a row of their own. The third — cancel — is not a value,
+ * it is the caller not asking again.
  */
 export type FreedHoursChoice = 'reduce-total' | 'new-block';
 
@@ -1110,11 +839,8 @@ export interface EditError {
   blockId?: string;
   projectId?: string;
   /**
-   * `shrink-needs-choice` only: the hours with nowhere to go, and the answers that
-   * really exist for them. Both are here so the caller can put the question to the
-   * owner WITHOUT a second round trip and without guessing which options are
-   * available — `new-block` is missing when the hours are under a quarter of an hour,
-   * since a row that short is one no gesture may ask for.
+   * `shrink-needs-choice` only: the hours with nowhere to go and the answers that really exist for
+   * them, so the caller can put the question WITHOUT a second round trip.
    */
   freedMinutes?: number;
   choices?: FreedHoursChoice[];
@@ -1129,9 +855,8 @@ export interface EditSuccess {
   /** What to add to `projects.total_hours`, in minutes. Zero for a pure transfer. */
   totalMinutesDelta: number;
   /**
-   * Locked rows the transfer had to touch because the job had no unlocked hours
-   * left. "A locked block is never grown or shrunk silently" — so it is reported
-   * here and the UI is expected to say so rather than swallow it.
+   * Locked rows the transfer had to touch because the job had no unlocked hours left. A locked
+   * block is never grown or shrunk silently, so it is reported rather than swallowed.
    */
   touchedLockedBlockIds: string[];
 }
@@ -1157,13 +882,9 @@ export interface HoursChange {
 }
 
 /**
- * Rule "Job Editing: Adding/Removing Hours (LIFO)".
- *
- * Adding appends to the job's LAST block; removing decrements from it, deleting
- * any row that reaches zero and carrying on into the row before it. Per the
- * implementer default in CLAUDE.md the engine works on the last UNLOCKED block,
- * and when the job has none it creates one ranked immediately after the job's
- * last row — a locked row is only ever touched as a last resort, and reported.
+ * LIFO. Per the implementer default the engine
+ * works on the job's last block IN THE MOVABLE POOL, creating one ranked after its last row when it
+ * has none.
  */
 export function changeProjectMinutes(blocks: readonly Block[], change: HoursChange): EditResult {
   const delta = Math.round(change.deltaMinutes);
@@ -1178,9 +899,8 @@ export function changeProjectMinutes(blocks: readonly Block[], change: HoursChan
       target.durationMinutes += delta;
       return settledEdit(draft, [], delta, []);
     }
-    // Every row of the job is outside the pool — locked, on a weekend or in the frozen
-    // past — or it has none at all: give the hours a row of their own rather
-    // than growing one the reflow cannot settle afterwards. `compose` places it.
+    // Every row of the job is outside the pool, or it has none: give the hours a row of their
+    // own rather than growing one the reflow cannot settle afterwards. `compose` places it.
     draft.push(createdRowAfter(own[own.length - 1], draft, delta, change));
     return settledEdit(draft, [], delta, []);
   }
@@ -1201,33 +921,23 @@ export function changeProjectMinutes(blocks: readonly Block[], change: HoursChan
 export interface BlockResize {
   blockId: string;
   /**
-   * The new NET WORKING MINUTES of the stretch that begins at that row's start.
-   *
-   * Net, so the lunch break contributes nothing: a row starting at 10:00 dragged to 17:30
-   * is 6 h — `10:00-14:00` plus `15:30-17:30` — and never 7.5 h. The stretch, because the
-   * row may already continue after the break; see `stretchFrom`.
+   * The new NET WORKING MINUTES of the STRETCH that begins at that row's start — net, so the lunch
+   * break contributes nothing; the stretch, because the row may already continue past it.
    */
   durationMinutes: number;
   /**
-   * Local `YYYY-MM-DD`. Needed for the same reason `HoursChange` needs it: the row the
-   * freed hours are handed to must be one the reflow can settle, and "is this row in the
-   * movable pool" is not answerable without today. Not having it here is what let the
-   * frozen past absorb growth — see `lastAutomatic`.
+   * Local `YYYY-MM-DD`. The row the freed hours are handed to must be one the reflow can settle,
+   * and "is this row in the movable pool" is not answerable without today — see `lastAutomatic`.
    */
   today: string;
   /**
    * The day the row sits on. A resize is a hand action, so it is measured and cut over
-   * `manualWindows` — the margins included — which is the only view this gesture reads.
-   * (It read `periods` too while a resize into a margin had to pin its row; every row it can
-   * touch is padlocked or on a weekend now, so there is nothing left to decide. The whole
-   * `DayWindows` is still passed because it is what `getDayConfig` hands out.)
+   * `manualWindows`; the whole `DayWindows` is passed because that is what `getDayConfig` hands out.
    */
   day: DayWindows;
   /**
-   * The owner's answer to "these freed hours have nowhere to go", for the one shrink that
-   * asks it (see `resizeBlock`). Absent means ASK: the transform refuses with
-   * `shrink-needs-choice` and writes nothing, carrying the hours and the answers that
-   * exist so the caller can offer all three at once.
+   * The owner's answer to "these freed hours have nowhere to go". Absent means ASK: the transform
+   * refuses with `shrink-needs-choice` and writes nothing.
    */
   freedHours?: FreedHoursChoice;
   /** An id per extra row the stretch needs once it is cut at the lunch break. */
@@ -1237,76 +947,17 @@ export interface BlockResize {
 }
 
 /**
- * Rule "Block Resize (drag the bottom edge)" — a transfer inside the job, with
- * the job's last block as the counterparty:
- *
- * | Action                        | Effect                                   | total |
- * |-------------------------------|------------------------------------------|-------|
- * | enlarge a block, not the last | take the hours off the last block (LIFO) | same  |
- * | shrink a block, not the last  | give the hours to the last block         | same  |
- * | enlarge the last block        | nothing farther to draw from             | grows |
- * | shrink with no block to take the hours | ASK — see below                 | depends |
- *
- * SHRINKING ASKS, IT NO LONGER REFUSES (decided with the owner, 2026-08-13). The freed
- * hours go to the job's last block THE ENGINE STILL LAYS OUT — skipping the locked ones
- * and cascading backwards — which is the ordinary LIFO transfer and needs no decision.
- * The dead end is when NO block can take them: it is the job's only row, or every other
- * row is locked, on a weekend or in the frozen past. That used to be one flat 409
- * (`shrink-last-block`), including for a row that was not even the job's last — a 7 h job
- * stored `08:00-14:00` + `15:30-16:30` refused shrinking the FIRST row, because the edge
- * sizes the whole stretch and the counterparty lives inside it. That is the owner's
- * "resize only works in one direction".
- *
- * Now the dead end is a QUESTION with three answers, and `BlockResize.freedHours` carries
- * the one chosen: **cancel** (never send it again), `reduce-total` (the job becomes
- * smaller) or `new-block` (the hours become a row of their own, which `compose` then
- * places). Unanswered, it refuses with `shrink-needs-choice` carrying `freedMinutes` and
- * the `choices` that really exist, so the caller can put all three to the owner in one
- * dialog without a second round trip.
- *
- * IT ONLY EVER SIZES A ROW THE ENGINE DOES NOT LAY OUT, and that is the whole shape of
- * this function now (decided with the owner, 2026-08-18). A row inside the movable pool is
- * refused with `resize-needs-padlock`, because ON SUCH A ROW THERE IS NOTHING TO SIZE: the
- * length of an automatic row is the room it has (*Fill and Overflow, Always*), so shrinking
- * Wednesday grows Thursday, frees exactly those minutes on Wednesday, and the job flows
- * straight back into them — «quedando exactamente igual», the owner's own words. The mark
- * that used to make the number stick (`manualDuration`) is deleted: it was a stored
- * exception to the model, and the two ways to really shorten a day are the padlock (fix
- * this row, then size it) and a GAP (stop the day here). The app names them; it never
- * creates the gap by itself.
- *
- * So nothing new is stored for a length. The rows this gesture may size are outside the
- * pool already — padlocked, or on a weekend — which means `compose` hands their geometry
- * straight back untouched, and THE PADLOCK IS WHAT HOLDS IT. One piece fixes a row's
- * position and its length at once, which is why there is no second mark and no undo of its
- * own: pressing the padlock gives the row back to the engine, length included.
- *
- * IT SIZES A STRETCH, NOT A RECTANGLE (2026-08-13). `durationMinutes` is NET working
- * minutes counted from the row's start over the day's MANUAL WINDOWS, so the gesture
- * crosses the lunch break: the owner's own example — a row starting at 10:00 dragged to
- * 17:30 — is 6 h, stored as `10:00-14:00` plus `15:30-17:30`, never 7.5 h. Two
- * consequences, and both are what make the gesture reversible:
- *
- * - the result is stored in SEGMENTS by `segmentDroppedRow`, the same splitter a drop
- *   uses, so no stored row can straddle the break whatever the drag did;
- * - the row's own continuation is part of what is being sized (`stretchFrom`): the other
- *   FIXED half of the unit the owner grabbed, and any row the new segments land on. An
- *   automatic row the stretch does not reach stays the engine's.
- *
- * THE MARGINS NEED NO PADLOCK ANY MORE. A resize reaching into manual-only time used to pin
- * its row, because the margins do not exist in the engine's index space and a row the
- * reflow still owned would have been pulled back inside the periods. Every row this gesture
- * can now touch is outside the pool already, so there was nothing left to pin and
- * `usesManualOnlyTime` was deleted with the mark.
+ * A transfer inside the job, with the job's last block as the
+ * counterparty. It only ever sizes a row the engine does not lay out; `durationMinutes` is NET
+ * working minutes over the day's MANUAL WINDOWS, so the gesture crosses the lunch break, and
+ * `stretchFrom` decides which of the job's own rows it rewrites.
  */
 export function resizeBlock(blocks: readonly Block[], resize: BlockResize): EditResult {
   const draft = blocks.map(cloneBlock);
   const target = draft.find((block) => block.id === resize.blockId);
   if (target === undefined) return failedEdit('unknown-block', { blockId: resize.blockId });
 
-  // THE ONE PRECONDITION: the engine must not be laying this row out. On a row it does lay
-  // out the length is the room the row has, so a hand-set number could only survive as a
-  // stored exception to the model — which is what was deleted. Refused here rather than in
+  // THE ONE PRECONDITION: the engine must not be laying this row out. Refused here rather than in
   // the operation so the pure engine states its own rule and the UI can mirror it.
   if (isMovable(target, resize.today)) {
     return failedEdit('resize-needs-padlock', { blockId: target.id, projectId: target.projectId });
@@ -1317,9 +968,8 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
     return failedEdit('invalid-duration', { blockId: resize.blockId, projectId: target.projectId });
   }
 
-  // The rows the stretch will be stored as, decided from the row's own start and the net
-  // minutes asked for — before anything is absorbed, because the absorption depends on
-  // where these reach and not the other way round.
+  // The rows the stretch will be stored as, decided before anything is absorbed: the absorption
+  // depends on where these reach and not the other way round.
   const segments = segmentDroppedRow(resize.day.manualWindows, {
     startMinutes: target.startMinutes,
     durationMinutes: next,
@@ -1339,8 +989,7 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
   let touchedLockedBlockIds: string[] = [];
 
   if (delta > 0 && isLast) {
-    // Enlarging the last (or only) block: nothing farther to draw from, so the
-    // estimate grows.
+    // Nothing farther to draw from, so the estimate grows.
     totalMinutesDelta = delta;
   } else if (delta > 0) {
     const taken = takeMinutes(counterparties, delta);
@@ -1350,28 +999,19 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
     deletedBlockIds.push(...taken.deletedBlockIds);
     touchedLockedBlockIds = taken.touchedLockedBlockIds;
   } else if (delta < 0) {
-    // THE FREED HOURS GO TO THE JOB'S LAST BLOCK, SKIPPING THE ONES THAT CANNOT TAKE
-    // THEM. `lastAutomatic` is that cascade: the last row the ENGINE still lays out,
-    // walking backwards past every locked, weekend and past row. Hours handed to a row
-    // outside the pool are written straight onto the clock and nothing ever settles
-    // them — verified in six configurations, a 1 h Saturday row handed 4 h became
-    // `12:00-17:00`, holding minutes on both sides of the lunch break.
+    // THE FREED HOURS GO TO THE JOB'S LAST BLOCK, SKIPPING THE ONES THAT CANNOT TAKE THEM.
+    // `lastAutomatic` is that cascade. Hours handed to a row outside the pool are written straight
+    // onto the clock and nothing ever settles them.
     const freedMinutes = -delta;
-    // The job's LAST row is a dead end by itself, whatever sits in front of it: there is
-    // nothing later to hand hours to, and pushing them BACKWARDS into the job's earlier
-    // rows would answer "this row is shorter" with "so the week before it is longer",
-    // which is not a transfer the owner asked for. `isLast` covers the stretch that
-    // swallowed the last row too — the 7 h job stored `08:00-14:00` + `15:30-16:30`,
-    // where the counterparty lives inside the stretch being sized.
+    // The job's LAST row is a dead end by itself, whatever sits in front of it: there is nothing
+    // later to hand hours to, and pushing them BACKWARDS would answer "this row is shorter" with
+    // "so the week before it is longer". `isLast` covers a stretch that swallowed the last row too.
     const receiver = isLast ? undefined : lastAutomatic(counterparties, resize.today);
 
     if (receiver !== undefined) {
       receiver.durationMinutes += freedMinutes;
     } else {
-      // THE DEAD END, AND IT ASKS RATHER THAN REFUSING. No block of the job can take
-      // these hours: it is the job's only row, or every other one is locked, on a
-      // weekend or in the frozen past. Unanswered, the caller is told what the hours
-      // are and which answers exist; answered, the answer is applied here and nowhere
+      // THE DEAD END, AND IT ASKS RATHER THAN REFUSING. The answer is applied here and nowhere
       // else, so cancelling is simply never sending it.
       const choices = freedHoursChoices(freedMinutes);
       const answer = resize.freedHours;
@@ -1384,12 +1024,10 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
         });
       }
       if (answer === 'reduce-total') {
-        // The job really is smaller. `delta` is already negative, and the caller adds it
-        // to `projects.total_hours`, so the invariant holds by construction.
+        // `delta` is already negative and the caller adds it to the total, so the invariant holds.
         totalMinutesDelta = delta;
       } else {
-        // A row of their own, ranked after the job's last: `compose` places it, and the
-        // day the hand-set stretch just closed is one it will not place it on.
+        // A row of their own, ranked after the job's last; `compose` places it.
         draft.push(
           createdRowAfter(own[own.length - 1], draft, freedMinutes, {
             projectId: target.projectId,
@@ -1403,27 +1041,17 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
     }
   }
 
-  // A LOCKED ROW THE STRETCH REWRITES IS NAMED. `stretchFrom` takes in a continuation
-  // whatever its marks, so growing the morning half of a unit lengthens a locked afternoon
-  // half — which is exactly what "a locked block is never grown silently" and
-  // `BlockMutation.touchedLockedBlockIds` ("Never silent") forbid doing quietly. Whether it
-  // should be excluded from the stretch altogether is a decision, and is the owner's; being
-  // told is not.
+  // A LOCKED ROW THE STRETCH REWRITES IS NAMED. `stretchFrom` takes in a continuation whatever its
+  // marks, so growing the morning half of a unit lengthens a locked afternoon half. Whether it
+  // should be excluded from the stretch altogether is the owner's decision; being told is not.
   for (const row of stretch.slice(1)) {
     if (row.locked && !touchedLockedBlockIds.includes(row.id)) touchedLockedBlockIds.push(row.id);
   }
 
-  // The stretch is written over its rows in order: one row for a length that stays inside
-  // its window, two once it crosses the break.
-  //
-  // THE WHOLE STRETCH COMES OUT AS FIXED AS ITS TARGET, whether a row was created for it or
-  // absorbed from the same job. Half a stretch left to the engine would come apart on the
-  // very next pass — a 6 h drag stored as a padlocked `10:00-14:00` and an automatic
-  // `15:30-17:30` was reflowed straight back to `15:30-19:30`, so the owner's drag stored a
-  // length nobody asked for. It is the same rule `autoLock` states for a job born on a
-  // chosen day: what holds a hand-made shape has to hold all of it. The padlock is only ever
-  // ADDED, never taken off, and `touchedLockedBlockIds` was computed above so this never
-  // reports the padlock it has just applied.
+  // The stretch is written over its rows in order: one row for a length that stays inside its
+  // window, two once it crosses the break. THE WHOLE STRETCH COMES OUT AS FIXED AS ITS TARGET —
+  // half a stretch left to the engine came apart on the very next pass. `touchedLockedBlockIds`
+  // was computed above so this never reports the padlock it has just applied.
   segments.forEach((segment, index) => {
     const row = stretch[index];
     if (row === undefined) {
@@ -1457,47 +1085,16 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
   );
 }
 
-/**
- * The answers that really exist for hours a shrink freed and no block can take.
- *
- * `reduce-total` always does: the job is simply smaller. `new-block` needs the hours to
- * be a row the calendar can draw and the owner can aim at — under a quarter of an hour
- * they are not (see `MIN_ROW_MINUTES`), so offering it would produce a nameless stripe
- * nobody asked for. The caller is given the list rather than the rule, so the dialog it
- * builds cannot disagree with what this function will accept.
- */
+/** The answers that really exist, so the dialog the caller builds cannot disagree with this. */
 function freedHoursChoices(minutes: number): FreedHoursChoice[] {
   return minutes >= MIN_ROW_MINUTES ? ['reduce-total', 'new-block'] : ['reduce-total'];
 }
 
 /**
- * The rows a bottom-edge drag rewrites: the row it was dragged on, plus the rows of its OWN
- * job that continue it on the same day AND CANNOT SURVIVE THE RESIZE ON THEIR OWN. There are
- * exactly two of those, and the distinction is the whole subtlety of the gesture:
- *
- * - A ROW THE ENGINE DOES NOT LAY OUT EITHER (`isMovable`). It is the other half of the unit
- *   the owner grabbed — the shape a hand-made stretch comes back as once it was cut at the
- *   lunch break — and nothing will ever move it or re-derive its length, so a length written
- *   over the target alone would leave stored geometry the gesture has just contradicted:
- *   shrinking a padlocked 6 h stretch into the morning would leave its padlocked afternoon
- *   half sitting there. Since the target is always outside the pool too (see `resizeBlock`),
- *   this is "the fixed rows of one hand-made stretch, together".
- * - A ROW THE NEW SEGMENTS LAND ON (`reachMinutes`). Growing the morning half of a unit past
- *   the break puts a segment exactly where the afternoon half sits; absorbing it reuses that
- *   row instead of stacking a second one on top of it.
- *
- * AN AUTOMATIC ROW THE STRETCH DOES NOT REACH IS DELIBERATELY LEFT TO THE ENGINE. Its hours
- * are the engine's to place and it will flow wherever the reflow puts it, so taking it in
- * would be reading "this row is shorter" as "this job is smaller".
- *
- * (The first case used to be "a row already carrying the hand-set mark", read off the column
- * deleted on 2026-08-18. The mark and the pool answered the same question here, because the
- * gesture pinned every row it wrote; `isMovable` is the one that survived.)
- *
- * `adjacentInWindows` is the same predicate the grid groups a unit with, so a unit on
- * screen and a stretch here can never disagree about where one ends. Only rows AFTER the
- * target are taken: the gesture is anchored at the edge the owner grabbed, so dragging the
- * afternoon half's edge sizes the afternoon half and leaves the morning alone.
+ * The rows a bottom-edge drag rewrites. `adjacentInWindows`
+ * is the same predicate the grid groups a unit with, so a unit on screen and a stretch here can
+ * never disagree about where one ends, and only rows AFTER the target are taken, since the gesture
+ * is anchored at the edge the owner grabbed.
  */
 function stretchFrom(
   own: readonly Block[],
@@ -1531,22 +1128,14 @@ export interface GapConflict {
   date: string;
   startMinutes: number;
   durationMinutes: number;
-  /**
-   * Why the engine may not move it out of the way. Exhaustive by construction: those are
-   * exactly the three ways `isMovable` says no.
-   */
+  /** Why the engine may not move it. Exactly the three ways `isMovable` says no. */
   reason: 'locked' | 'past' | 'weekend';
 }
 
 /**
- * The implementer default for "creating a gap on top of existing work": unlocked
- * weekday work is simply pushed forward by the recomposition, so the only real
- * conflicts are the blocks the engine may not move. The caller refuses the save
- * and names them instead of writing an overlap — gaps and blocks are one
- * occupancy set, and `compose` cannot repair an overlap it is forbidden to touch.
- *
- * Pass the gap being saved (its own id excluded from `blocks`, since a gap is not
- * a block); an empty array means the save is safe.
+ * The implementer default for a gap on top of existing work: unlocked weekday work is pushed forward
+ * by the recomposition, so the only real conflicts are the blocks the engine may not move. `compose`
+ * cannot repair an overlap it is forbidden to touch, so the caller refuses the save and names them.
  */
 export function findGapConflicts(
   blocks: readonly Block[],
@@ -1569,9 +1158,8 @@ export function findGapConflicts(
       date: block.date,
       startMinutes: block.startMinutes,
       durationMinutes: block.durationMinutes,
-      // The reason is what the sentence names, so it is the block's OWN state first — a
-      // padlocked row on a weekday is neither past nor weekend, and telling the owner it
-      // is would send them looking for something that is not there.
+      // The reason is what the sentence names, so it is the block's OWN state first: a padlocked
+      // row on a weekday is neither past nor weekend.
       reason: block.locked
         ? 'locked'
         : isWeekend(block.date)
@@ -1587,90 +1175,13 @@ export function findGapConflicts(
 // Manual placement — the overlap a drop creates
 // ---------------------------------------------------------------------------
 //
-// A drop that lands ON somebody else's row is a statement about ORDER: "this goes
-// here, and what was here carries on afterwards". Two very different mechanisms are
-// needed to honour it, because the reflow reaches some rows and not others.
+// Two mechanisms are needed because the reflow reaches some rows and not others:
+// on the FIXED side (weekend, frozen past, locked) an overlap is permanent unless it is resolved
+// here, so the rows are merged or cut and the tails PLACED; on the REFLOWED side only queue RANKS
+// are written, since `date, start_time` order is what makes the reflow produce `A, B, A` by itself.
 //
-// `compose` cannot repair every overlap, and that is deliberate. Rows OUTSIDE the
-// movable pool (locked, past, weekend) come back exactly as they went in, so two of
-// them can sit on top of each other for ever: noticing would mean rewriting a
-// placement the engine did not make, which is the one thing rule 6 forbids.
-//
-// A hand drop is what creates such an overlap. Drop 2 h on a Saturday that already
-// holds a row of the same job and BOTH rows are outside the pool the instant they
-// are written — verified: the two rows overlapped by an hour, the hours invariant
-// held, and the grid drew them as two side-by-side lanes with no warning. Since the
-// padlock became the only pin, a drop into a MARGIN is the same situation on an
-// ordinary weekday: both rows carry one, so both are outside the pool.
-//
-// Two rules, decided with the owner:
-//
-//  - SAME JOB    -> one row, `start = min(starts)` and `duration = SUM(durations)`.
-//                   Sat 09:00-11:00 plus a 2 h drop at 10:00 is 09:00-13:00, 4 h.
-//                   NOT the interval union (09:00-12:00) — that would quietly eat
-//                   an hour of the owner's work.
-//  - OTHER JOB   -> cut the row the drop lands in and push its tail after the drop.
-//                   A 09:00-11:00 with B dropped at 10:00-11:00 becomes
-//                   A 09:00-10:00, B 10:00-11:00, A 11:00-12:00. A keeps its 2 h.
-//                   "If the user does not want it, they move it again."
-//
-// THIS IS NOT RULE 12's AUTO-MERGE, and the two must stay apart. `mergeTouchingRows`
-// joins rows of one job that TOUCH inside one period on one day, and it never runs
-// on the weekend or the past, because tidying those would undo a human decision.
-// What follows resolves an OVERLAP a human just created, on any day including the
-// weekend, and only around the row that was dropped. Collapsing the two mechanisms
-// would reintroduce exactly the weekend tidying the engine avoids.
-//
-// A LOCKED row of ANOTHER job is never cut: "a locked block is never grown or shrunk
-// silently", so a drop that lands on one is refused with the row named — the same answer
-// `findGapConflicts` gives a gap over a lock. Two rows of the SAME job still merge
-// whatever their padlocks, and the merged row keeps the padlock: the hours are the
-// owner's own, stacked by their own gesture, and refusing would make a Saturday the
-// owner had already used unusable for the job already on it.
-//
-// A MOVABLE DROP ONTO A MOVABLE ROW IS CUT TOO, and it needs far less machinery
-// (decided with the owner, 2026-08-12). The reflow settles both rows, so nothing has
-// to be placed here — but it settles them IN QUEUE ORDER, and queue order is
-// `date, start_time`. Without the cut, dropping B at 10:00 into A's 08:00-14:00 row
-// leaves the queue reading `A, B`, so A is laid out whole and B lands after the
-// entire block: the drop is silently ignored. Cutting A at the drop's start makes
-// the queue read `A, B, A`, and the forward fill then produces `A, B, A` on the clock
-// by itself. So on this side the resolution writes RANKS, not placements:
-//
-//  - only a row that STARTS BEFORE the drop is cut. One starting at or after it
-//    already ranks behind the drop, so the reflow needs no help;
-//  - the tail is one row ranked just after the drop's end. It is a queue rank, not a
-//    position — `compose` re-places it, exactly as it does the provisional row every
-//    drop and every new job is written as;
-//  - fixed rows are ignored on this side, because the reflow flows around them.
-//
-// Same resolver, same two rules, one branch on whether the reflow can reach the rows.
-//
-// AND A REFUSAL BELONGS TO ONE SIDE ONLY (2026-08-13). Every refusal above is an answer
-// to "does the footprint fit on this day as it stands right now", and for a drop the
-// reflow will settle that is the WRONG QUESTION, with a circular answer: the row is being
-// moved off another day, everything behind it shifts earlier, and that is precisely what
-// opens the room here. So a drop the engine still owns — unlocked, on a day `dayReflows`
-// is true for — is NEVER refused for a collision: it is a rank, and the reflow finds the
-// room.
-//
-// A PINNED DROP IS A PADLOCKED DROP (2026-08-14), so it lands literally and a collision
-// there IS real. It gets one latitude and no more:
-//
-//  - SLIDE. On a day the engine reflows, a pinned drop is moved forward — on the day the
-//    owner named — to the first start where its footprint touches neither a GAP nor a
-//    LOCKED row, the two things nothing will ever move out of the way. This is what makes
-//    a Friday drop land on that Friday: a queue rank there would be pulled straight back
-//    into Mon-Thu, so keeping the day and giving up the exact minute is the only answer
-//    that honours the gesture.
-//  - AND THEN THE REFUSAL STANDS. If the day has no such slot, the drop is refused naming
-//    what is in the way. It used to give up its pin instead and settle as an ordinary
-//    rank; it may not any more, because the pin IS the padlock and taking a padlock off a
-//    row behind the owner's back is the thing this app must never do. A refusal names the
-//    row or the gap, which is something they can act on.
-//
-// Where the drop lands LITERALLY and the day is not the engine's at all, there is not even
-// a slide: the weekend, a closed day, the frozen past.
+// This is NOT `mergeTouchingRows`: collapsing the two would reintroduce the weekend tidying the
+// engine avoids.
 
 export type ManualPlacementErrorCode =
   | 'unknown-block'
@@ -1679,7 +1190,6 @@ export type ManualPlacementErrorCode =
   | 'merge-exceeds-day'
   | 'displaced-hours-unplaceable';
 
-/** i18n keys for the refusals. Translations live in public/locales. */
 export const MANUAL_PLACEMENT_MESSAGE_KEYS: Record<ManualPlacementErrorCode, string> = {
   'unknown-block': 'errors.unknownBlock',
   'overlaps-locked-block': 'errors.dropOverLockedBlock',
@@ -1707,22 +1217,18 @@ export interface ManualPlacementSuccess {
   /** The calendar with the overlap resolved, ready to hand straight to `compose`. */
   blocks: Block[];
   /**
-   * The id the dropped hours ended up on. It is the id that was passed in, EXCEPT
-   * after a merge, where the earlier row survives and the dropped row's id is in
-   * `mergedBlockIds`. Resolving the same drop again is a no-op — that is the
-   * property that says no overlap was left behind.
+   * The id the dropped hours ended up on — the id passed in, EXCEPT after a merge, where the earlier
+   * row survives. Resolving the same drop again is a no-op, which is what says no overlap was left.
    */
   placedBlockId: string;
   /**
-   * Rows of the SAME job the dropped row absorbed. They are gone from `blocks`, so
-   * the caller must DELETE them; the id of the surviving row is the earlier one, so
-   * a merge is an UPDATE plus a DELETE rather than two writes and an INSERT.
+   * Rows of the SAME job the dropped row absorbed. Gone from `blocks`, so the caller must DELETE
+   * them; the survivor is the earlier row, so a merge is an UPDATE plus a DELETE.
    */
   mergedBlockIds: string[];
   /**
-   * Jobs whose row was cut in two so the dropped row could keep the slot. Their
-   * totals are untouched — the tail carries exactly the hours the head lost — but
-   * the owner is told, because a displaced job is a decision they may want to undo.
+   * Jobs whose row was cut in two so the dropped row could keep the slot. Their totals are
+   * untouched — the tail carries exactly the hours the head lost — but the owner is told.
    */
   displacedProjectIds: string[];
 }
@@ -1744,36 +1250,10 @@ export interface ManualPlacement {
 }
 
 /**
- * Resolves the overlap a hand drop created, leaving a calendar `compose` can take.
- *
- * Which half runs depends on whether the reflow can reach the rows:
- *
- * - the dropped row is OUTSIDE the movable pool (weekend, frozen past, locked): the
- *   overlap is permanent unless it is resolved here, so rows of the same job are
- *   merged and rows of another job are cut and their tails PLACED;
- * - the dropped row is inside it: the reflow settles everything, so all that is
- *   needed is for the queue to read `A, B, A` — the overlapped rows of other jobs
- *   are cut and their tails given a rank behind the drop, and nothing is placed.
- *
- * BOTH halves then store the drop in SEGMENTS (`segmentDroppedRow`). A hand drop is the
- * one placement that does not go through `toClockSegments`, and it was therefore the
- * one way to get a stored row holding minutes on both sides of the lunch break — a 6 h
- * drop at 10:00 was saved as a single 10:00 + 360 min row running through 14:00-15:30.
- * `duration` is NET WORKING TIME, so that row was a lie about the day, and the grid, the
- * overlap arithmetic and auto-merge all read a row as one solid rectangle.
- *
- * Every branch conserves hours, so `SUM(blocks.duration) == projects.total_hours`
- * holds for every touched project by construction rather than by inspection.
- *
- * A DROP THE ENGINE STILL OWNS CANNOT FAIL. Every refusal below asks whether the
- * footprint fits on the day as it stands at this instant, which is the wrong question
- * wherever the reflow decides the layout (see `dayReflows` and the note above the
- * refusal codes) — so for an unlocked row on such a day none of them is even reached.
- * A PINNED drop is a PADLOCKED one and does land literally, so it is slid forward past
- * the gaps and locks it cannot share minutes with, and refused naming them when the day
- * has no slot: the pin cannot be given up, because giving it up now means taking the
- * owner's padlock off. On the weekend, a closed day and the frozen past there is no
- * slide either — the day is not the engine's to rearrange.
+ * Resolves the overlap a hand drop created, leaving a calendar `compose` can take. Which half runs
+ * depends on whether the reflow can reach the rows; see the note above the refusal codes. Both
+ * halves store the drop in SEGMENTS, and every branch conserves hours, so the hours invariant holds
+ * by construction rather than by inspection.
  */
 export function resolveManualPlacement(
   input: ComposeInput,
@@ -1785,9 +1265,8 @@ export function resolveManualPlacement(
     return manualFailure('unknown-block', { blockId: placement.blockId });
   }
 
-  // May the drop keep its DAY and give up its exact MINUTE? Only where the engine lays
-  // the day out. Everywhere else the minute is the whole promise, so a row that cannot
-  // have the slot it was released on has no better slot to be given.
+  // May the drop keep its DAY and give up its exact MINUTE? Only where the engine lays the day
+  // out; everywhere else the minute is the whole promise.
   const maySlide = dayReflows(input.getDayConfig(placed.date), placed.date, input.today);
   return resolveDrop(input, placement, draft, placed, maySlide);
 }
@@ -1801,17 +1280,13 @@ function resolveDrop(
 ): ManualPlacementResult {
   let placed = dropped;
   const reflowed = isMovable(placed, input.today);
-  // A drop is a HAND action, so it is cut over the day's MANUAL WINDOWS: the margins are
-  // time the owner may use, and a drop that starts in one runs on into the period below it
-  // without any boundary between them. The lunch break is still the only cut, because that
-  // is the only hole a manual window leaves — see src/lib/manualWindow.ts.
+  // A drop is a HAND action, so it is cut over the day's MANUAL WINDOWS. The lunch break is still
+  // the only cut, because that is the only hole a manual window leaves.
   const periods = input.getDayConfig(placed.date).manualWindows;
 
-  // 0. The drop keeps its day and gives up its exact minute, rather than being refused
-  //    for landing on the one thing nothing will move. Forward only — the drop said
-  //    "here or later" — and a no-op when the slot is already clear, which is every
-  //    ordinary drop. A day with no clear slot leaves the start alone and the steps below
-  //    refuse, naming what is in the way.
+  // 0. The drop keeps its day and gives up its exact minute rather than being refused for landing
+  //    on the one thing nothing will move. Forward only, and a no-op when the slot is already
+  //    clear. A day with no clear slot leaves the start alone and the steps below refuse.
   if (!reflowed && maySlide) {
     const clear = firstClearStart({
       windows: periods,
@@ -1826,42 +1301,25 @@ function resolveDrop(
   const absorbedIds: string[] = [];
   const displacedProjectIds: string[] = [];
 
-  // 1. Same job: fold every overlapping row into one. Re-checked after each fold
-  //    because the survivor is longer than either row was, so it can reach a row
-  //    neither of them touched.
-  //
-  //    Only where the reflow will not separate them. Two movable rows of one job
-  //    are already going to be laid out contiguously and auto-merged by rule 12, so
-  //    folding them here would be tidying rather than repairing.
-  //
-  //    A PADLOCK ON EITHER SIDE DOES NOT REFUSE THIS, and it used to (2026-08-14). The
-  //    refusal was there to keep a merge from moving a lock's start; once the padlock
-  //    became the mark a weekend or margin drop leaves, that made the ordinary gesture —
-  //    stacking more of the SAME job on the Saturday it already sits on — answer "«Puerta»
-  //    está bloqueado" about the owner's own row. Merging two rows of one job takes no
-  //    hours from anyone, is reported (`mergedBlockIds`), and moves the row only to where
-  //    the owner just aimed it, which they are always allowed to do by hand. The padlock is
-  //    carried onto the survivor below, so nothing is freed by the fold.
+  // 1. Same job: fold every overlapping row into one, re-checked after each fold because the
+  //    survivor is longer than either row was. Only where the reflow will not separate them — two
+  //    movable rows of one job are already going to be laid out contiguously and auto-merged, so
+  //    folding them here would be tidying. A padlock on either side does not refuse it.
   while (!reflowed) {
     const other = sameJobOverlaps(draft, placed, segmentDroppedRow(periods, placed), input.today)[0];
     if (other === undefined) break;
 
-    // SUM, NOT UNION. `min(start) + (a + b)` keeps every hour; the union of the two
-    // intervals would silently drop the hour they share. The sum is then laid out by
-    // the segmentation below, so a merge that ends up crossing the lunch break comes
-    // back as two rows of one job rather than one row that lies about the day.
+    // SUM, NOT UNION: the union of the two intervals would silently drop the hour they share.
+    // The segmentation below then lays the sum out, so a merge across lunch comes back as two rows.
     const startMinutes = Math.min(other.startMinutes, placed.startMinutes);
     const durationMinutes = other.durationMinutes + placed.durationMinutes;
     if (clockEndOf(periods, startMinutes, durationMinutes) > dayEndMinutes(periods)) {
-      // There is nowhere to put the rest: the merged row is one job's hours on ONE day, and
-      // the day has an end. Drawn at midnight instead, this let the same drop repeated three
-      // times compound into `Sat 13:00-23:00, 10 h` — straight through the lunch band and
-      // 2.5 h past the end of the day, with hours conserved so nothing warned the owner.
+      // The merged row is one job's hours on ONE day, and the day has an end. Drawn at midnight
+      // instead, repeated drops compounded past it with hours conserved, so nothing warned.
       return manualFailure('merge-exceeds-day', placed);
     }
 
-    // The earlier row survives, so the write is an UPDATE rather than a DELETE and
-    // an INSERT — the same convention as rule 12's `mergeTouchingRows`.
+    // The earlier row survives, so the write is an UPDATE rather than a DELETE and an INSERT.
     const [survivor, absorbed] = sortedByQueueRank([other, placed]);
     survivor.startMinutes = startMinutes;
     survivor.durationMinutes = durationMinutes;
@@ -1873,23 +1331,17 @@ function resolveDrop(
     placed = survivor;
   }
 
-  // 2. The drop is stored in segments, cut at the break between two working periods.
-  //    Done before the cuts below so the rows it lands across are measured against the
-  //    time it REALLY occupies: 6 h dropped at 10:00 runs to 17:30, not to 16:00.
-  //
-  //    THE START IS READ BACK, not only the duration: a row whose start is not working time
-  //    begins at the next minute that is, and `segmentDroppedRow` is the one place that
-  //    reading lives. `dropLanding` has already applied it to the release, so for an ordinary
-  //    drop this is the same minute — it matters for the row a MERGE just moved backwards
-  //    onto an earlier start, which may be one a settings change left inside the break.
+  // 2. The drop is stored in segments, before the cuts below so the rows it lands across are
+  //    measured against the time it REALLY occupies: 6 h dropped at 10:00 runs to 17:30, not 16:00.
+  //    THE START IS READ BACK, not only the duration — it matters for a row a MERGE just moved
+  //    backwards onto an earlier start, which may be one a settings change left inside the break.
   const dropRows = segmentDroppedRow(periods, placed);
   placed.startMinutes = dropRows[0].startMinutes;
   placed.durationMinutes = dropRows[0].durationMinutes;
   for (const extra of dropRows.slice(1)) {
     draft.push({
       ...placed,
-      // An id the merge freed rather than a new one, so a merge that segments is two
-      // UPDATEs instead of a DELETE and an INSERT.
+      // An id the merge freed rather than a new one, so a merge that segments is two UPDATEs.
       id: absorbedIds.shift() ?? placement.newBlockId(),
       startMinutes: extra.startMinutes,
       durationMinutes: extra.durationMinutes,
@@ -1898,13 +1350,9 @@ function resolveDrop(
     });
   }
 
-  // 3. A GAP the drop lands on, where the reflow will not separate them: refused, naming it.
-  //    Gaps and blocks are ONE occupancy set (CLAUDE.md: gaps "are time: they consume the
-  //    day's plannable hours exactly like locked work does"), and the mirror gesture — a gap
-  //    over a padlocked row — is already a 409, so the precedent fixes the answer. Only on
-  //    the fixed side: on Mon-Thu the reflow keeps auto work off a gap by itself, which is
-  //    why this only ever bit where the drop PINS — the buffer, the weekend, a margin, the
-  //    lunch band, which is exactly where the owner parks work by hand.
+  // 3. A GAP the drop lands on, where the reflow will not separate them: refused, naming it. Gaps
+  //    and blocks are ONE occupancy set, and the mirror gesture (a gap over a padlocked row) is
+  //    already a 409. Only on the fixed side: on Mon-Thu the reflow keeps auto work off a gap.
   if (!reflowed) {
     const covered = input.gaps.find(
       (candidate) =>
@@ -1926,16 +1374,10 @@ function resolveDrop(
     }
   }
 
-  // 4. A ROW THE DROP LANDED EXACTLY ON THE START OF STAYS WHOLE AND FOLLOWS, which is
-  //    the owner's rule for the gesture: "landing on the start means put me before this
-  //    one; to cut a row, release BELOW its start" (2026-08-13). On the reflowed side the
-  //    drop is a rank, and a rank that TIES is decided by `created_at` — so the drop lost
-  //    the tie whenever the row it aimed at was the older one, and the drag looked
-  //    ignored. Nothing is cut and no hours move: the tied rows are re-ranked behind the
-  //    drop, which is a rank the reflow rewrites anyway.
-  //
-  //    The fixed side already answers this way by construction — a drop covering a row
-  //    from its very start leaves no head, so the row is pushed whole (step 5).
+  // 4. A ROW THE DROP LANDED EXACTLY ON THE START OF STAYS WHOLE AND FOLLOWS. On the reflowed
+  //    side the drop is a rank, and a rank that TIES is decided by `created_at` — so the drop lost
+  //    the tie whenever the row it aimed at was older, and the drag looked ignored. Nothing is cut
+  //    and no hours move. The fixed side already answers this way by construction (step 5).
   const dropEnd = dropRows[dropRows.length - 1];
   const behindDrop = Math.min(dropEnd.startMinutes + dropEnd.durationMinutes, MAX_RANK_MINUTES);
   if (reflowed) {
@@ -1947,11 +1389,9 @@ function resolveDrop(
     }
   }
 
-  // 5. Another job: cut every row the drop lands in, then re-lay their tails after
-  //    it, in the order they were cut. Two passes rather than one, so the space the
-  //    cuts free up is available to all of them: cutting and pushing one row at a
-  //    time would make the first tail hop over a row the second cut was about to
-  //    remove, and the jobs would come out interleaved on the clock.
+  // 5. Another job: cut every row the drop lands in, then re-lay their tails after it, in the
+  //    order they were cut. Two passes, so the space the cuts free is available to all of them:
+  //    one at a time would interleave the jobs on the clock.
   const victims = otherJobOverlaps(draft, placed, dropRows, input.today, reflowed);
   const locked = victims.find((victim) => victim.locked);
   if (locked !== undefined) return manualFailure('overlaps-locked-block', locked);
@@ -1964,9 +1404,8 @@ function resolveDrop(
     if (headMinutes > 0) {
       victim.durationMinutes = headMinutes;
     } else {
-      // The drop covers the row from its very start: nothing is left in front, so
-      // the row's id is free for the first row of its tail. (A movable victim never
-      // gets here — one that does not start before the drop already ranks after it.)
+      // The drop covers the row from its very start, so its id is free for the first row of its
+      // tail. (A movable victim never gets here — it would already rank after the drop.)
       draft.splice(draft.indexOf(victim), 1);
       spareIds.push(victim.id);
     }
@@ -1989,10 +1428,8 @@ function resolveDrop(
         date: segment.date,
         startMinutes: segment.startMinutes,
         durationMinutes: segment.durationMinutes,
-        // Never locked: a locked victim was refused above, so there is no padlock here to
-        // inherit, and a tail the engine just placed must stay in the pool. The victim was
-        // fixed by its DAY (a weekend, the frozen past) and its tail stays on that day
-        // wherever it can, so nothing is being freed that the owner had pinned.
+        // Never locked: a locked victim was refused above, and the victim was fixed by its DAY,
+        // which its tail keeps, so nothing the owner pinned is being freed.
         locked: false,
         createdAt: placement.now,
         updatedAt: placement.now,
@@ -2012,22 +1449,16 @@ function resolveDrop(
 // ---------------------------------------------------------------------------
 
 /**
- * True when `row` shares clock minutes with any part of the drop's footprint.
- *
- * The footprint is `segmentDroppedRow`'s answer, which lives in src/lib/dropSegments.ts
- * rather than here BECAUSE THE DRAG GHOST NEEDS THE SAME ANSWER: it draws the drop and
- * names what it will do to the row underneath before the mouse is released, and a
- * preview that promises a cut this resolver will not perform is worse than no preview.
- * One implementation, two callers.
+ * True when `row` shares clock minutes with any part of the drop's footprint. The footprint lives in
+ * src/lib/dropSegments.ts because THE DRAG GHOST NEEDS THE SAME ANSWER.
  */
 function overlapsDrop(row: Block, dropRows: readonly DropSegment[]): boolean {
   return overlapsSegments(dropRows, row.startMinutes, row.durationMinutes);
 }
 
 /**
- * THE THINGS ON `date` NOTHING WILL EVER MOVE OUT OF A DROP'S WAY: the gaps and the locked
- * rows. Handed to `firstClearStart`, which is shared with the drag ghost — see
- * src/lib/dropSlide.ts for why the slide is not implemented twice.
+ * The things on `date` nothing will ever move out of a drop's way: the gaps and the locked rows.
+ * Handed to `firstClearStart`, which is shared with the drag ghost — see src/lib/dropSlide.ts.
  */
 function immovableOn(
   input: ComposeInput,
@@ -2041,9 +1472,9 @@ function immovableOn(
 }
 
 /**
- * Rows of the DROP'S OWN job, in queue order, that overlap it and that `compose`
- * will not repair. Movable rows are ignored on purpose: the reflow lays them out
- * contiguously and rule 12 joins them, so folding one here would be tidying.
+ * Rows of the DROP'S OWN job, in queue order, that overlap it and that `compose` will not repair.
+ * Movable rows are ignored on purpose: the reflow lays them out contiguously and auto-merge joins
+ * them, so folding one here would be tidying.
  */
 function sameJobOverlaps(
   draft: readonly Block[],
@@ -2062,17 +1493,10 @@ function sameJobOverlaps(
 }
 
 /**
- * Rows of ANOTHER job the drop lands in and that the drop must therefore cut.
- *
- * `reflowed` picks the side: a fixed drop collides with the other fixed rows, which
- * nothing will ever separate, while a reflowed drop collides with the other movable
- * rows, which the reflow will separate but only in queue order. A reflowed drop
- * ignores fixed rows entirely — flexible work flows around them — and only cuts a row
- * that STARTS BEFORE it, since one starting at or after the drop already ranks behind
- * it and needs no cut.
- *
- * Measured against the drop's SEGMENTS, so a stretch that crosses the lunch break is
- * counted for the time it really occupies on the clock and not for the band it skips.
+ * Rows of ANOTHER job the drop lands in and must therefore cut. `reflowed` picks the side: a fixed
+ * drop collides with the other fixed rows, a reflowed drop with the other movable ones, ignoring
+ * fixed rows entirely and cutting only a row that STARTS BEFORE it. Measured against the drop's
+ * SEGMENTS, so a stretch across the lunch break counts the time it really occupies.
  */
 function otherJobOverlaps(
   draft: readonly Block[],
@@ -2092,10 +1516,8 @@ function otherJobOverlaps(
 }
 
 /**
- * One day as MANUAL placement sees it. `buildDayPlan` answers "what may the engine
- * fill here" and says zero for a weekend; this answers "where could these hours
- * physically go", which is the question once a drop has displaced somebody else's
- * row on a day the engine never fills.
+ * One day as MANUAL placement sees it. `buildDayPlan` answers "what may the engine fill here" and
+ * says zero for a weekend; this answers "where could these hours physically go".
  */
 interface ManualDayPlan extends ClockRuler {
   workingMinutes: number;
@@ -2107,9 +1529,8 @@ function buildManualDayPlan(input: ComposeInput, date: string, blocks: readonly 
   const { spans, workingMinutes } = buildPeriodSpans(config.periods);
   if (config.isClosed) return { date, spans, workingMinutes, freeRuns: [] };
 
-  // Every row on the day counts, movable or not: displaced hours must not land on
-  // top of what the owner can currently see, and a row that the reflow later moves
-  // only ever gave the tail a later place in the queue.
+  // Every row on the day counts, movable or not: displaced hours must not land on top of what the
+  // owner can currently see.
   const obstacles: IndexRange[] = [];
   for (const gap of input.gaps) {
     if (gap.date !== date) continue;
@@ -2141,13 +1562,9 @@ interface DisplacedHours {
 }
 
 /**
- * Places the tail of a cut row: from the drop's end, forward only, in the free
- * working time of the day, then chaining into following days exactly as overflow
- * does. `null` when the hours do not fit before the planning horizon.
- *
- * `toClockSegments` cuts the tail at every period boundary, so neither the head nor
- * the tail ever straddles a non-working interval — pushing 3 h past 13:00 gives
- * 13:00-14:00 and 15:30-17:30, two rows of one job, exactly as auto-fill would.
+ * Places the tail of a cut row: from the drop's end, forward only, in the day's free working time,
+ * then chaining into following days exactly as overflow does. `null` when the hours do not fit before
+ * the horizon. `toClockSegments` keeps neither head nor tail straddling a non-working interval.
  */
 function pushDisplacedMinutes(
   input: ComposeInput,
@@ -2183,15 +1600,9 @@ function pushDisplacedMinutes(
 }
 
 /**
- * The next day displaced hours may use.
- *
- * A weekend tail STAYS ON THE WEEKEND. The engine never moves weekend work, so
- * carrying Saturday's remainder onto Monday would be the engine deciding the shop
- * does not work Saturdays after all — the owner put those hours there.
- *
- * Everything else walks the weekdays, skipping the weekend and the Friday buffer:
- * a row displaced by somebody else's drop is not growth, and the colchón belongs
- * to growth alone (rule 5).
+ * The next day displaced hours may use. A WEEKEND TAIL STAYS ON THE WEEKEND: carrying Saturday's
+ * remainder onto Monday would be the engine deciding the shop does not work Saturdays. Everything
+ * else walks the weekdays, skipping the weekend and the buffer — a displaced row is not growth.
  */
 function nextManualDate(date: string, onWeekend: boolean): string {
   let next = addDays(date, 1);
@@ -2222,12 +1633,7 @@ function manualFailure(
 // The summary strip's arithmetic
 // ---------------------------------------------------------------------------
 
-/**
- * What the amber strip above the grid states, as numbers only — the wording and
- * the date formatting belong to the UI and its translation files.
- *
- * "Taller ocupado hasta el jueves 27 de agosto · 96 h en cola · viernes libre".
- */
+/** What the amber strip states, as numbers only — the wording and formatting belong to the UI. */
 export interface ScheduleSummary {
   /** The last date carrying work from today onwards, or `null` for a clear calendar. */
   lastOccupiedDate: string | null;
@@ -2239,11 +1645,7 @@ export interface ScheduleSummary {
   bufferClear: boolean;
 }
 
-/**
- * CLAUDE.md puts this arithmetic here so one endpoint can serve the strip:
- * "last occupied date across all weeks, hours queued, and whether Friday is
- * still clear". Hours already worked are not queued, so only today onwards counts.
- */
+/** One endpoint serves the strip. Hours already worked are not queued, so only today on counts. */
 export function summarizeSchedule(blocks: readonly Block[], today: string): ScheduleSummary {
   let lastOccupiedDate: string | null = null;
   let queuedMinutes = 0;
@@ -2276,9 +1678,8 @@ interface TakeOutcome {
 }
 
 /**
- * Takes `minutes` off `ordered` from the far end backwards, unlocked rows first
- * and locked ones only when the job has nothing else left. Mutates the rows it is
- * given, which are `draft` members; a row reaching zero is reported for deletion.
+ * Takes `minutes` off `ordered` from the far end backwards, unlocked rows first and locked ones only
+ * when the job has nothing else left. Mutates the `draft` members it is given.
  */
 function takeMinutes(ordered: readonly Block[], minutes: number): TakeOutcome {
   const deletedBlockIds: string[] = [];
@@ -2302,29 +1703,11 @@ function takeMinutes(ordered: readonly Block[], minutes: number): TakeOutcome {
 }
 
 /**
- * The job's last row THE ENGINE STILL LAYS OUT — the counterparty every transfer that
- * ADDS hours uses.
- *
- * IT IS THE MOVABLE POOL, `isMovable`, and nothing narrower. Hours added to a row the
- * reflow cannot touch are written straight onto the clock, where they can run over the
- * day's other work, through the lunch break, or past the end of the day with nothing to
- * settle them afterwards. "A locked block is never grown or shrunk silently" therefore
- * covers every row outside the pool: locked, on a weekend, AND in the frozen past. The
- * added hours get a row of their own instead (`createdRowAfter`), which `compose` then
- * places properly.
- *
- * This used to test the stored MARKS only, which read like the whole rule because a hand
- * drop onto Sat/Sun always left one — so the weekend was covered in practice and only the
- * past was reachable. It was the worst defect in the app and needed no unusual gesture at
- * all: a past Mon-Thu row is never marked (its day role is `auto`), and a row on TODAY
- * becomes a past row overnight. A 2 h job on yesterday raised to 6 h was stored as
- * `12:00 + 360 min`, one row straight through the lunch break claiming 6 h where the clock
- * holds 4.5 h; raised to 13 h it became `12:00-25:00` and took the whole calendar page down
- * from `useFormat().time`.
- *
- * Taking hours AWAY is not symmetrical and is left alone: shrinking a fixed row frees
- * space rather than claiming it, and LIFO has to be able to reach the job's hours
- * wherever they are — see `takeMinutes`.
+ * The job's last row THE ENGINE STILL LAYS OUT — the counterparty every transfer that ADDS hours
+ * uses. It is `isMovable` and nothing narrower, because hours added to a row the reflow cannot touch
+ * are written straight onto the clock, where they can run over other work, through the lunch break
+ * or past the end of the day with nothing to settle them. Taking hours AWAY is not symmetrical and
+ * still reaches every row: shrinking frees space rather than claiming it — see `takeMinutes`.
  */
 function lastAutomatic(ordered: readonly Block[], today: string): Block | undefined {
   for (let index = ordered.length - 1; index >= 0; index -= 1) {
@@ -2334,10 +1717,9 @@ function lastAutomatic(ordered: readonly Block[], today: string): Block | undefi
 }
 
 /**
- * A row for hours that have nowhere to go, ranked immediately after `anchor` (or
- * after the whole queue when the job has no rows yet). Its date is pulled forward
- * into the movable pool, because a row parked on a weekend or in the past would
- * be an obstacle the engine could never place.
+ * A row for hours that have nowhere to go, ranked immediately after `anchor`. Its date is pulled
+ * forward into the movable pool: a row parked on a weekend or in the past would be an obstacle the
+ * engine could never place.
  */
 function createdRowAfter(
   anchor: Block | undefined,

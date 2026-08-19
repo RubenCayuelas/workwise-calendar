@@ -13,7 +13,6 @@ import {
 import { hhmmToMinutes as t } from './dates';
 import type { WorkPeriod } from '../types';
 
-/** The documented split shift, and the hour of margin at either end of it. */
 const PERIODS: WorkPeriod[] = [
   { startMinutes: t('08:00'), endMinutes: t('14:00') },
   { startMinutes: t('15:30'), endMinutes: t('19:30') },
@@ -60,10 +59,8 @@ describe('manualWindowsOf', () => {
 
 describe('netMinutesBetween', () => {
   it('skips the lunch break in both views and the margins in the periods only', () => {
-    // 10:00 to 17:30: four hours of morning plus two of afternoon, lunch uncounted.
     expect(netMinutesBetween(PERIODS, t('10:00'), t('17:30'))).toBe(360);
     expect(netMinutesBetween(WINDOWS, t('10:00'), t('17:30'))).toBe(360);
-    // 07:00 to 09:00 is margin plus period: one hour of work, two of manual window.
     expect(netMinutesBetween(PERIODS, t('07:00'), t('09:00'))).toBe(60);
     expect(netMinutesBetween(WINDOWS, t('07:00'), t('09:00'))).toBe(120);
   });
@@ -90,9 +87,7 @@ describe('firstWorkingMinute', () => {
   });
 
   it('answers 15:30 for every minute of the break, first and last', () => {
-    // 14:00 is the exclusive END of the first window and before the start of the second, so it
-    // belongs to neither — which is what let a drop released there be stored uncut, running
-    // straight through the break. Every minute up to 15:29 is the same gesture.
+    // 14:00 is the exclusive end of the first window and before the second's start: neither covers it.
     for (const minute of [t('14:00'), t('14:01'), t('15:00'), t('15:29')]) {
       expect(firstWorkingMinute(WINDOWS, minute), `at ${minute}`).toBe(t('15:30'));
     }
@@ -104,9 +99,7 @@ describe('firstWorkingMinute', () => {
   });
 
   it('leaves a minute alone when no window ever covers it again', () => {
-    // Past the end of the day, and on a day whose afternoon is switched off, where the hole
-    // runs to midnight. There is no later working minute to offer, so the answer belongs to
-    // `dayEndMinutes` and its callers — the drop rolls to another day, or the write refuses.
+    // No later working minute to offer, so dayEndMinutes and its callers are what answer.
     expect(firstWorkingMinute(WINDOWS, t('20:30'))).toBe(t('20:30'));
     expect(firstWorkingMinute(WINDOWS, t('23:00'))).toBe(t('23:00'));
     const morningOnly = manualWindowsOf([PERIODS[0]], 60, 60);
@@ -130,25 +123,18 @@ describe('reachableRuns', () => {
       { startMinutes: t('10:00'), endMinutes: t('14:00') },
       { startMinutes: t('15:30'), endMinutes: t('20:30') },
     ]);
-    // The margins are inside the window, so a row in the top margin reaches just as far.
     expect(netMinutesOf(reachableRuns(WINDOWS, t('07:00'), t('20:30')))).toBe(720);
   });
 
   it('starts a row that begins inside the break at the next working minute', () => {
-    // A row whose start is not working time begins where the shop can start, so it reaches
-    // exactly as far as one released at 15:30 does. It used to be held inside the band —
-    // `14:30-15:30` and nothing after it — which read the row as sitting in the lunch break
-    // and is what let 2 h released at 14:00 be measured, and stored, as `14:00-16:00`.
     expect(reachableRuns(WINDOWS, t('14:30'), t('20:30'))).toEqual([
       { startMinutes: t('15:30'), endMinutes: t('20:30') },
     ]);
-    // Every minute of the band gives the same answer, first and last included.
     for (const minute of [t('14:00'), t('15:00'), t('15:29'), t('15:30')]) {
       expect(reachableRuns(WINDOWS, minute, t('20:30')), `released at ${minute}`).toEqual([
         { startMinutes: t('15:30'), endMinutes: t('20:30') },
       ]);
     }
-    // And the last minute of the morning is still the morning's.
     expect(reachableRuns(WINDOWS, t('13:59'), t('20:30'))).toEqual([
       { startMinutes: t('13:59'), endMinutes: t('14:00') },
       { startMinutes: t('15:30'), endMinutes: t('20:30') },
@@ -156,8 +142,7 @@ describe('reachableRuns', () => {
   });
 
   it('closes the last hole at the end of the axis', () => {
-    // Past the last window entirely — only reachable on an axis widened to show a row
-    // left over from a longer working day.
+    // Only reachable on an axis widened to show a row left over from a longer day.
     expect(reachableRuns(WINDOWS, t('21:00'), t('22:00'))).toEqual([
       { startMinutes: t('21:00'), endMinutes: t('22:00') },
     ]);
@@ -175,21 +160,11 @@ describe('adjacentInWindows', () => {
 
   it('separates rows with workable time between them', () => {
     expect(adjacentInWindows(WINDOWS, t('10:00'), t('11:00'))).toBe(false);
-    // Half an hour of MARGIN between them is workable by hand, so they are two stretches.
-    // Read against the periods alone this pair would join, which is the trap the manual
-    // window exists to close.
+    // Half an hour of MARGIN is workable by hand, though read against the periods alone it is not.
     expect(adjacentInWindows(WINDOWS, t('07:30'), t('08:00'))).toBe(false);
     expect(netMinutesBetween(PERIODS, t('07:30'), t('08:00'))).toBe(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// The end of the day, and the two conversions stated over it
-// ---------------------------------------------------------------------------
-//
-// Invariant 3 of the battery: no stored row runs past the end of its day. Three call
-// sites used to draw that line at midnight — a drop, a bottom-edge resize and the
-// scissors — so all three are now stated over these three functions.
 
 describe('dayEndMinutes', () => {
   it('is the end of the last manual window, margin included', () => {
@@ -205,11 +180,8 @@ describe('dayEndMinutes', () => {
 
 describe('clockEndOf', () => {
   it('is the end of the last row a net-minute stretch is stored as', () => {
-    // The owner's own worked example: 6 h from 10:00 is 10:00-14:00 plus 15:30-17:30.
     expect(clockEndOf(WINDOWS, t('10:00'), 360)).toBe(t('17:30'));
-    // Inside one window it is plain arithmetic.
     expect(clockEndOf(WINDOWS, t('08:00'), 240)).toBe(t('12:00'));
-    // Exactly the day's last minute.
     expect(clockEndOf(WINDOWS, t('09:00'), 600)).toBe(t('20:30'));
   });
 
@@ -220,17 +192,12 @@ describe('clockEndOf', () => {
   });
 
   it('reads a row that STARTS in the break from the next working minute, as the splitter does', () => {
-    // 6 h aimed at the lunch band starts at 15:30 and therefore ends at 21:30 — past the end
-    // of the day, which is the caller's problem and not this function's. It used to answer
-    // 20:00, the reading that stored `14:00 +360m` as one row through the break.
+    // Past the end of the day is the caller's problem, not this function's.
     expect(clockEndOf(WINDOWS, t('14:00'), 360)).toBe(t('15:30') + 360);
     expect(clockEndOf(WINDOWS, t('14:30'), 60)).toBe(t('16:30'));
-    // The whole band answers the same, so no minute of it is a different gesture.
     for (const minute of [t('14:00'), t('15:00'), t('15:29'), t('15:30')]) {
       expect(clockEndOf(WINDOWS, minute, 120), `from ${minute}`).toBe(t('17:30'));
     }
-    // Past the last window there IS no next working minute (a margin the owner has since set
-    // to 0, or an afternoon switched off), so the overrun is reported rather than moved.
     expect(clockEndOf(manualWindowsOf(PERIODS, 60, 0), t('19:30'), 60)).toBe(t('20:30'));
     expect(clockEndOf(manualWindowsOf([PERIODS[0]], 0, 0), t('16:00'), 60)).toBe(t('17:00'));
   });

@@ -1,16 +1,10 @@
 /**
- * `/api/gaps/:id` — edit or remove one gap.
- *
  * PATCH  { date?, startTime | startMinutes?, durationHours | durationMinutes?, reason? }
  *        -> { gap, summary }
  * DELETE -> { deleted: true, summary }
  *
- * A PATCH is checked as a whole: the fields it omits keep their stored values and the
- * resulting rectangle is tested against the rows the engine may not move, exactly as
- * on create. `reason` accepts `null` (or `""`) to clear it.
- *
- * Deleting frees the time, and the recomposition fills it — Mon-Thu first, which is
- * also how work is pulled back off the Friday colchón.
+ * A PATCH is checked as a WHOLE: omitted fields keep their stored values and the resulting
+ * rectangle is tested as on create. `reason` accepts `null` or `""` to clear it.
  */
 
 import type { NextRequest } from 'next/server';

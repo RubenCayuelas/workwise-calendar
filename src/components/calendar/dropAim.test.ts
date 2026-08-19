@@ -1,11 +1,3 @@
-/**
- * The two rules that turn a pixel into a place: thirds, and the next day.
- *
- * Both were decided with the owner on 2026-08-14 and both replace an answer they called
- * indefensible — an exact minute nobody can aim at, and a refusal where any calendar would
- * simply use the day after.
- */
-
 import { describe, expect, it } from 'vitest';
 import { manualWindowsOf } from '../../lib/manualWindow';
 import type { DayShape, WorkPeriod } from '../../types';
@@ -88,9 +80,7 @@ describe('aimAtThirds', () => {
   });
 
   it('offers HALVES on a row too short to cut, so no third can produce a sliver', () => {
-    // A quarter-hour row: both halves of a cut would be below `MIN_ROW_MINUTES`, so the
-    // middle third would only ever offer a gesture whose outcome is the very thing thirds
-    // were adopted to remove.
+    // A quarter-hour row: both halves of a cut would be below `MIN_ROW_MINUTES`.
     const sliver = { id: 's', startMinutes: 10 * 60, durationMinutes: 15 };
     expect(aimAtThirds(10 * 60 + 2, [sliver])).toBe(10 * 60);
     expect(aimAtThirds(10 * 60 + 12, [sliver])).toBe(10 * 60 + 15);
@@ -110,11 +100,8 @@ describe('aimAtThirds', () => {
 
 describe('resolveDropDay', () => {
   /**
-   * `locked` because the roll and the clamp only ever apply to a drop that lands LITERALLY
-   * (2026-08-17). An unlocked Monday-to-Thursday release inside the periods is a queue RANK:
-   * the engine takes what the day has left and carries the rest to the next day, so there is
-   * no footprint to fit and nothing for either to do. A padlocked run is the plainest case
-   * of a literal drop, and it keeps these cases testing the rule they are about.
+   * `locked` because the roll and the clamp only apply to a drop that lands LITERALLY: an
+   * unlocked Mon-Thu release inside the periods is a queue rank with no footprint to fit.
    */
   const resolve = (
     date: string,
@@ -133,8 +120,7 @@ describe('resolveDropDay', () => {
   });
 
   it('moves a release below what the day holds to the next day, at its first period', () => {
-    // 6 h released at 18:00 on a Tuesday: the day ends at 20:30 and cannot hold it, so it
-    // is Wednesday — which is what aiming past the bottom of a column means anywhere else.
+    // 6 h at 18:00: the day ends at 20:30 and cannot hold it, so it is Wednesday.
     expect(resolve('2026-08-18', 18 * 60, 360)).toEqual({
       date: '2026-08-19',
       startMinutes: 8 * 60,
@@ -154,8 +140,7 @@ describe('resolveDropDay', () => {
       locked: true,
       timeline: TIMELINE,
     });
-    // Thursday is closed, so it is Friday — the colchón, which is exactly what CLAUDE.md
-    // has it hold: the overflow of a day that ran out of room.
+    // Thursday is closed, so it is Friday — the colchón takes a day's overflow.
     expect(rolled).toEqual({
       date: '2026-08-21',
       startMinutes: 8 * 60,
@@ -165,8 +150,7 @@ describe('resolveDropDay', () => {
   });
 
   it('clamps instead of rolling on a day the engine never lays out', () => {
-    // The weekend is a literal placement on a day the owner named on purpose. Moving it to
-    // Sunday would be a bigger surprise than pulling the ghost up and saying so.
+    // Moving a weekend placement to Sunday would surprise more than the clamp does.
     expect(resolve('2026-08-22', 18 * 60, 360)).toEqual({
       date: '2026-08-22',
       startMinutes: 13 * 60,
@@ -186,9 +170,7 @@ describe('resolveDropDay', () => {
   });
 
   it('never rolls into a day whose margins are the only room left', () => {
-    // The roll is measured over the PERIODS: a run that only fits by reaching into the
-    // bottom margin would come back padlocked, and the owner asked for the next day, not
-    // for a mark. 10 h is the whole shift, so it fits the periods exactly.
+    // Measured over the PERIODS: 10 h is the whole shift, so it fits them exactly.
     expect(resolve('2026-08-17', 18 * 60, 600)).toEqual({
       date: '2026-08-18',
       startMinutes: 8 * 60,
@@ -200,10 +182,7 @@ describe('resolveDropDay', () => {
   });
 
   it('neither rolls nor clamps an unlocked Monday-to-Thursday release', () => {
-    // THE GHOST ASKS THE SAME QUESTION THE SERVER DOES. 6 h released at 18:00 on a Tuesday
-    // used to be pulled to another column, or clamped up to 13:00 with «no pueden empezar
-    // después de…» — about a release that works perfectly well. It is a rank: the engine
-    // stores what Tuesday has left and carries the rest to Wednesday.
+    // A rank: the engine stores what Tuesday has left and carries the rest to Wednesday.
     expect(resolve('2026-08-18', 18 * 60, 360, false)).toEqual({
       date: '2026-08-18',
       startMinutes: 18 * 60,

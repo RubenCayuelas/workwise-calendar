@@ -1,23 +1,6 @@
 'use client';
 
-/**
- * Where the hours actually went, after a write.
- *
- * This is the component the brief asks for in "Surface what happened afterwards: if
- * adding hours pushed work into the Friday buffer or into next week, say so". It
- * states nothing it was not told: `describePlacement` diffs the rows the API returned
- * against the rows that were on screen, and this renders that diff.
- *
- * It also carries `touchedLockedBlockIds`, which must never be swallowed — CLAUDE.md:
- * "A locked block is never grown or shrunk silently."
- *
- * Two wording notes:
- * - A row in a later week is labelled with its FULL date (`14 ago 2026`) instead of
- *   `Vie 14`, because "next week" is exactly the thing a weekday-and-number label
- *   hides.
- * - A Friday row gets the day header's own word for the buffer (`colchón`) plus the
- *   standing explanation of what the buffer is for.
- */
+/** Where the hours actually went after a write: `describePlacement`'s diff, rendered. */
 
 import { useTranslation } from 'react-i18next';
 import { InlineBanner } from '../ui';
@@ -45,8 +28,7 @@ export function PlacementNotice({
 
   const lines = placementHighlights(outcome);
   const detailed = lines.length > 0;
-  // A day the shop did not expect to use is worth a warning colour; an ordinary
-  // placement is just confirmation.
+  // A day the shop did not expect to use earns a warning colour, not a confirmation.
   const tone = outcome.usedBuffer || outcome.spilledToLaterWeek ? 'warning' : 'success';
 
   return (

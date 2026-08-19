@@ -1,13 +1,6 @@
-/**
- * The drag preview's promise, checked against the rules `resolveManualPlacement`
- * actually applies (CLAUDE.md, *A Drop That Overlaps*).
- *
- * The point of these is the SIDES: a reflowed drop only ever disturbs movable rows and
- * a fixed one only ever disturbs fixed rows, and getting that backwards would make the
- * preview announce a cut the server will not perform — which is worse than saying
- * nothing, because the owner would move the block again to undo something that never
- * happened.
- */
+// The drag preview's promise, checked against the rules `resolveManualPlacement` really applies.
+// The point is the SIDES: a reflowed drop disturbs only movable rows and a fixed one only fixed
+// ones. Backwards, the preview announces a cut the server will never perform.
 
 import { describe, expect, it } from 'vitest';
 import {
@@ -126,9 +119,7 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
   });
 
   it('still merges into the SAME job when the dragged unit is the padlocked one', () => {
-    // It refused until 2026-08-14, when the padlock became the mark every weekend drop
-    // leaves: the refusal then fired on the ordinary gesture of stacking more of one job
-    // on the Saturday it already sits on. The server merges and keeps the padlock.
+    // Stacking more of one job on the Saturday it sits on: the server merges, padlock and all.
     const effect = dropEffectOf(
       input({
         dayIsWeekend: true, pinned: true, dayReflows: false,
@@ -140,8 +131,7 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
   });
 
   it('collides with the locked rows of a weekday when the dragged unit is locked', () => {
-    // A locked unit is fixed wherever it lands, so it meets the OTHER fixed rows —
-    // and passes straight through the movable ones, which the reflow will move.
+    // A locked unit meets the other FIXED rows and passes through the movable ones.
     const movable = row({ id: 'movable' });
     const pinned = row({ id: 'pinned', locked: true, project: { name: 'Escalera' } });
     expect(dropEffectOf(input({ locked: true, pinned: true, rows: [movable] }))).toBeNull();
@@ -152,8 +142,7 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
   });
 
   it('puts a Friday drop on the fixed side, because the buffer padlocks it', () => {
-    // A drop onto the colchón padlocks the row, so it leaves the movable pool and the
-    // reflow will never separate it from what it lands on — exactly the weekend's case.
+    // The colchón padlocks the row, so the reflow will never separate it from what it lands on.
     const mine = row({
       id: 'viernes',
       projectId: 'porton',
@@ -167,23 +156,18 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
     expect(
       dropEffectOf(input({ pinned: true, rows: [row({ id: 'a-mano', locked: true })] })),
     ).toMatchObject({ kind: 'blocked', blockId: 'a-mano' });
-    // ...but only against the rows that are themselves fixed. An engine-placed Friday
-    // row is still movable — that is the buffer self-cleaning — so the reflow lays it
-    // out around the drop and there is nothing to promise.
+    // ...but an engine-placed Friday row is still movable, so there is nothing to promise.
     expect(dropEffectOf(input({ pinned: true, rows: [row({ id: 'desborde' })] }))).toBeNull();
   });
 
   it('passes a padlocked row by on the reflowed side, cutting nothing', () => {
-    // A Mon-Thu drop the engine still owns flows around a padlocked row: the server
-    // ignores fixed rows on that side, whichever gesture fixed them.
+    // The server ignores fixed rows on the reflowed side: flexible work flows around them.
     expect(dropEffectOf(input({ rows: [row({ id: 'a-mano', locked: true })] }))).toBeNull();
   });
 
   it('measures the drop by its SEGMENTS, so it never claims the lunch band', () => {
-    // 6 h released at 10:00 is stored as 10:00-14:00 plus 15:30-17:30 (CLAUDE.md, *A
-    // Drop Is Stored In Segments*), so a row sitting inside the break is untouched. The
-    // raw 10:00-16:00 rectangle the pointer draws would have announced a cut the server
-    // will never perform — the one direction a preview must not be wrong in.
+    // 6 h at 10:00 is stored 10:00-14:00 + 15:30-17:30, so a row inside the break is untouched;
+    // the raw 10:00-16:00 rectangle would announce a cut.
     const inLunch = row({ id: 'comida', startMinutes: 14 * 60 + 15, durationMinutes: 45 });
     expect(
       dropEffectOf(
@@ -191,15 +175,14 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
       ),
     ).toBeNull();
 
-    // ...and the hours pushed past the break by that same cut DO reach further down the
-    // afternoon than the rectangle does: 17:00 is inside the drop, 16:00 was its edge.
+    // ...and the segments reach further than the rectangle: 17:00 is inside the drop, 16:00 was
+    // its edge.
     const afternoon = row({ id: 'tarde', startMinutes: 17 * 60, durationMinutes: 60 });
     expect(
       dropEffectOf(
         input({ dayIsWeekend: true, pinned: true, dayReflows: false, startMinutes: 10 * 60, durationMinutes: 6 * 60, rows: [afternoon] }),
       ),
-      // Covered from its very start, so there is no head to leave behind: the server
-      // deletes the row and re-places its whole duration after the drop. Not a split.
+      // Covered from its start: no head to leave behind, so the whole row is displaced, not cut.
     ).toMatchObject({ kind: 'displace', blockId: 'tarde' });
   });
 
@@ -233,9 +216,7 @@ describe('dropEffectOf — a drop the reflow will not lay out', () => {
 
 describe('a gap or a lock under the drop — refused, or slid past?', () => {
   it('announces the refusal on a day that neither reflows nor moves: the weekend', () => {
-    // Nothing there will ever move, so the server answers 409 `overlaps-gap` and the ghost
-    // has to say so: a preview that promises a placement the save will not perform is
-    // worse than no preview.
+    // Nothing there will ever move: the server answers 409 `overlaps-gap` and the ghost says so.
     const resolved = resolveDropPreview(
       input({
         dayIsWeekend: true,
@@ -251,8 +232,7 @@ describe('a gap or a lock under the drop — refused, or slid past?', () => {
   });
 
   it('SLIDES a Friday drop past the gap instead of refusing it', () => {
-    // The colchón pins the row but the engine still lays the day out, so the drop is never
-    // refused for a collision: it keeps the day the owner named and gives up the minute.
+    // The colchón pins the row, but the engine lays the day out: it gives up the minute, not the day.
     const resolved = resolveDropPreview(
       input({
         pinned: true,
@@ -266,9 +246,8 @@ describe('a gap or a lock under the drop — refused, or slid past?', () => {
   });
 
   it('slides a Monday lunch-band drop past a gap, which the old preview called harmless', () => {
-    // The one the matrix flagged as K-1: the pin comes from the SLOT, not the day, so the
-    // preview used to read the re-ranked side and say nothing at all while the server
-    // moved the row somewhere else entirely.
+    // The pin comes from the SLOT and not the day, which is the case a preview reading only the
+    // day gets silently wrong.
     const resolved = resolveDropPreview(
       input({
         pinned: true,
@@ -294,9 +273,7 @@ describe('a gap or a lock under the drop — refused, or slid past?', () => {
   });
 
   it('shows the refusal when the day has no clear slot: the pin cannot be given up', () => {
-    // Gaps over every minute the unit could still start on: `firstClearStart` answers
-    // null, and the server refuses rather than dropping the padlock it is about to put on
-    // the row. So the ghost stays where the pointer is and names the gap.
+    // Gaps over every start left: `firstClearStart` is null, so the ghost stays put and names it.
     const resolved = resolveDropPreview(
       input({
         pinned: true,
@@ -310,9 +287,7 @@ describe('a gap or a lock under the drop — refused, or slid past?', () => {
   });
 
   it('slides a LOCKED unit too, on a day the engine lays out', () => {
-    // The padlock keeps the engine off the row; it does not stop the owner aiming it. And
-    // it cannot be treated differently from a drop onto the buffer, because since
-    // 2026-08-14 that drop IS a padlocked one.
+    // The padlock keeps the engine off the row; it does not stop the owner aiming it.
     const resolved = resolveDropPreview(
       input({
         locked: true,
@@ -389,18 +364,8 @@ describe('dropFootprint — what the ghost draws', () => {
     ]);
   });
 
-  /**
-   * THE ONE SHAPE THE GHOST MAY NEVER DRAW — one rectangle through the grey band.
-   *
-   * CLAUDE.md, *Calendar View -> Drag-drop*: "the ghost is drawn in segments, one rectangle
-   * per row the gesture will be stored as, because one rectangle straight through the grey
-   * band promises a shape that will never exist". `dropFootprint` breaks that for a run
-   * longer than the day ON PURPOSE — a tail past midnight is returned uncut so the server
-   * can refuse the drop as it was made — and since the drag unit is the whole RUN, that is
-   * the ORDINARY case rather than a corner: measured on the running app, 2026-08-17, an 18 h
-   * run picked up on Tuesday drew a single translucent rectangle over the entire column,
-   * hatched comida included, on every day the pointer crossed.
-   */
+  // `dropFootprint` returns a run longer than the day UNCUT on purpose, so the server can refuse
+  // it as it was made; drawn, that was one rectangle over the whole column, band included.
   it('draws an over-long run as the day it can fill, band left clear', () => {
     const run = { manualWindows: MANUAL_WINDOWS, startMinutes: 7 * 60, durationMinutes: 18 * 60 };
 
@@ -426,28 +391,16 @@ describe('dropFootprint — what the ghost draws', () => {
     }
   });
 
-  /**
-   * A start inside the comida keeps its own latitude: there is no boundary inside such a row
-   * to cut it at (`segmentDroppedRow`), so it stays the one rectangle it will really be
-   * stored as. Open Decision 5 owns what that drop should mean; this only fixes the drawing
-   * of a run, and must not quietly re-answer it.
-   */
+  // A start inside the comida has no boundary to cut at (`segmentDroppedRow`), so it stays the
+  // one rectangle it will really be stored as.
   it('leaves a drop released inside the band alone', () => {
     const inBand = { manualWindows: MANUAL_WINDOWS, startMinutes: 14 * 60 + 30, durationMinutes: 60 };
     expect(footprintWithinDay(inBand)).toEqual(dropFootprint(inBand));
   });
 });
 
-/**
- * A RUN DOES NOT END AT A TIME OF DAY — it ends on a later DAY.
- *
- * The drag unit is the run (CLAUDE.md, *The Unit of a Drag Is the RUN*), so the ghost's
- * `durationMinutes` is a total ACROSS DAYS. Adding it to a start and calling the sum an
- * end-of-day is a category error, and it was a visible one: an 18 h run released at 07:00
- * gave `420 + 1080 = 1500`, which `formatTime` printed as `--:--` and complained about
- * once per pointer move — forty times in a single drag. The quiet half was worse: 13 h at
- * 07:00 gave `21:30`, a perfectly plausible hour an hour past the end of the day.
- */
+// A run's duration is a total ACROSS DAYS, so `start + duration` is not a clock time: 18 h at
+// 07:00 gave 1500 (printed `--:--`), and 13 h gave a plausible-looking 21:30.
 describe('footprintEnd — the clock end, or nothing at all', () => {
   it('is the end of the last stored row when the day holds every minute', () => {
     expect(
@@ -490,20 +443,13 @@ describe('dayHoldsMinutes — is there any start on this day that would work?', 
   });
 
   it('says no to a run longer than the day, which is what the clamp cannot say', () => {
-    // `latestStartFor` answers 07:00 here — its "nothing fits" fallback — so the ghost
-    // used to read «18 h no pueden empezar después de las 07:00», which claims 07:00 works.
+    // `latestStartFor` answers 07:00 here — its "nothing fits" fallback — a start that does not work.
     expect(dayHoldsMinutes(MANUAL_WINDOWS, 18 * 60)).toBe(false);
   });
 });
 
-/**
- * THE QUESTION THE GHOST HAS TO ANSWER BEFORE IT PRINTS ANYTHING: is the minute under the
- * pointer a promise, or only a place in a queue?
- *
- * Getting it wrong is the defect the owner lived with — a ghost reading `09:00–14:00` over
- * Thursday, released, and the row settling on Wednesday at 12:00. Nothing was broken; the
- * preview had simply promised something a re-ranking drop cannot deliver.
- */
+// Is the minute under the pointer a promise, or only a place in a queue? Got wrong, the ghost read
+// `09:00–14:00` over Thursday and the row settled on Wednesday at 12:00.
 describe('dropPins — does the row keep the minute it is released on?', () => {
   const day = { periods: PERIODS, manualWindows: MANUAL_WINDOWS, startMinutes: 10 * 60, durationMinutes: 2 * 60 };
 
@@ -520,22 +466,15 @@ describe('dropPins — does the row keep the minute it is released on?', () => {
   });
 
   it('pins a MONDAY drop whose footprint reaches a visual margin', () => {
-    // The clause that lives only on the server (`pinsTheRow`) and that the preview used to
-    // miss: read off the day alone, this was drawn as a harmless re-rank and stored as a pin.
+    // Read off the DAY alone this is a harmless re-rank, and the server stores it as a pin.
     expect(
       dropPins({ ...day, locked: false, role: 'auto', startMinutes: 7 * 60, durationMinutes: 60 }),
     ).toBe(true);
   });
 
   it('does NOT pin a MONDAY drop aimed at the lunch band, because it starts at 15:30', () => {
-    // The band is not a slot: a release with no working time under it means the next minute
-    // that has some (`firstWorkingMinute`), so the row is stored at 15:30 — inside the
-    // periods, where a Monday-to-Thursday drop is an ordinary queue rank. It used to pin,
-    // and it had to, because the row was stored where it was released: one solid row through
-    // the break, which the engine could only have answered by undoing the drop.
-    //
-    // A MARGIN still pins (the test above): margin time is workable time the owner chose,
-    // and the engine's index space has none of it.
+    // The band is not a slot: `firstWorkingMinute` stores the row at 15:30, inside the periods,
+    // where a Mon-Thu drop is an ordinary rank. A MARGIN still pins — it is workable time.
     for (const startMinutes of [14 * 60, 14 * 60 + 30, 15 * 60 + 29, 15 * 60 + 30]) {
       expect(
         dropPins({ ...day, locked: false, role: 'auto', startMinutes, durationMinutes: 60 }),
@@ -574,8 +513,7 @@ describe('the queue a re-ranked drop is expressed against', () => {
   const queue = buildDropQueue(rows, () => true);
 
   it('names the row a Thursday drop falls in behind, which is on Wednesday', () => {
-    // The whole point: the drop's own COLUMN is not where the answer lives. The reflow
-    // packs forward from the first free slot, so the only stable fact is the rank.
+    // The drop's own COLUMN is not where the answer lives: the only stable fact is the rank.
     expect(dropPredecessor(queue, [], '2026-08-20', 9 * 60)?.id).toBe('wed');
   });
 
@@ -588,8 +526,7 @@ describe('the queue a re-ranked drop is expressed against', () => {
   });
 
   it('answers null before the first row of the week, rather than claiming a first place', () => {
-    // The queue reaches back into weeks this screen cannot see, so "it goes first" is a
-    // claim the ghost has no way to check. The caller says the generic sentence instead.
+    // The queue reaches into weeks this screen cannot see, so "it goes first" is uncheckable.
     expect(dropPredecessor(queue, [], '2026-08-17', 8 * 60)).toBeNull();
   });
 

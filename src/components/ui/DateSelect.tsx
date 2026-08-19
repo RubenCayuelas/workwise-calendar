@@ -1,20 +1,10 @@
 'use client';
 
 /**
- * A day, chosen from the days of the schedule.
- *
- * The counterpart of `TimeSelect`, and it exists for the same reason: a native
- * `<input type="date">` renders in the BROWSER's locale, so a shop PC with Chrome in
- * English shows `08/12/2026` for the 12th of August while the grid beside it reads
- * "Mié 12 ago". `03/08` is then genuinely ambiguous. Here the day is spelled by
- * `useFormat()`, exactly as the calendar spells it, and grouped under the same week
- * label the header shows — so a form and the grid can never name the same day
- * differently.
- *
- * It is a `Select`, so inside a `Field` it picks up the generated id, the
- * `aria-describedby` and the invalid ring like every other control here, and it is
- * keyboard-operable with no code of our own. See `dateOptions.ts` for which days it
- * offers and why the window is bounded.
+ * A day, chosen from the days of the schedule: spelled by `useFormat()` and grouped under
+ * the week label the header shows, so a form and the grid cannot name a day differently.
+ * Which days it offers is `dateOptions.ts`. Not a native `<input type="date">`: in the
+ * browser's locale `03/08` is genuinely ambiguous.
  */
 
 import { isValidDate } from '../../lib/dates';
@@ -68,8 +58,7 @@ export function DateSelect({
     })),
   }));
 
-  // A stored value that is not a date at all still has to be visible rather than
-  // silently replaced by whatever the list happens to start with.
+  // A value that is not a date at all still has to be visible, not silently replaced.
   const orphan = isValidDate(value) ? [] : [{ value, label: value }];
 
   return (

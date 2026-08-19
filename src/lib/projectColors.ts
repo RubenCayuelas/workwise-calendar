@@ -1,18 +1,9 @@
 /**
- * The fixed project swatch set.
- *
- * CLAUDE.md: "Project colours are a fixed swatch picker built from
- * `--ww-project-1..8`. No free hex input — amber is reserved for the app itself
- * and a free picker would let a job blend into the interface."
- *
- * These are the eight values of `--ww-project-1..8` in
- * public/brand/workwise-tokens.css, in the same order. The token file stays the
- * authority for how a colour is PAINTED (fills, borders, tints); this list exists
- * because the API has to validate what it is asked to store, and a CSS custom
- * property is not readable from a route handler.
- *
- * Pure and dependency-free on purpose: the swatch picker imports the same
- * constant the API validates against, so the two can never drift.
+ * The fixed project swatch set: the eight values of `--ww-project-1..8` in
+ * public/brand/workwise-tokens.css, in that order. The token file stays the authority for
+ * how a colour is PAINTED; this list exists because the API has to validate what it stores
+ * and a CSS custom property is not readable from a route handler. Pure and dependency-free
+ * so the swatch picker can import the same constant and the two cannot drift.
  */
 export const PROJECT_COLORS = [
   '#185FA5',
@@ -34,9 +25,8 @@ export function projectColorToken(color: string): string | undefined {
 }
 
 /**
- * The swatch `value` names, or `undefined` when it names none. Case-insensitive,
- * because a hex arriving from a form or a hand-written request may be lower case;
- * storage is always upper case, like `Settings.gapColor`.
+ * The swatch `value` names, or `undefined` when it names none. Case-insensitive because a
+ * hex from a form may be lower case; storage is upper case, like `Settings.gapColor`.
  */
 export function normalizeProjectColor(value: string): ProjectColor | undefined {
   const candidate = value.trim().toUpperCase();

@@ -1,21 +1,8 @@
 'use client';
 
 /**
- * The scissors: move part of one row somewhere else. `POST /api/blocks/:id/split`.
- *
- * CLAUDE.md calls this the hardest interaction in the app, and the brief settles the
- * shape: "keep it a small form rather than a clever gesture, because on a shop PC a
- * modifier-key gesture would never be discovered". So it is three inputs — how many
- * hours, which day, what time — and no dragging is required to perform it.
- *
- * The fragment is then handed back through `onSplit` so the calendar can put it
- * straight into drag mode, which is the fast path once the form has done the part a
- * gesture cannot: choose an amount.
- *
- * WHAT THE FORM CANNOT PROMISE, and says so via `block.splitHint`: the fragment does
- * not stay where it is sent. A drop is a queue rank — the API layer verified this on a
- * real server: "Splitting 2 h onto Wednesday moved those hours behind Barandilla on
- * Monday. To park hours on a day, lock them."
+ * The scissors: a form rather than a gesture, because only a form can choose an AMOUNT. The
+ * fragment then goes back to the calendar for its drop.
  */
 
 import { useEffect, useState } from 'react';
@@ -53,9 +40,8 @@ import styles from './jobs.module.css';
 
 export interface SplitResult {
   /**
-   * The row the split created, or `null` when auto-merge absorbed it into a
-   * neighbouring row of the same job (it touched inside the same period on the same
-   * day) — or when the job's rows could not be read before the split.
+   * The row the split created, or `null` when auto-merge absorbed it into a neighbouring row
+   * of the same job — or when the job's rows could not be read before the split.
    */
   fragment: Block | null;
   /** The row that was cut, re-read after the reflow. `null` if it was merged away. */
@@ -121,8 +107,8 @@ export function SplitBlockPanel({
     setActionError(null);
   }, [open, block.id, block.date, block.startMinutes, blockHours, defaultDate, defaultStartMinutes]);
 
-  // Read the job's rows so the new one can be told apart afterwards. The split does
-  // not depend on this succeeding — a missing list only costs `onSplit` its fragment.
+  // Read the job's rows so the new one can be told apart afterwards. A missing list only
+  // costs `onSplit` its fragment; the split itself does not depend on it.
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
@@ -239,16 +225,8 @@ export function SplitBlockPanel({
       </Field>
 
       <div className={styles.row}>
-        {/*
-          The picker reaches back as well as forward: CLAUDE.md keeps the PAST frozen for
-          the ENGINE only — "The user can still edit the past by hand at any time" — so a
-          fragment may legitimately be sent to a day already gone, to record what the shop
-          really did. The row's own day is always offered, however old it is.
-
-          Days are named by `useFormat()`, like everywhere else. A native date input would
-          order its parts in the BROWSER's locale, which is how "03/08" stops meaning
-          anything; the long date under the control confirms the choice in prose.
-        */}
+        {/* Never a native date input. The row's own day is
+            always offered, however old it is. */}
         <Field
           label={t('gapForm.date')}
           error={errorFor('date')}
@@ -263,8 +241,7 @@ export function SplitBlockPanel({
           />
         </Field>
 
-        {/* Quarter hours, like the grid's snap — a native time input would draw
-            "08:00 AM" next to a calendar reading "08:00–14:00". */}
+        {/* Quarter hours, like the grid's snap. */}
         <Field label={t('gapForm.startTime')} error={errorFor('startTime')}>
           <TimeSelect value={startTime} disabled={saving} onChange={setStartTime} />
         </Field>

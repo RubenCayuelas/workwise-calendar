@@ -1,15 +1,6 @@
 'use client';
 
-/**
- * The header the wireframe specifies: logo, `‹ Semana 33 · 10–16 ago 2026 ›`, then
- * `Hoy`, `+ Nuevo trabajo`, the language switch and the overflow menu.
- *
- * Paging is a GET — nothing here can trigger a recomposition — which is what makes it
- * safe to hold the arrow keys down (the screen binds them to the same two callbacks).
- *
- * `onNewJob` and `onNewGap` are optional because the forms they open live outside the
- * calendar. A control with nothing behind it is disabled rather than silently dead.
- */
+/** Paging is a GET, so holding the arrow keys down is safe. */
 
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -55,8 +46,7 @@ export function WeekHeader({
 
       <span className="ww-spacer" />
 
-      {/* No aria-label: both buttons are named, and a second landmark called "the
-          workshop week" would only compete with the grid's own. */}
+      {/* No aria-label: a second landmark would only compete with the grid's own. */}
       <nav className={styles.pager}>
         <IconButton
           icon={<IconChevronLeft size={18} stroke={1.75} />}
@@ -66,15 +56,9 @@ export function WeekHeader({
         />
         {/* Polite: the week label is the one thing that changes on every page. */}
         <span className={styles.weekLabel} aria-live="polite">
-          {/*
-           * KEYED ON THE LABEL, so React replaces the node on every page turn and the
-           * change animation runs again. It is a separate element from the live region on
-           * purpose: remounting the region itself is what makes an announcement unreliable.
-           *
-           * It earns its keep with the drag: holding a block at the edge of the grid pages
-           * the calendar while the owner's eyes are on the BLOCK, so the one thing on
-           * screen that says which week they are now in has to move to be noticed.
-           */}
+          {/* Keyed on the label so React replaces the node and the change animation runs
+              again. Separate from the live region: remounting that makes the announcement
+              unreliable. */}
           <span key={weekLabel} className={styles.weekLabelText}>
             {weekLabel}
           </span>

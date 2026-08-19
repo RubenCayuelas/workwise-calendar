@@ -1,27 +1,10 @@
 /**
- * The arithmetic behind `DateSelect`: which days a date control offers, and how they
- * are grouped into the weeks the calendar already names.
+ * Which days `DateSelect` offers and how they group into the calendar's own weeks.
+ * Kept out of the component so it can be tested without a DOM.
  *
- * WHY A LIST INSTEAD OF `<input type="date">`, for the same reason `timeOptions.ts`
- * exists: a native date input draws its parts in the BROWSER's locale, not the page's.
- * On a shop PC with Chrome set to English it writes `08/12/2026` for the 12th of
- * August, next to a grid that says "Mié 12 ago" — and `03/08` is genuinely ambiguous.
- * Every day this app SHOWS goes through `useFormat()`, so a day the owner CHOOSES has
- * to be spelled by the same helpers.
- *
- * THE WINDOW IS A UI AFFORDANCE, NOT A RULE. The owner is always choosing a day in the
- * schedule, so the list runs from a few weeks back (the past stays editable by hand —
- * that is how yesterday gets corrected) to the end of the planning horizon. Two things
- * keep that from taking anything away:
- *
- * - the value already stored is ALWAYS an option, even when it falls outside, so
- *   editing an old gap never silently moves it;
- * - a horizon can be set to two years (`MAX_HORIZON_WEEKS`), which would be 700+
- *   options in one dropdown, so the forward reach is capped at
- *   `PICKER_MAX_FUTURE_WEEKS`. Anything further out is reached by dragging on the
- *   calendar itself, which is where a date that far away is chosen anyway.
- *
- * Kept out of the component so it can be tested without a DOM — the suite runs in Node.
+ * The window is a UI affordance, not a rule: a stored value outside it is always kept as
+ * an option, and the forward reach is capped so a two-year horizon cannot become 700
+ * options in one dropdown.
  */
 
 import { addDays, compareDates, isValidDate, isoWeekNumber, startOfWeek } from '../../lib/dates';
@@ -46,10 +29,7 @@ export interface DayWindow {
   maxDate: string;
 }
 
-/**
- * The days a form offers around `today`: whole weeks, so every group in the list is a
- * complete Monday-to-Sunday week the header would recognise.
- */
+/** The days a form offers around `today`, in whole Monday-to-Sunday weeks. */
 export function planningWindow(
   today: string,
   horizonWeeks: number = PICKER_FUTURE_WEEKS,
@@ -71,11 +51,8 @@ export function planningWindow(
 }
 
 /**
- * Every day in the window, plus `current` when it falls outside it.
- *
- * That last part is the same promise `timeOptionMinutes` makes: a stored value the
- * list does not contain would be replaced by whatever the list starts with the moment
- * the form is saved, which for a gap recorded last quarter would move it silently.
+ * Every day in the window, plus `current` when it falls outside it — a stored day the
+ * list omits would be silently replaced the moment the form is saved.
  */
 export function dayOptionDates(current: string | undefined, window: DayWindow): string[] {
   const days: string[] = [];
@@ -107,11 +84,9 @@ export interface DayOptionWeek {
 }
 
 /**
- * The days split into the weeks the calendar already names, in order.
- *
- * The group is labelled with the WHOLE week (Monday to Sunday) even when only part of
- * it is offered, because that label is the one the week header uses and the two must
- * not disagree about what "Semana 33" spans.
+ * The days split into the weeks the calendar already names, in order. A group is labelled
+ * with the whole Monday-to-Sunday week even when only part of it is offered, so the label
+ * cannot disagree with the week header's.
  */
 export function groupDaysByWeek(dates: readonly string[]): DayOptionWeek[] {
   const weeks: DayOptionWeek[] = [];

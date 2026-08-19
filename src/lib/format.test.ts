@@ -1,10 +1,3 @@
-/**
- * The labels the wireframe specifies, produced from the engine's numbers.
- *
- * The value of these is the decimal comma and the day boundary: 2.5 h has to read
- * "2,5 h" in Spanish, and a date must never shift a day on its way through `Intl`.
- */
-
 import { describe, expect, it } from 'vitest';
 import { minutesToHHmm } from './dates';
 import {
@@ -50,10 +43,8 @@ describe('formatTime', () => {
   });
 
   it('renders a time outside the day as a visible placeholder instead of throwing', () => {
-    // A row stored before the write guard existed can still hold `12:00 + 780 min`, and
-    // 25:00 used to throw out of `useFormat().time` and take the whole week view down —
-    // leaving no way to reach the row and correct it. The label is the loud kind of soft:
-    // the owner sees that the row is wrong, and the page survives to let them fix it.
+    // Measured: 25:00 threw out of useFormat().time and took the whole week view down, leaving no
+    // way to reach the row and correct it.
     const complaints: unknown[][] = [];
     const original = console.error;
     console.error = (...args: unknown[]) => complaints.push(args);
@@ -68,11 +59,8 @@ describe('formatTime', () => {
   });
 
   it('does not blame a stored row for a value that was never a time of day', () => {
-    // The message used to end "a stored row is out of range", and it was wrong the one
-    // time it mattered: the drag ghost was adding a RUN's net minutes (18 h, across two
-    // days) to a 07:00 start and formatting 1500. That sentence sent the whole
-    // investigation to the database, and the database was clean. It now names what it can
-    // actually know — the value, the range, and BOTH suspects.
+    // Measured: the message blamed "a stored row" while the source was the drag ghost adding a
+    // RUN's net minutes (18 h) to a 07:00 start, which sent the investigation to a clean database.
     const complaints: string[] = [];
     const original = console.error;
     console.error = (...args: unknown[]) => complaints.push(String(args[0]));
@@ -88,16 +76,14 @@ describe('formatTime', () => {
   });
 
   it('does NOT soften the domain: the engine and every write still throw on it', () => {
-    // The guard is a rendering guard only. Softening `minutesToHHmm` would hide a real
-    // engine defect behind a placeholder on screen, which is the opposite of the point.
+    // Softening minutesToHHmm would hide a real engine defect behind a placeholder on screen.
     expect(() => minutesToHHmm(1500)).toThrow(RangeError);
   });
 });
 
 describe('dates', () => {
   it('never shifts a day, whatever the process timezone', () => {
-    // The trap: new Date('2026-08-13') parses as UTC, so west of Greenwich it is the
-    // 12th. `localDateOf` builds from the parts instead.
+    // `new Date('2026-08-13')` parses as UTC, so west of Greenwich it is the 12th.
     const parts = localDateOf('2026-08-13');
     expect(parts.getFullYear()).toBe(2026);
     expect(parts.getMonth()).toBe(7);
@@ -122,7 +108,6 @@ describe('dates', () => {
   });
 
   it('removes the comma es-ES puts after the weekday', () => {
-    // The strip reads "Taller ocupado hasta el jueves 27 de agosto", not "el jueves,".
     expect(formatLongDate('2026-08-27', 'es')).toBe('jueves 27 de agosto');
     expect(formatLongDate('2026-08-27', 'en')).toBe('Thursday 27 August');
   });

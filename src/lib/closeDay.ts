@@ -1,24 +1,9 @@
 /**
- * "Stop the day here": the arithmetic behind the one-click gap that says
- * *we only do this much today*.
+ * "Stop the day here": the arithmetic behind the one-click gap from a chosen moment to the
+ * end of the last working period.
  *
- * WHY THIS IS AN ACTION AND NOT A RESIZE. Shrinking an unlocked future block does not
- * survive the reflow — the engine re-derives a job's segmentation from the job's total,
- * so an internal transfer between two adjacent rows of one queue item is undone. That is
- * correct: it is what makes the calendar self-tidying. And a hole the engine refuses to
- * fill would be the app lying, because if nothing occupies the rest of the day then the
- * shop IS free then, and saying so is the whole point of the app.
- *
- * So the honest way to cap a day is to say the day is over: a gap from the chosen moment
- * to the end of the last working period. Plannable hours are
- * `min(capacity, period minutes − gaps and locked work)`, so the day genuinely holds
- * less and the work that no longer fits is replanned by the engine.
- *
- * WHAT THIS MODULE DELIBERATELY DOES NOT DO: predict where those hours land. Only
- * `compose` can answer that, over the whole calendar rather than the seven days a screen
- * holds, and it may well cut a job across several days (*Fill and Overflow, Always*). So
- * the plan reports what is certain — the hours the day loses, and the work that cannot
- * stay inside the closed stretch — and the calendar shows the rest the moment it saves.
+ * It deliberately does not predict where the displaced hours land — only `compose` knows
+ * that — so the plan reports the hours the day loses and the work that cannot stay.
  */
 
 import type { WorkPeriod } from '../types';
@@ -77,10 +62,9 @@ export interface CloseDayPlan {
   /** Wall-clock minutes of the gap — it may span the lunch break. */
   durationMinutes: number;
   /**
-   * The plannable minutes the day actually loses: working time inside the stretch that
-   * no existing gap already holds. A union of intervals, exactly as the engine's
-   * `plannableMinutes` computes occupancy, so an overlapping gap is never counted twice.
-   * Zero means there is nothing left to close.
+   * The plannable minutes the day actually loses: working time inside the stretch that no
+   * existing gap already holds, as a union of intervals so an overlapping gap is not
+   * counted twice. Zero means there is nothing left to close.
    */
   workingMinutes: number;
   /** Jobs with hours inside the stretch, in clock order. Unlocked rows only. */
@@ -103,11 +87,9 @@ export function dayEndMinutes(periods: readonly WorkPeriod[]): number | undefine
 }
 
 /**
- * The gap that closing the day at `fromMinutes` would create, or `null` when there is
- * no day left to close (no periods at all, or a moment at or after the last one ends).
- *
- * `fromMinutes` is clamped up to the day's start: closing "from before the shift" is
- * closing the whole day, not a gap hanging in the top margin.
+ * The gap that closing the day at `fromMinutes` would create, or `null` when there is no
+ * day left to close. `fromMinutes` is clamped up to the day's start: closing "from before
+ * the shift" closes the whole day rather than hanging a gap in the top margin.
  */
 export function planCloseDay(input: CloseDayInput, fromMinutes: number): CloseDayPlan | null {
   const periods = sortedPeriods(input.periods);

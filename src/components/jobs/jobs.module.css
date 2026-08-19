@@ -2,7 +2,7 @@
  * The job panel, the create form and the two small forms next to it.
  *
  * Geometry only: every colour, radius and hairline is a token, so the dark theme
- * stays a token swap (CLAUDE.md, "never hardcode a colour in a component").
+ * stays a token swap — never hardcode a colour in a component.
  * The measurements come from documents/workwise_wireframe_bloque_y_panel.html —
  * 7px block rows, 0.5px separators, 12px labels.
  */

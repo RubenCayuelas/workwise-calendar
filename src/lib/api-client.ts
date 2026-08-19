@@ -1,26 +1,10 @@
 /**
- * The typed fetch wrapper over `/api/*`. One function per endpoint.
+ * The typed fetch wrapper over `/api/*`. One function per endpoint, on the platform `fetch`.
  *
- * Built on the platform `fetch` — axios was removed and nothing here needs it.
- *
- * FOUR THINGS EVERY CALLER MUST KNOW (they are the four the API layer flagged):
- *
- * 1. Everything speaks INTEGER MINUTES. The routes accept hours too, but this client
- *    always sends `startMinutes` / `durationMinutes` / `totalMinutes` so a 2.5 h
- *    value can never drift through a float, and every response already carries
- *    minutes. Convert only where the owner reads a number (see src/lib/format.ts).
- * 2. `block` in a block mutation is NULLABLE. Auto-merge can absorb the row you just
- *    edited into a neighbouring row of the same job; `blocks` is the answer then.
- * 3. `touchedLockedBlockIds` must be SHOWN, not swallowed — CLAUDE.md: "a locked
- *    block is never grown or shrunk silently". `notices.touchedLockedBlocks` is the
- *    wording, with `count`.
- * 4. REFETCH `getWeek()` after ANY mutation. A recomposition rewrites rows in weeks
- *    the response never mentions, so a mutation result is only ever enough to update
- *    the entity you touched plus the summary strip.
- *
- * Errors are never sentences. Every failure throws `ApiError`, which carries the
- * i18n key the server chose plus the values it interpolates; `apiErrorMessage(error,
- * t)` turns one into a translated string.
+ * Everything speaks INTEGER MINUTES — convert only where the owner reads a number
+ * (src/lib/format.ts). `getWeek()` must be refetched after ANY mutation: a recomposition
+ * rewrites rows in weeks the response never mentions. And errors are never sentences — every
+ * failure throws `ApiError` carrying an i18n key, which `apiErrorMessage(error, t)` renders.
  */
 
 import type { Block, DayShape, Gap, Project, Settings } from '../types';
@@ -29,9 +13,8 @@ import type { TranslateFn } from './format';
 import { formatLongDate } from './format';
 import { DEFAULT_LANGUAGE } from './i18n';
 
-// The week view's shapes are defined next to the query that builds them. `import
-// type` is erased at compile time, so nothing from the server module (which opens
-// SQLite) reaches the browser bundle.
+// Defined next to the query that builds them. `import type` is erased at compile time, so
+// nothing from the server module (which opens SQLite) reaches the browser bundle.
 export type { WeekBlock, WeekDay, WeekView } from './operations/views';
 export type { FreedHoursChoice, ScheduleSummary } from './composition';
 export type { Block, DayShape, Gap, Project, Settings, WorkPeriod } from '../types';
@@ -55,11 +38,9 @@ export interface ProjectMutation {
   project: Project;
   blocks: Block[];
   summary: ScheduleSummary;
+  /** Must be SHOWN, never swallowed (`notices.touchedLockedBlocks`): a locked row is never grown silently. */
   touchedLockedBlockIds: string[];
-  /**
-   * Only on a creation that named a `startDate`: the same facts the preview showed
-   * before saving, so the notice afterwards repeats them instead of guessing.
-   */
+  /** Only on a creation with a `startDate`: the facts the preview showed before saving. */
   placement?: CreationOutcome;
 }
 
@@ -69,39 +50,25 @@ export interface BlockMutation {
   blocks: Block[];
   summary: ScheduleSummary;
   /**
-   * THE ROWS THE GESTURE'S HOURS ENDED UP ON, in calendar order — the run the moved work is
-   * stored as, so they can be read straight out of `blocks`.
-   *
-   * One id normally. TWO OR MORE once the hours filled what a day had left and carried on to
-   * the next day, which is ordinary now: 6 h dropped into a 4 h afternoon comes back as
-   * `[Monday 4 h, Tuesday 2 h]`. `block` is only the FIRST of them, so a notice built from
-   * `block` alone tells the owner half of what happened.
-   *
-   * Empty when the row no longer exists — a row of the same job absorbed it, which
-   * `mergedBlockIds` reports.
+   * The rows the gesture's hours ended up on, in calendar order. More than one once the hours
+   * filled a day and carried on; `block` is only the FIRST, so a notice built from it alone
+   * tells the owner half of what happened. Empty when a row of the same job absorbed this
+   * one.
    */
   placedBlockIds: string[];
-  /**
-   * FALSE WHEN THE REQUEST WROTE NOTHING AT ALL. A drop writes a queue RANK, so the reflow
-   * may answer it with the calendar the owner already had — and that is indistinguishable
-   * from a drop that worked if you only compare rectangles, which is exactly the defect it
-   * exists for. Use it, never geometry, to decide whether to say «no ha cambiado nada».
-   */
+  /** False when the request wrote nothing at all. Read it, never the geometry. */
   changed: boolean;
+  /** Must be SHOWN, never swallowed (`notices.touchedLockedBlocks`): a locked row is never grown silently. */
   touchedLockedBlockIds: string[];
   /**
-   * Rows of the dropped row's OWN job that the drop absorbed, because it overlapped
-   * them where the reflow may not reach (the weekend, the frozen past). The hours
-   * were SUMMED — Sat 09:00-11:00 plus a 2 h drop at 10:00 is one 09:00-13:00 row —
-   * so nothing was lost, but the ids listed here no longer exist. Show
-   * `notices.mergedOverlap` with `count`. Empty for anything that is not a drop.
+   * Rows of the dropped row's OWN job it absorbed where the reflow may not reach. The hours
+   * were SUMMED, so nothing was lost, but these ids no longer exist. Show
+   * `notices.mergedOverlap`.
    */
   mergedBlockIds: string[];
   /**
-   * Jobs whose row the drop cut in two, its tail pushed to just after the dropped
-   * row. Their totals are unchanged. Show `notices.displacedBlocks` with `count` and
-   * a `names` list — the owner's rule is "if the user does not want it, they move it
-   * again", which only works if they are told.
+   * Jobs whose row the drop cut in two, the tail pushed after it. Their totals are unchanged.
+   * Show `notices.displacedBlocks` with `count` and a `names` list.
    */
   displacedProjectIds: string[];
 }
@@ -143,18 +110,12 @@ export interface CreateProjectInput {
   color: string;
   totalMinutes: number;
   /**
-   * An optional FLOOR: "not before this day". Omit it for the ordinary creation, which
-   * appends the job to the end of the queue. It is not stored anywhere — it decides
-   * where the rows are born, and a job born beyond the last occupied day comes back
-   * with every row LOCKED, because the reflow would otherwise drag it to today.
-   * `previewProjectCreation` answers all of that before you send this.
+   * An optional FLOOR: "not before this day", and it is not stored. A job born beyond the
+   * last occupied day comes back with every row LOCKED; `previewProjectCreation` answers all
+   * of that before you send this.
    */
   startDate?: string;
-  /**
-   * Only with `startDate`, and only worth sending when the preview says `canForce`:
-   * place the job on that day and push what follows, instead of letting it land at the
-   * end of the queue.
-   */
+  /** Only with `startDate`, and only worth sending when the preview says `canForce`. */
   force?: boolean;
 }
 
@@ -175,24 +136,15 @@ export interface UpdateProjectInput {
 export interface MoveBlockInput {
   date: string;
   /**
-   * The drop point, as a RANK rather than a time. The block keeps this place in the
-   * queue and then settles contiguously after whatever precedes it — it does not
-   * stay at these minutes. Lock it afterwards to pin it.
-   *
-   * A drop exactly on an existing row's start means BEFORE IT: the row underneath stays
-   * whole and follows, and nothing is cut. The server settles that tie in the drop's
-   * favour, so the rank does not have to be nudged off the minute the owner aimed at; to
-   * cut a row, aim below its start.
-   *
-   * Aimed below what the day can hold, the whole drop moves to the next day the calendar
-   * would use — the response says where it really landed.
+   * The drop point, as a RANK rather than a time: the row keeps this place in the queue and
+   * settles after whatever precedes it. Exactly on an existing row's start means BEFORE it,
+   * and the row underneath stays whole; to cut a row, aim below its start. The response says
+   * where it landed.
    */
   startMinutes: number;
   /**
-   * The rows drawn as ONE UNIT with this one — a job cut at the lunch break is two rows
-   * with a single drag handle, so a body drag is about all of them. Sending the list moves
-   * the unit in ONE request and ONE transaction; sending each row separately re-flowed the
-   * calendar between them and left part of the unit behind.
+   * The rows drawn as ONE UNIT with this one — a job cut at the lunch break has a single drag
+   * handle. Sending the list moves the unit in ONE request and ONE transaction.
    */
   unitBlockIds?: readonly string[];
 }
@@ -239,11 +191,9 @@ interface ApiErrorPayload {
 }
 
 /**
- * A failed request. `messageKey` is an i18n key under `errors.` — never a sentence —
- * and `details` carries whatever that key interpolates.
- *
- * `field` names the input to highlight on a 400, which is what the Settings form and
- * the job form use to point at the offending control.
+ * A failed request. `messageKey` is an i18n key under `errors.` — never a sentence — and
+ * `details` carries whatever that key interpolates. `field` names the input to highlight on a
+ * 400.
  */
 export class ApiError extends Error {
   readonly code: string;
@@ -287,12 +237,8 @@ export function isAbortError(error: unknown): boolean {
 }
 
 /**
- * The i18n key to render for a failure.
- *
- * The one place it differs from `error.messageKey` is the planning horizon: the
- * server always attaches `horizonEndDate` there, and CLAUDE.md wants the UI to say
- * WHICH date the work no longer fits before while pointing at Settings. So the
- * richer key is chosen whenever that detail is present.
+ * The i18n key to render for a failure. It differs from `error.messageKey` in one place, the
+ * planning horizon: the richer key naming the date wins whenever `horizonEndDate` is present.
  */
 export function apiErrorMessageKey(error: unknown): string {
   if (!isApiError(error)) return 'errors.unexpected';
@@ -303,11 +249,9 @@ export function apiErrorMessageKey(error: unknown): string {
 }
 
 /**
- * The values that key interpolates, with dates and times already readable.
- *
- * `details` arrives in machine form (`2026-10-04`, minutes from midnight), and every
- * message that mentions one is prose. So any `YYYY-MM-DD` becomes a long local date
- * and `horizonEndDate` is also exposed as `date`, which is what the horizon key uses.
+ * The values that key interpolates, with dates made readable. `details` arrives in machine
+ * form, so any `YYYY-MM-DD` becomes a long local date and `horizonEndDate` is also exposed as
+ * `date`.
  */
 export function apiErrorValues(error: unknown, language: string = DEFAULT_LANGUAGE): Record<string, unknown> {
   if (!isApiError(error)) return {};
@@ -325,11 +269,8 @@ export function apiErrorValues(error: unknown, language: string = DEFAULT_LANGUA
 }
 
 /**
- * The whole message, ready to put in a banner or a toast:
- *
- *     catch (error) { setError(apiErrorMessage(error, t, language)); }
- *
- * `t` is deliberately a plain function type, so this module never imports i18next.
+ * The whole message, ready to put in a banner or a toast. `t` is deliberately a plain
+ * function type, so this module never imports i18next.
  */
 export function apiErrorMessage(
   error: unknown,
@@ -353,8 +294,8 @@ async function request<T>(
 
   try {
     response = await fetch(`${API_BASE}${path}`, {
-      // The whole API is `force-dynamic`; a cached GET would show a calendar that a
-      // recomposition has already rewritten.
+      // The whole API is `force-dynamic`; a cached GET would show a calendar already
+      // rewritten.
       cache: 'no-store',
       ...init,
       headers:
@@ -393,8 +334,8 @@ async function readError(response: Response): Promise<ApiError> {
   try {
     payload = (await response.json()) as ApiErrorPayload;
   } catch {
-    // A crash before the error handler, or an HTML error page. Fall through to the
-    // generic key rather than showing the user a stack trace.
+    // A crash before the error handler, or an HTML error page: fall through to the generic
+    // key.
   }
 
   const body = payload.error;
@@ -453,11 +394,9 @@ export function getProject(projectId: string, options?: RequestOptions): Promise
 }
 
 /**
- * Appends a job to the END of the queue. It fills Mon-Thu and, if it does not fit,
- * skips Friday for next week's Monday — the colchón never takes new work.
- *
- * With `startDate` the job is born on that day instead (or later, if the queue already
- * runs past it — send `force` to override that). See `CreateProjectInput`.
+ * Appends a job to the END of the queue: it fills Mon-Thu and, if it does not fit, skips
+ * Friday for next week's Monday. With `startDate` the job is born on that day instead — see
+ * `CreateProjectInput`.
  */
 export function createProject(
   input: CreateProjectInput,
@@ -467,12 +406,9 @@ export function createProject(
 }
 
 /**
- * Where a job WOULD land if it were created with that start date. Writes nothing.
- *
- * Call it whenever the owner changes the date, the hours or the force flag: it is the
- * same planner the POST uses, so what it reports is what the save will do — where the
- * hours start, what is already sitting across the whole span they would occupy, whether
- * every row would be locked, and which days are free instead.
+ * Where a job WOULD land if it were created with that start date. Writes nothing, and it is
+ * the same planner the POST uses, so what it reports is what the save will do. Call it
+ * whenever the owner changes the date, the hours or the force flag.
  */
 export function previewProjectCreation(
   input: PreviewProjectInput,
@@ -482,9 +418,8 @@ export function previewProjectCreation(
 }
 
 /**
- * Name, description and colour move nothing. `totalMinutes` goes through LIFO: added
- * minutes land on the job's last unlocked row, removed minutes come off it and
- * delete any row that reaches zero.
+ * Name, description and colour move nothing. `totalMinutes` goes through LIFO: added minutes
+ * land on the job's last unlocked row, removed minutes come off it.
  */
 export function updateProject(
   projectId: string,
@@ -500,16 +435,11 @@ export function updateProject(
 }
 
 /**
- * Deletes the job. Its FUTURE rows go and the calendar closes the hole; its PAST rows stay
- * as GAPS, one per row, each named `Trabajo «X» eliminado` — the days the shop has already
- * worked keep their shape, and `preservedGapIds` says how many there were
- * (`notices.deletedJobPast`, with `count`).
+ * Deletes the job. Its FUTURE rows go and the calendar closes the hole; its PAST rows stay as
+ * gaps naming the job, counted in `preservedGapIds`.
  *
- * PASS THE LANGUAGE THE OWNER IS READING. Those gap reasons are stored user data and
- * cannot be re-translated later, so they are written in the language given here; Spanish
- * when it is left out. `i18n.language` is the value to send.
- *
- * Recomposes, so it can fail with `horizon-exceeded`.
+ * PASS THE LANGUAGE THE OWNER IS READING (`i18n.language`): those gap reasons are stored user
+ * data and cannot be re-translated later. Recomposes, so it can fail with `horizon-exceeded`.
  */
 export function deleteProject(
   projectId: string,
@@ -529,39 +459,15 @@ export function deleteProject(
 // ---------------------------------------------------------------------------
 
 /**
- * A drop.
+ * A drop. On MONDAY-THURSDAY it sets the row's place in the queue and the whole calendar
+ * reflows; on the FRIDAY buffer, the WEEKEND or a VISUAL MARGIN it PADLOCKS, keeps the exact
+ * slot and the engine never recovers it. The way off a padlock is `setBlockLock(id, false)`.
+ * Either way the row is stored in SEGMENTS, and `block` is the first of them.
  *
- * On MONDAY-THURSDAY it sets the row's place in the queue and the whole calendar
- * reflows; the row settles contiguously after whatever precedes it rather than staying
- * at the minute it was dropped at.
- *
- * On the FRIDAY buffer, the WEEKEND or a VISUAL MARGIN it PADLOCKS: the row comes back
- * with `locked: true`, keeps the exact slot, and the engine never recovers it — which is
- * how work stays on the colchón at all. The padlock is only ever added by a drop; the way
- * off is `setBlockLock(id, false)`, the one undo the app has.
- *
- * Either way the row is stored in SEGMENTS: a drop crossing the lunch break comes back
- * as two rows of one job, and `block` is the first of them.
- *
- * A DROP THE ENGINE STILL OWNS IS NEVER REFUSED FOR A COLLISION — an unlocked row inside
- * the periods of Monday to Thursday or the Friday buffer, from today on. There a drop is a
- * rank and the reflow is what finds the room. A drop that PADLOCKS is slid forward past a
- * gap or a lock in its way, on the day it was aimed at, and refused when the day has no
- * clear slot. The 409s — `overlaps-gap`, `overlaps-locked-block`, `merge-exceeds-day`,
- * `displaced-hours-unplaceable` — therefore belong to a drop that lands literally: the
- * weekend, a closed day, a margin, and a locked row being dragged. So the
- * caller must expect a landing that is neither the drop point nor a refusal, which is what
- * `describeDrop` is for.
- *
- * TWO MORE LANDINGS THAT ARE NOT THE DROP POINT, and neither is a refusal:
- *
- * - aimed BELOW what the day can hold, the drop moves to the next day the ENGINE would use,
- *   at the top of its working periods — Mon-Thu and the Friday colchón roll forward, while
- *   the weekend, a closed day and the past keep the day and the end-of-day refusal;
- * - aimed exactly at another row's start, it goes BEFORE that row, which stays whole.
- *
- * A PAST day is the one place a drop is refused outright, at either end: moving a past row
- * is `past-block-frozen` and aiming at a past day is `drop-onto-past-day`, both 409.
+ * So expect a landing that is neither the drop point nor a refusal — see `describeDrop`. The
+ * 409s (`overlaps-gap`, `overlaps-locked-block`, `merge-exceeds-day`,
+ * `displaced-hours-unplaceable`) belong to a drop that lands literally, and a PAST day is
+ * refused at either end (`past-block-frozen`, `drop-onto-past-day`).
  */
 export function moveBlock(
   blockId: string,
@@ -577,25 +483,15 @@ export function moveBlock(
 }
 
 /**
- * Dragging the bottom edge. A transfer INSIDE the job: growing a row takes the hours off
- * the job's last row (the total only changes when the row being resized IS the last one),
- * shrinking one hands them to it.
+ * Dragging the bottom edge: a transfer INSIDE the job, its last row the counterparty. The
+ * total changes only when the row being resized IS the last one.
  *
- * SHRINKING ASKS WHEN THE HOURS HAVE NOWHERE TO GO — the job's only row, or every other
- * one locked, on a weekend or in the past. The request answers 409 `shrink-needs-choice`
- * and writes nothing; `error.details` carries `freedMinutes` and `choices`,
- * which is everything a dialog needs to offer all three ways out in one go. Send the
- * owner's answer back through `freedHours`; cancelling is not calling again.
- *
- * IT ONLY SIZES A ROW THE ENGINE DOES NOT LAY OUT — one carrying a padlock, or one on a
- * weekend. Anything else is 409 `resize-needs-padlock` with nothing written, because an
- * automatic row is exactly as big as the room it has and the reflow would undo the number
- * on the next save. So do not offer the edge on a row the engine still owns: padlocking it
- * first is what fixes its length, and a GAP is what ends a day early. THE APP NEVER CREATES
- * THAT GAP BY ITSELF — it names the action and the owner takes it.
- *
- * A PAST row is refused first (`past-block-frozen`, 409): the past is a record, and the
- * hours of a job whose work is behind it are changed in the job form.
+ * It only sizes a row the engine does not lay out — padlocked, or on a weekend. Anything else
+ * is 409 `resize-needs-padlock` and a past row is 409 `past-block-frozen`, both writing
+ * nothing, so do not offer the edge there: padlocking first is what fixes a length, and a GAP
+ * is what ends a day early. Shrinking with nowhere to put the freed hours answers 409
+ * `shrink-needs-choice` carrying `freedMinutes` and `choices`; send the owner's answer back
+ * through `freedHours`.
  */
 export function resizeBlock(
   blockId: string,
@@ -629,9 +525,8 @@ export function setBlockLock(
 }
 
 /**
- * The scissors. The source row shrinks, the fragment becomes a new row of the same
- * job, and the job's total does not change. The fragment takes a queue rank and then
- * settles — it does not stay where it was dropped.
+ * The scissors. The source row shrinks, the fragment becomes a new row of the same job, and
+ * the job's total does not change. The fragment takes a queue rank and then settles.
  */
 export function splitBlock(
   blockId: string,
@@ -675,12 +570,10 @@ export function listGaps(
 }
 
 /**
- * A gap is time: it consumes the day's plannable hours like locked work does, so
- * saving one pushes the flexible work forward. Refused with `gap-over-fixed-block`
- * when the space is held by a row the engine may not move — `details.reason` is
- * `locked`, `past` or `weekend`, and `details` also names the job and the times. The
- * first is the one the owner can act on, so it is reported in preference when several
- * rows conflict.
+ * A gap is time: it consumes the day's plannable hours, so saving one pushes the flexible
+ * work forward. Refused with `gap-over-fixed-block` when the space is held by a row the
+ * engine may not move — `details.reason` is `locked`, `past` or `weekend`, whichever actually
+ * binds.
  */
 export function createGap(
   input: CreateGapInput,
@@ -718,16 +611,11 @@ export function getSettings(options?: RequestOptions): Promise<SettingsView> {
 }
 
 /**
- * Saves any subset. TWO THINGS THE SETTINGS SCREEN MUST DO:
- *
- * - Send `defaultDayCapacity` whenever the patch shortens the shift below it. The
- *   capacity is never re-capped for you: a shift that cannot buy it is refused with
- *   `field: 'defaultDayCapacity'`, so the owner is asked and the answer travels in the
- *   same request (CLAUDE.md, *The Capacity Is Never Touched Alone*).
- * - Surface `error.field` on a 400: every value is rejected, not repaired.
- *
- * A save recomposes, so NARROWING `planningHorizonWeeks` can fail with
- * `horizon-exceeded` and roll the whole settings change back with it.
+ * Saves any subset. Two things the Settings screen must do: send `defaultDayCapacity`
+ * whenever the patch shortens the shift below it, because the capacity is never re-capped
+ * for you; and surface `error.field` on a
+ * 400, since every value is rejected rather than repaired. A save recomposes, so it can fail
+ * with `horizon-exceeded`.
  */
 export function updateSettings(
   patch: Partial<Settings>,
@@ -746,11 +634,9 @@ export function getSummary(options?: RequestOptions): Promise<SummaryView> {
 }
 
 /**
- * Everything the week grid draws, from ONE snapshot: the seven days with their
- * state, the blocks with their job's name and colour, the gaps, the settings, the
- * timeline shape and the summary.
- *
- * `date` may be any day of the wanted week; omitted, it means the current week.
+ * Everything the week grid draws, from ONE snapshot: the seven days, the blocks with their
+ * job's name and colour, the gaps, the settings, the timeline shape and the summary. `date`
+ * may be any day of the wanted week; omitted, it means the current week.
  */
 export function getWeek(date?: string, options?: RequestOptions): Promise<WeekView> {
   const suffix = date === undefined ? '' : `?date=${encodeURIComponent(date)}`;

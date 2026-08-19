@@ -1,19 +1,10 @@
 /**
- * The `blocks` table.
+ * The `blocks` table. On disk `start_time` is `HH:mm` TEXT, `duration` is decimal hours and
+ * `locked` is 0/1; above, the times are integer minutes and `locked` is a boolean.
+ * `mapBlockRow` converts.
  *
- * Two boundaries live here:
- *
- * - `start_time` is `HH:mm` TEXT and `duration` is decimal hours on disk;
- *   `Block.startMinutes` / `Block.durationMinutes` are integers above.
- *   `mapBlockRow` converts, and `toBlockRow`'s halves are inlined into the write
- *   statements because an INSERT lets SQLite fill the timestamps.
- * - `locked` is 0/1 on disk and a real boolean above.
- *
- * The default order is `ORDER BY date, start_time`, which is not cosmetic: per
- * CLAUDE.md the QUEUE ORDER IS THE VISUAL ORDER, so this ordering is the engine's
- * input ordering. `created_at, id` follow it as tie-breakers, matching the
- * engine's own `sortedByQueueRank`, so two rows that share a slot are always read
- * in the same sequence.
+ * The default `ORDER BY date, start_time, created_at, id` is the engine's INPUT ordering
+ * and matches its own `sortedByQueueRank`.
  */
 
 import { getDb, type Db } from '../db';
@@ -25,18 +16,14 @@ import { prepared } from './statements';
 const COLUMNS = 'id, project_id, date, start_time, duration, locked, created_at, updated_at';
 const QUEUE_ORDER = 'ORDER BY date, start_time, created_at, id';
 
-/**
- * A block's placement: everything the composition engine decides, and nothing it
- * does not (the timestamps belong to SQLite). This is the shape of
- * `PlacedBlock` with the id resolved, which is what the scheduler writes.
- */
+/** A block's placement: what the engine decides, minus the timestamps SQLite owns. */
 export interface BlockPlacement {
   id: string;
   projectId: string;
   date: string;
   startMinutes: number;
   durationMinutes: number;
-  /** The engine never moves it — the padlock, whoever's gesture set it. See CLAUDE.md. */
+  /** The padlock: the engine never moves the row. */
   locked: boolean;
 }
 
@@ -64,10 +51,7 @@ export function findBlock(id: string, db: Db = getDb()): Block | undefined {
   return row === undefined ? undefined : mapBlockRow(row);
 }
 
-/**
- * Inserts a row the engine placed. The id comes from the caller because
- * `compose` may already have handed it out (see src/lib/ids.ts).
- */
+/** Inserts a row the engine placed; the id comes from the caller (see src/lib/ids.ts). */
 export function insertBlock(placement: BlockPlacement, db: Db = getDb()): void {
   prepared(
     db,
@@ -110,10 +94,8 @@ export function deleteBlocks(ids: readonly string[], db: Db = getDb()): number {
 }
 
 /**
- * The other half of the invariant the scheduler asserts: each project's blocks
- * summed in integer minutes. Deliberately NOT `SUM(duration)` in SQL — adding
- * decimal hours in floating point is exactly the drift the minutes convention
- * exists to avoid, and this comparison has to be exact.
+ * Each project's blocks summed in integer minutes. Deliberately NOT `SUM(duration)` in
+ * SQL: adding decimal hours in floating point drifts, and this comparison must be exact.
  */
 export function blockMinutesByProject(db: Db = getDb()): Map<string, number> {
   const rows = prepared<{ project_id: string; duration: number }>(
@@ -128,15 +110,12 @@ export function blockMinutesByProject(db: Db = getDb()): Map<string, number> {
 }
 
 /**
- * The engine's decision as SQL parameters — and the one gate every stored row passes
- * through, since `insertBlock` and `updateBlock` are the only two writes that touch a
- * block's geometry (`setBlockLocked` changes a flag and nothing else).
+ * The engine's decision as SQL parameters, and the one gate every stored row passes
+ * through: `insertBlock` and `updateBlock` are the only writes that touch geometry.
  *
- * `assertRowInsideDay` sits here rather than in the operations for exactly that reason:
- * a row running past midnight is unrenderable — it threw out of `useFormat().time` and
- * took the whole week view down — so the guard has to be somewhere no caller can go
- * around, present or future, whatever produced the row. It throws, which inside
- * `recompose`'s transaction is what rolls the write back.
+ * `assertRowInsideDay` sits here so no caller can go around it — a row running past
+ * midnight is unrenderable, it threw out of `useFormat().time` and took the whole week view
+ * down. It throws, which inside `recompose`'s transaction rolls the write back.
  */
 function toParams(placement: BlockPlacement): Record<string, unknown> {
   assertRowInsideDay(placement);

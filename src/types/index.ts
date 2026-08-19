@@ -1,17 +1,8 @@
 /**
- * Domain types for the workshop scheduler, plus the row mappers that are the
- * only bridge between SQLite's shapes and the app's.
- *
- * The boundary is deliberate and narrow:
- *
- * - SQLite has no boolean. `locked` and `is_closed` are 0/1 INTEGERs on disk and
- *   real booleans above these mappers, so no call site ever branches on a number.
- * - SQLite stores durations as decimal hours, because hours are what the owner
- *   types and reads. In memory everything is INTEGER MINUTES (`startMinutes`,
- *   `durationMinutes`, `totalMinutes`), which is what keeps 2.5 h from drifting
- *   once it has been added and subtracted a few times. Convert back with
- *   `minutesToHours` from src/lib/dates.ts, at the edge, once.
- * - `date` is always a local shop `YYYY-MM-DD`; `NULL` text becomes `undefined`.
+ * Domain types, plus the row mappers that are the only bridge between SQLite's shapes and the app's.
+ * SQLite has no boolean (0/1 on disk, real booleans above the mappers) and stores durations as decimal
+ * hours; in memory everything is INTEGER MINUTES, converted back with `minutesToHours` at the edge,
+ * once. `date` is always a local shop `YYYY-MM-DD`, and NULL text becomes `undefined`.
  */
 
 import { hhmmToMinutes, hoursToMinutes, minutesToHHmm, minutesToHours } from '../lib/dates';
@@ -48,11 +39,8 @@ export interface Block {
   /** Net working minutes — a block is always a solid rectangle on the clock. */
   durationMinutes: number;
   /**
-   * The ONE thing that fixes a row's position: the engine never moves it, and the owner
-   * can still move it by hand. Set by the padlock, and by a drop onto a place the engine
-   * would never choose on its own — a visual margin, the Friday buffer, the weekend —
-   * because there the reflow's only possible answer to the gesture would be to undo it.
-   * Cleared by the padlock, and by nothing else.
+   * The ONE thing that fixes a row — its place and its length. The engine never moves it; the owner
+   * still can, by hand. Set and cleared by the padlock, and by nothing else.
    */
   locked: boolean;
   createdAt: string;
@@ -71,10 +59,7 @@ export interface Gap {
   updatedAt: string;
 }
 
-/**
- * A whole-day exception: a holiday, a closed week, a day with different hours.
- * No Settings UI in v0.2, but the engine reads it.
- */
+/** A whole-day exception: a holiday, a closed week, a day with different hours. No Settings UI. */
 export interface DayOverride {
   date: string;
   /** Closed: no plannable time at all. */
@@ -85,9 +70,8 @@ export interface DayOverride {
 }
 
 /**
- * The owner's configuration. Times stay `HH:mm` and capacities stay decimal
- * hours here because this record mirrors what the Settings form shows; use
- * `dayShapeFromSettings` in src/lib/settings.ts for the minutes the engine wants.
+ * The owner's configuration, mirroring what the Settings form shows: times stay `HH:mm` and capacities
+ * stay decimal hours. `dayShapeFromSettings` gives the minutes the engine wants.
  */
 export interface Settings {
   /** Morning period. Mandatory. */
@@ -98,9 +82,8 @@ export interface Settings {
   period2End: string;
   period2Enabled: boolean;
   /**
-   * Auto-fill stop line, in hours: "fill less than the full shift so the shop can
-   * leave early", never "work more than the shift covers". Capped at the sum of
-   * the enabled periods and never a limit on manual placement.
+   * Auto-fill stop line, in hours: fill LESS than the full shift, never more. Capped at the sum of the
+   * enabled periods, and never a limit on manual placement.
    */
   defaultDayCapacity: number;
   /** Hours drawn before period 1 / after the last period. Manual drag-drop only. Range 0-2. */
@@ -119,23 +102,16 @@ export interface WorkPeriod {
 }
 
 /**
- * `Settings` seen the way the engine and the calendar grid need it: minutes, and
- * with the visual margins resolved into the timeline they draw. Derived, never
- * stored — build it with `dayShapeFromSettings` in src/lib/settings.ts.
+ * `Settings` as the engine and the calendar grid need it: minutes, with the visual margins resolved
+ * into the timeline they draw. Derived, never stored — build it with `dayShapeFromSettings`.
  */
 export interface DayShape {
   /** One period, or two when the afternoon is enabled. Always in chronological order. */
   periods: WorkPeriod[];
   /**
-   * The same day as a HAND action sees it: the periods plus the visual margins, fused
-   * where they touch (`07:00-14:00` and `15:30-20:30` on the documented shift), so the
-   * lunch break stays the only hole in the day.
-   *
-   * Derived from `periods` and the margins by `manualWindowsOf` in src/lib/manualWindow.ts,
-   * and carried next to `periods` rather than recomputed at each call site: a drop, a
-   * resize and the scissors read THIS, auto-fill and the capacity stop-line read
-   * `periods`, and both views have to come from one derivation or a future rule will be
-   * added to one and forgotten in the other.
+   * The same day as a HAND action sees it: the periods plus the visual margins, fused where they touch,
+   * so the lunch break stays the only hole in the day. Derived by `manualWindowsOf` and carried next to
+   * `periods` so a rule cannot be added to one view and forgotten in the other.
    */
   manualWindows: WorkPeriod[];
   /** Total working minutes the periods cover — the hard ceiling for capacity. */

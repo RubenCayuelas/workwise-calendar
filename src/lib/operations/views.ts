@@ -1,16 +1,7 @@
 /**
- * The read-only views the screens are built from.
- *
- * `readWeek` is deliberately one call. The week grid needs blocks, the project each
- * block belongs to, gaps, and the seven days' configuration — and those four have to
- * agree with each other. Fetched separately they would be four snapshots of a
- * database that a recomposition rewrites wholesale, so the grid could draw a block
- * against a day whose capacity had already changed. One call, one snapshot.
- *
- * Nothing here computes a Spanish sentence or a formatted date. `days[]` carries the
- * STATE the wireframe's headers render ("Lun 10 · congelado", "Vie 14 · colchón") as
- * flags, and the UI words them from public/locales. Likewise the summary strip gets
- * numbers, per CLAUDE.md's rule that `composition.ts` owns that arithmetic.
+ * `readWeek` is deliberately ONE call: blocks, projects, gaps and the seven days'
+ * configuration have to be one snapshot, or the grid draws a block against a day whose
+ * capacity a recomposition has already rewritten.
  */
 
 import { getDb, type Db } from '../db';
@@ -29,12 +20,10 @@ import { listDayOverridesBetween } from '../repositories/dayOverrides';
 import { listProjectLabels } from '../repositories/projects';
 import type { Block, DayShape, Gap, Settings, WorkPeriod } from '../../types';
 
-/** A block with just enough of its job to be drawn: name, colour, and the padlock. */
 export interface WeekBlock extends Block {
   project: { id: string; name: string; color: string };
 }
 
-/** One column of the grid, with the state its header shows. */
 export interface WeekDay {
   date: string;
   /** ISO weekday, 1 = Monday .. 7 = Sunday. */
@@ -49,66 +38,46 @@ export interface WeekDay {
   isPast: boolean;
   /** Working periods on the clock, morning first. Draw the lunch break between them. */
   periods: WorkPeriod[];
-  /**
-   * The same day as a HAND action sees it: the periods plus the visual margins, fused
-   * where they touch. What a drop, a resize and the scissors may use — the grey margin
-   * bands included, which auto-fill never enters. See src/lib/manualWindow.ts.
-   */
+  /** The day as a HAND gesture sees it: the periods plus the visual margins, fused. */
   manualWindows: WorkPeriod[];
   /** This day's auto-fill stop line. Never a limit on manual placement. */
   capacityMinutes: number;
   /**
-   * The engine's accounting number: `min(capacity, period minutes − the minutes
-   * gaps and LOCKED blocks hold)`, as a union of intervals. Zero for the past, a
-   * closed day and the weekend.
-   *
-   * Note what it does NOT subtract: ordinary unlocked work. Those hours are movable,
-   * so from the engine's point of view the day can still take that much. For "how
-   * full does this day look", use `bookedMinutes`.
+   * `min(capacity, period minutes − the minutes gaps and LOCKED blocks hold)`, as a union
+   * of intervals; zero for the past, a closed day and the weekend. Ordinary unlocked work
+   * is NOT subtracted — for "how full does this day look", use `bookedMinutes`.
    */
   plannableMinutes: number;
-  /**
-   * Every minute of work actually sitting on the day, locked or not. This is the
-   * occupancy a day header reports; `capacityMinutes − bookedMinutes` is the room
-   * the owner sees left.
-   */
+  /** Every minute of work on the day, locked or not — the occupancy a header reports. */
   bookedMinutes: number;
-  /** The override's note, when there is one. */
   note?: string;
 }
 
 export interface WeekView {
-  /** The shop's local today, so the grid does not have to guess a timezone. */
+  /** The shop's LOCAL today. */
   today: string;
   week: {
     /** Monday. */
     startDate: string;
     /** Sunday. */
     endDate: string;
-    /** All seven days, Monday first — the grid always renders every column. */
+    /** All seven days, Monday first. */
     dates: string[];
     isoWeek: number;
     isoWeekYear: number;
   };
   settings: Settings;
-  /** Periods, capacity and the margin-to-margin timeline the time axis draws. */
   shape: DayShape;
   days: WeekDay[];
   blocks: WeekBlock[];
   gaps: Gap[];
-  /**
-   * The header strip. Week-independent (it looks across ALL weeks) and identical to
-   * `GET /api/summary`; included so a page load is one request rather than two.
-   */
+  /** Week-independent: identical to `GET /api/summary`. */
   summary: ScheduleSummary;
 }
 
 /**
- * Everything the week view needs for the week containing `reference`.
- *
- * `blocks` and `gaps` are limited to those seven days, while `summary` is computed
- * from the whole calendar — that difference is the point of the strip, which states
- * how far the shop is booked beyond the week on screen.
+ * `blocks` and `gaps` cover the seven days of the week containing `reference`; `summary`
+ * is computed over the whole calendar.
  */
 export function readWeek(
   reference: string = todayLocal(),
@@ -155,8 +124,8 @@ export function readWeek(
     .filter((block) => withinWeek(block.date, startDate, endDate))
     .map((block) => ({
       ...block,
-      // A foreign key guarantees the job exists, so the fallback is unreachable —
-      // it is here so a corrupt database renders instead of throwing.
+      // The foreign key makes the fallback unreachable: it is here so a corrupt
+      // database renders instead of throwing.
       project: labels.get(block.projectId) ?? { id: block.projectId, name: '', color: '' },
     }));
 

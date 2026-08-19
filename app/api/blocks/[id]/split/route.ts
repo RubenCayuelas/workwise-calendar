@@ -1,27 +1,12 @@
 /**
- * `/api/blocks/:id/split` — the scissors: move a PORTION of a job out of this row.
- *
  * POST { durationHours | durationMinutes, date, startTime | startMinutes }
- *   -> { block, blocks, summary, touchedLockedBlockIds,
- *        mergedBlockIds, displacedProjectIds }
+ *   -> { block, blocks, summary, touchedLockedBlockIds, mergedBlockIds, displacedProjectIds }
  *
- * The source row shrinks by that much, the portion becomes a new row of the same job
- * at the drop point, and `total_hours` does not change — no hours are created or
- * destroyed. Asking for the whole row is refused (`split-exceeds-block`): moving an
- * entire block is `PATCH /api/blocks/:id` with `action: "move"`.
+ * `total_hours` does not change. Asking for the whole row is refused (`split-exceeds-block`):
+ * moving an entire block is `PATCH /api/blocks/:id` with `action: "move"`.
  *
- * `block` in the response is the SOURCE row (null if auto-merge absorbed it);
- * `blocks` is every row of the job afterwards, which is where the new fragment is.
- *
- * The FRAGMENT is the dropped row, so splitting onto a weekend the job already
- * occupies MERGES the two into one row of the summed hours and reports the absorbed
- * id in `mergedBlockIds`; splitting onto another job's weekend row cuts that row and
- * lists it in `displacedProjectIds`; splitting onto a LOCKED weekend row is refused with
- * 409 `overlaps-locked-block`.
- *
- * The fragment is a drop, so it follows a drop's rules exactly: onto a day the engine
- * reflows (Mon-Thu, the Friday buffer) it is never refused for a collision — it slides
- * clear of a gap or a lock, or takes an ordinary queue rank. See `PATCH /api/blocks/:id`.
+ * `block` is the SOURCE row, null if auto-merge absorbed it; the new fragment is in `blocks`.
+ * The FRAGMENT is the dropped row, so it follows a drop's rules and refusals exactly.
  */
 
 import type { NextRequest } from 'next/server';

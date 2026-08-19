@@ -2,30 +2,12 @@ import type { Db } from './db';
 import { DEFAULT_SETTINGS, serializeSettings } from './settings';
 
 /**
- * The whole schema, as one idempotent `CREATE ... IF NOT EXISTS` sequence.
- *
- * There is no released version to migrate from, so there is no migration
- * framework either: this file IS the schema.
- *
- * `CREATE TABLE IF NOT EXISTS` alone is not enough for a column ADDED to a table
- * that already exists on disk — the statement is skipped wholesale and the shop's
- * `data/calendar.db` would silently keep the old shape. So every column added
- * after the first run is also listed in `ADDED_COLUMNS`, which is applied with an
- * idempotent `ALTER TABLE ... ADD COLUMN`. Both paths end at the same schema,
- * whether the file is brand new or already holds a season of work.
- *
- * A column REMOVED after that first run needs the same treatment in reverse, and it
- * needs one thing more: what the column meant has to survive. `REMOVED_COLUMNS`
- * carries the statement that carries the meaning over, run once, before the column
- * goes — see `hand_placed` and `manual_duration` there.
- *
- * Two conventions worth knowing:
- *
- * - `date` / `start_time` are LOCAL shop values (`YYYY-MM-DD`, `HH:mm`) produced
- *   by `src/lib/dates.ts`. `created_at` / `updated_at` are SQLite's
- *   `CURRENT_TIMESTAMP`, which is UTC — never derive a calendar day from them.
- * - `duration` and `*_hours` are decimal hours, because that is what the user
- *   types and reads. Everything above the row mappers works in integer minutes.
+ * The whole schema, as one idempotent `CREATE ... IF NOT EXISTS` sequence — there is no released
+ * version to migrate from, so this file IS the schema. Because `CREATE TABLE IF NOT EXISTS` is skipped
+ * wholesale on a table that already exists on disk, a column added after the first run is also listed
+ * in `ADDED_COLUMNS`, and one retired since in `REMOVED_COLUMNS`. On disk `duration` and `*_hours` are
+ * decimal hours and `created_at` / `updated_at` are UTC; above the row mappers everything is local
+ * dates and integer minutes.
  */
 export function runMigrations(db: Db): void {
   db.exec(SCHEMA);
@@ -137,20 +119,10 @@ END;
 `;
 
 /**
- * Columns added to a table after its first release into `data/calendar.db`.
- *
- * Kept as a list rather than a version counter because the whole schema is one
- * idempotent script: reading `PRAGMA table_info` and adding what is missing gives
- * the same answer however many times it runs, and needs no `schema_version` row to
- * be right about a file whose history nobody recorded.
- *
- * SQLite's `ADD COLUMN` cannot add a NOT NULL column without a default, so every flag
- * added here has to default to the value that means "as it was before": existing rows
- * keep the engine's automatic behaviour.
- *
- * EMPTY IS THE CORRECT STATE, not a leftover. The schema above is the whole shape, and
- * the two flags that were once on this list have both been retired — see
- * `REMOVED_COLUMNS`, which is the only list with entries now.
+ * Columns added to a table after its first release into `data/calendar.db`. A list rather than a
+ * version counter because `PRAGMA table_info` gives the same answer however many times it runs.
+ * SQLite's `ADD COLUMN` cannot add a NOT NULL column without a default, so a flag added here defaults
+ * to the value meaning "as it was before". EMPTY IS THE CORRECT STATE, not a leftover.
  */
 const ADDED_COLUMNS: ReadonlyArray<{ table: string; column: string; definition: string }> = [];
 
@@ -163,30 +135,11 @@ function addMissingColumns(db: Db): void {
 }
 
 /**
- * Columns that were released into `data/calendar.db` and have since been RETIRED.
- *
- * `carryOver` runs while the column is still there and is what keeps the shop's data
- * true across the change; the column is dropped immediately afterwards, in the same
- * transaction, so a file either has the old column with its meaning intact or the new
- * shape with the meaning moved. Both are idempotent — the second run sees no column and
- * does nothing at all — which is the same property `ADDED_COLUMNS` has.
- *
- * BOTH ENTRIES CARRY THEIR MEANING INTO THE SAME COLUMN, and it is the same argument
- * twice: the padlock is the only mark left, so anything the owner had fixed by hand has
- * to come out of the migration padlocked. Freeing those rows instead would let the next
- * recomposition quietly move — or resize — exactly the work the owner had settled on
- * purpose, on a file where that is the work that matters most.
- *
- * - `hand_placed` marked a row a human had put on the Friday buffer or the weekend, so
- *   the engine would leave it there. Replaced by the padlock, which says the same thing
- *   in the one vocabulary the owner already has ("padlock = fixed, no padlock = free").
- * - `manual_duration` marked a row whose LENGTH the owner had drawn with the bottom-edge
- *   drag. It is gone because a block is exactly as big as the room it has (CLAUDE.md,
- *   *Fill and Overflow, Always*), so a stored exception to that fought the model. A row
- *   that carried it was sized by hand, and afterwards the only thing that can hold a
- *   length is the padlock — the engine does not lay a locked row out, so its duration is
- *   a stored fact. Hence `locked = 1`: without it the very next reflow would re-derive
- *   the row's length from its job's total and the hours the owner drew would vanish.
+ * Columns released into `data/calendar.db` and since RETIRED. `carryOver` runs while the column is still
+ * there and in the same transaction as the drop, so a file either has the old column with its meaning
+ * intact or the new shape with the meaning moved; both runs are idempotent. Both entries carry into
+ * `locked` because the padlock is the only mark left: freeing those rows would let the next reflow move
+ * — or re-derive the length of — the work the owner had settled by hand.
  */
 const REMOVED_COLUMNS: ReadonlyArray<{ table: string; column: string; carryOver: string }> = [
   {
@@ -217,13 +170,10 @@ function hasColumn(db: Db, table: string, column: string): boolean {
 }
 
 /**
- * Seeds the factory settings. `INSERT OR IGNORE` keeps it idempotent and never
- * overwrites a value the owner has changed.
- *
- * The serialised shape is defined by DEFAULT_SETTINGS in src/lib/settings.ts;
- * it is imported here so the defaults live in exactly one place. That closes an
- * import cycle (settings -> db -> migrations -> settings), which is safe because
- * every edge of it is dereferenced inside a function body, never at module load.
+ * Seeds the factory settings; `INSERT OR IGNORE` keeps it idempotent and never overwrites a value the
+ * owner has changed. Importing `DEFAULT_SETTINGS` keeps the defaults in one place and closes a cycle
+ * (settings -> db -> migrations -> settings), safe only because every edge of it is dereferenced
+ * inside a function body, never at module load.
  */
 function seedDefaultSettings(db: Db): void {
   const insert = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');

@@ -1,23 +1,3 @@
-/**
- * Gap operations.
- *
- * A gap is time: "they consume the day's plannable hours exactly like locked work
- * does", and gaps and blocks are ONE occupancy set. So saving a gap on top of
- * existing work is not a drawing question, it is a scheduling one, and CLAUDE.md's
- * implementer default settles it:
- *
- *   "recompose, pushing unlocked work forward in the same transaction. If the space
- *    is held by a locked block, refuse the save with a message naming the block
- *    rather than creating an overlap."
- *
- * Unlocked weekday work needs no special handling at all — the recomposition that
- * every gap write ends in flows it forward. The only real conflicts are rows the
- * engine may NOT move: locked, in the frozen past, or on a weekend. Those are
- * refused, because `compose` could never repair an overlap it is forbidden to
- * touch. `findGapConflicts` in src/lib/composition.ts is the predicate; this module
- * turns its verdict into a message the UI can word.
- */
-
 import { getDb, type Db } from '../db';
 import { minutesToHHmm, todayLocal } from '../dates';
 import { findGapConflicts, type GapConflict, type ScheduleSummary } from '../composition';
@@ -59,12 +39,8 @@ export function readGaps(range: { from?: string; to?: string } = {}, db: Db = ge
 }
 
 /**
- * Creates a gap. Refuses if it would land on a row the engine cannot move;
- * otherwise the recomposition pushes the unlocked work out of the way.
- *
- * No intent is passed to `recompose`: losing hours to a breakdown is not growth, so
- * the displaced work goes to the next auto-fill day rather than eating the Friday
- * colchón.
+ * No intent is passed to `recompose`, so displaced work goes to the next auto-fill day,
+ * not the Friday colchón.
  */
 export function createGap(input: SaveGapInput, db: Db = getDb()): GapMutation {
   const today = input.today ?? todayLocal();
@@ -101,7 +77,6 @@ export interface PatchGapInput {
   today?: string;
 }
 
-/** Edits a gap. The merged result is checked against the fixed rows, as on create. */
 export function patchGap(gapId: string, input: PatchGapInput, db: Db = getDb()): GapMutation {
   const today = input.today ?? todayLocal();
 
@@ -131,7 +106,6 @@ export function patchGap(gapId: string, input: PatchGapInput, db: Db = getDb()):
   });
 }
 
-/** Deletes a gap. The freed time is filled by the reflow, Mon-Thu first. */
 export function deleteGap(
   gapId: string,
   options: { today?: string } = {},
@@ -148,11 +122,6 @@ export function deleteGap(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Internals
-// ---------------------------------------------------------------------------
-
-/** One conflicting row, with everything a translated sentence may interpolate. */
 interface ReportedConflict extends GapConflict {
   projectName: string;
   startTime: string;
@@ -166,11 +135,8 @@ const CONFLICT_KEYS: Record<GapConflict['reason'], string> = {
 };
 
 /**
- * Refuses the save when the gap covers a row the engine may not move, naming it.
- *
- * The ACTIONABLE conflict is reported in preference to the others when several are
- * present: the owner can unlock a padlocked block, whereas the past being frozen and the
- * weekend being outside the engine are not things to be argued with.
+ * The ACTIONABLE conflict is reported first when several are present: a padlock can be
+ * undone, the frozen past and the weekend cannot.
  */
 function assertGapFits(
   gap: { date: string; startMinutes: number; durationMinutes: number },

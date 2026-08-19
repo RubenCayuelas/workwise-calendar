@@ -1,19 +1,10 @@
 'use client';
 
 /**
- * The job colour picker: the eight fixed swatches, and nothing else.
- *
- * CLAUDE.md: "Project colours are a fixed swatch picker built from
- * `--ww-project-1..8`. No free hex input — amber is reserved for the app itself and a
- * free picker would let a job blend into the interface." There is deliberately no
- * `<input type="color">` here and no way to type a hex; the API rejects anything
- * outside `PROJECT_COLORS` with a 400 anyway.
- *
- * The values come from `src/lib/projectColors.ts`, the same constant the API
- * validates against, so the picker and the validator cannot drift.
- *
- * Real radio inputs rather than `role="radio"` buttons: arrow-key navigation, the
- * roving tab stop and form association all come for free and correct.
+ * The eight fixed project swatches, read from
+ * `src/lib/projectColors.ts` — the same constant the API validates against, so the picker
+ * and the validator cannot drift. Real radio inputs, so arrow-key navigation, the roving
+ * tab stop and form association come for free.
  */
 
 import { useId } from 'react';
@@ -81,8 +72,7 @@ export function ColorSwatches({
             />
             <span
               className={styles.chip}
-              // The palette lives in TypeScript because the API has to validate it;
-              // this is the one sanctioned place a project hex reaches the DOM.
+              // The one sanctioned place a project hex reaches the DOM.
               style={{ '--ww-swatch-color': color } as React.CSSProperties}
               aria-hidden="true"
             />

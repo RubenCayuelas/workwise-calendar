@@ -1,37 +1,8 @@
 /**
- * WHERE A DROP REALLY LANDS, when it cannot land exactly where it was released. Two
- * questions, one file, because both are answered by walking FORWARD from the release
- * point and both are needed by the server and by the ghost at once:
- *
- * - `firstClearStart` — the MINUTE: a pinned drop moves down the day to the first start
- *   whose footprint touches nothing immovable.
- * - `dropLanding` — the DAY: a drop aimed below what its day can hold moves to the next
- *   day the calendar would use, at the top of it.
- *
- * WHY IT LIVES ON ITS OWN, next to `segmentDroppedRow` and for the same reason: TWO
- * CALLERS NEED THE IDENTICAL ANSWER AND NEITHER MAY GUESS IT.
- *
- * - `resolveManualPlacement` (src/lib/composition.ts) applies it when it stores the drop.
- * - the drag ghost (src/components/calendar/dropEffect.ts, WeekGrid) draws the drop before
- *   the mouse is released, and a ghost that promises 07:15 for a row the server will store
- *   at 11:00 is worse than no ghost — it is the app appearing to do something else.
- *
- * "IMMOVABLE" IS EXACTLY TWO THINGS: a GAP and a LOCKED row. Everything else on a day the
- * engine reflows either moves by itself or is resolved by the merge and the cut in
- * `resolveManualPlacement`, so these two are the only ones that ever left a drop with
- * nowhere to go — and they are also the two whose minutes the drop may not share: a gap is
- * time, and "a locked block is never grown or shrunk silently".
- *
- * Forward only, because the drop said "here or later", and a no-op for every drop that was
- * already clear — which is nearly all of them. It exists for the day the drop must KEEP:
- * on the Friday colchón a queue rank is worthless (the reflow pulls the row straight back
- * into Mon-Thu), so giving up the exact minute is the only way to honour the gesture.
- *
- * `null` means the day has no such slot, and the caller's answer to that is to give up the
- * PIN rather than to refuse: see `resolveManualPlacement`.
- *
- * Pure arithmetic over integer minutes — no clock, no database, no React — so the browser
- * has it as cheaply as the server does.
+ * Where a drop really lands when it cannot land exactly where it was released: `firstClearStart`
+ * finds the MINUTE and `dropLanding` the DAY, both by walking FORWARD from the release point.
+ * Pure integer minutes, imported by the write path and by the drag ghost so the two cannot answer
+ * differently. "Immovable" is exactly a GAP and a LOCKED row.
  */
 
 import type { DayRole } from './composition';
@@ -47,15 +18,13 @@ import type { WorkPeriod } from '../types';
 
 export interface DropSlideInput {
   /**
-   * The day's MANUAL WINDOWS — the periods with the visual margins fused on, which is the
-   * view every hand action is cut over. The slid row stays inside one of them: answering a
-   * request for a slot by parking the row in the lunch band would be a stranger answer
-   * than the collision was.
+   * The day's MANUAL WINDOWS: the slid row stays inside one of them, because answering a request
+   * for a slot by parking the row in the lunch band would be a stranger answer than the collision.
    */
   windows: readonly WorkPeriod[];
   /**
-   * The gaps and the LOCKED rows on the day, in any order. The dragged unit's own rows
-   * must not be in here — a row cannot be an obstacle to itself.
+   * The gaps and the LOCKED rows on the day, in any order. The dragged unit's own rows must not be
+   * in here — a row cannot be an obstacle to itself.
    */
   immovable: readonly DropSegment[];
   startMinutes: number;
@@ -72,9 +41,8 @@ export function firstClearStart(input: DropSlideInput): number | null {
   const endOfDay = dayEndMinutes(input.windows);
   let startMinutes = input.startMinutes;
 
-  // Each step clears one obstacle's END, and an obstacle that ends at or before the start
-  // can never be hit again — the footprint begins there — so every step is strictly
-  // forward and one pass per obstacle is enough.
+  // Each step clears one obstacle's END, and an obstacle ending at or before the start can never
+  // be hit again, so every step is strictly forward and one pass per obstacle is enough.
   for (let step = 0; step <= obstacles.length; step += 1) {
     const footprint = segmentDroppedRow(input.windows, {
       startMinutes,
@@ -112,27 +80,14 @@ export interface DropPin {
 }
 
 /**
- * DOES THIS DROP LAND LITERALLY — keeping the exact minute it was released on, and earning
- * a padlock for it? THE ONE IMPLEMENTATION, imported by the write path (`pinsTheRow`, in
- * src/lib/operations/blocks.ts), by the drag ghost (`dropPins`, in dropEffect.ts) and by
- * `dropLanding` below, which is the third caller and the reason this moved here: those two
- * were documented as "one rule, two mirrors" and the rule had grown a third reader.
+ * Does this drop land literally — keeping the exact minute it was released on, and earning a
+ * padlock for it? THE ONE IMPLEMENTATION, read by the write path (`pinsTheRow`), by the drag ghost
+ * (`dropPins`) and by `dropLanding` below.
  *
- * Two reasons a drop lands literally, and both are "the reflow's only possible answer here
- * would be to undo the gesture":
- *
- * - THE DAY. The Friday buffer and the weekend are the days whose whole point is that the
- *   engine does not decide what sits there. A day the engine auto-fills takes a drop as a
- *   queue rank instead. A row that is already padlocked keeps its minute on any day.
- * - THE SLOT. A drop that STARTS in manual-only time — a visual margin. The engine's index
- *   space holds no margin minutes, so an unpinned margin row would be pulled straight back
- *   inside the periods, which is why the margins were configurable and unusable.
- *
- * THE SLOT IS READ AT THE START, NOT ACROSS THE FOOTPRINT (2026-08-17), because since
- * *fill and overflow* the minutes past the end of the day's periods are not a request for
- * the margin — they are hours the reflow carries to the next day. See
- * `manualOnlyHeadMinutes`. The lunch break asks for nothing either way: the start is read
- * through `firstWorkingMinute`, so a release anywhere in the band is 15:30.
+ * Two reasons, both "the reflow's only answer here would be to undo the gesture": the DAY (the
+ * buffer, the weekend, or a row already padlocked) and the SLOT (a start in manual-only time — a
+ * visual margin, whose minutes the engine's index space does not hold). The slot is read at the
+ * START, not across the footprint: minutes past the periods are hours the reflow carries onward.
  */
 export function dropLandsLiterally(input: DropPin): boolean {
   if (input.locked || input.role !== 'auto') return true;
@@ -148,8 +103,8 @@ export function dropLandsLiterally(input: DropPin): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * ONE DAY, AS A LANDING PLACE: both views of it, its role, and whether the engine lays it
- * out at all. `DayConfig` satisfies it once `reflows` is filled in from `dayReflows`.
+ * One day as a landing place: both views of it, its role, and whether the engine lays it out at
+ * all. `DayConfig` satisfies it once `reflows` is filled in from `dayReflows`.
  */
 export interface DropDay {
   /** Auto-fill's view. Its first minute is where a drop that rolled onto this day lands. */
@@ -157,8 +112,8 @@ export interface DropDay {
   /** A hand action's view: what the drop is measured over where it was released. */
   manualWindows: readonly WorkPeriod[];
   /**
-   * `dayReflows`: the engine decides what sits here. False for the weekend, a closed day
-   * and the past — the three kinds of day this roll neither leaves nor lands on.
+   * `dayReflows`: false for the weekend, a closed day and the past — the three kinds of day this
+   * roll neither leaves nor lands on.
    */
   reflows: boolean;
   /** Which day this is, for `dropLandsLiterally`: only a literal drop has a footprint to fit. */
@@ -189,69 +144,23 @@ export interface DropLanding {
 const MAX_LANDING_DAYS = 14;
 
 /**
- * WHERE A DROP AIMED BELOW WHAT ITS DAY CAN HOLD REALLY LANDS: the next day the engine
- * would use, at the top of it.
- *
- * The owner, on being shown the old behaviour — the drop refused and the ghost stuck at
- * the lowest point that fits: *«Que se rechaza, de qué friki. Pasa al siguiente día.
- * ¿Sabes cómo funciona un calendario?»* They are right, and it is the plainest rule in
- * the app: in any calendar, aiming past the end of a day means the day after.
- *
- * It replaces a wall the drag layer had to draw — a 6 h unit could not be aimed below
- * 13:00 on the documented shift, because its footprint would end at 20:45 and the
- * end-of-day guard refused the write — with a landing the ghost can show while dragging,
- * so the day change is never a surprise on release.
- *
- * IT ONLY APPLIES TO A DROP THAT LANDS LITERALLY (2026-08-17). A drop that is a queue RANK
- * has no footprint to fit: since *fill and overflow* the engine takes what the day has left
- * and carries the rest to the next day by itself, so a 6 h release into a 4 h afternoon is
- * not a drop on another day — it is 4 h here and 2 h there, which is what the owner meant.
- * Rolling it was the whole of their defect: the row moved to a day it was already on and
- * the request answered 200 having changed nothing. So the roll is now reserved for the
- * drops whose minute really is the promise — the buffer, the weekend, a visual margin, a
- * padlocked row — where a footprint past the end of the day would otherwise be a 409.
- *
- * FOUR THINGS BOUND IT, and each one is a place the roll would otherwise be the surprise:
- *
- * - IT ONLY LEAVES A DAY THE ENGINE LAYS OUT, and only lands on one. "The next day the
- *   engine would use" means nothing where the engine chooses nothing: on the weekend, on a
- *   closed day and in the past a drop is a literal placement on a day the owner named on
- *   purpose, so moving it to another date would be a bigger surprise than the refusal. The
- *   Friday colchón IS one of them — overflow from Thursday is what the buffer is for — and
- *   a run that lands there padlocks like any other Friday drop.
- * - IT LANDS AT THE TOP OF THE PERIODS, never in a top margin, and a candidate day is
- *   measured over its PERIODS: a run that only fits by reaching into a margin would come
- *   back PADLOCKED, and the owner asked for the next day, not for a mark. Where the drop
- *   was RELEASED the MANUAL WINDOWS are what it is measured against instead, because a
- *   release into the bottom margin is a legitimate aim and must not roll off the day.
- * - IT GIVES UP RATHER THAN WALKING FOR EVER. A run no day can hold from the top of its
- *   periods is left exactly where it was released, and the write path's own end-of-day
- *   refusal answers for it on the day the owner actually chose.
- *
- * AND IT SETTLES THE MINUTE BEFORE THE DAY. A release with no working time under it — the
- * lunch break — is read as the next minute that has some (`firstWorkingMinute`), because
- * everything below measures the drop from its start and everything above the write decides
- * from it: the padlock, the queue rank, the ghost's rectangle. Where there is no later
- * working minute (past the end of the day, or a day whose afternoon is switched off) the
- * release is left alone and the roll below is what answers for it.
- *
- * Pure arithmetic over integer minutes, so the drag ghost can reach the same landing the
- * server will store: same reason `firstClearStart` and `segmentDroppedRow` live here.
+ * Where a drop aimed below what its day can hold really lands: the next day the engine would use,
+ * at the top of its PERIODS — never a top margin, which would padlock a run nobody asked to fix.
+ * Only for a drop that LANDS LITERALLY; a queue rank has no footprint to fit. A candidate day is
+ * measured over its periods, the day of the RELEASE over its manual windows. A run no day can hold
+ * is left where it was released, for the write path's end-of-day refusal to answer.
  */
 export function dropLanding(input: DropLandingInput): DropLanding {
   const here = input.dayOf(input.date);
-  // A MINUTE WITH NO WORKING TIME MEANS THE NEXT MINUTE THAT HAS SOME. Aiming at the lunch
-  // break asks for work in a slot that does not exist, so the drop starts where the shop can
-  // start: 14:00, 15:00 and 15:29 all mean 15:30. It is settled HERE rather than only at the
-  // write, because this one start is what the rest of the gesture is decided from — whether
-  // the row is padlocked (`pinsTheRow`), the queue rank it takes, and the rectangle the
-  // ghost draws, which imports this function so it cannot answer differently.
+  // A minute with no working time means the next minute that has some: 14:00, 15:00 and 15:29 all
+  // mean 15:30. Settled HERE because this start is what the padlock, the queue rank and the
+  // ghost's rectangle are all decided from.
   const startMinutes = firstWorkingMinute(here.manualWindows, input.startMinutes);
   const released = { date: input.date, startMinutes };
   if (fitsFrom(here.manualWindows, startMinutes, input.durationMinutes)) return released;
   if (!here.reflows) return released;
-  // A queue rank has no footprint to fit: the reflow fills what the day has left and
-  // carries the rest forward, so there is nothing here for another DATE to solve.
+  // A queue rank has no footprint to fit: the reflow fills what the day has left and carries the
+  // rest forward, so there is nothing here for another DATE to solve.
   const literal = dropLandsLiterally({
     locked: input.locked ?? false,
     role: here.role,

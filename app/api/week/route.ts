@@ -1,7 +1,5 @@
 /**
- * `/api/week?date=YYYY-MM-DD` — everything the week view needs, in one call.
- *
- * GET -> {
+ * GET `?date=YYYY-MM-DD` -> {
  *   today,
  *   week:     { startDate, endDate, dates[7], isoWeek, isoWeekYear },
  *   settings, shape,
@@ -11,19 +9,10 @@
  *   summary:  ScheduleSummary
  * }
  *
- * `date` may be any day of the week wanted; it is snapped to that week's Monday.
- * Omitted, it means the current week. `dates` always holds all seven days, because
- * the grid renders Sat/Sun narrow rather than hiding them.
- *
- * One call rather than four on purpose: a recomposition rewrites many rows at once,
- * so separate fetches could draw blocks against a day whose capacity had already
- * changed. Every field here comes from one snapshot.
- *
- * What `days[]` gives the header of each column, as flags to be worded from
- * public/locales — never as text: `role` ("auto" Mon-Thu, "buffer" Friday's colchón,
- * "manual" the weekend), `isToday`, `isPast` (frozen: the engine will not write
- * there, though the owner still may), `isClosed`, and `plannableMinutes`, the hours
- * auto-fill could still put there.
+ * `date` may be any day of the week wanted — it is snapped to that week's Monday; omitted it
+ * means the current week. Every field comes from ONE snapshot, which is why this is a single
+ * call: a recomposition rewrites many rows at once, so separate fetches could draw blocks
+ * against a day whose capacity had already changed.
  */
 
 import type { NextRequest } from 'next/server';

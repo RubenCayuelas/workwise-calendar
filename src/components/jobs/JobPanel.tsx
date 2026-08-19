@@ -1,18 +1,8 @@
 'use client';
 
 /**
- * The job panel, exactly as documents/workwise_wireframe_bloque_y_panel.html draws it:
- * colour dot + name + close, then Nombre, Descripción, Horas totales and Color, then
- * `Bloques · 11 h en 4 tramos` with a padlock per row, then Guardar / Eliminar.
- *
- * It fetches the job itself (`GET /api/projects/:id`) rather than taking the week's
- * blocks, because the list has to show EVERY row of the job across every week — the
- * week view only knows about seven days.
- *
- * What it does NOT do: decide where hours go. Raising `Horas totales` is a PATCH and
- * the engine applies the LIFO rule; the panel then diffs the rows it had against the
- * rows it got back and reports the difference, so the owner can see that the extra
- * hours went into the Friday colchón or into next week.
+ * The job panel. It fetches the job itself rather than taking the week's blocks, because the
+ * list has to show EVERY row across every week.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -90,8 +80,7 @@ export function JobPanel({
 
   useEffect(() => {
     if (!open) {
-      // Closing the panel while its confirmation is up must not leave the dialog
-      // floating over the calendar with nothing behind it.
+      // A confirmation must never outlive the panel it belongs to.
       setConfirmOpen(false);
       return;
     }
@@ -130,11 +119,9 @@ export function JobPanel({
   }, []);
 
   /**
-   * The loaded job, but only while it IS the job the panel was asked for.
-   *
-   * Opening the panel on another job keeps the previous one in state until the fetch
-   * resolves, and rendering that would put the wrong name in the header and the wrong
-   * rows in the list for a moment.
+   * The loaded job, but only while it IS the job the panel was asked for: opening the panel
+   * on another job keeps the previous one in state until the fetch resolves, and rendering
+   * that would show the wrong name and rows for a moment.
    */
   const loaded = project !== null && project.id === projectId ? project : null;
 
@@ -190,8 +177,8 @@ export function JobPanel({
     try {
       const result = await setBlockLock(block.id, !block.locked);
       setBlocks(result.blocks);
-      // No placement notice here on purpose: locking reflows the whole calendar, so a
-      // list of everything that moved would be noise rather than news.
+      // No placement notice on purpose: locking reflows the whole calendar, so a list of
+      // everything that moved would be noise rather than news.
       onChanged?.({
         kind: 'block-locked',
         projectId: block.projectId,
@@ -212,24 +199,12 @@ export function JobPanel({
     setActionError(null);
 
     try {
-      /*
-       * THE LANGUAGE IS PART OF THE REQUEST because deleting a job LEAVES ITS PAST
-       * BEHIND: every row dated before today becomes a gap named `Trabajo «X»
-       * eliminado`, so the day the shop actually worked keeps its shape and nothing
-       * later is pulled back into the hole.
-       *
-       * That sentence is composed on the server at deletion time and STORED — the
-       * project row is gone by then, so there is nothing left to look the name up in.
-       * Being stored, it is frozen in whatever language was current when the job was
-       * deleted, and switching to English later will not translate it. That is the right
-       * trade: a gap's `reason` is user data, the same field that holds "Avería torno",
-       * and it stays editable afterwards like any other gap.
-       */
+      // The language is part of the request: the server composes each preserved gap's
+      // `reason` at deletion time and stores it.
       const result = await deleteProject(project.id, { language: i18n.language });
       onChanged?.({ kind: 'job-deleted', projectId: project.id, summary: result.summary });
       // Said only when there IS a past to have kept: on a job entirely in the future the
-      // calendar closing up is the whole story, and a notice about nothing would teach
-      // the owner to stop reading them.
+      // calendar closing up is the whole story.
       if (result.preservedGapIds.length > 0) {
         toast.info(t('notices.deletedJobPast', { count: result.preservedGapIds.length }));
       }
@@ -358,11 +333,9 @@ function sameValues(a: JobFormValues, b: JobFormValues): boolean {
 }
 
 /**
- * Only what actually changed.
- *
- * A PATCH that restates every field would be harmless for the name and the colour but
- * not for the hours: `totalMinutes` is the LIFO path, and re-sending the same total is
- * a no-op the engine should never be asked to consider. `null` clears a description.
+ * Only what actually changed. Restating every field would be harmless for the name and the
+ * colour but not for the hours: `totalMinutes` is the LIFO path, and re-sending the same
+ * total is a no-op the engine should never be asked to consider. `null` clears a description.
  */
 function patchOf(project: Project, values: JobFormValues): UpdateProjectInput {
   const patch: UpdateProjectInput = {};

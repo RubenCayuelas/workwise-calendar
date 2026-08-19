@@ -1,19 +1,7 @@
-/**
- * The data layer's specification: repositories, the scheduler seam and the
- * operations the API routes are thin wrappers around.
- *
- * `composition.test.ts` already proves the engine's rules against a snapshot. What
- * is left to prove is everything that snapshot has to survive on its way to SQLite:
- *
- * - the hours invariant holds after every write, in integer minutes,
- * - a refusal writes NOTHING, whichever half of the operation refuses,
- * - the Friday colchón is opt-in per operation and cannot be reached by accident,
- * - hours survive the REAL <-> minutes boundary without drifting.
- *
- * Every test runs against `openDatabase(':memory:')`, migrated and isolated, and
- * every operation is given an explicit `today` so the suite does not depend on the
- * day it is run. The week is the wireframe's: Monday 10 to Sunday 16 August 2026.
- */
+// The data layer's specification: repositories, the scheduler seam and the operations the API routes
+// wrap. `composition.test.ts` proves the engine's rules; these prove what a snapshot has to survive
+// on the way to SQLite — the hours invariant in integer minutes, a refusal writing NOTHING, hours
+// crossing the REAL <-> minutes boundary. In-memory db, explicit `today`, the week 10-16 Aug 2026.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, openDatabase, type Db } from './db';
@@ -121,9 +109,7 @@ describe('creating a job', () => {
 
   it('fills the hours the day has left and carries the rest to the next one', () => {
     job('Puerta', 8);
-    // Monday has 2 h of its 10 h stop line left. Those two hours used to be left empty and
-    // the whole 4 h went to Tuesday — "never split a job to make it fit", which the owner
-    // removed on 2026-08-17. The job takes them and finishes on Tuesday morning.
+    // Monday has 2 h of its 10 h stop line left: the job takes them and finishes on Tuesday.
     job('Barandilla', 4, GREEN);
 
     expect(calendar()).toEqual([
@@ -136,8 +122,7 @@ describe('creating a job', () => {
   });
 
   it('skips the Friday colchon and lands on next Monday', () => {
-    // 40 h fills Monday to Thursday at the 10 h stop line; the remaining 4 h are a
-    // NEW job's hours, and "new job placement never targets Friday".
+    // 40 h fills Mon-Thu at the stop line; the remaining 4 h are a NEW job's, so they skip Friday.
     job('Escalera', 44);
 
     const dates = [...new Set(listBlocks(db).map((block) => block.date))];
@@ -161,8 +146,8 @@ describe('creating a job', () => {
     expect(error.code).toBe('horizon-exceeded');
     expect(error.messageKey).toBe('errors.horizonExceeded');
     expect(error.status).toBe(409);
-    // The project row was inserted before the engine ran: the rollback is what
-    // stops a job existing with no hours on the calendar.
+    // The project row is inserted before the engine runs, so only the rollback keeps it from
+    // existing with no hours on the calendar.
     expect(listProjects(db)).toEqual([]);
     expect(listBlocks(db)).toEqual([]);
   });
@@ -245,9 +230,8 @@ describe('creating a job with a start date', () => {
   });
 
   it('honours a Friday chosen by hand, padlocking the rows that land on it', () => {
-    // 44 h fills Monday to Thursday and spills onto NEXT Monday (a new job skips the
-    // colchón), so the queue already runs past this Friday: `autoLock` does not fire, and
-    // the padlock the DAY earns is what keeps the buffer from self-cleaning the row away.
+    // The queue already runs past this Friday, so `autoLock` does not fire: the padlock the DAY
+    // earns is what keeps the buffer from self-cleaning the row away.
     job('Puerta', 44);
     const created = dated('Barandilla', 4, FRI);
     const row = listBlocks(db).find((block) => block.date === FRI);
@@ -255,7 +239,7 @@ describe('creating a job with a start date', () => {
     expect(row).toMatchObject({ startMinutes: 8 * 60, durationMinutes: 240, locked: true });
     expect(created.placement).toMatchObject({ day: 'buffer', dayLock: true, autoLock: false });
 
-    // And it survives the create-then-reflow churn that used to undo a Friday drop.
+    // And it survives the create-then-reflow churn, which is where a Friday drop is lost.
     job('Reja', 2);
     expect(listBlocks(db).find((block) => block.date === FRI)?.id).toBe(row?.id);
     expect(() => assertProjectHours(db)).not.toThrow();
@@ -266,8 +250,7 @@ describe('creating a job with a start date', () => {
     dated('Barandilla', 4, SAT);
     const row = listBlocks(db).find((block) => block.date === SAT);
 
-    // Beyond the work planned AND on a day the engine never uses, so both reasons for a
-    // padlock apply and the row carries the one padlock they both mean.
+    // Beyond the planned work AND on a day the engine never uses: both reasons for a padlock apply.
     expect(row).toMatchObject({
       startMinutes: 8 * 60,
       durationMinutes: 240,
@@ -397,14 +380,8 @@ describe('the Friday buffer is opt-in', () => {
 });
 
 // ---------------------------------------------------------------------------
-// A drop the engine used to undo
+// A drop onto the Friday colchón, which the engine must not undo
 // ---------------------------------------------------------------------------
-//
-// THE REPRODUCED DEFECT. `PATCH /api/blocks/:id {action:"move", date:<a Friday>,
-// startMinutes:600}` answered 200 and changed nothing. Friday is in the movable pool —
-// the engine may put growth overflow there AND recover it — so the reflow pulled the
-// hand-dropped row straight back. The same move to a Saturday worked, and to a past
-// Monday worked; only Friday failed, silently, which is the worst mode.
 
 describe('a drop onto the Friday colchon', () => {
   it('stays on Friday, in the slot it was dropped in', () => {
@@ -444,10 +421,8 @@ describe('a drop onto the Friday colchon', () => {
     job('Puerta', 4);
     const barandilla = job('Barandilla', 2, GREEN);
 
-    // 07:59, which is what the drag layer sends for "drop this at the top of Monday":
-    // 08:00 is taken by Puerta, so `rankFor` nudges the rank by a single minute. One
-    // minute above the morning is a TIE-BREAK, not a request for the margin, which is
-    // why the pin needs at least a quarter of an hour of it — see MIN_MANUAL_ONLY_MINUTES.
+    // 07:59 is what the drag layer sends for "drop this at the top of Monday": 08:00 is taken, so
+    // `rankFor` nudges by a minute. One minute of margin is a TIE-BREAK, not a request for it.
     const result = moveBlock(barandilla.blocks[0].id, { date: MON, startMinutes: 8 * 60 - 1, today: MON }, db);
 
     expect(result.block?.locked).toBe(false);
@@ -455,10 +430,8 @@ describe('a drop onto the Friday colchon', () => {
   });
 
   it('padlocks a drop into a visual margin, because the engine would pull it straight back', () => {
-    // The owner's report C: "yo debo poder extender y colocar tareas en esas franjas si
-    // yo quiero, de forma manual." An unpadlocked margin row is reflowed into the periods
-    // on the very same save, so the margins were configurable and unusable. The padlock is
-    // the mark the buffer and the weekend already use, and pressing it is the way back.
+    // An unpadlocked margin row is reflowed back into the periods on the very same save, which made
+    // the margins configurable and unusable. The padlock is the mark, and pressing it is the way back.
     job('Puerta', 4);
     const barandilla = job('Barandilla', 2, GREEN);
 
@@ -466,8 +439,7 @@ describe('a drop onto the Friday colchon', () => {
 
     expect(result.block?.locked).toBe(true);
     expect(calendar()).toEqual([
-      // Half in the margin, half in the morning, exactly where it was dropped — and the
-      // hour it holds inside the period is an obstacle Puerta flows around.
+      // Half in the margin, half in the morning: the hour inside the period is an obstacle.
       `${MON} 07:00-09:00 Barandilla [locked]`,
       `${MON} 09:00-13:00 Puerta`,
     ]);
@@ -493,10 +465,8 @@ describe('a drop onto the Friday colchon', () => {
   });
 
   it('KEEPS the padlock when the row is dragged back into the auto-fill week', () => {
-    // A drop adds the padlock and never takes it away. Dragging the row back to Tuesday
-    // moves it there and leaves it fixed, because a gesture that silently unlocked work
-    // the owner had pinned would make the padlock mean two things at once. The way back is
-    // the padlock itself.
+    // A drop adds the padlock and never takes it away, or the padlock would mean two things at
+    // once. The way back is the padlock itself.
     const puerta = job('Puerta', 4);
     moveBlock(puerta.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: MON }, db);
 
@@ -530,10 +500,8 @@ describe('block gestures', () => {
     const barandilla = job('Barandilla', 2, GREEN);
     expect(calendar()).toEqual([`${MON} 08:00-12:00 Puerta`, `${MON} 12:00-14:00 Barandilla`]);
 
-    // Dropped at the top of Monday's work: 07:59 is the RANK the drag layer sends when
-    // 08:00 is already taken, not a final time. The reflow settles the row at the top of
-    // the periods and everything behind it shifts. (A drop a quarter of an hour or more
-    // INTO the margin is a different gesture: it pins — see the margin tests above.)
+    // 07:59 is the RANK the drag layer sends when 08:00 is taken, not a final time. (A drop a
+    // quarter of an hour or more INTO the margin is a different gesture: it pins.)
     moveBlock(barandilla.blocks[0].id, { date: MON, startMinutes: 8 * 60 - 1, today: MON }, db);
 
     expect(calendar()).toEqual([
@@ -557,8 +525,7 @@ describe('block gestures', () => {
   it("asks what to do with the hours a job's last block frees, and writes nothing yet", () => {
     const puerta = job('Puerta', 8);
     const last = puerta.blocks[puerta.blocks.length - 1];
-    // The edge only sizes a row the engine does not lay out, so the padlock comes first —
-    // and it is what will hold the length the answer settles on.
+    // The edge only sizes a row the engine does not lay out, so the padlock comes first.
     setBlockLock(last.id, true, { today: MON }, db);
     const before = calendar();
 
@@ -567,8 +534,7 @@ describe('block gestures', () => {
     expect(error.status).toBe(409);
     expect(error.code).toBe('shrink-needs-choice');
     expect(error.messageKey).toBe('errors.shrinkNeedsChoice');
-    // Everything the dialog needs, in ONE round trip: the hours it is about, and the ways
-    // out that really exist — in minutes, like everything else the API speaks.
+    // Everything the dialog needs in ONE round trip, in minutes like the rest of the API.
     expect(error.details).toMatchObject({
       blockId: last.id,
       projectId: puerta.project.id,
@@ -597,8 +563,7 @@ describe('block gestures', () => {
 
     resizeBlock(last.id, { durationMinutes: 60, freedHours: 'new-block', today: MON }, db);
 
-    // The job still has its 8 h: 6 + 1 where the owner drew them, and the freed hour as a
-    // row of its own, which the engine places on the first hours it can use.
+    // Still 8 h: 6 + 1 where the owner drew them, and the freed hour as a row of its own.
     expect(calendar()).toEqual([
       `${MON} 08:00-14:00 Puerta`,
       `${MON} 15:30-16:30 Puerta [locked]`,
@@ -621,10 +586,8 @@ describe('block gestures', () => {
   });
 
   it('refuses an unlocked future row, and sizes the very same row once it is padlocked', () => {
-    // The gesture used to be offered here and answer 200 with the row unchanged, because
-    // the recomposition that follows re-derives an automatic row's length from its job's
-    // total. A stored mark papered over that until 2026-08-18; now the app says what the
-    // owner has to do — padlock the row (or make a gap) — and nothing is written meanwhile.
+    // On an automatic row the recomposition re-derives the length from the job's total, so the app
+    // says what the owner has to do — padlock the row, or make a gap — and writes nothing meanwhile.
     const puerta = job('Puerta', 8);
     const morning = puerta.blocks[0];
     expect(morning.durationMinutes).toBe(6 * 60);
@@ -643,8 +606,7 @@ describe('block gestures', () => {
     expect(result.block?.locked).toBe(true);
     expect(calendar()).toEqual([
       `${MON} 08:00-10:00 Puerta [locked]`,
-      // The 4 h went to the job's LAST block, which the engine then lays out from the
-      // padlocked row onwards: the day is not left with a hole in it.
+      // The 4 h went to the job's LAST block, laid out from the padlocked row on: no hole.
       `${MON} 10:00-14:00 Puerta`,
       `${MON} 15:30-17:30 Puerta`,
     ]);
@@ -653,9 +615,8 @@ describe('block gestures', () => {
   });
 
   it("stores a resize across the lunch break as two rows — the owner's worked example", () => {
-    // "arrastro hasta las 17:30 una tarea que empezaba a las 10 ... sería de 10 a 14 y de
-    // 15:30 a 17:30." The drag layer sends 6 h of NET working minutes; the break adds
-    // nothing, and the row is stored cut at it like everything else on the calendar.
+    // The drag layer sends 6 h of NET working minutes: the break adds nothing and the row is stored
+    // cut at it like everything else on the calendar.
     job('Porton', 2);
     const barandilla = job('Barandilla', 14, GREEN);
     expect(calendar()).toEqual([
@@ -668,24 +629,21 @@ describe('block gestures', () => {
     setBlockLock(barandilla.blocks[0].id, true, { today: MON }, db);
     const result = resizeBlock(barandilla.blocks[0].id, { durationMinutes: 6 * 60, today: MON }, db);
 
-    // The row the request named holds the first segment; the second is a row of its own,
-    // carrying the same padlock — that is what holds the stretch the owner drew.
+    // The named row holds the first segment; the second carries the same padlock.
     expect(result.block?.durationMinutes).toBe(4 * 60);
     expect(result.block?.locked).toBe(true);
     expect(calendar()).toEqual([
       `${MON} 08:00-10:00 Porton`,
       `${MON} 10:00-14:00 Barandilla [locked]`,
       `${MON} 15:30-17:30 Barandilla [locked]`,
-      // A transfer, not growth: the 2 h the stretch gave up went to the job's last row,
-      // which the engine places from Monday's remaining hours onwards.
+      // A transfer, not growth: the 2 h given up went to the job's last row.
       `${MON} 17:30-19:30 Barandilla`,
       `${TUE} 08:00-14:00 Barandilla`,
     ]);
     expect(listProjects(db).find((project) => project.name === 'Barandilla')?.totalMinutes).toBe(14 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
 
-    // And back again, symmetrically: the same edge dragged up to 12:00 takes the stretch
-    // back into the morning and the afternoon row is gone.
+    // And back symmetrically: dragged up to 12:00, the afternoon row is gone.
     resizeBlock(barandilla.blocks[0].id, { durationMinutes: 4 * 60, today: MON }, db);
     expect(calendar()).toEqual([
       `${MON} 08:00-10:00 Porton`,
@@ -698,22 +656,19 @@ describe('block gestures', () => {
   });
 
   it('lets a resize reach into the bottom margin, and the row stays there', () => {
-    // Report C for the resize. The padlock is what keeps the reflow from pulling the row
-    // back inside the periods — and since it is also what allows the resize at all, no
-    // second mark was ever needed here.
+    // The padlock keeps the reflow from pulling the row back inside the periods — and since it is
+    // also what allows the resize at all, no second mark is needed here.
     job('Porton', 6);
     const puerta = job('Puerta', 2, GREEN);
     expect(calendar()).toEqual([`${MON} 08:00-14:00 Porton`, `${MON} 15:30-17:30 Puerta`]);
 
-    // 15:30 to 20:30 — an hour past the last period, into the grey band the Settings
-    // screen offers and no gesture could reach.
+    // 15:30 to 20:30: an hour past the last period, into the grey band no gesture could reach.
     setBlockLock(puerta.blocks[0].id, true, { today: MON }, db);
     const result = resizeBlock(puerta.blocks[0].id, { durationMinutes: 5 * 60, today: MON }, db);
 
     expect(result.block?.locked).toBe(true);
     expect(calendar()).toEqual([`${MON} 08:00-14:00 Porton`, `${MON} 15:30-20:30 Puerta [locked]`]);
-    // Nothing farther in the job to draw from, so this is the one case that grows the
-    // estimate — 2 h to 5 h — and the hours invariant still holds.
+    // Nothing farther in the job to draw from, so this is the one case that grows the estimate.
     expect(listProjects(db).find((project) => project.name === 'Puerta')?.totalMinutes).toBe(5 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
 
@@ -725,8 +680,7 @@ describe('block gestures', () => {
       `${TUE} 08:00-10:00 Reja`,
     ]);
 
-    // Auto-fill still cannot reach the margin: Monday's stop line is the 10 h of periods,
-    // not the 12 h the manual window covers.
+    // Auto-fill cannot reach the margin: Monday's stop line is the 10 h of periods, not 12 h.
     expect(readWeek(MON, { today: MON }, db).days[0].capacityMinutes).toBe(10 * 60);
   });
 
@@ -746,10 +700,8 @@ describe('block gestures', () => {
 
     expect(calendar()).toEqual([
       `${MON} 08:00-10:00 Puerta [locked]`,
-      // STRICT ORDER, UNBROKEN, and the day is used to its stop line: Puerta's own
-      // remaining hours take the room its shrunk row freed and Barandilla still follows
-      // it, so the only thing that changed is which 2 h are padlocked. Ending the day at
-      // 10:00 is what a GAP is for, and only the owner makes one.
+      // STRICT ORDER, UNBROKEN, and the day is used to its stop line: Puerta's remaining hours take
+      // the room its shrunk row freed. Ending the day at 10:00 is what a GAP is for.
       `${MON} 10:00-14:00 Puerta`,
       `${MON} 15:30-17:30 Puerta`,
       `${MON} 17:30-19:30 Barandilla`,
@@ -757,12 +709,10 @@ describe('block gestures', () => {
     ]);
     expect(() => assertProjectHours(db)).not.toThrow();
 
-    // Pressing the padlock hands the row back, length included: the calendar is the
-    // automatic one again. That is the whole of *back to automatic* now.
+    // Pressing the padlock hands the row back, length included.
     setBlockLock(puerta.blocks[0].id, false, { today: MON }, db);
     expect(calendar()).toEqual(automatic);
-    // By id, not by position: two jobs created in the same second are ordered by their
-    // random ids.
+    // By id, not by position: two jobs created in the same second are ordered by their random ids.
     expect(listProjects(db).find((project) => project.id === puerta.project.id)?.totalMinutes).toBe(
       8 * 60,
     );
@@ -791,10 +741,8 @@ describe('block gestures', () => {
   });
 
   it('answers a shrink that has nowhere to put the hours with a question, never a no-op', () => {
-    // The other half of the same fix: where the transfer is genuinely impossible the
-    // caller gets a 409 with an i18n key, never a 200 with the row unchanged — and now
-    // that 409 is a question rather than a wall. Nothing is written until it is answered,
-    // marks included.
+    // Where the transfer is genuinely impossible the caller gets a 409 with an i18n key that is a
+    // QUESTION, never a 200 with the row unchanged. Nothing is written until it is answered.
     const puerta = job('Puerta', 8);
     const last = puerta.blocks[puerta.blocks.length - 1];
     setBlockLock(last.id, true, { today: MON }, db);
@@ -809,9 +757,8 @@ describe('block gestures', () => {
   });
 
   it('cuts a movable row a drop lands in, so the day reads A, B, A', () => {
-    // The second reproduced defect: Porton dropped onto Wednesday 10:00, inside
-    // Barandilla's 08:00-14:00 row, used to land at 15:30 — after the whole block —
-    // and push Barandilla to Thursday.
+    // Dropped onto Wednesday 10:00, inside Barandilla's 08:00-14:00 row: it used to land at 15:30,
+    // after the whole block, and push Barandilla to Thursday.
     job('Barandilla', 6, GREEN, WED);
     const porton = job('Puerta', 2, BLUE, WED);
     expect(calendar()).toEqual([`${WED} 08:00-14:00 Barandilla`, `${WED} 15:30-17:30 Puerta`]);
@@ -830,9 +777,7 @@ describe('block gestures', () => {
   });
 
   it('fills the rest of the day with the tail a drop displaced, instead of jumping a week', () => {
-    // The third reproduced defect, in the owner's words: «al mover un bloque a otro, en
-    // vez de adaptarse, desplazó el bloque al día siguiente sin partirlo ni nada,
-    // dejando el día vacío después de la tarea que he movido».
+    // The displaced job used to move WHOLE to the next day, leaving the day empty behind it.
     job('Barandilla', 12, GREEN, THU);
     const marquesina = job('Marquesina', 2, BLUE, THU);
     const dropped = listBlocks(db).find((row) => row.projectId === marquesina.project.id);
@@ -842,8 +787,7 @@ describe('block gestures', () => {
     expect(calendar()).toEqual([
       `${THU} 08:00-10:00 Barandilla`,
       `${THU} 10:00-12:00 Marquesina`,
-      // The 10 h tail used to leave Thursday 12:00-19:30 empty and land whole on the
-      // following Monday. Work fills forward from where it was cut.
+      // The 10 h tail fills forward from where it was cut instead of landing whole on Monday.
       `${THU} 12:00-14:00 Barandilla`,
       `${THU} 15:30-19:30 Barandilla`,
       `${NEXT_MON} 08:00-12:00 Barandilla`,
@@ -853,10 +797,8 @@ describe('block gestures', () => {
   });
 
   it('stores a drop that crosses the lunch break as two rows', () => {
-    // The fourth reproduced defect: a 360 min drop at 10:00 was stored as ONE row
-    // running straight through 14:00-15:30. `duration` is net working time, so that row
-    // was a lie, and the grid, the overlap arithmetic and auto-merge all assume it
-    // cannot happen.
+    // A 360 min drop at 10:00 was stored as ONE row through 14:00-15:30. `duration` is net working
+    // time, so the grid, the overlap arithmetic and auto-merge all assume that cannot happen.
     const puerta = job('Puerta', 6);
 
     moveBlock(puerta.blocks[0].id, { date: SAT, startMinutes: 10 * 60, today: MON }, db);
@@ -884,10 +826,8 @@ describe('block gestures', () => {
       db,
     );
 
-    // The 2 h left the front of the job and took a new place in the queue — behind
-    // Barandilla, which is what the drop asked for. It does NOT stay on Wednesday:
-    // an unlocked fragment settles contiguously like any other unlocked row, so
-    // parking hours on a specific day means locking them.
+    // The 2 h took a new place in the queue, behind Barandilla. It does NOT stay on Wednesday: an
+    // unlocked fragment settles contiguously, so parking hours on a day means locking them.
     expect(calendar()).toEqual([
       `${MON} 08:00-14:00 Puerta`,
       `${MON} 15:30-17:30 Barandilla`,
@@ -914,28 +854,16 @@ describe('block gestures', () => {
 // Growing a job whose last row is in the frozen past
 // ---------------------------------------------------------------------------
 //
-// The worst defect found on v0.4, and the one that needed no unusual gesture at all: a
-// row on TODAY becomes a past row overnight, so any job carrying yesterday's work was
-// one hours-edit away from a dead app.
-//
-// Reproduced over HTTP on a clean database with today = Wed 2026-08-12: a 2 h job whose
-// one row sat on Tue 11 at 12:00-14:00, raised to 6 h, was stored as `Tue 12:00 + 360
-// min` — one row straight through the 14:00-15:30 lunch break, claiming 6 h where the
-// clock holds 4.5 h. Raised to 13 h it became `12:00-25:00`, and the week view died with
-// `RangeError: Invalid minutes "1500"` out of `useFormat().time`.
-//
-// Two independent fixes, and the second one matters even though the first closes the
-// path: the LIFO growth target now agrees with the movable pool, AND no transaction can
-// store a row running past the end of its day whatever produced it.
+// A row on TODAY becomes a past row overnight, so any job carrying yesterday's work was one
+// hours-edit away from a dead app: the growth landed on the past row and stored `12:00-25:00`.
+// Two independent fixes — the LIFO growth target agrees with the movable pool, AND no transaction
+// can store a row running past the end of its day whatever produced it.
 
 describe('raising the hours of a job whose only row is in the frozen past', () => {
   /**
-   * A 2 h job whose single row sits on yesterday at 12:00, today being Wednesday.
-   *
-   * Written straight onto the row rather than dragged there: no gesture can reach a past
-   * day any more (see *the past is read-only to the block gestures*), and what these tests
-   * are about is what the app does with a record that is ALREADY there — the row was
-   * ordinary work on Tuesday until Wednesday came round.
+   * A 2 h job whose single row sits on yesterday at 12:00, today being Wednesday. Written straight
+   * onto the row rather than dragged: no gesture reaches a past day, and what is under test is what
+   * the app does with a record that is ALREADY there.
    */
   function yesterdaysWork() {
     const puerta = job('Puerta', 2, BLUE, WED);
@@ -960,8 +888,7 @@ describe('raising the hours of a job whose only row is in the frozen past', () =
 
     patchProject(project.id, { totalMinutes: 6 * 60, today: WED }, db);
 
-    // Yesterday is the RECORD of what the shop did: 2 h, unchanged and never straddling
-    // the lunch break. The 4 h are a row of their own, placed by the engine.
+    // Yesterday is the RECORD: 2 h unchanged. The 4 h are a row of their own, placed by the engine.
     expect(calendar()).toEqual([`${TUE} 12:00-14:00 Puerta`, `${WED} 08:00-12:00 Puerta`]);
     expect(listBlocks(db).find((row) => row.id === blockId)?.durationMinutes).toBe(2 * 60);
     expect(listProjects(db)[0].totalMinutes).toBe(6 * 60);
@@ -1002,9 +929,8 @@ describe('raising the hours of a job whose only row is in the frozen past', () =
 });
 
 describe('the past is read-only to the block gestures', () => {
-  // Decided with the owner on 2026-08-13, and the cost was named: it removes "correcting
-  // yesterday", which is the case *Block Resize* was designed for. The past is the record
-  // of what the shop did, and a gesture on it edits a day no schedule can still change.
+    // The cost was named when this was decided: it removes "correcting yesterday", which is the case
+    // *Block Resize* was designed for.
 
   /** Yesterday's row: ordinary Tuesday work, until Wednesday came round. */
   function yesterday() {
@@ -1038,8 +964,7 @@ describe('the past is read-only to the block gestures', () => {
   });
 
   it('still lets the job be edited in its form, where the hours land on a future day', () => {
-    // The way out the owner kept. Yesterday's 4 h are the record; the 2 h added now are
-    // work still to do, so they get a row of their own on a day that can still change.
+    // The way out: yesterday's 4 h are the record, the 2 h added now get a row on a day that changes.
     const { project, blockId } = yesterday();
 
     patchProject(project.id, { totalMinutes: 6 * 60, today: WED }, db);
@@ -1050,9 +975,8 @@ describe('the past is read-only to the block gestures', () => {
   });
 
   it('leaves a padlock a row carried into the past exactly where it is', () => {
-    // Nothing is stranded by the past being read-only: the padlock a past row carries
-    // changes nothing the engine reads, since `isMovable` asks the date before the flag.
-    // There is no second mark to hand back any more — *back to automatic* went with it.
+    // Nothing is stranded: `isMovable` asks the date before the flag, so a past padlock reads the same
+    // either way, and there is no second mark to hand back.
     const puerta = job('Puerta', 4, BLUE, TUE);
     setBlockLock(puerta.blocks[0].id, true, { today: TUE }, db);
     resizeBlock(puerta.blocks[0].id, { durationMinutes: 3 * 60, freedHours: 'reduce-total', today: TUE }, db);
@@ -1068,16 +992,13 @@ describe('the past is read-only to the block gestures', () => {
 
 describe('a drop onto another row\'s start goes BEFORE it', () => {
   it('lets the drop win the tie, instead of the older row keeping its place', () => {
-    // A rank that TIES is decided by `created_at`, so a drop released exactly on an
-    // existing start silently lost to the older row and the drag looked ignored. Landing
-    // on a start means "put me before this one": the row underneath stays whole and
-    // follows. Nothing is cut, so no sliver row is created either.
+    // A tie is decided by `created_at`, so a drop released exactly on an existing start silently lost
+    // to the older row. Landing on a start means "put me before this one", and nothing is cut.
     const alfa = job('Alfa', 2, BLUE, MON);
     const beta = job('Beta', 2, GREEN, MON);
     expect(calendar()).toEqual([`${MON} 08:00-10:00 Alfa`, `${MON} 10:00-12:00 Beta`]);
-    // `created_at` has one-second resolution, so two jobs created in the same tick tie on
-    // it as well and the order falls to a random UUID. Alfa is made the older row on
-    // purpose: it is the one that used to win the tie and swallow the drop.
+    // `created_at` has one-second resolution, so same-tick rows tie on it too and the order falls to a
+    // random UUID. Alfa is made the older row on purpose: it is the one that used to swallow the drop.
     db.prepare('UPDATE blocks SET created_at = ? WHERE id = ?').run(
       '2026-08-01 08:00:00',
       alfa.blocks[0].id,
@@ -1106,16 +1027,12 @@ describe('a drop onto another row\'s start goes BEFORE it', () => {
 });
 
 describe('no transaction may store a row that runs past the end of its day', () => {
-  // The belt to the LIFO fix's braces. A rendering crash from bad stored data must be
-  // impossible, not merely unreachable through the paths that were fixed — so the guard
-  // sits on the write itself, where every row goes through regardless of what produced it.
+  // The guard sits on the WRITE, so a rendering crash from bad stored data is impossible rather than
+  // merely unreachable through the paths that were fixed.
 
   it('refuses a resize on a past row before the day-end guard is even reached', () => {
-    // This used to be the reachable-by-hand case: *Block Resize* was offered on past rows
-    // so yesterday could be corrected, and over HTTP the duration is not capped by the
-    // drag layer. The gesture is now refused for being on the past at all, which is a
-    // strictly earlier line than the end of the day; the guard below is what keeps the
-    // shape unstorable whatever produces it.
+    // Over HTTP the duration is not capped by the drag layer. The gesture is refused for being on the
+    // past — a strictly earlier line — and the guard below is what keeps the shape unstorable.
     const puerta = job('Puerta', 2, BLUE, WED);
     updateBlock(
       {
@@ -1192,17 +1109,12 @@ describe('no transaction may store a row that runs past the end of its day', () 
 // The end of the day, on every gesture that can reach past it
 // ---------------------------------------------------------------------------
 //
-// Invariant 3 of the battery, and CLAUDE.md's own words twice over: a stored block never
-// straddles "a non-working interval (lunch break, END OF DAY)", and the bottom-edge drag
-// "stops at the end of the day's last manual window". The reproductions below are the
-// owner's, replayed: every one of them answered 200 and stored a row hanging below the
-// grid's own last rule.
+// Every reproduction below answered 200 and stored a row hanging below the grid's own last rule.
 
 describe('the end of the day is a line no write may cross', () => {
   it('refuses a resize whose stretch would run past the last manual window', () => {
-    // Over HTTP the drag layer's cap is not in the way, and the server had none at all:
-    // 12 h from 08:00 stored `08:00-14:00` + `15:30-21:30`. The row is padlocked first,
-    // because that is now the only kind the edge sizes.
+    // Over HTTP the drag layer's cap is not in the way: 12 h from 08:00 stored `08:00-14:00` +
+    // `15:30-21:30`. The row is padlocked first, because that is the only kind the edge sizes.
     job('Uno', 6, BLUE, THU);
     setBlockLock(listBlocks(db)[0].id, true, { today: THU }, db);
     const before = calendar();
@@ -1226,17 +1138,14 @@ describe('the end of the day is a line no write may cross', () => {
 
     resizeBlock(listBlocks(db)[0].id, { durationMinutes: 11 * 60, today: THU }, db);
 
-    // Both rows of the stretch carry the padlock the target had: what holds a hand-made
-    // shape has to hold all of it, and the bottom margin is only reachable that way.
+    // Both rows carry the target's padlock: what holds a hand-made shape has to hold all of it.
     expect(calendar()).toEqual([`${THU} 08:00-14:00 Uno [locked]`, `${THU} 15:30-20:30 Uno [locked]`]);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
   it('sends a split whose fragment would run past the end of the day to the next day', () => {
-    // The scissors' second click goes through `rankFor`, which was not clamped at all:
-    // 60 min at 19:45 stored `19:45-20:45`, and 210 min at 19:30 stored `19:30-23:00`.
-    // Both were then refused; aiming past the end of a day now means the day after, so
-    // the fragment lands on Friday's morning — and, being a Friday, keeps its padlock.
+    // The scissors' second click goes through `rankFor`, which was not clamped: 60 min at 19:45 stored
+    // `19:45-20:45`. Aiming past the end of a day means the day after, so the fragment takes Friday.
     job('Uno', 10, BLUE, THU);
     const afternoon = listBlocks(db)[1];
 
@@ -1252,13 +1161,9 @@ describe('the end of the day is a line no write may cross', () => {
   });
 
   it('sends a PADLOCKED drop aimed below what the day holds to the next day, instead of refusing', () => {
-    // 6 h released at 13:15 needs `13:15-14:00` + `15:30-20:45`, a quarter of an hour
-    // past the end of the day. The owner, on being shown the refusal: «Que se rechaza, de
-    // qué friki. Pasa al siguiente día. ¿Sabes cómo funciona un calendario?»
-    //
-    // Thursday's next day is the Friday colchón, so the roll is visible in what is stored,
-    // at the top of Friday's periods rather than in its top margin. The row is padlocked
-    // first: only a drop that lands LITERALLY has a footprint that has to fit a day.
+    // 6 h at 13:15 needs `13:15-14:00` + `15:30-20:45`, a quarter of an hour past the end of the day,
+    // so it rolls. Thursday's next day is the colchón. The row is padlocked first: only a drop that
+    // lands LITERALLY has a footprint that has to fit a day.
     job('Uno', 6, BLUE, THU);
     const row = listBlocks(db)[0];
     setBlockLock(row.id, true, { today: THU }, db);
@@ -1271,11 +1176,8 @@ describe('the end of the day is a line no write may cross', () => {
   });
 
   it('leaves the SAME aim on the day it was made when the drop is only a queue rank', () => {
-    // THE OWNER'S REPORTED DEFECT, in the shape the roll gave it. An unlocked
-    // Monday-to-Thursday release writes a RANK: the engine takes what the day has left and
-    // carries the rest to the next day by itself, so a footprint reaching past 20:30 is
-    // nothing for another DATE to solve. Rolling it moved the row to a day it might already
-    // be on and answered 200 with the calendar unmoved — which `changed` now says out loud.
+    // An unlocked Mon-Thu release writes a RANK, and the engine carries the overflow itself, so there
+    // is nothing here for another DATE to solve. Rolling it answered 200 with the calendar unmoved.
     job('Uno', 6, BLUE, THU);
 
     const result = moveBlock(listBlocks(db)[0].id, { date: THU, startMinutes: 13 * 60 + 15, today: THU }, db);
@@ -1287,8 +1189,7 @@ describe('the end of the day is a line no write may cross', () => {
   });
 
   it('does NOT roll a drop off a day the engine does not lay out', () => {
-    // The weekend is a day the owner named on purpose and the exact minute is the whole
-    // promise there, so the same aim keeps its day and meets the end-of-day refusal.
+    // On the weekend the exact minute is the whole promise, so the same aim keeps its day.
     job('Uno', 6, BLUE, THU);
     const before = calendar();
 
@@ -1310,11 +1211,9 @@ describe('the end of the day is a line no write may cross', () => {
   });
 
   it('refuses a same-job merge the day cannot hold, instead of storing one row through lunch', () => {
-    // Repeating one drop used to compound: `Sat 13:00-23:00, 10 h`, straight through the
-    // lunch band and 2.5 h past the end of the day, with hours conserved so nothing warned.
+    // Repeating one drop used to compound: `Sat 13:00-23:00, 10 h`, hours conserved so nothing warned.
     const grande = job('Grande', 10, BLUE, THU);
-    // The unit's two halves, dropped on Saturday one after the other: the first lands as
-    // `12:00-14:00` + `15:30-19:30`, and the second then merges into BOTH of them.
+    // The two halves dropped on Saturday one after the other: the second merges into BOTH.
     moveBlock(grande.blocks[0].id, { date: SAT, startMinutes: 12 * 60, today: THU }, db);
     const before = calendar();
 
@@ -1329,9 +1228,8 @@ describe('the end of the day is a line no write may cross', () => {
   });
 
   it('still lets a row that a settings change stranded outside the windows be saved', () => {
-    // CLAUDE.md: setting the bottom margin to 0 under a padlocked row keeps the hours
-    // already in it. So the guard refuses a gesture that makes the overrun WORSE, and
-    // never one that leaves it alone or moves the row somewhere legal.
+    // A row stranded outside the windows keeps its hours, so the guard refuses only a gesture that
+    // makes the overrun WORSE.
     const uno = job('Uno', 1, BLUE, THU);
     moveBlock(uno.blocks[0].id, { date: THU, startMinutes: 19 * 60 + 30, today: THU }, db);
     updateSettings({ visualMarginBottom: 0 }, { today: THU }, db);
@@ -1348,9 +1246,8 @@ describe('the end of the day is a line no write may cross', () => {
     expect(error.code).toBe('row-past-day-end');
     expect(calendar()).toEqual([`${THU} 19:30-20:30 Uno [locked]`]);
 
-    // And it can still be dragged back inside the day. It keeps the padlock the margin
-    // drop gave it — a drop never takes one off — so it lands on the exact minute rather
-    // than taking a rank, and pressing the padlock is what hands it back to the engine.
+    // Still draggable back inside the day, and it keeps the padlock the margin drop gave it, so it
+    // lands on the exact minute rather than taking a rank.
     moveBlock(listBlocks(db)[0].id, { date: THU, startMinutes: 10 * 60, today: THU }, db);
     expect(calendar()).toEqual([`${THU} 10:00-11:00 Uno [locked]`]);
 
@@ -1364,32 +1261,15 @@ describe('the end of the day is a line no write may cross', () => {
 // The lunch break is not a slot: a gesture aimed at it means 15:30
 // ---------------------------------------------------------------------------
 //
-// The OTHER edge of the same line, and it was open in the other direction. The manual
-// windows are `07:00-14:00` and `15:30-20:30`, so 14:00 is the exclusive END of the first
-// and before the start of the second: it belongs to no window, the segmenter found no
-// boundary to cut against, and the drop was stored WHOLE —
-//
-//     dropped at 13:30  ->  `13:30-14:00 (30m)` + `15:30-17:00 (90m)`   correct
-//     dropped at 14:00  ->  `14:00 +120m -> 16:00`                       one illegal row
-//
-// — running straight through the break and claiming two hours of work where ninety minutes
-// of it is lunch. It was never an off-by-one at the edge: every minute from 14:00 to 15:29
-// did it, and so did the scissors' target.
-//
-// The rule, in one line: A GESTURE AIMED AT A MINUTE WITH NO WORKING TIME MEANS THE NEXT
-// MINUTE THAT HAS SOME (`firstWorkingMinute`). Aiming at 14:00 asks for a slot that does not
-// exist, and the break is already an arithmetic dead zone for a resize — 14:00, 15:00 and
-// 15:29 all commit the same duration — so answering all three with 15:30 is the reading the
-// gesture already had everywhere else. It is deliberately NOT the visual margins' latitude:
-// a margin is workable time the owner chose and a row may sit in one, while the break is not
-// workable at all.
-//
-// The cases below are the boundary minutes, never a sample from the middle.
+// The manual windows are `07:00-14:00` and `15:30-20:30`, so 14:00 is the exclusive END of the
+// first and before the start of the second: it belonged to no window, the segmenter found no
+// boundary, and `dropped at 14:00` stored `14:00 +120m -> 16:00` — one row through the break. Every
+// minute from 14:00 to 15:29 did it, and so did the scissors' target. The cases below are the
+// boundary minutes, never a sample from the middle.
 
 describe('the lunch break is not a slot', () => {
   it('stores a drop aimed anywhere in the break from 15:30, on a day that keeps the minute', () => {
-    // Saturday keeps the exact minute a drop asks for, so what is stored here is the whole
-    // promise: an error on this day is permanent.
+    // Saturday keeps the exact minute, so what is stored here is the whole promise.
     for (const startMinutes of [14 * 60, 14 * 60 + 1, 14 * 60 + 30, 15 * 60, 15 * 60 + 29]) {
       db.close();
       db = openDatabase(':memory:');
@@ -1405,9 +1285,7 @@ describe('the lunch break is not a slot', () => {
   });
 
   it('still cuts a drop released on the last minute of the morning', () => {
-    // 13:45 IS working time, so it is its own answer and the break is where it is cut. This is
-    // the case that always worked, and it has to keep working: the fix must move the minutes
-    // with no work in them and nothing else.
+    // 13:45 IS working time, so it is its own answer: the fix must move only the minutes with none.
     const uno = job('Uno', 2);
 
     moveBlock(uno.blocks[0].id, { date: SAT, startMinutes: 13 * 60 + 45, today: MON }, db);
@@ -1420,10 +1298,7 @@ describe('the lunch break is not a slot', () => {
   });
 
   it('does not padlock a Monday-Thursday drop aimed at the break, because 15:30 is a period', () => {
-    // It used to, and it had to: the row was stored where it was released, and the engine's
-    // only possible answer to a row in the lunch band is to undo the drop. Read as 15:30 the
-    // request is an ordinary one, so the drop is a queue RANK like any other Mon-Thu drop and
-    // the reflow settles it — which is the documented rule, not a new one.
+    // Read as 15:30 the request is ordinary, so the drop is a queue RANK like any other Mon-Thu drop.
     job('Uno', 2);
     const dos = job('Dos', 2, GREEN);
 
@@ -1445,7 +1320,7 @@ describe('the lunch break is not a slot', () => {
   });
 
   it('sends the scissors\' fragment to 15:30 too', () => {
-    // The fragment IS a drop, so it takes the same reading. It used to store `14:00 +120m`.
+    // The fragment IS a drop, so it takes the same reading.
     const uno = job('Uno', 6);
 
     splitBlock(
@@ -1460,11 +1335,8 @@ describe('the lunch break is not a slot', () => {
   });
 
   it('rolls a PADLOCKED drop the afternoon cannot hold to the next day, measured from 15:30', () => {
-    // 5 h from 15:30 reaches 20:30, the day's last minute; 5 h 15 reaches past it. A
-    // padlocked row lands literally, so its footprint has to fit — Thursday's next day is
-    // the colchón, so the roll shows up in what is stored, and it is the roll rather than a
-    // row hanging below the grid. The reading of 14:00 as 15:30 is what makes 5 h 15 too
-    // long in the first place.
+    // 5 h from 15:30 reaches 20:30, the day's last minute; 5 h 15 reaches past it. A padlocked row
+    // lands literally, so its footprint has to fit — and Thursday's next day is the colchón.
     job('Uno', 5.25, BLUE, THU);
     const unit = listBlocks(db);
     setBlockLock(unit[0].id, true, { today: THU }, db);
@@ -1480,21 +1352,17 @@ describe('the lunch break is not a slot', () => {
   });
 
   it('takes a row a settings change stranded in the break out of it on the next resize', () => {
-    // The one way a row can still START in the break: the owner shortens the morning under a
-    // row that was legally placed. Nothing rewrites it where it sits — the past-and-present
-    // rows keep their hours — but the moment a gesture rewrites its LENGTH, the new segments
-    // are laid out from the first minute that can hold work, so the row stops crossing the
-    // break instead of being grown further through it.
+    // The one way a row can still START in the break: the owner shortens the morning under a row that
+    // was legally placed. Nothing rewrites it where it sits, but a gesture that rewrites its LENGTH
+    // lays the new segments out from the first minute that can hold work.
     const uno = job('Uno', 2, BLUE, THU);
-    // The capacity travels with the shorter shift: 5 h of morning plus 4 h of afternoon is
-    // 9 h, and a 10 h capacity on a 9 h shift is refused rather than re-capped.
+    // The capacity travels with the shorter shift: a 10 h capacity on a 9 h shift is refused.
     updateSettings(
       { period1End: '13:00', period2Start: '15:30', defaultDayCapacity: 9 },
       { today: THU },
       db,
     );
-    // Recomposed against the shorter morning, the row is back inside a period; put it in the
-    // break by hand, where the settings change can leave one.
+    // Recomposed, the row is back inside a period; put it in the break by hand.
     updateBlock(
       {
         id: uno.blocks[0].id,
@@ -1516,29 +1384,23 @@ describe('the lunch break is not a slot', () => {
   });
 
   it('leaves a GAP across the break exactly where it was put', () => {
-    // A gap's `duration` is CLOCK minutes, not net working time — "stop the day here" makes
-    // one straight across the comida on purpose, and the grid draws it over the seam. So the
-    // rule above must not touch it: gaps are the one row that MAY span a break.
+    // A gap's `duration` is CLOCK minutes, so a gap is the one row that MAY span a break.
     createGap({ date: THU, startMinutes: 14 * 60, durationMinutes: 120, reason: 'Averia', today: THU }, db);
 
     expect(gapLines()).toEqual([`${THU} 14:00-16:00 Averia`]);
   });
 
   it('leaves the hole after the last window alone when the afternoon is switched off', () => {
-    // The day becomes `07:00-15:00` — the morning and its two margins — and the hole after it
-    // runs to midnight. There is no later working minute to offer, so the release stands and
-    // the day's own end is what answers: a roll on a day the engine lays out, a refusal on one
-    // it does not.
+    // The day becomes `07:00-15:00` and the hole after it runs to midnight: no later working minute
+    // to offer, so the release stands and the day's own end answers.
     updateSettings({ period2Enabled: false, defaultDayCapacity: 6 }, { today: THU }, db);
     const uno = job('Uno', 2, BLUE, THU);
 
-    // On a day the engine lays out, the roll answers: Thursday's next day is the colchón, and
-    // landing there padlocks the row like any other Friday drop.
+    // On a day the engine lays out the roll answers: Thursday's next day is the colchón.
     moveBlock(uno.blocks[0].id, { date: THU, startMinutes: 18 * 60, today: THU }, db);
     expect(calendar()).toEqual([`${FRI} 08:00-10:00 Uno [locked]`]);
 
-    // On a day it does not lay out there is nowhere to roll to, so the end-of-day guard is
-    // what answers, and it writes nothing.
+    // On a day it does not, the end-of-day guard answers and writes nothing.
     const error = refusal(() =>
       moveBlock(listBlocks(db)[0].id, { date: SAT, startMinutes: 18 * 60, today: THU }, db),
     );
@@ -1550,10 +1412,8 @@ describe('the lunch break is not a slot', () => {
 
 describe('a drop names the whole unit, so a unit moves in ONE transaction', () => {
   it('moves both halves of a lunch-split unit, and lands where the ghost drew it', () => {
-    // One PATCH per row with a full reflow between them left part of the unit behind: the
-    // reflow re-laid the job's remaining hours onto DIFFERENT ids, so the second request
-    // moved whatever row now carried the id the drag had captured. The message then said
-    // no hour was lost, which was true, while an hour of the unit had not moved.
+    // One PATCH per row with a reflow between them left part of the unit behind: the reflow re-laid
+    // the job's hours onto DIFFERENT ids, so the second request moved whatever row held the id.
     job('Uno', 5, BLUE, THU);
     const dos = job('Dos', 3, GREEN, THU);
     expect(calendar()).toEqual([
@@ -1594,10 +1454,8 @@ describe('a drop names the whole unit, so a unit moves in ONE transaction', () =
   });
 
   it('moves the whole unit onto the buffer, where the reflow is live between requests', () => {
-    // The day that made the race visible. Friday IS in the movable pool, so one request
-    // per row re-laid the job's remaining hours onto different ids in between and the
-    // second request moved whatever row had inherited the id the drag captured. One
-    // transaction, one reflow: both halves land and the estimate never moves.
+    // Friday IS in the movable pool, which is what made the race visible: one request per row re-laid
+    // the remaining hours onto different ids in between. One transaction, one reflow.
     job('Uno', 8, BLUE, THU);
     const unit = listBlocks(db);
     expect(calendar()).toEqual([`${THU} 08:00-14:00 Uno`, `${THU} 15:30-17:30 Uno`]);
@@ -1631,11 +1489,8 @@ describe('a drop names the whole unit, so a unit moves in ONE transaction', () =
   });
 
   it('moves a run that SPANS DAYS whole, grabbed by its last day', () => {
-    // The defect the drag layer measured on the running app: the ghost drew the whole
-    // run and the drop delivered only the day the grabbed row sat on, because the unit
-    // was computed inside one date. A run crosses midnight exactly as `buildQueue`
-    // does — nothing workable of another job between the pieces — so the day boundary
-    // is not a separator and never was.
+    // The ghost drew the whole run and the drop delivered only the grabbed row's day, because the unit
+    // was computed inside one date. A run crosses midnight exactly as `buildQueue` does.
     job('Ventanas', 11, BLUE, WED);
     const run = listBlocks(db);
     expect(calendar()).toEqual([
@@ -1661,10 +1516,8 @@ describe('a drop names the whole unit, so a unit moves in ONE transaction', () =
   });
 
   it('stops the run at the job the owner put between the pieces', () => {
-    // The owner's own rule: a separation is a division they made on purpose, so the drag
-    // respects it and stops there. Dos is dropped into the middle of Wednesday, cutting
-    // Uno in two; grabbing Uno's first piece must move that piece and nothing after Dos,
-    // however much the request claims.
+    // A separation is a division made on purpose, so the drag stops there: grabbing Uno's first piece
+    // moves that piece and nothing after Dos, however much the request claims.
     job('Uno', 11, BLUE, WED);
     const dos = job('Dos', 1, GREEN, WED);
     moveBlock(dos.blocks[0].id, { date: WED, startMinutes: 10 * 60, today: WED }, db);
@@ -1690,8 +1543,7 @@ describe('a drop names the whole unit, so a unit moves in ONE transaction', () =
       db,
     );
 
-    // Only the 2 h before Dos travelled. The rest is still Uno's, still on the week, and
-    // the reflow closed the hole the head left behind.
+    // Only the 2 h before Dos travelled, and the reflow closed the hole the head left.
     expect(calendar()).toEqual([
       `${WED} 08:00-09:00 Dos`,
       `${WED} 09:00-14:00 Uno`,
@@ -1703,9 +1555,7 @@ describe('a drop names the whole unit, so a unit moves in ONE transaction', () =
   });
 
   it('treats a padlocked row as an obstacle inside a run, not as a separator', () => {
-    // `buildQueue` skips fixed work without closing the run, so the drag must too — the
-    // reflow flows around it either way, and a drag that stopped there would disagree
-    // with the layout it is about to produce.
+    // `buildQueue` skips fixed work without closing the run, so the drag must too.
     job('Uno', 11, BLUE, WED);
     const dos = job('Dos', 1, GREEN, WED);
     moveBlock(dos.blocks[0].id, { date: WED, startMinutes: 10 * 60, today: WED }, db);
@@ -1776,10 +1626,8 @@ describe('the scissors keep the calendar on the quarter hour', () => {
 
 describe('a drop onto a gap', () => {
   it('slides clear of it on the buffer, keeping the day the owner aimed at', () => {
-    // Gaps and blocks are one occupancy set, so the drop may not share those minutes —
-    // but Friday is a day the engine reflows, and there a refusal was a dead end: the
-    // owner aimed at a Friday, and the answer has to be a Friday. So the drop gives up
-    // the exact minute (never the day) and lands at the first slot clear of the gap.
+    // Gaps and blocks are one occupancy set, but Friday reflows and the owner aimed at a Friday: the
+    // drop gives up the exact minute, never the day, and lands at the first slot clear of the gap.
     job('Uno', 2, BLUE, THU);
     const dos = job('Dos', 1, GREEN, THU);
     createGap({ date: FRI, startMinutes: 10 * 60, durationMinutes: 60, reason: 'Avería', today: THU }, db);
@@ -1787,17 +1635,14 @@ describe('a drop onto a gap', () => {
     const result = moveBlock(dos.blocks[0].id, { date: FRI, startMinutes: 10 * 60, today: THU }, db);
 
     expect(calendar()).toEqual([`${THU} 08:00-10:00 Uno`, `${FRI} 11:00-12:00 Dos [locked]`]);
-    // Still the owner's Friday: the slide keeps the padlock, so the engine never takes it
-    // back — and the padlock is on the row for the owner to press when they want it back.
+    // Still the owner's Friday: the slide keeps the padlock, so the engine never takes it back.
     expect(result.block?.locked).toBe(true);
     expect(listGaps(db)).toHaveLength(1);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
   it('is refused on the WEEKEND, where nothing will ever separate the two', () => {
-    // The one place the exact minute IS the promise: the engine lays nothing out on a
-    // Saturday, so a drop there is a literal placement and a collision with a gap is a
-    // real, permanent conflict. Sliding it would move the row the owner aimed with.
+    // The engine lays nothing out on a Saturday, so a collision there is a permanent conflict.
     job('Uno', 2, BLUE, THU);
     const dos = job('Dos', 1, GREEN, THU);
     createGap({ date: SAT, startMinutes: 10 * 60, durationMinutes: 60, reason: 'Avería', today: THU }, db);
@@ -1838,19 +1683,13 @@ describe('a drop onto a gap', () => {
 });
 
 // ---------------------------------------------------------------------------
-// «Si no cabe se desborda al siguiente día» — the owner's own case, end to end
+// Fill and overflow — the owner's own case, end to end
 // ---------------------------------------------------------------------------
 //
-// Their report, in full: «Si quiero colocar la tarea test3 en el hueco del lunes no se
-// divide sino que dice que no cabe. Si no cabe se desborda al siguiente día, así es como
-// dijimos que funcionaba.»
-//
-// Reproduced on a copy of their calendar: `test 3` is 6 h and Monday holds 4 h of free
-// afternoon. Dropping it there answered HTTP 200 «ok» and changed NOTHING — the row stayed
-// on Tuesday — while the ghost had said «6 h no pueden empezar después de las …» before the
-// release. Three separate things were wrong, and this is the acceptance test for all of
-// them at once: the drop rolled onto a day it was already on, the engine would not have
-// split it anyway, and the response could not tell the client that nothing had happened.
+// `test 3` is 6 h and Monday holds 4 h of free afternoon. Dropping it there answered 200 and changed
+// NOTHING, while the ghost had said «6 h no pueden empezar después de las …». Three things were
+// wrong at once: the drop rolled onto a day it was already on, the engine would not split it, and
+// the response could not tell the client that nothing had happened.
 
 describe("the owner's case: 6 h dropped into a Monday holding 4 h", () => {
   const SPLIT = [
@@ -1860,13 +1699,9 @@ describe("the owner's case: 6 h dropped into a Monday holding 4 h", () => {
   ];
 
   /**
-   * THEIR CALENDAR AT THE MOMENT THEY DRAGGED: Monday's morning taken by a job they had
-   * padlocked, its whole afternoon free — four hours — and `test 3`, six hours of it, sitting
-   * on Tuesday as ONE row.
-   *
-   * The last part is written by hand, and it has to be: that state is precisely what the old
-   * rule produced and what the new engine will never produce again, so there is no sequence
-   * of gestures that reaches it. Reproducing the owner's file is the point.
+   * Their calendar at the moment they dragged: Monday's morning padlocked, its whole afternoon free,
+   * and `test 3` sitting on Tuesday as ONE row. The last part is written by hand and has to be — the
+   * new engine never produces that state, so no sequence of gestures reaches it.
    */
   function theirCalendar(): string {
     const uno = job('test 1', 6, BLUE, MON);
@@ -1889,15 +1724,12 @@ describe("the owner's case: 6 h dropped into a Monday holding 4 h", () => {
 
     const result = moveBlock(tres, { date: MON, startMinutes: 15 * 60 + 30, today: MON }, db);
 
-    // Four hours of Monday's afternoon and two on Tuesday. It used to answer 200 with the
-    // row still on Tuesday, because no day from the cursor could hold six hours whole.
+    // Four hours of Monday's afternoon and two on Tuesday, where it used to answer 200 unmoved.
     expect(calendar()).toEqual(SPLIT);
-    // A Monday-to-Thursday drop inside the periods is a rank, so no padlock appears — and
-    // the drop was not rolled onto another day to make its footprint fit.
+    // A Mon-Thu drop inside the periods is a rank: no padlock, and no roll onto another day.
     expect(result.block?.locked).toBe(false);
     expect(result.block?.date).toBe(MON);
-    // AND THE RESPONSE SAYS WHAT HAPPENED. Both rows, in calendar order, so the client can
-    // say «4 h el lunes, 2 h el martes» instead of reading `block` and reporting half of it.
+    // Both rows, in calendar order, so the client can say «4 h el lunes, 2 h el martes».
     expect(result.changed).toBe(true);
     expect(
       result.placedBlockIds.map((id) => {
@@ -1910,14 +1742,9 @@ describe("the owner's case: 6 h dropped into a Monday holding 4 h", () => {
   });
 
   it('says nothing changed when the drop asks for the calendar it already has', () => {
-    // The same gesture again, on the calendar the first one produced, and named the way the
-    // grid names it — the WHOLE run. The hours are already where the queue puts them, so
-    // nothing the owner can see moves, and `changed` is the only honest way to know that.
-    // That silence is what they read as «dice que no cabe».
-    //
-    // Note what this pins about `changed`: moving a run folds it into one row and lets the
-    // reflow lay it out again, so a row really is deleted and another inserted. Measured on
-    // the ids it would say `true` here, which is the wrong answer to the owner's question.
+    // The same gesture again, named the way the grid names it — the WHOLE run. The hours are already
+    // where the queue puts them, so `changed` is the only honest way to know that. It pins why
+    // `changed` is asked of the ROWS: folding a run deletes and inserts rows, so ids would say true.
     const tres = theirCalendar();
     const first = moveBlock(tres, { date: MON, startMinutes: 15 * 60 + 30, today: MON }, db);
 
@@ -1952,8 +1779,8 @@ describe("the owner's case: 6 h dropped into a Monday holding 4 h", () => {
 // Every gesture answers for itself
 // ---------------------------------------------------------------------------
 //
-// `changed` and `placedBlockIds` are on every block mutation, not only on a drop, because
-// the same silence is reachable from every gesture that hands its hours to the reflow.
+// `changed` and `placedBlockIds` are on every block mutation, because the same silence is reachable
+// from every gesture that hands its hours to the reflow.
 
 describe('what a block mutation says about itself', () => {
   it('names both rows a resize left behind, and reports the write', () => {
@@ -1982,9 +1809,7 @@ describe('what a block mutation says about itself', () => {
   });
 
   it('reports nothing for a resize that asked for the length the row already had', () => {
-    // The one place a successful gesture writes nothing: there is no mark left for it to
-    // set, so the same request twice really is the same state (`manual_duration`, deleted
-    // 2026-08-18, used to make the second call a write).
+    // The one place a successful gesture writes nothing: there is no mark left for it to set.
     const puerta = job('Puerta', 2);
     setBlockLock(puerta.blocks[0].id, true, { today: MON }, db);
 
@@ -2026,22 +1851,17 @@ describe('what a block mutation says about itself', () => {
 });
 
 // ---------------------------------------------------------------------------
-// «Aún no cabe» — the drop that was refused for a room the reflow was about to make
+// A drop refused for room the reflow was about to make
 // ---------------------------------------------------------------------------
 //
-// The owner's report, in full: «cuando intento mover algo se coloca antes de
-// recalcularse, por lo que si lo intento pasar al día siguiente en el que ahora no hay
-// hueco pero si lo muevo se recalcula y queda disponible, no lo puedo asignar
-// directamente porque "aún no cabe"». The refusal measured the drop against the calendar
-// as it stood at that instant, and the answer was circular: the room on the target day is
-// made BY the move, because the row leaves a hole on its own day and the work behind it
-// moves up into it.
+// The refusal measured the drop against the calendar as it stood at that instant, and the answer was
+// circular: the room on the target day is made BY the move, because the row leaves a hole on its own
+// day and the work behind it moves up into that.
 
 describe('a drop onto a day that is full at the moment it is released', () => {
   /**
-   * Monday and Tuesday both full at the 10 h stop line, and a gap in one of Tuesday's
-   * visual margins — the slot a drop PINS itself in, and therefore the one that used to
-   * be refused.
+   * Monday and Tuesday both full at the 10 h stop line, and a gap in one of Tuesday's visual margins
+   * — the slot a drop PINS itself in, and therefore the one that used to be refused.
    *
    *   MON  08:00-14:00 Uno (6 h)   TUE  08:00-12:00 Tres (4 h)
    *        15:30-19:30 Dos (4 h)        12:00-14:00 + 15:30-19:30 Cuatro (6 h)
@@ -2063,17 +1883,14 @@ describe('a drop onto a day that is full at the moment it is released', () => {
   }
 
   it('lands there anyway, slid clear of the gap: the reflow is what makes the room', () => {
-    // «Quiero empezar el martes con esto»: the drop is aimed at the top margin, which is
-    // manual-only time and therefore PINS the row — and the shop does not open until
-    // 08:00, which is what the gap says. It used to answer 409 `overlaps-gap`, «Ahí no
-    // cabe», with Tuesday visibly full underneath it.
+    // The drop is aimed at the top margin, which is manual-only time and therefore PINS the row, and
+    // the shop does not open until 08:00, which is what the gap says. It used to be `overlaps-gap`.
     const dos = fullWeek({ startMinutes: 7 * 60, reason: 'Apertura' });
 
     const result = moveBlock(dos.blocks[0].id, { date: TUE, startMinutes: 7 * 60, today: MON }, db);
 
-    // Tuesday had no free minute when the mouse was released. It has one now BECAUSE of
-    // the move: Dos left a hole on Monday, Tres moved up into it, and Cuatro shifted into
-    // the morning Tres had been holding.
+    // Tuesday has a free minute now BECAUSE of the move: Dos left a hole on Monday, Tres moved up
+    // into it, and Cuatro shifted into the morning Tres had been holding.
     expect(calendar()).toEqual([
       `${MON} 08:00-14:00 Uno`,
       `${MON} 15:30-19:30 Tres`,
@@ -2081,9 +1898,7 @@ describe('a drop onto a day that is full at the moment it is released', () => {
       `${TUE} 12:00-14:00 Cuatro`,
       `${TUE} 15:30-19:30 Cuatro`,
     ]);
-    // The gap kept its minutes and the drop kept its day: it gave up the hour it could
-    // not have and landed at the first one it could. The slot was asked for by hand, so it
-    // comes back padlocked — pressing the padlock is the way out.
+    // The gap kept its minutes and the drop kept its day, and the slot asked for by hand padlocks.
     expect(result.block?.date).toBe(TUE);
     expect(result.block?.startMinutes).toBe(8 * 60);
     expect(result.block?.locked).toBe(true);
@@ -2095,12 +1910,9 @@ describe('a drop onto a day that is full at the moment it is released', () => {
   });
 
   it('refuses, naming the gap, when the day has no clear slot for a padlocking drop', () => {
-    // The same gesture at the other end of the day. An hour released at 19:30 STARTS in the
-    // bottom margin, which is manual-only time: the drop pins itself there and lands
-    // literally, straight onto a gap that covers the whole margin. Forward is 20:30, which
-    // is the end of the day, so there is nowhere on Tuesday to slide to and the answer is
-    // the gap's name. It used to give up the pin and settle as a queue rank; it may not now,
-    // because giving up the pin means taking off a padlock the owner would see on the row.
+    // An hour released at 19:30 STARTS in the bottom margin, so it lands literally, straight onto a
+    // gap covering the whole margin. Forward is 20:30, the end of the day, so there is nowhere to
+    // slide: it may not give up the pin, because that means taking off a padlock the owner would see.
     const uno = job('Uno', 1, BLUE, MON);
     createGap(
       { date: TUE, startMinutes: 19 * 60 + 30, durationMinutes: 60, reason: 'Cierre', today: MON },
@@ -2120,18 +1932,14 @@ describe('a drop onto a day that is full at the moment it is released', () => {
   });
 
   it('takes a drop whose footprint only REACHES the margin as an ordinary rank', () => {
-    // The boundary the pin now sits on (2026-08-17). 16:30 is inside the afternoon, so a
-    // 4 h row released there asks for no manual-only time — the minutes past 19:30 are
-    // hours the reflow carries to the next day, not a claim on the margin. So the gap
-    // covering that margin is nothing to do with this drop: it is a rank, the reflow finds
-    // the room, and nothing is refused. This used to be `overlaps-gap`.
+    // 16:30 is inside the afternoon, so the row asks for no manual-only time: the minutes past 19:30
+    // are hours the reflow carries on. The gap covering that margin is nothing to do with this drop.
     const dos = fullWeek({ startMinutes: 19 * 60 + 30, reason: 'Cierre' });
 
     const result = moveBlock(dos.blocks[0].id, { date: TUE, startMinutes: 16 * 60 + 30, today: MON }, db);
 
     expect(result.block?.locked).toBe(false);
-    // Dos left Monday, Tres moved up into the hole, and Cuatro's afternoon row was cut at
-    // 16:30 so the queue reads `Cuatro, Dos, Cuatro` — the drop took the rank it asked for.
+    // Cuatro's afternoon row was cut at 16:30, so the queue reads `Cuatro, Dos, Cuatro`.
     expect(calendar()).toEqual([
       `${MON} 08:00-14:00 Uno`,
       `${MON} 15:30-19:30 Tres`,
@@ -2145,9 +1953,8 @@ describe('a drop onto a day that is full at the moment it is released', () => {
   });
 
   it('is still refused when the row being dragged is LOCKED', () => {
-    // The one promise a re-rank would break. A locked row keeps the exact slot wherever it
-    // lands, so nothing will ever separate it from the gap: here "does it fit" really is
-    // the question, and the answer is no.
+    // A locked row keeps its exact slot, so nothing will ever separate it from the gap: here "does it
+    // fit" really is the question.
     const dos = fullWeek({ startMinutes: 19 * 60 + 30, reason: 'Cierre' });
     setBlockLock(dos.blocks[0].id, true, { today: MON }, db);
     const before = calendar();
@@ -2166,9 +1973,8 @@ describe('a drop onto a day that is full at the moment it is released', () => {
 
 describe('a resize that rewrites a LOCKED row says so', () => {
   it('names the locked continuation the stretch had to lengthen', () => {
-    // `stretchFrom` takes a continuation in whatever its padlock, and the response used
-    // to carry `touchedLockedBlockIds: []` — so the UI showed no warning at all, against
-    // two stated promises ("a locked block is never grown silently", "never silent").
+    // `stretchFrom` takes a continuation whatever its padlock, and the response used to carry
+    // `touchedLockedBlockIds: []`, so the UI showed no warning at all.
     const unit = job('U', 10, BLUE, THU);
     const [morning, afternoon] = listBlocks(db);
     setBlockLock(afternoon.id, true, { today: THU }, db);
@@ -2177,8 +1983,7 @@ describe('a resize that rewrites a LOCKED row says so', () => {
     const result = resizeBlock(morning.id, { durationMinutes: 11 * 60, today: THU }, db);
 
     expect(result.touchedLockedBlockIds).toEqual([afternoon.id]);
-    // Both rows padlocked, and both were before: the padlock is what let the edge size
-    // them at all, and it is what holds the length afterwards.
+    // Both rows padlocked, and both were before: the padlock is what let the edge size them.
     expect(calendar()).toEqual([`${THU} 08:00-14:00 U [locked]`, `${THU} 15:30-20:30 U [locked]`]);
     expect(listProjects(db)[0].totalMinutes).toBe(11 * 60);
     expect(unit.project.id).toBe(listProjects(db)[0].id);
@@ -2187,29 +1992,12 @@ describe('a resize that rewrites a LOCKED row says so', () => {
 });
 
 // ---------------------------------------------------------------------------
-// A hand drop where the reflow cannot reach
-// ---------------------------------------------------------------------------
-//
-// The weekend and the frozen past are outside the engine, so two rows dropped on top
-// of each other there stay that way: `compose` hands them back untouched and the grid
-// draws them as two lanes. That used to happen silently — verified by splitting 2 h
-// onto a Saturday the job already occupied. `manualPlacementBlockId` closes it inside
-// the same transaction, so the invariant is asserted over the resolved calendar too.
-
-// ---------------------------------------------------------------------------
 // The margin collision, which the third mark used to hide
 // ---------------------------------------------------------------------------
 //
-// Reproduced by dragging, 2026-08-14, at both widths. `Corto 1 h` sat in Tuesday's
-// bottom margin and `Alfa 2 h` was dropped onto the same margin. Alfa was pinned at
-// `18:30-20:30` and Corto was silently evicted to Monday 08:00 WITH ITS MARK CLEARED —
-// the engine deciding, on its own, that the hours a human had parked in the margin now
-// belonged at the front of the week. Three sentences of *A Hand-Placed Row* said that
-// could not happen.
-//
-// It cannot happen now, and not because a rule was added: a row in a margin carries a
-// PADLOCK, and a drop that lands on a padlocked row of another job has always been
-// refused with the row named. The defect went away with the concept.
+// The defect: `Corto 1 h` sat in Tuesday's bottom margin and a drop of another job was allowed to
+// EVICT it silently. A row in a margin now carries a PADLOCK, and a drop onto a padlocked row of
+// another job is refused with the row named, so the eviction went away with the third mark.
 
 describe('the margin collision the third mark used to hide', () => {
   it('refuses a drop onto a padlocked margin row, names it, and writes nothing', () => {
@@ -2220,8 +2008,7 @@ describe('the margin collision the third mark used to hide', () => {
     const before = calendar();
     expect(before).toContain(`${TUE} 19:30-20:30 Corto [locked]`);
 
-    // The same minute, asking for the same hour of margin: Alfa pins itself there too, so
-    // it lands literally, and 20:30 is the end of the day so there is nowhere to slide.
+    // The same minute and the same hour of margin: Alfa pins too, and 20:30 leaves nowhere to slide.
     const error = refusal(() =>
       moveBlock(alfa.blocks[0].id, { date: TUE, startMinutes: 19 * 60 + 30, today: MON }, db),
     );
@@ -2234,16 +2021,14 @@ describe('the margin collision the third mark used to hide', () => {
       startTime: '19:30',
       endTime: '20:30',
     });
-    // Nothing at all: Corto did not move to Monday, Alfa did not take the margin, and no
-    // mark was cleared anywhere.
+    // Nothing at all: Corto did not move to Monday and Alfa did not take the margin.
     expect(calendar()).toEqual(before);
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
   it('does not refuse a drop that merely REACHES that margin — it is a rank', () => {
-    // The half the pin no longer covers, and the defect it was protecting against cannot
-    // come back either way: Corto keeps its padlock, its day and its minute, because the
-    // engine never touches a padlocked row. Alfa is laid out inside the periods.
+    // Corto keeps its padlock, its day and its minute, because the engine never touches a padlocked
+    // row. Alfa is laid out inside the periods.
     const corto = job('Corto', 1, GREEN);
     moveBlock(corto.blocks[0].id, { date: TUE, startMinutes: 19 * 60 + 30, today: MON }, db);
     const alfa = job('Alfa', 2);
@@ -2252,9 +2037,8 @@ describe('the margin collision the third mark used to hide', () => {
     const result = moveBlock(alfa.blocks[0].id, { date: TUE, startMinutes: 18 * 60 + 30, today: MON }, db);
 
     expect(result.block?.locked).toBe(false);
-    // A rank, so the reflow decides the clock: Alfa is the only movable job on the
-    // calendar, so it settles at the front of the week — where it already was. `changed`
-    // is what tells the client that, rather than leaving it to compare rectangles.
+    // A rank, so the reflow decides the clock: Alfa settles at the front of the week, where it
+    // already was, and `changed` is what tells the client so.
     expect(calendar()).toEqual([
       `${MON} 08:00-10:00 Alfa`,
       `${TUE} 19:30-20:30 Corto [locked]`,
@@ -2264,8 +2048,7 @@ describe('the margin collision the third mark used to hide', () => {
   });
 
   it('takes the same drop in the margin at the other end, where nothing is in the way', () => {
-    // The other half of the answer: the refusal is about the row in the way, not about the
-    // margins, which are exactly where the owner is allowed to work by hand.
+    // The refusal is about the row in the way, not about the margins.
     const corto = job('Corto', 1, GREEN);
     moveBlock(corto.blocks[0].id, { date: TUE, startMinutes: 19 * 60 + 30, today: MON }, db);
     const alfa = job('Alfa', 2);
@@ -2287,8 +2070,7 @@ describe('a drop onto the weekend, where the engine may not reflow', () => {
     splitBlock(puerta.blocks[0].id, { durationMinutes: 2 * 60, date: SAT, startMinutes: 9 * 60, today: MON }, db);
     expect(calendar()).toEqual([`${MON} 08:00-14:00 Puerta`, `${SAT} 09:00-11:00 Puerta [locked]`]);
 
-    // The second 2 h land ON the first fragment. Sum, not union: 09:00-13:00 is 4 h — and
-    // the padlock both fragments carry survives the fold rather than refusing it.
+    // Sum, not union: 09:00-13:00 is 4 h, and the padlock both fragments carry survives the fold.
     const result = splitBlock(
       listBlocks(db)[0].id,
       { durationMinutes: 2 * 60, date: SAT, startMinutes: 10 * 60, today: MON },
@@ -2306,9 +2088,8 @@ describe('a drop onto the weekend, where the engine may not reflow', () => {
   it('cuts ANOTHER job and pushes its tail after the drop, keeping its hours', () => {
     const barandilla = job('Barandilla', 2, GREEN);
     moveBlock(barandilla.blocks[0].id, { date: SAT, startMinutes: 9 * 60, today: MON }, db);
-    // Unpadlocked afterwards: the drop that put it on Saturday padlocked it, and a
-    // padlocked row is never cut — that is the refusal two tests below. What is being
-    // tested here is the OTHER weekend row, held there by the day alone.
+    // Unpadlocked first: a padlocked row is never cut. What is tested is the OTHER weekend row,
+    // held there by the day alone.
     setBlockLock(listBlocks(db)[0].id, false, { today: MON }, db);
     const puerta = job('Puerta', 1);
 
@@ -2359,14 +2140,12 @@ describe('a drop onto the weekend, where the engine may not reflow', () => {
       startTime: '09:00',
       endTime: '11:00',
     });
-    // The move is written before the engine runs, so the rollback is what keeps the
-    // calendar exactly as it was.
+    // The move is written before the engine runs, so only the rollback keeps the calendar as it was.
     expect(calendar()).toEqual(before);
   });
 
   it('refuses a drop INTO the past and writes nothing', () => {
-    // The past stopped being a drop target on 2026-08-13: it is the record of what the
-    // shop did, and a gesture that writes there edits a day no schedule can change.
+    // The past is the record of what the shop did, so it is not a drop target.
     const puerta = job('Puerta', 1);
     const before = calendar();
 
@@ -2386,8 +2165,7 @@ describe('a drop onto the weekend, where the engine may not reflow', () => {
     splitBlock(puerta.blocks[0].id, { durationMinutes: 60, date: SAT, startMinutes: 9 * 60, today: MON }, db);
     const monday = listBlocks(db).find((row) => row.date === MON);
 
-    // The Monday row is dropped ON TOP of the fragment, and ranks after it, so the
-    // fragment survives with the summed hours and the moved id is gone.
+    // Dropped ON TOP of the fragment and ranked after it: the fragment survives with the summed hours.
     const result = moveBlock(monday!.id, { date: SAT, startMinutes: 9 * 60 + 30, today: MON }, db);
 
     expect(calendar()).toEqual([`${SAT} 09:00-13:00 Puerta [locked]`]);
@@ -2445,10 +2223,8 @@ describe('gaps', () => {
 
 describe('settings', () => {
   it('refuses a shift the stored capacity cannot fit, writing nothing at all', () => {
-    // The trap, over the operation that the Settings screen actually calls: switching the
-    // afternoon off against a 10 h capacity is a 400, not a quiet re-cap to 6 h. The
-    // calendar is untouched with it — the settings write and the reflow are one
-    // transaction, so a refused save cannot leave the week half-moved.
+    // Switching the afternoon off against a 10 h capacity is a 400, not a quiet re-cap to 6 h. The
+    // settings write and the reflow are one transaction, so a refused save leaves the week untouched.
     job('Escalera', 12);
     const before = calendar();
 
@@ -2493,9 +2269,8 @@ describe('settings', () => {
   });
 
   it('ignores absent fields instead of blanking them', () => {
-    // A PATCH route reads every optional field and passes what it found, so the
-    // fields the request omitted arrive as explicit `undefined`. A spread merge does
-    // not skip those, so this used to wipe `period1Start` and then fail validating it.
+    // A PATCH route passes the fields it did not find as explicit `undefined`, which a spread merge
+    // does not skip: this used to wipe `period1Start` and then fail validating it.
     const result = updateSettings(
       { period1Start: undefined, gapColor: undefined, period2Enabled: false, defaultDayCapacity: 6 },
       { today: MON },
@@ -2528,16 +2303,13 @@ describe('deleting a job', () => {
   });
 
   it('leaves its PAST rows behind as gaps, so nothing on those days moves', () => {
-    // The owner's requirement, 2026-08-13: deleting a job must not rewrite what the shop
-    // actually did, nor pull later work backwards into the hole. Monday and Tuesday are
-    // behind us; Wednesday is today.
+    // Deleting a job must not rewrite what the shop did, nor pull later work back into the hole.
     const puerta = pastAndFuture();
     job('Barandilla', 4, GREEN, WED);
 
     const result = deleteProject(puerta.project.id, { today: WED }, db);
 
-    // The two worked days keep their shape — the hours are still occupied, as gaps — and
-    // only Wednesday's row disappears, which is what lets Barandilla move up into it.
+    // The worked days keep their shape as gaps; only Wednesday's row goes.
     expect(calendar()).toEqual([`${WED} 08:00-12:00 Barandilla`]);
     expect(gapLines()).toEqual([
       `${MON} 08:00-12:00 Trabajo «Puerta» eliminado`,
@@ -2548,10 +2320,9 @@ describe('deleting a job', () => {
   });
 
   it('writes the job name into the gap, in the language the owner was reading', () => {
-    // The name has to be COMPOSED AT DELETION TIME: the project row is gone a moment
-    // later and its blocks went with it, so there is nothing left to look it up in. The
-    // sentence is therefore frozen in one language — a gap's reason is user data, the
-    // same field that holds "Avería torno", and it stays editable like any other.
+    // COMPOSED AT DELETION TIME: the project row and its blocks are gone a moment later, so there is
+    // nothing left to look the name up in. The sentence is frozen in one language; the reason is
+    // user data and stays editable.
     const puerta = pastAndFuture();
 
     deleteProject(puerta.project.id, { today: WED, language: 'en' }, db);
@@ -2571,10 +2342,7 @@ describe('deleting a job', () => {
     expect(listGaps(db)).toEqual([]);
   });
 
-  /**
-   * A 12 h job worked on Monday and Tuesday and still running today, Wednesday — one row
-   * a day, which is what the 4 h stop line is for.
-   */
+  /** A 12 h job worked Monday and Tuesday and still running today, Wednesday: one row a day. */
   function pastAndFuture() {
     updateSettings({ defaultDayCapacity: 4 }, { today: MON }, db);
     const puerta = job('Puerta', 12, BLUE, MON);
@@ -2604,8 +2372,8 @@ describe('the views the screens read', () => {
       'manual',
       'manual',
     ]);
-    // Plannable is the ENGINE's number: unlocked work is movable, so it does not
-    // reduce it. Occupancy is `bookedMinutes`, which is what a day header reports.
+    // Plannable is the ENGINE's number, so unlocked work does not reduce it; occupancy is
+    // `bookedMinutes`.
     expect(week.days[0].plannableMinutes).toBe(10 * 60);
     expect(week.days[0].bookedMinutes).toBe(4 * 60);
     expect(week.days[5].plannableMinutes).toBe(0);

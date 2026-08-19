@@ -1,75 +1,9 @@
 'use client';
 
 /**
- * Mouse dragging on the week grid: move a job's run, or resize a row by its bottom
- * edge. Pointer events on the absolutely positioned grid — no library, no HTML5
- * native drag, no touch. The shop uses a PC (CLAUDE.md, "Desktop only, mouse driven").
- *
- * WHAT A DROP MEANS, because it decides the whole design of this file: a drop writes a
- * QUEUE RANK, not a time. "A dropped block does not stay at the exact time it was
- * dropped at. It keeps that position in the sequence and then settles contiguously
- * after the preceding block." So this hook's job is to report a rank the engine can
- * read unambiguously, and the SCREEN's job is to make the settling visible (it
- * animates the row from where it was released to where it landed) instead of looking
- * like a bug.
- *
- * A press that does not travel is a click, so the same handler opens the job panel.
- * That is why there is no `onClick` on a block: one gesture, one decision point.
- *
- * NO PRESS MAY END IN SILENCE. That decision point has exactly three outcomes and every
- * press reaches one of them: it starts a drag, it opens the job, or it says why it can do
- * neither (`InertReason`). The three holes this closed were all the same shape — the app
- * appearing to ignore the owner:
- *
- * - a press while a save was in flight was dropped on the floor, and that is precisely the
- *   second AFTER a drop, when the next press is most likely;
- * - a press on the resize edge that did not travel was not read as a click, so clicking
- *   the bottom of a row — most of a short row — opened nothing;
- * - a press that travelled five pixels was a DRAG, and a five-pixel drag lands on the slot
- *   it started from, so it wrote nothing and was not a click either (`CLICK_SLOP`).
- *
- * ONE AXIS PER GESTURE, FIXED AT PRESS. The mapping a gesture is resolved against is
- * captured when the pointer goes down and kept for the whole gesture; only the grid's
- * ORIGIN is re-measured on every pointer event, which is what keeps a scroll mid-drag
- * honest. The two halves are different in kind: an origin that moves means THE GRID
- * MOVED under a still hand, and the minute under the pointer really did change; a SCALE
- * that changes means the same pixel now means a different minute, so the gesture ends
- * somewhere the owner never chose.
- *
- * That is not hypothetical — it was the defect behind «a veces no se coloca exactamente
- * donde quiero» (measured 2026-08-13). Publishing the drag's own preview swapped the two
- * legend lines under the grid for a one-line hint, the legend lost 9.2 px, `.gridArea`
- * absorbed them, and the axis re-fitted by 1.2% about 50 ms into the drag: a resize
- * released on 17:30 was read as 17:22 and committed 5,75 h instead of 6 h. The gesture's
- * own preview was moving the ruler it was being measured with. The trigger is gone (the
- * legend now reserves its box) and the axis is held for the whole gesture on screen too
- * (see `CalendarScreen`), but neither of those is what makes this correct: nothing the
- * layout does can reach a gesture that has already fixed its axis.
- *
- * A move looked unaffected only by accident. Subtracting `grabOffsetMinutes` cancels an
- * ORIGIN error, and there was none; against a changed SCALE it re-anchors the error to
- * the press DEPTH, which a Friday or weekend drop — where the exact minute is kept rather
- * than re-flowed — stored as a quarter of an hour out.
- *
- * HOLDING THE BLOCK AT AN EDGE PAGES THE WEEK, and the same rule survives it: the axis is
- * VERTICAL and the week is a set of COLUMNS, so a page turn changes what is under the
- * pointer horizontally and nothing at all about the mapping the gesture was fixed to.
- * `CalendarScreen` holds the painted axis for as long as a block is in the air, so the new
- * week is drawn on the axis the press captured, and the two stay the same ruler.
- *
- * Everything else about the drop is re-read at the moment it is released — the day under
- * the pointer, the rows to aim against, the starts already taken — because all of it comes
- * from `live.current`, which is the CURRENT week. So a drop is always resolved against the
- * week it was released in, and never against the week it was picked up in. THREE places
- * could have remembered the old week, and each is named where it is fixed:
- *
- * - `previewMove`'s fallback date, which keeps the remembered column only while it is still a
- *   column and otherwise takes the nearest one;
- * - the GHOST, re-resolved from the last pointer position the moment the columns change
- *   (`weekKey`), in a LAYOUT effect so no paint and no event can fall between the two;
- * - the RELEASE itself, which re-resolves rather than committing the preview it happens to
- *   be holding (`resolveRelease`). That was the real hole: the ghost being right one render
- *   later is no use to a `pointerup` that has already been handled.
+ * Mouse dragging on the week grid: move a job's run, or resize a row by its bottom edge. A drop
+ * writes a queue RANK, not a time, and a press that does not travel is a click on the same
+ * handler. The vertical axis is FIXED AT PRESS.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -95,47 +29,18 @@ const DRAG_THRESHOLD = 4;
 const EMPTY_IDS: readonly string[] = [];
 
 /**
- * How far a press may wander and still be read as a click WHEN THE DRAG RESOLVED TO
- * NOTHING.
- *
- * The dead zone this closes: a press that travels five pixels is a drag, and a drag of
- * five pixels lands on the slot it started from, so the release wrote nothing AND was not
- * a click either. Nothing opened, nothing moved, nothing was said — on a shop PC with a
- * worn mouse that is a routine outcome, and it teaches the owner the app is broken.
- *
- * Deliberately only consulted when the gesture came to nothing: a drag that really
- * travelled and was deliberately put back stays silent, because the ghost was under the
- * pointer the whole way and said so.
+ * How far a press may wander and still be read as a click WHEN THE DRAG RESOLVED TO NOTHING:
+ * a 5 px drag lands on the slot it started from, so without this it wrote nothing and was not
+ * a click either. Never consulted when the gesture really travelled — the ghost said so.
  */
 const CLICK_SLOP = 12;
 
 export type DragKind = 'move' | 'resize';
 
 /**
- * Why a press cannot write, when it cannot. Every one of these used to be a press that
- * did NOTHING AT ALL — no ghost, no message — which is the single worst thing a gesture
- * can do (CLAUDE.md's own rule about drops applies to presses: "a gesture the app refuses
- * has to say so, in the same breath as one it accepts").
- *
- * | reason      | the press lands on…                                            |
- * |-------------|----------------------------------------------------------------|
- * | `busy`      | the calendar while a save or a reload is still in flight        |
- * | `past`      | a frozen day, which is a record and not a plan                 |
- * | `gap`       | a gap, which has no drag gesture at all                        |
- * | `automatic` | the BOTTOM EDGE of a row the engine lays out (2026-08-18)      |
- *
- * A CLICK still happens on all but `gap`: opening the job panel writes nothing, and it is
- * the very place the owner has to go to edit a past day — or to change a job's hours — by
- * hand.
- *
- * `automatic` IS THE ONE THAT IS NOT A CIRCUMSTANCE BUT A RULE, and it is why this list
- * grew: since the hand-set duration was deleted, an automatic row is exactly as big as the
- * room it has, so its bottom edge sizes nothing (the server refuses it,
- * `resize-needs-padlock`). Withholding the strip would have made the reach for it start a
- * MOVE instead — the press falls through to the block's own body — which is a re-ranked
- * queue for a gesture about a length. So the strip stays, it is inert, and it explains: the
- * owner asked for the free resize two days before it was taken away, so the explanation is
- * the feature.
+ * Why a press cannot write: a save or reload in flight (`busy`), a frozen day (`past`), a gap
+ * (`gap`), or the bottom edge of a row the engine lays out (`automatic`, which the server
+ * refuses as `resize-needs-padlock`). A CLICK still happens on all but `gap`.
  */
 export type InertReason = 'busy' | 'past' | 'gap' | 'automatic';
 
@@ -154,19 +59,13 @@ export interface DragTarget {
    * when stored as two rows — and the row's own duration for a resize.
    */
   durationMinutes: number;
-  /**
-   * THE WHOLE RUN, in queue order — every row of this job the engine holds as one queue
-   * item, across days (see `BlockRun` in grouping.ts). A drag moves all of it: re-ranking
-   * part of a run leaves the rest behind at its old rank and splits the job, and the
-   * owner's own rule is that a split is something they do on purpose, with another job.
-   */
+  /** The whole RUN, in queue order (see `BlockRun` in grouping.ts). A drag moves all of it. */
   blockIds: string[];
   /** The single row a resize applies to: the LAST of the unit. */
   blockId: string;
   /**
-   * Every row of the unit is locked, so it stays a fixed obstacle wherever it lands.
-   * Read only by the drop preview, which needs it to pick the side an overlapping drop
-   * is resolved on — see `dropEffect.ts`.
+   * Every row of the unit is locked. Read only by the drop preview, which needs it to pick
+   * the side an overlapping drop is resolved on — see `dropEffect.ts`.
    */
   locked: boolean;
 }
@@ -181,130 +80,73 @@ export interface DragPreview {
   /** False over a day that takes no work — a frozen (past) day. */
   allowed: boolean;
   /**
-   * THE GHOST HAD TO BE PULLED UP: the pointer is below the last minute this unit can
-   * start on and still end inside the day, AND no later day could hold it either
-   * (`resolveDropDay`).
-   *
-   * It exists so the preview can SAY that rather than simply stopping. A 6 h unit cannot
-   * start after 13:00 on the documented shift, so the last 350 px of the column all mean
-   * 13:00 — the ghost freezes, the pointer keeps going, and nothing on screen explains the
-   * distance between them. That is a rule about the day, and a rule the owner cannot see is
-   * indistinguishable from a drag the app has stopped listening to.
-   *
-   * It is now the LAST RESORT rather than the ordinary answer: aiming below what a day can
-   * hold moves the drop to the next day (`rolled`), and this is only what is left when
-   * there is no next day on screen that can hold the run either.
-   *
-   * A resize never sets it: its edge follows the pointer all the way down.
+   * The ghost had to be pulled UP: the pointer is below the last minute this unit can start
+   * on and still end inside the day, and no later day could hold it either. The LAST RESORT
+   * behind `rolled`, so the preview can say it rather than silently freezing. A resize never
+   * sets it.
    */
   clamped?: boolean;
   /**
-   * THE DROP MOVED TO THE NEXT DAY, because the day the pointer is over cannot hold the
-   * run from where it was released. `date` is already that next day, so the ghost is drawn
-   * on its column and the release is never a surprise — this is only what lets the hint
+   * The drop moved to the NEXT day: `date` is already that day, so this only lets the hint
    * name the reason.
-   *
-   * The owner, on the old behaviour (refuse and freeze): «Que se rechaza, de qué friki.
-   * Pasa al siguiente día. ¿Sabes cómo funciona un calendario?»
    */
   rolled?: boolean;
   /**
-   * THE ROW WILL KEEP THE MINUTE IT IS RELEASED ON, so the ghost's clock range is a promise
-   * and the hint says the owner is in charge here.
-   *
-   * Not the same question as "can this drop be refused" (`dayReflowsOn`, which is about the
-   * day). A drop into a visual margin or the lunch band pins on EVERY day, Monday included
-   * — see the note where this is computed.
+   * The row will keep the minute it is released on, so the ghost's clock range is a promise.
+   * Not the same question as "can this drop be refused" (`dayReflowsOn`, about the day).
    */
   pinned?: boolean;
 }
 
 export interface BlockDragOptions {
   /**
-   * Live measurement of the grid: its ORIGIN and its columns, so a scroll mid-drag
-   * cannot offset the pointer. The scale is NOT taken from here — see `timeline`.
+   * Live measurement of the grid: its ORIGIN and its columns, so a scroll mid-drag cannot
+   * offset the pointer. The scale is NOT taken from here — see `timeline`.
    */
   measure: () => GridMetrics | null;
-  /**
-   * The axis. Read ONCE PER GESTURE, at press, and held in the session from there on:
-   * a gesture is resolved against the mapping that was true when the pointer went down.
-   */
+  /** The axis. Read ONCE PER GESTURE, at press, and held in the session from there on. */
   timeline: Timeline;
   dayAt: (date: string) => WeekDay | undefined;
   /**
-   * The week's days IN CALENDAR ORDER. `dayAt` answers "what is this day", this answers
-   * "what comes after it" — which is what a release below the end of a day needs, since
+   * The week's days IN CALENDAR ORDER: what a release below the end of a day needs, since
    * the answer is another column (`resolveDropDay`).
    */
   days: () => readonly WeekDay[];
-  /**
-   * The rows already on a date, minus the ones being dragged. The aim is quantised
-   * against them (`aimAtThirds`): over a row the owner is choosing the ROW, not a minute.
-   */
+  /** The rows already on a date, minus the ones being dragged, to quantise the aim against. */
   rowsOn: (date: string, excludeBlockIds: readonly string[]) => readonly AimRow[];
   /** The starts already taken on a date, so a drop rank never ties. */
   takenStartsOn: (date: string, excludeBlockIds: readonly string[]) => number[];
   /**
    * The gestures are WIRED AT ALL: the axis has arrived and no split fragment is waiting
-   * for its target (during which the columns own the pointer).
-   *
-   * It no longer covers "a save is in flight". That used to live here and it made every
-   * press in the second after a drop do nothing at all — no drag, no click, no message —
-   * which is the moment the owner is most likely to press again. That state is now an
-   * `inert` press instead: see `BeginOptions.inert`.
+   * for its target. "A save is in flight" is NOT here — it is an `inert` press instead.
    */
   enabled: boolean;
   /**
-   * "Can anything be written RIGHT NOW?", asked at the moment the pointer goes down.
-   *
-   * The grid already tags a press `inert: 'busy'` from render state, and that covers the
-   * whole visible saving window — but state arrives one render late, and the frame between
-   * a mutation starting and the grid re-rendering is precisely where a fast second press
-   * lands. Asked here as a function so the answer is the current tick's, not the last
-   * render's, and so a gesture that slips through the frame still explains itself instead
-   * of queueing a second write against a calendar already being rewritten.
+   * "Can anything be written RIGHT NOW?", asked at the moment the pointer goes down. A
+   * function, not render state: state arrives one render late, and the frame between a
+   * mutation starting and the grid re-rendering is where a fast second press lands.
    */
   writable: () => boolean;
   /**
-   * THE WEEK ON SCREEN, as one value that changes when the columns do (its Monday).
-   *
-   * Everything else about the week is read through a callback at the moment the pointer
-   * fires, which is deliberately not reactive. This one has to be: a page turn changes the
-   * columns while the hand is still down, and the ghost has to move to the new week THEN,
-   * not on the next pointer event — a hand that holds still at the edge would otherwise
-   * watch the block disappear, because no column carries the date it remembers any more.
+   * THE WEEK ON SCREEN (its Monday). The one fact here that must be reactive: a page turn
+   * changes the columns while the hand is still down, and the ghost has to move to the new
+   * week THEN — no column carries the date it remembers any more.
    */
   weekKey: string;
   /**
-   * PAGE THE CALENDAR WITH THE BLOCK STILL IN HAND. Called when the pointer has dwelt in
-   * an edge zone, and again for each accelerating repeat; also by the arrow keys, which
-   * are the same gesture without the wait.
-   *
-   * It is a GET and writes nothing (`useWeek`), so it cannot interfere with the drop that
-   * follows it.
+   * Page the calendar with the block still in hand: an edge dwell, its repeats, or an arrow
+   * key. A GET that writes nothing, so it cannot interfere with the drop that follows.
    */
   onPageWeek: (side: EdgeSide) => void;
   onMove: (target: DragTarget, drop: { date: string; startMinutes: number }) => void;
   onResize: (target: DragTarget, durationMinutes: number) => void;
-  /**
-   * The drag ended somewhere nothing can be written — a past day, which `allowed`
-   * marks and the ghost draws in red.
-   *
-   * It used to be a bare `return`: the ghost vanished and the block stayed put, which
-   * is precisely what a drop the app has quietly swallowed looks like. A gesture the
-   * app refuses has to say so, in the same breath as one it accepts.
-   */
+  /** The drag ended where nothing can be written — a past day. It must SAY so, not return. */
   onRejected: (target: DragTarget, drop: { date: string; startMinutes: number }) => void;
   onClick: (target: DragTarget) => void;
   /**
    * A press that cannot become a gesture said so. Called ONCE per press, the moment the
-   * pointer travels far enough to prove the owner meant to drag — not on the press itself,
-   * because a press that turns out to be a click has nothing to apologise for.
-   *
-   * THE TARGET TRAVELS WITH THE REASON, because one of them needs it: `automatic` answers
-   * with what DOES change the shape of that day, and the gap that would end it early
-   * belongs to that row and no other. The other three are facts about the calendar and
-   * ignore it.
+   * pointer travels far enough to prove a drag was meant. The target travels with the reason
+   * because `automatic` answers with the gap that would end THAT row's day early.
    */
   onInert: (reason: InertReason, target: DragTarget) => void;
 }
@@ -312,25 +154,15 @@ export interface BlockDragOptions {
 /** What is different about a press that lands on the hover action bar. */
 export interface BeginOptions {
   /**
-   * The press landed on the ACTION BAR floating over the block, not on the block itself.
-   *
-   * It still begins a move — the bar is 102 px anchored 4 px from the block's right edge and
-   * appears UNDER the cursor on the first mouse move, so on every weekend column (129 px
-   * wide) and on every weekday block from about 210 px down it covers the block's own name:
-   * the owner's most natural grab point. Swallowing the press there made the drag do
-   * NOTHING — no ghost, no request, no toast, no console error, which is precisely what «la
-   * app me ignora» looks like.
-   *
-   * Two things then have to be different, or the buttons stop working: the press is not
-   * cancelled (so the button still gets its click when the pointer does not travel), and a
+   * The press landed on the ACTION BAR floating over the block, not on the block itself. It
+   * still begins a move (the bar covers the block's own name on a narrow column), and two
+   * things then have to differ or the buttons stop working: the press is not cancelled, and a
    * press that does not travel is NOT read as a click on the block.
    */
   overlay?: boolean;
   /**
-   * This press may not write, and why. It is still TRACKED rather than dropped: a click
-   * still opens the job panel, and the first real travel says why nothing will move.
-   *
-   * Undefined is the ordinary case. See `InertReason` for the four that are not.
+   * This press may not write, and why — see `InertReason`. Still TRACKED rather than dropped:
+   * a click still opens the job panel, and the first real travel says why nothing will move.
    */
   inert?: InertReason;
 }
@@ -338,39 +170,27 @@ export interface BeginOptions {
 export interface DragController {
   preview: DragPreview | null;
   /**
-   * What is being dragged, while it is being dragged. `preview` says WHERE the unit
-   * would land; this says WHAT would land there, which is what the grid needs to work
-   * out whether the drop cuts, merges or is refused.
+   * What is being dragged, while it is being dragged. `preview` says WHERE the unit would
+   * land; this says WHAT would land there, which is what tells the grid whether the drop
+   * cuts, merges or is refused.
    */
   target: DragTarget | null;
-  /** The unit currently being dragged, for the "lifted" styling. */
   /**
-   * The ROWS in the air, for the "lifted" styling — every row of the run, not just the
-   * unit the pointer grabbed. It has to be the run: the ghost draws the run's whole
-   * duration, so a Tuesday unit left looking solid while its Wednesday half faded out
-   * would say the drag had picked up two different things.
+   * The ROWS in the air, for the "lifted" styling — every row of the RUN, since the ghost
+   * draws the run's whole duration.
    */
   liftedBlockIds: readonly string[];
   kind: DragKind | null;
-  /**
-   * The hold in progress at one edge of the grid, or `null` when the pointer is anywhere
-   * else. The grid draws the rails from it — which side is counting down, how long the
-   * count is, and whether it is waiting for the week it just asked for.
-   */
+  /** The hold in progress at one edge of the grid, which is what the rails are drawn from. */
   edge: EdgeHold | null;
   beginMove: (event: React.PointerEvent, target: DragTarget, options?: BeginOptions) => void;
-  /**
-   * The bottom edge. It takes the same options as a move because it needs the same
-   * `inert`: the past is read-only to EVERY block gesture, and a resize of a past row is
-   * as much a rewrite of the record as a drag of it.
-   */
+  /** The bottom edge. Same options as a move because it needs the same `inert`. */
   beginResize: (event: React.PointerEvent, target: DragTarget, options?: BeginOptions) => void;
 }
 
 /**
- * One gesture in flight. Exported because the two previews below are pure functions of
- * it and are tested directly — the arithmetic of a drag has no business being reachable
- * only through a pointer event and a DOM.
+ * One gesture in flight. Exported because the two previews below are pure functions of it
+ * and are tested directly, with no pointer event and no DOM.
  */
 export interface DragSession {
   kind: DragKind;
@@ -382,43 +202,31 @@ export interface DragSession {
   /** The inert press has already explained itself; it must not do so twice. */
   explained?: boolean;
   /**
-   * The furthest the pointer ever got from the press, in pixels. Read once, at the
-   * release, and only to tell a shaky click from a deliberate put-back — see `CLICK_SLOP`.
+   * The furthest the pointer ever got from the press, in pixels. Read once, at the release,
+   * and only to tell a shaky click from a deliberate put-back — see `CLICK_SLOP`.
    */
   travelled: number;
-  /**
-   * The axis AS IT WAS AT PRESS. Every minute this gesture reports is read off this one,
-   * never off `options.timeline`, which may re-fit while the pointer is still down.
-   */
+  /** The axis AS IT WAS AT PRESS. Every minute this gesture reports is read off this one. */
   timeline: Timeline;
   originX: number;
   originY: number;
   /**
    * Pointer minute minus the GRABBED UNIT's start, so the run does not jump to the cursor.
-   *
-   * The unit on screen, not the run: a run reaches across days, and a run's head measured
-   * from a unit two days later is not a distance on any clock. The run is one job in one
-   * colour, so what the owner sees is a rectangle of the run's hours whose top edge sits
-   * exactly as far below the pointer as their grab did below the top of what they grabbed.
+   * The unit on screen, not the run: a run reaches across days, so a head measured from a
+   * unit two days later is not a distance on any clock.
    */
   grabOffsetMinutes: number;
   moved: boolean;
   preview: DragPreview | null;
   /**
-   * WHERE THE POINTER LAST WAS, so the ghost can be re-resolved without a pointer event.
-   * A page turn arrives while the hand is deliberately holding still; the columns under it
-   * change, and the answer to "where would this land" changes with them.
+   * Where the pointer last was, so the ghost can be re-resolved without a pointer event — a
+   * page turn arrives while the hand is deliberately holding still.
    */
   point: { clientX: number; clientY: number } | null;
   /**
-   * The edge zone has been LEFT at least once, so it may now arm.
-   *
-   * The right-hand zone overlaps the last 40 px of Sunday — there is no gutter on that
-   * side — so a block grabbed there and dragged straight up its own column would sit in
-   * the zone for the whole gesture and page the week out from under itself. Requiring the
-   * pointer to leave the zone once makes paging something the owner goes TO. The left zone
-   * needs no such protection (it is the time-axis gutter, where nothing can be grabbed),
-   * but the rule is one rule for both sides.
+   * The edge zone has been LEFT at least once, so it may now arm: the right-hand zone lies
+   * over the last 40 px of Sunday, so a block grabbed there and dragged up its own column
+   * would page the week out from under itself.
    */
   edgeArmed: boolean;
   /** The hold at one edge, with the timer that will fire the next turn. */
@@ -426,10 +234,8 @@ export interface DragSession {
 }
 
 export function useBlockDrag(options: BlockDragOptions): DragController {
-  // Only these two are read during render. Everything else is read through `live` at the
-  // moment the pointer fires, which is what keeps a drag started three renders ago from
-  // committing against a stale week. `weekKey` is the one fact that MUST be reactive —
-  // see the option's own note.
+  // Only these two are read during render; everything else goes through `live` at the moment
+  // the pointer fires, so a drag started three renders ago cannot commit against a stale week.
   const { enabled, weekKey } = options;
 
   const [preview, setPreview] = useState<DragPreview | null>(null);
@@ -466,13 +272,10 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
   }, [publishEdge]);
 
   /**
-   * Start the countdown on one side. `turns` is how many page turns this hold has already
-   * made, which is what makes the repeats accelerate.
-   *
-   * The turn itself does NOT schedule the next one. It marks the hold `waiting` and asks
-   * for the week; the effect below re-arms when that week arrives. So the repeat can never
-   * outrun the calendar it is paging, and a week that fails to load simply stops the
-   * gesture rather than hammering the endpoint behind an error banner.
+   * Start the countdown on one side. The turn itself does NOT schedule the next one: it marks
+   * the hold `waiting` and asks for the week, and the effect below re-arms when that week
+   * arrives — so a hold can never outrun the calendar, and a week that fails to load stops the
+   * gesture instead of hammering the endpoint.
    */
   const armEdge = useCallback(
     (side: EdgeSide, turns: number): void => {
@@ -530,25 +333,13 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
   useEffect(() => finish, [finish]);
 
   /**
-   * THE COLUMNS CHANGED UNDER THE POINTER — a page turn landed while the block is still in
-   * hand. Two things follow, and neither can wait for the hand to move:
+   * The columns changed under the pointer — a page turn landed with the block still in hand.
+   * The ghost is re-resolved from the last pointer position, and a hold waiting for this week
+   * arms its next countdown. Neither can wait for the hand to move.
    *
-   * - the ghost is re-resolved from the last pointer position, against the week that has
-   *   just arrived. Without this the preview keeps a date no column carries any more, so
-   *   the block vanishes from the hand until the mouse is jiggled;
-   * - the hold, if it was waiting for this week, arms its next countdown.
-   *
-   * A LAYOUT EFFECT, NOT A PASSIVE ONE, and that is a correctness difference rather than a
-   * frame of polish. A passive effect is flushed in a scheduler callback, so there is a
-   * moment when the new columns are in the DOM and the preview still names a day of the week
-   * that has left the screen — and a `pointerup` dispatched in that moment was committed
-   * against the OLD week. Measured 2026-08-17 by releasing from inside a MutationObserver
-   * callback: the columns read `2026-08-24`, no ghost was drawn at all, and the drop was
-   * stored on `2026-08-23` and padlocked there, after which `showWeekOf` pulled the screen
-   * back a week to show the owner where their block had gone. A layout effect runs inside
-   * the same synchronous commit, so that moment does not exist. The release re-resolves as
-   * well (see `onPointerUp`), because a guarantee this load-bearing should not rest on one
-   * scheduling detail.
+   * A LAYOUT effect, not a passive one: a passive effect leaves a moment where the new columns
+   * are in the DOM and the preview still names a day off screen, and a `pointerup` in that
+   * moment committed against the OLD week.
    */
   useLayoutEffect(() => {
     const current = session.current;
@@ -576,17 +367,16 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
       if (metrics === null) return;
 
       // Stops the browser turning the drag into a text selection. NOT on the action bar: a
-      // cancelled press there would take the button's click with it, and the block's own
-      // `user-select: none` is what keeps the selection away anyway.
+      // cancelled press there would take the button's click with it.
       if (options.overlay !== true) event.preventDefault();
       event.stopPropagation();
 
-      // The axis this gesture owns, from here to the release. Everything below reads it
-      // off the session; `live.current.timeline` is never consulted again.
+      // The axis this gesture owns, from here to the release; `live.current.timeline` is
+      // never consulted again.
       const timeline = live.current.timeline;
       const pointerMinutes = timeline.minutesAt(event.clientY - metrics.top);
-      // The row's own reason wins — the past is a stronger rule than a save in flight, and
-      // it names the thing the owner can actually do about it.
+      // The row's own reason wins: the past is a stronger rule than a save in flight, and it
+      // names something the owner can act on.
       const inert = options.inert ?? (live.current.writable() ? undefined : 'busy');
       session.current = {
         kind: dragKind,
@@ -614,15 +404,13 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         const travelled = Math.hypot(moveEvent.clientX - current.originX, moveEvent.clientY - current.originY);
         current.travelled = Math.max(current.travelled, travelled);
 
-        // A press that cannot write never becomes a drag: no ghost is published, so
-        // nothing on screen promises a move. It only speaks, once, as soon as the travel
-        // proves a drag was meant.
+        // A press that cannot write never becomes a drag: no ghost is published, so nothing on
+        // screen promises a move. It speaks once, as soon as the travel proves a drag was meant.
         if (current.inert !== undefined) {
           if (travelled < DRAG_THRESHOLD || current.explained === true) return;
           current.explained = true;
-          // `moved` without a kind or a target: nothing is published, so no ghost and no
-          // "lifted" styling — but the release is no longer read as a click either. A
-          // refused drag refuses; it does not quietly navigate somewhere instead.
+          // `moved` without a kind or a target: no ghost and no "lifted" styling, but the
+          // release is no longer read as a click either — a refused drag must not navigate.
           current.moved = true;
           live.current.onInert(current.inert, current.target);
           return;
@@ -657,9 +445,8 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
 
       const onPointerUp = (): void => {
         const current = session.current;
-        // Before the session is dropped: the teardown is what clears a countdown still
-        // running at an edge, and a timer that outlived its gesture would page the week
-        // with nothing in hand.
+        // Before the session is dropped: the teardown clears a countdown still running at an
+        // edge, and a timer that outlived its gesture would page the week with nothing in hand.
         teardown.current?.();
         teardown.current = null;
         session.current = null;
@@ -670,13 +457,9 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         if (current === null) return;
 
         // A press that never travelled is a click: open the job. On the action bar it is the
-        // BUTTON's click, which is already on its way — reading it as a click on the block
-        // too would open the job panel every time the owner locked or split a row.
-        //
-        // THE RESIZE EDGE COUNTS AS THE BLOCK. It used to be excluded (`kind === 'move'`),
-        // which made a click on the bottom ten pixels of a row do nothing whatsoever — and
-        // on a short row that strip is most of what there is to aim at. A click is a click
-        // wherever on the block it lands; only the DRAG differs between the two surfaces.
+        // BUTTON's click, which is already on its way, so reading it as a click on the block too
+        // would open the panel every time the owner locked or split a row. The resize edge DOES
+        // count as the block: a click is a click wherever on it lands, only the DRAG differs.
         if (!current.moved) {
           if (current.overlay !== true) live.current.onClick(current.target);
           return;
@@ -685,28 +468,10 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         // it started on: the pointer may still be over it at the release.
         if (current.overlay === true) swallowNextClick();
 
-        /*
-         * THE DROP IS RESOLVED AGAINST THE WEEK IT IS RELEASED IN — resolved HERE, at the
-         * release, and not read off a preview computed on the last pointer event.
-         *
-         * Everything a release needs is already live: `measure()` re-reads the columns from
-         * the DOM and `live.current` carries the current week's days and rows. What was not
-         * live was the ANSWER: `current.preview` is only recomputed by a pointer move or by
-         * the week-change effect above, and edge paging replaces the columns while the hand is
-         * deliberately holding STILL. Release inside that gap and the drop was written to a
-         * week that had already left the screen (reproduced 2026-08-17 — see the effect's
-         * note). Re-resolving costs one measurement and is IDEMPOTENT: `previewMove` is pure,
-         * so a release with nothing changed under it returns the ghost the owner was looking
-         * at, to the minute.
-         *
-         * It does not touch `current.timeline`. ONE AXIS PER GESTURE is about the VERTICAL
-         * mapping, which `previewMove` takes from the session and never from the options; what
-         * is re-read here is the set of COLUMNS, which is a horizontal fact and the one thing
-         * a page turn really changes.
-         *
-         * Only a MOVE: a resize belongs to one row on one day, another week has nothing to
-         * offer it, and `previewResize` reads no columns at all.
-         */
+        // Resolved against the week it is RELEASED in, here rather than off the preview the last
+        // pointer event computed — an edge hold replaces the columns while the hand holds still.
+        // `previewMove` is pure, so this is idempotent, and it re-reads the COLUMNS only: the
+        // axis stays the press's own. A MOVE only, since `previewResize` reads no columns.
         const settled =
           current.kind === 'move' && current.point !== null
             ? resolveRelease(current, live.current)
@@ -722,9 +487,8 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
 
         if (current.kind === 'move') {
           if (settled.date === current.target.date && settled.startMinutes === current.target.startMinutes) {
-            // The drag came to nothing. If the pointer barely wandered, the owner was
-            // clicking and the mouse moved under their hand — so honour the click rather
-            // than swallowing the press. See `CLICK_SLOP`.
+            // The drag came to nothing. If the pointer barely wandered the owner was clicking
+            // and the mouse moved under their hand, so honour the click. See `CLICK_SLOP`.
             if (current.travelled <= CLICK_SLOP && current.overlay !== true) {
               live.current.onClick(current.target);
             }
@@ -737,18 +501,9 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
             startMinutes: rankFor(
               settled.startMinutes,
               taken,
-              /*
-               * THE NUDGE IS KEPT ON THE AXIS AND NOTHING MORE (2026-08-17).
-               *
-               * `rankFor` only ever consults this for a drop that is a RANK — a pinned one
-               * keeps its minute untouched — and a rank stores no geometry: since *Fill and
-               * Overflow, Always* the engine takes what the day has left and carries the rest
-               * on, and `assertFitsInDay` is not even asked of it. It used to be
-               * `clampDropStart`, the day-END clamp, and that made the one-minute nudge into a
-               * different gesture: a 6 h run released on an afternoon row's start at Monday
-               * 15:30 was nudged to 15:29, found not to fit the day, and re-ranked at 13:00 —
-               * inside the morning, cutting a row the owner never aimed at.
-               */
+              // The nudge is kept on the AXIS and nothing more: `rankFor` consults it only for a
+              // drop that is a RANK, and a rank stores no geometry. The day-END clamp here made
+              // the nudge a different gesture.
               (minutes) => current.timeline.clampStart(minutes),
               settled.pinned === true,
             ),
@@ -761,7 +516,7 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
           return;
         }
         // Same dead zone as a move that resolved to its own slot: a hand that slipped a few
-        // pixels off the bottom edge was clicking, not resizing.
+        // pixels off the bottom edge was clicking.
         if (current.travelled <= CLICK_SLOP) live.current.onClick(current.target);
       };
 
@@ -772,16 +527,9 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
           return;
         }
 
-        /*
-         * THE ARROWS PAGE THE WEEK WITH THE BLOCK IN HAND — the same thing the edge does,
-         * without the wait, for an owner who already knows where they are going.
-         *
-         * It also closes a hole rather than only adding a shortcut: the screen binds the
-         * arrows to the pager at the window, and it did so DURING a drag too, so pressing
-         * one paged the calendar while a gesture was in flight and nothing re-resolved the
-         * ghost. Handled here, in the capture phase, the screen's own listener never sees
-         * the key — and the week change goes through the one path that answers for it.
-         */
+        // The arrows page the week with the block in hand: the same thing the edge does, without
+        // the wait. Handled here, in the CAPTURE phase, so the screen's own window-level pager
+        // never sees the key and the week change goes through the one path that re-resolves.
         const current = session.current;
         if (current === null || !current.moved || current.kind !== 'move') return;
         if (current.inert !== undefined) return;
@@ -789,8 +537,8 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         if (keyEvent.metaKey || keyEvent.ctrlKey || keyEvent.altKey || keyEvent.shiftKey) return;
         keyEvent.preventDefault();
         keyEvent.stopPropagation();
-        // The hold and the key are two ways to ask for the same thing; letting a countdown
-        // survive a keypress would page twice for one intent.
+        // The hold and the key ask for the same thing; a countdown surviving a keypress would
+        // page twice for one intent.
         stopEdge();
         live.current.onPageWeek(keyEvent.key === 'ArrowLeft' ? 'previous' : 'next');
       };
@@ -835,29 +583,17 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
 }
 
 /**
- * A press on something that has no drag gesture at all, wired so it explains itself.
- *
- * The one on the grid is a GAP. It is a `<button>`: pressing and releasing on it opens its
- * form, and pressing it and DRAGGING — which is the obvious thing to try when you want the
- * breakdown moved to another hour — used to produce nothing at all, because the click never
- * fired. This turns that into a sentence, once per press, the moment the travel proves a
- * drag was meant.
- *
- * Deliberately not a drag: a gap's date and time live in its form (CLAUDE.md gives gaps a
- * form and no drop rules), so there is nothing here to make draggable yet — only something
- * to stop being silent about.
+ * A press on something that has no drag gesture at all, wired so it explains itself once per
+ * press. The one on the grid is a GAP: gaps are not dragged, so
+ * there is nothing to make draggable here — only something to stop being silent about.
  */
 export function usePressHint(
   onHint: () => void,
   /**
-   * Speak on the RELEASE too, not only once the press has travelled.
-   *
-   * The default is for something that HAS a click — a gap opens its form — where a press
-   * that did not travel is that click and has nothing to apologise for. `true` is for a
-   * press that can do nothing at all right now (a gap while a save is in flight): there is
-   * no click to fall back on, so every press has to answer, and it must answer ONCE —
-   * which is why this lives here rather than in a second `onClick` that would toast the
-   * same sentence twice on a short drag.
+   * Speak on the RELEASE too, not only once the press has travelled. The default suits
+   * something that HAS a click (a gap opens its form); `true` is for a press that can do
+   * nothing at all right now, where there is no click to fall back on and every press must
+   * answer — exactly ONCE, which a second `onClick` could not promise.
    */
   onRelease = false,
 ): (event: React.PointerEvent) => void {
@@ -884,19 +620,9 @@ export function usePressHint(
     };
     const done = (): void => {
       if (speakOnRelease.current) speak();
-      /*
-       * A PRESS THAT EXPLAINED ITSELF MUST NOT ALSO DO THE OTHER THING (fixed 2026-08-14).
-       *
-       * Dragging a gap said «Los huecos no se arrastran…» AND opened its form in the same
-       * breath: the element is a `<button>`, so the browser delivers its click on release
-       * however far the pointer travelled in between. Two answers to one gesture, one of
-       * them contradicting the other — the owner is told the gesture does nothing and is
-       * then shown a form they did not ask for.
-       *
-       * Swallowed HERE rather than where the sentence is spoken, because the swallow only
-       * survives to the end of the current task: the sentence is said the moment the travel
-       * proves a drag was meant, which can be seconds before the release.
-       */
+      // A press that explained itself must not ALSO open the form: the element is a `<button>`,
+      // so the browser delivers its click however far the pointer travelled. Swallowed here and
+      // not where the sentence is spoken, because the swallow lasts only to the end of the task.
       if (spoken) swallowNextClick();
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', done);
@@ -910,10 +636,8 @@ export function usePressHint(
 
 /**
  * Eats the ONE click a completed drag would otherwise deliver to the button it started on.
- *
- * Capture phase, so it lands before any handler, and removed either by the click it ate or on
- * the next macrotask — a listener that outlived the gesture would swallow the owner's next
- * real click.
+ * Capture phase, and removed either by the click it ate or on the next macrotask — a listener
+ * that outlived the gesture would swallow the owner's next real click.
  */
 function swallowNextClick(): void {
   const swallow = (event: MouseEvent): void => {
@@ -929,22 +653,15 @@ function swallowNextClick(): void {
 // The two previews
 // ---------------------------------------------------------------------------
 //
-// Both are pure: a pointer position, the session (which carries the axis), the grid's
-// CURRENT origin and columns, and the week. Exported so the arithmetic of a gesture can
-// be tested for what the owner actually does — press here, release there, get that — with
-// no browser and no React in the way. `options.timeline` is deliberately NOT read by
-// either: the axis comes from `current`, fixed at press.
+// Both are pure and exported so a gesture's arithmetic is testable with no browser and no
+// React. `options.timeline` is deliberately NOT read by either: the axis comes from
+// `current`, fixed at press.
 
 /**
- * WHERE THE RUN WOULD LAND, in the three steps the release really goes through.
- *
- * 1. THE POINTER'S MINUTE, less the offset the unit was grabbed at, snapped.
- * 2. THE ROW UNDER IT has the last word on the minute (`aimAtThirds`): over a row the
- *    owner is choosing that row — before it, after it, or cut it — not a clock reading.
- * 3. THE DAY may not be able to hold the run from there, and then the drop is on the NEXT
- *    day (`resolveDropDay`), which is what a calendar means by aiming past the bottom of a
- *    column. Only when no later day can hold it either does the ghost stop following the
- *    hand, and it says so (`clamped`).
+ * Where the run would land, in three steps: the pointer's minute less the grab offset,
+ * snapped; then the row under it has the last word (`aimAtThirds`); then the day may not hold
+ * the run from there, in which case the drop is on the NEXT day (`resolveDropDay`), or
+ * `clamped` when no later day can hold it either.
  */
 export function previewMove(
   event: { clientX: number; clientY: number },
@@ -955,17 +672,10 @@ export function previewMove(
   const { timeline } = current;
   const { dayAt, days, rowsOn } = options;
   const hit = slotAt({ x: event.clientX, y: event.clientY }, metrics, timeline);
-  /*
-   * The pointer is off the columns — over the time axis, or past the last one. Leaving the
-   * grid sideways keeps the last column rather than snapping home: the owner is usually on
-   * their way to the next one.
-   *
-   * UNLESS THAT COLUMN IS NOT THERE ANY MORE. Holding the block at an edge pages the week,
-   * and the left-hand zone is the axis gutter — where `dateAtX` answers nothing — so the
-   * date the drag remembers is a day of the week that has just left the screen. Kept, the
-   * ghost would be drawn on no column at all and the drop would be resolved against a day
-   * `dayAt` cannot find. The nearest column is what the pointer is really over.
-   */
+  // The pointer is off the columns — over the time axis, or past the last one — so the last
+  // column is kept rather than snapping home. UNLESS it has left the screen: an edge hold pages
+  // the week from the axis gutter, where `dateAtX` answers nothing, and a remembered date no
+  // column carries would draw the ghost nowhere and resolve against a day `dayAt` cannot find.
   const remembered = current.preview?.date ?? current.target.date;
   const aimedDate =
     hit?.date ??
@@ -998,30 +708,14 @@ export function previewMove(
     date,
     startMinutes,
     durationMinutes: current.target.durationMinutes,
-    // The drop is on the day AFTER the one the pointer is over: the run does not fit
-    // below where the hand is. The ghost has already moved there; this names the reason.
+    // The ghost has already moved to the next day; this only names the reason.
     rolled: settled.rolled,
-    // Pulled UP from where the hand actually is, and only when there was no next day to
-    // go to instead. Downwards only — a release above the top of the axis is not a rule
-    // the owner needs explaining, it is the edge of the screen.
+    // Pulled UP from the hand, and only when there was no next day to go to. Downwards only:
+    // a release above the top of the axis is the edge of the screen, not a rule.
     clamped: settled.clamped,
-    /*
-     * WILL THE ROW KEEP THE MINUTE IT IS RELEASED ON? The ghost and the hint under the grid
-     * are drawn from this, and it is NOT the same question as "can this drop be refused"
-     * (that one is `dayReflowsOn`, and it is about the day alone).
-     *
-     * `dropPins` is the mirror of the server's `pinsTheRow`, one implementation asked from
-     * both sides. A drop into manual-only time — a VISUAL MARGIN — is stored exactly as
-     * released ON ANY DAY, Monday included, because the engine's index space has no margin
-     * minutes in it and an unpinned margin row would be pulled straight back inside the
-     * periods. It is asked of `startMinutes` AFTER `resolveDropDay`, which matters for the
-     * lunch band: a release there is read as 15:30, so on Monday-Thursday it asks for no
-     * manual-only time and does not pin.
-     *
-     * It is the INTENT. On a day the engine reflows the server may still slide the row
-     * forward past a gap or a lock, or give the pin up altogether; the grid applies both
-     * (`resolveDropPreview`), because only there are the day's rows and gaps in reach.
-     */
+    // `dropPins` mirrors the server's `pinsTheRow`, asked of `startMinutes` AFTER
+    // `resolveDropDay` so a release in the lunch band reads as 15:30. It is the INTENT: the
+    // server may still slide the row or give the pin up, which `resolveDropPreview` applies.
     pinned:
       day === undefined ||
       dropPins({
@@ -1032,24 +726,16 @@ export function previewMove(
         startMinutes,
         durationMinutes: current.target.durationMinutes,
       }),
-    // The engine never writes to the past and neither does a drop; the day is still
-    // editable by hand from the job panel, which is where CLAUDE.md puts that.
+    // The engine never writes to the past and neither does a drop.
     allowed: day !== undefined && !day.isPast,
   };
 }
 
 /**
- * WHERE THE RUN LANDS, ASKED AT THE MOMENT THE BUTTON COMES UP.
- *
- * The same `previewMove` the ghost is drawn from, run once more against the columns and the
- * week that are live at the release rather than against the ones the last pointer event saw.
- * With nothing changed under the pointer it returns exactly what the ghost was showing —
- * `previewMove` is pure — so this is a correction and never a surprise.
- *
- * It falls back to the last preview rather than refusing when the grid cannot be measured
- * (it has been unmounted, or the week has none of it left): a release that cannot be
- * re-resolved is still a release, and dropping it on the floor is the silence this whole
- * file exists to remove.
+ * Where the run lands, asked at the moment the button comes up: the same `previewMove` the
+ * ghost was drawn from, against the columns live at the release. It falls back to the last
+ * preview when the grid cannot be measured — a release that cannot be re-resolved is still a
+ * release, and dropping it on the floor is the silence this file exists to remove.
  */
 function resolveRelease(current: DragSession, options: BlockDragOptions): DragPreview | null {
   if (current.point === null) return current.preview;
@@ -1060,8 +746,8 @@ function resolveRelease(current: DragSession, options: BlockDragOptions): DragPr
 
 /**
  * The column the pointer is closest to, for the two places it is over none of them: the
- * time-axis gutter and the space past the last column. `fallback` covers the week having
- * no columns at all, which only happens before the first measurement.
+ * time-axis gutter and the space past the last column. `fallback` covers a week with no
+ * columns at all, which only happens before the first measurement.
  */
 function nearestColumnDate(
   x: number,
@@ -1082,14 +768,9 @@ function nearestColumnDate(
 }
 
 /**
- * The bottom edge, in NET WORKING MINUTES over the day's manual windows.
- *
- * Not `pointer − start`: that arithmetic counts the lunch break as work, and the cap that
- * went with it stopped the drag at the end of the row's own period. Both are the owner's
- * report B — "debería dejarme hacerlo más grande, y que ignore la hora de comer". The
- * conversion lives in `durationTo`, with the worked example as its test, and the margins
- * are inside the windows so report C's "extend into those bands" falls out of the same
- * change.
+ * The bottom edge, in NET WORKING MINUTES over the day's manual windows — never
+ * `pointer − start`, which counts the lunch break as work. The conversion lives in
+ * `durationTo`; the margins are inside the windows, so the edge reaches them too.
  */
 export function previewResize(
   event: { clientY: number },
@@ -1104,8 +785,8 @@ export function previewResize(
 
   const pointerMinutes = timeline.minutesAt(event.clientY - metrics.top);
   const durationMinutes = durationTo(current.target.startMinutes, pointerMinutes, manualWindows, {
-    // The DAY's end, never the axis's — `cover` widens the axis to show a row that already
-    // overran, and reading the cap off it let the next drag push the row further out.
+    // The DAY's end, never the axis's: `cover` widens the axis to show a row that already
+    // overran, so a cap read off it let the next drag push the row further out.
     endOfDayMinutes: dayEndMinutes(manualWindows),
     currentMinutes: current.target.durationMinutes,
   });

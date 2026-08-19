@@ -1,20 +1,8 @@
 /**
- * Turning a day's rows into what the owner should see.
- *
- * Two jobs, both pure:
- *
- * 1. GROUPING. A block never straddles a non-working interval, so three hours of work
- *    across the lunch break are stored as two rows (13:00-14:00 and 15:30-17:30).
- *    CLAUDE.md: they are drawn as "one grouped unit (outer rounded corners, label on
- *    the first, single drag handle) so the owner still sees and moves one 3h job".
- *    That grouping is also what the ENGINE does — `buildQueue` merges consecutive
- *    rows of the same project into a single queue item — so a group is exactly one
- *    thing to drag, not a UI illusion.
- *
- * 2. LANES. The engine never overlaps rows, but the owner can: a weekend or a past day
- *    accepts work placed by hand with no overlap check (deliberately, so a legitimate
- *    hand-made state stays savable). Two rows at the same time must not hide each
- *    other, so overlapping items share the column's width.
+ * A day's rows as what the owner should see, pure. GROUPING: rows of one job with nothing workable
+ * between them are drawn as one unit, which is also what the engine's `buildQueue` does, so a group is
+ * one thing to drag rather than a UI illusion. LANES: the engine never overlaps rows but a hand
+ * placement on a weekend or a past day can, so overlapping items share the column's width.
  */
 
 import { adjacentInWindows } from '../../lib/manualWindow';
@@ -36,13 +24,6 @@ export interface BlockGroup {
   endMinutes: number;
   /** True only when every row of the group is locked. */
   locked: boolean;
-  /*
-   * There is no second list beside `locked` any more. This carried `manualBlockIds` — the
-   * rows of the unit whose LENGTH had been set by hand, which was exactly what *back to
-   * automatic* sent — and before that a wider set, while the pin was a mark of its own
-   * (`hand_placed`). Both marks are gone: the padlock is the only one left, it is a
-   * yes/no question about the whole unit, and pressing it is its undo.
-   */
 }
 
 /** One row, with the group it belongs to and its place in it. */
@@ -53,43 +34,21 @@ export interface BlockSegment {
   isFirst: boolean;
   isLast: boolean;
   /**
-   * THE BREAK BETWEEN TWO WINDOWS — the lunch break — separates this row from the previous
-   * / next row of its unit. That, and only that, is what the "· sigue…" marks, the dashed
-   * seam and the "después de la comida" tooltip are allowed to say.
-   *
-   * NOT the same question as `isFirst` / `isLast`, which is where the ROUNDED CORNERS come
-   * from, and telling the two apart is a defect fix (2026-08-13, found by dragging). A
-   * unit joins two rows when nothing WORKABLE separates them, which is true in two more
-   * cases than "cut at lunch":
-   *
-   * - THE ROWS TOUCH, with no hole at all. Reachable whenever auto-merge may not fold
-   *   them: the scissors moving an hour into the top margin leaves a padlocked
-   *   `07:00-08:00` against `08:00-11:00`, one contiguous rectangle, and read off
-   *   `!isFirst`/`!isLast` every mark was drawn straight down the middle of it while the
-   *   tooltip announced a lunch break three hours away.
-   * - THE HOLE IS A MARGIN THE OWNER HAS SINCE SET TO 0, so those minutes stopped being
-   *   workable and two units became one. The hole is real but it is not the comida.
-   *
-   * Both are excluded by asking the day's windows rather than the row's position: the hole
-   * has to START where a window ends and END where the next one starts.
+   * The BREAK BETWEEN TWO WINDOWS — the lunch break — separates this row from the previous / next row
+   * of its unit. That, and only that, is what the "· sigue…" marks, the dashed seam and the tooltip may
+   * say. NOT the same question as `isFirst` / `isLast`, which is where the ROUNDED CORNERS come from: a
+   * unit also joins rows that TOUCH and rows split by a margin the owner has since set to 0.
    */
   seamAbove: boolean;
   seamBelow: boolean;
 }
 
 /**
- * A day's groups, in clock order.
- *
- * Two rows join when nothing WORKABLE separates them — which is true both for rows that
- * touch and for the two halves around lunch, and false when a gap, another job, or free
- * time sits between them. Same rule, no special case for the lunch break.
- *
- * Read over the day's MANUAL WINDOWS (`adjacentInWindows`, src/lib/manualWindow.ts), which
- * is also the predicate the server's resize uses to find the stretch it is sizing — so a
- * unit on screen and a stretch on the server can never disagree about where one ends. The
- * periods alone would call a row in the top margin and one starting at 08:00 contiguous,
- * because the margin between them is not working time to the ENGINE, and draw the pair as
- * one unit with a phantom seam.
+ * A day's groups, in clock order. Two rows join when nothing WORKABLE separates them — true for rows
+ * that touch and for the two halves around lunch, false when a gap, another job or free time sits
+ * between them. Read over the day's MANUAL WINDOWS, the same predicate the server's resize uses to find
+ * the stretch it is sizing, so screen and server cannot disagree about where a unit ends. The periods
+ * alone would call a row in the top margin and one starting at 08:00 contiguous.
  */
 export function groupBlocks(
   blocks: readonly WeekBlock[],
@@ -129,13 +88,9 @@ export function groupBlocks(
 }
 
 /**
- * Every row of every group, flattened, so the grid can map straight to elements.
- *
- * Each row is also told whether the LUNCH BREAK sits above and below it inside its unit —
- * see `seamAbove` / `seamBelow`, which is what the "· sigue…" marks are drawn from. That
- * is asked of the same `manualWindows` the grouping used, because a unit can also hold rows
- * that touch and rows separated by time that has stopped being workable, and a mark on
- * either would be saying something untrue.
+ * Every row of every group, flattened, so the grid can map straight to elements. Each row is also told
+ * whether the lunch break sits above and below it inside its unit (`seamAbove` / `seamBelow`), asked of
+ * the same `manualWindows` the grouping used.
  */
 export function segmentsOf(
   groups: readonly BlockGroup[],
@@ -165,13 +120,9 @@ export function segmentsOf(
 }
 
 /**
- * True when `[from, to)` is the break BETWEEN two manual windows — on the documented shift,
- * 14:00-15:30 and nothing else.
- *
- * It has to start exactly where one window ends and finish exactly where the next begins.
- * Two rows that touch give `to === from` and fail the first test; a hole left by a margin
- * the owner has since set to 0 starts nowhere in particular and fails it too. Grouping has
- * already guaranteed no window overlaps the stretch, so nothing else has to be checked.
+ * True when `[from, to)` is the break BETWEEN two manual windows — 14:00-15:30 and nothing else on the
+ * documented shift. It must start exactly where one window ends and finish where the next begins: two
+ * rows that touch give `to === from`, and a hole left by a margin set to 0 starts nowhere in particular.
  */
 function isWindowBreak(
   manualWindows: readonly WorkPeriod[],
@@ -190,32 +141,11 @@ function isWindowBreak(
 // ---------------------------------------------------------------------------
 
 /**
- * A RUN — consecutive units of one job with no other job's work between them, across days.
- *
- * THE UNIT OF A DRAG IS THIS, not the block and not the job (decided with the owner,
- * 2026-08-14). Their own words are the rule:
- *
- * > «Mueve el trabajo si este no ha sido dividido. Si tengo pedazos de hoy por la mañana,
- * > hoy por la tarde y pasado por la mañana, todo eso si no lo he dividido yo a mano (no
- * > hay ninguna tarea en medio) muevo todo hasta la tarea que los separe, indicativo de
- * > que esa división la he hecho yo.»
- *
- * So the lunch break does not break a run (nothing is between the pieces), a night does
- * not break one either, and ANOTHER JOB does — because that separation is the owner's own
- * decision and the drag has to respect it and stop there.
- *
- * That is exactly the engine's `QueueItem` (src/lib/composition.ts), and this is read the
- * same way on purpose: the engine will lay the run out as one item however it is dragged,
- * so a drag that moved anything else would be arguing with the reflow. Two consequences
- * fall straight out of `buildQueue`:
- *
- * - A UNIT THE ENGINE NEVER MOVES IS SKIPPED, not treated as a separator. Fixed work
- *   (padlocked, weekend, past) is an obstacle the reflow flows around, so it does not end
- *   the run — and it is its own drag unit, because dragging it is a literal placement.
- * - NOTHING ELSE ENDS A RUN. A hand-set length used to (`manual_duration`, deleted
- *   2026-08-18): `buildQueue` would not join it to an automatic one, so neither could the
- *   drag. With the mark gone there is one rule on both sides — consecutive movable groups
- *   of one job — and no stored flag for either to read.
+ * A RUN — consecutive units of one job with no other job's work between them, across days — and the unit
+ * a DRAG moves. The lunch break does not break one, a night does not, another job does. It is exactly
+ * the engine's `QueueItem`, read the same way on purpose: the engine lays the run out as one item
+ * however it is dragged, so a drag that moved anything else would be arguing with the reflow. A unit the
+ * engine never moves is SKIPPED rather than treated as a separator, and drags on its own.
  */
 export interface BlockRun {
   /** Every row of the run in queue order, across days. What the request names. */
@@ -228,13 +158,10 @@ export interface BlockRun {
 }
 
 /**
- * Every group's run, keyed by group id.
- *
- * Built for the whole week in one pass rather than per column, because a run's other half
- * is usually on another day — which is the entire reason this exists.
- *
- * `isMovable` is the caller's mirror of the engine's predicate (unlocked, not past, not a
- * weekend); the grid has the day flags and this file has no business re-deriving them.
+ * Every group's run, keyed by group id. Built for the whole week in one pass rather than per column,
+ * because a run's other half is usually on another day — the entire reason this exists. `isMovable` is
+ * the caller's mirror of the engine's predicate; the grid has the day flags, and this file has no
+ * business re-deriving them.
  */
 export function buildRuns(
   groups: readonly BlockGroup[],
@@ -255,8 +182,7 @@ export function buildRuns(
   };
 
   for (const group of ordered) {
-    // Fixed work is an obstacle, never a separator: the run continues past it, and it
-    // drags on its own.
+    // Fixed work is an obstacle, never a separator: the run continues past it, and it drags alone.
     if (!group.blocks.some(isMovable)) {
       runs.set(group.id, runOf([group]));
       continue;
@@ -283,13 +209,9 @@ function runOf(groups: readonly BlockGroup[]): BlockRun {
 }
 
 /**
- * Working minutes inside `[from, to)`. Zero across the lunch break and the margins when
- * given the periods; zero only across the lunch break when given the manual windows.
- *
- * Re-exported from src/lib/manualWindow.ts rather than implemented here: the same
- * arithmetic decides a unit on screen, a stretch on the server and the net minutes a
- * resize is saved with, and three copies of it would drift the first time the shift is
- * reconfigured.
+ * Working minutes inside `[from, to)`. Re-exported rather than implemented here: the same arithmetic
+ * decides a unit on screen, a stretch on the server and the net minutes a resize is saved with, and
+ * three copies would drift the first time the shift is reconfigured.
  */
 export { netMinutesBetween as workingMinutesBetween } from '../../lib/manualWindow';
 
@@ -311,10 +233,8 @@ export interface LanePlacement {
 }
 
 /**
- * Side-by-side placement for items that overlap in time.
- *
- * Greedy over a cluster (a run of items connected by overlap): each item takes the
- * first lane whose previous occupant has already ended, and every item in the cluster
+ * Side-by-side placement for items that overlap in time. Greedy over a cluster (items connected by
+ * overlap): each takes the first lane whose previous occupant has ended, and every item in the cluster
  * reports the same `lanes` so their widths match.
  */
 export function assignLanes(items: readonly LaneItem[]): Map<string, LanePlacement> {

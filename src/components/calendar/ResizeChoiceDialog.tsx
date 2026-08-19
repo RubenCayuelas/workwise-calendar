@@ -1,29 +1,7 @@
 'use client';
 
 /**
- * "These hours have nowhere to go — what should happen to them?"
- *
- * THE ONE QUESTION A GESTURE ASKS. Shrinking a row is a transfer inside the job: the
- * freed hours go to the job's last row the engine still lays out. When there is no such
- * row — it is the job's only one, or every other is padlocked, on a weekend or in the
- * past — the hours have no counterparty, and the server answers 409 `shrink-needs-choice`
- * WITHOUT WRITING ANYTHING rather than refusing the gesture outright. That refusal used to
- * be the whole answer (`shrink-last-block`), which is why the owner reported that resize
- * "only works in one direction": growing had an escape (the estimate rises), shrinking had
- * none.
- *
- * BOTH ANSWERS ARE OFFERED IN ONE GO, and that is why `error.details` carries `choices`
- * rather than the dialog working them out: `new-block` is absent when the freed hours are
- * under a quarter of an hour, because a row that short is one no gesture may ask for. A
- * dialog that offered it anyway would be a second round trip to discover the option was
- * never real.
- *
- * CANCEL IS NOT AN ANSWER — it is simply not asking again. Nothing was written when the
- * question was posed, so closing this leaves the row at the length it already had.
- *
- * The hours are formatted HERE. `details` carries `freedMinutes`, integer minutes like
- * everything else that crosses the wire, so that `freedHours` means exactly one thing in
- * the API: the owner's choice.
+ * 409 `shrink-needs-choice`, rendered from the server's own `choices` in one round trip.
  */
 
 import { useEffect, useRef } from 'react';
@@ -35,9 +13,8 @@ import type { FreedHoursChoice } from '../../lib/api-client';
 import styles from './ResizeChoiceDialog.module.css';
 
 /**
- * What the dialog SAYS. Deliberately not the gesture it will re-send — the screen keeps
- * the target and the length it was dragged to, because nothing here renders them and a
- * dialog holding the request it does not read is how the two drift apart.
+ * What the dialog SAYS, deliberately not the gesture it will re-send: the screen keeps the
+ * target and the dragged length, since nothing here renders them.
  */
 export interface ResizeChoiceRequest {
   /** The job's name, for the sentence. */
@@ -86,9 +63,8 @@ export function ResizeChoiceDialog({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [open, busy, onCancel]);
 
-  // Focus starts on CANCEL, as in `ConfirmDialog`: neither answer is the safe default —
-  // one shrinks the job, the other leaves loose hours to place — so a stray Enter must
-  // choose neither.
+  // Focus starts on CANCEL, as in `ConfirmDialog`: neither answer is a safe default, so a
+  // stray Enter must choose neither.
   useEffect(() => {
     if (open) cancelRef.current?.focus();
   }, [open]);

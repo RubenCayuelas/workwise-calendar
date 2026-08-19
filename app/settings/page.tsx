@@ -1,12 +1,6 @@
 'use client';
 
-/**
- * `/settings` — the shell around `SettingsScreen`.
- *
- * The overflow menu in the week view's header points here (`header.menuSettings`), and
- * `settings.back` gets the owner back to the calendar. A client component because
- * everything on it is client state: i18next, the language toggle and the form itself.
- */
+/** A client component because everything on it is client state: i18next and the form. */
 
 import { useRouter } from 'next/navigation';
 import { useTranslation } from 'react-i18next';

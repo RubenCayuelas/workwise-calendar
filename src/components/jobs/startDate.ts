@@ -1,19 +1,4 @@
-/**
- * What the create form SAYS about a chosen start date — as data, not as sentences.
- *
- * The arithmetic behind the date lives on the server (`src/lib/creation.ts`), because
- * only the engine can answer "where would these hours land" over the whole calendar,
- * and a preview that promises a placement the save will not perform is worse than no
- * preview at all. What is left on this side is genuinely a UI decision: which of the
- * seven things worth saying apply, in what order, with what colour, and how long a list
- * of days is allowed to get before it stops being scannable.
- *
- * That is still arithmetic, so it lives here rather than inside the panel —
- * `placement.ts` next door is the precedent — and it is pure, dependency-free and
- * unit-tested. No i18n and no date formatting: the notes are KINDS, and the panel turns
- * each one into a translated line through `useFormat()`, exactly as every other day and
- * hour in the app is spelled.
- */
+/** The chosen start date as DATA: `notes` are KINDS, and the panel translates each one. */
 
 import type { CreationPreview, CreationPreviewRow } from '../../lib/api-client';
 
@@ -86,13 +71,9 @@ export interface StartDateLimits {
 const DEFAULT_LIMITS: Required<StartDateLimits> = { rows: 6, collisions: 6, freeDates: 5 };
 
 /**
- * Turns a server preview into the lines the panel renders.
- *
- * The one judgement call worth pointing at: a collision list is reported even when the
- * placement is being DEFERRED and nothing will therefore be displaced. That is the whole
- * point of the span — the owner asked for the 17th, and knowing that the 18th and 19th
- * are taken is what tells them whether to force it, move it, or leave it at the end of
- * the queue.
+ * Turns a server preview into the lines the panel renders. Collisions are listed even when
+ * the placement is DEFERRED and nothing will be displaced: knowing the span is taken is
+ * what decides between forcing it, moving it and leaving it at the end of the queue.
  */
 export function summarizeStartDate(
   preview: CreationPreview,
@@ -119,8 +100,7 @@ export function summarizeStartDate(
 
   if (preview.deferred) notes.push('deferred');
   if (preview.force && preview.mode === 'forced') notes.push('forced');
-  // The past note already says the rows are created locked, and it says WHY — so the
-  // standing explanation of the padlock would only repeat it in weaker words.
+  // `past` already says the rows are created locked, and why, so `autoLock` would repeat it.
   if (preview.autoLock && preview.day !== 'past') notes.push('autoLock');
 
   if (collisions.length === 0) {
@@ -129,9 +109,7 @@ export function summarizeStartDate(
     notes.push('lockedStands');
   }
 
-  // Alternatives are only worth offering while the answer is unsatisfying. Listing free
-  // days under a placement that landed exactly where it was asked to would read as a
-  // suggestion to change it.
+  // Only while the answer is unsatisfying: otherwise free days read as "change the date".
   const unsatisfied = preview.deferred || collisions.length > 0;
   if (unsatisfied && preview.freeDates.length > 0) notes.push('freeDays');
 

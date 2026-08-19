@@ -1,28 +1,11 @@
 'use client';
 
 /**
- * The gap form: date, start, duration, reason. Creates or edits, and deletes.
+ * The gap form, in two shapes: typed by hand, or "stop the day here" (`closeDay`) with the gap
+ * already worked out. One endpoint and one set of refusals either way.
  *
- * A gap is not a drawing: "Gaps are time: they consume the day's plannable hours
- * exactly like locked work does." Saving one therefore reflows the week, and it can be
- * REFUSED — CLAUDE.md's implementer default is "If the space is held by a locked
- * block, refuse the save with a message naming the block rather than creating an
- * overlap." The server's message already names the first offender; this panel also
- * lists the others from `details.conflicts`, so the owner can unlock everything that
- * is in the way in one pass instead of hitting the same refusal three times.
- *
- * Lunch is deliberately NOT a gap (it is the space between the two shift periods, set
- * in Settings), which `gapForm.lunchNote` says out loud — otherwise the obvious first
- * thing an owner does with this form is recreate the lunch break by hand.
- *
- * SECOND SHAPE: "STOP THE DAY HERE" (`closeDay`). This is now *the* way to say "we only
- * do two hours of this today", so it cannot be a form the owner has to fill in by hand.
- * Invoked from a block's action bar, the panel arrives with the gap already worked out —
- * from the end of that block to the end of the day's last working period — and asks only
- * for the reason, which stays optional. It also states what it will cost the day and
- * which jobs cannot stay inside the closed stretch; `src/lib/closeDay.ts` owns that
- * arithmetic and its comment explains why the panel does not promise where those hours
- * land. Same endpoint, same validation, same refusals: it is one gap either way.
+ * `gapForm.lunchNote` is on the form because lunch is IMPLICIT, not a gap: unsaid, the first thing
+ * an owner does here is recreate the lunch break by hand.
  */
 
 import { useEffect, useState } from 'react';
@@ -67,7 +50,6 @@ import { otherGapConflicts } from './placement';
 import type { JobsMutationHandler } from './events';
 import styles from './jobs.module.css';
 
-/** One hour: what a breakdown or an errand usually costs. */
 const DEFAULT_GAP_MINUTES = 60;
 /** Without a `shape` to bound it, a gap may not be longer than half a day. */
 const FALLBACK_MAX_HOURS = 12;
@@ -76,10 +58,7 @@ export interface GapPanelProps {
   open: boolean;
   /** Omit to create a gap; pass one to edit it. */
   gap?: Gap;
-  /**
-   * "Stop the day here", from a block's action bar: the day, the moment and the span are
-   * already decided, so the form asks only for the reason. Ignored while editing a gap.
-   */
+  /** "Stop the day here": the day, moment and span are already decided. Ignored when editing. */
   closeDay?: CloseDayRequest;
   onClose: () => void;
   /** Fired on every successful write. The parent MUST refetch the week. */
@@ -153,9 +132,8 @@ export function GapPanel({
       : minutesToHours(shape.timelineEndMinutes - shape.timelineStartMinutes);
 
   /**
-   * The gap the closing shape would save, recomputed from the chosen moment on every
-   * keystroke: the moment is the only thing the owner sets, and the hours the day loses
-   * and the work that has to leave both follow from it.
+   * The gap the closing shape would save, recomputed on every keystroke: the moment is the
+   * only thing the owner sets, and everything else follows from it.
    */
   const plan =
     closing === undefined
@@ -332,12 +310,8 @@ export function GapPanel({
 
         {closing === undefined ? (
           <>
-            {/* The day is CHOSEN from the schedule's own days, spelled by `useFormat()`
-                and grouped under the same week label the header shows. A native date
-                input would draw its parts in the BROWSER's locale instead, and "03/08"
-                is genuinely ambiguous. The long date underneath confirms the choice in
-                prose; the picker still keeps a stored day that falls outside its window,
-                so editing an old gap can never move it. */}
+            {/* Never a native date input. The picker keeps a
+                stored day outside its window, so editing an old gap can never move it. */}
             <Field
               label={t('gapForm.date')}
               error={errorFor('date')}
@@ -475,9 +449,9 @@ export function GapPanel({
 type GapField = 'date' | 'startTime' | 'duration' | 'reason';
 
 /**
- * The moments the day can be stopped at: from the start of the shift to one step before
- * it ends, since a gap of nothing is not a gap. `undefined` on a day with no periods,
- * which leaves the control on the whole day rather than on an empty list.
+ * The moments the day can be stopped at: the start of the shift to one step before it ends,
+ * since a gap of nothing is not a gap. `undefined` on a day with no periods, which leaves
+ * the control on the whole day rather than on an empty list.
  */
 function momentBounds(
   periods: readonly { startMinutes: number; endMinutes: number }[],

@@ -1,28 +1,15 @@
 /**
- * The arithmetic behind `TimeSelect`: what quarter hours a time control offers, and
- * the one granularity the whole app agrees on.
- *
- * WHY A LIST INSTEAD OF `<input type="time">`: a native time input renders in the
- * BROWSER's locale, not the page's. On a shop PC with Chrome set to English it draws
- * "08:00 AM" while the grid next to it says "08:00–14:00", and the Settings screen hit
- * exactly that. Every time this app SHOWS goes through `useFormat().time()` so it is
- * spelled the same everywhere; a time the owner CHOOSES has to come from the same
- * spelling, so it is picked from a list.
- *
- * Kept out of the component so it can be tested without a DOM — the test suite runs in
- * Node (see vitest.config.mts).
+ * What quarter hours `TimeSelect` offers. A list rather than a native `<input
+ * type="time">`, measured on the Settings screen, which with
+ * Chrome set to English drew "08:00 AM" beside a grid reading "08:00-14:00". Kept out of
+ * the component so it can be tested without a DOM.
  */
 
 import { MINUTES_PER_DAY, hhmmToMinutes } from '../../lib/dates';
 
 /**
- * Quarter of an hour.
- *
- * The SAME step the drag layer snaps a drop and a resize to (`SNAP_MINUTES` in
- * src/components/calendar/geometry.ts). A time typed into a form and a time dragged on
- * the grid have to land on one grid, or the two gestures disagree about what "16:15"
- * means and a hand-typed start can never be reached again by dragging.
- * `timeOptions.test.ts` holds the two constants equal.
+ * Quarter of an hour. Held equal to the drag layer's `SNAP_MINUTES` by
+ * `timeOptions.test.ts`, so a typed time and a dragged one land on one grid.
  */
 export const TIME_STEP_MINUTES = 15;
 
@@ -36,11 +23,8 @@ export interface TimeOptionsRange {
 }
 
 /**
- * `"08:00"` to 480, or `undefined` when the value is empty or not a time at all.
- *
- * The single safe parse in the UI: `hhmmToMinutes` throws on nonsense rather than
- * returning a silent zero, which is right for the engine and wrong for a control the
- * owner is still filling in.
+ * `"08:00"` to 480, or `undefined` when the value is empty or not a time at all —
+ * `hhmmToMinutes` throws, which is wrong for a control still being filled in.
  */
 export function clockMinutes(value: string): number | undefined {
   try {
@@ -51,12 +35,9 @@ export function clockMinutes(value: string): number | undefined {
 }
 
 /**
- * The choices a time control offers: every step inside the range, plus `current` when
- * it does not sit on that grid.
- *
- * That last part matters. `settings` is a hand-editable key/value table, so a stored
- * `08:10` is possible; dropping it from the list would make simply opening a screen and
- * saving anything quietly move the start of the workshop's day.
+ * Every step inside the range, plus `current` when it does not sit on that grid.
+ * `settings` is a hand-editable table, so a stored `08:10` is possible and dropping it
+ * from the list would let opening a screen and saving move the start of the day.
  */
 export function timeOptionMinutes(
   current: number | undefined,

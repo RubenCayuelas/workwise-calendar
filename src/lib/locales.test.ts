@@ -1,14 +1,3 @@
-/**
- * The locale files are a contract between three screens that are built in parallel
- * and must never edit them. These tests are what keeps that contract honest:
- *
- * - Spanish and English hold exactly the same keys, so switching language can never
- *   fall back to a Spanish sentence in an English UI.
- * - Every `errors.*` key the data layer can emit exists in both, so an API refusal
- *   never renders as a raw dotted key.
- * - The wireframe's own sentences come out verbatim.
- */
-
 import { describe, expect, it } from 'vitest';
 import es from '../../public/locales/es/common.json';
 import en from '../../public/locales/en/common.json';
@@ -76,12 +65,8 @@ describe('locale files', () => {
     }
   });
 
-  /**
-   * The weekday and month lists exist only as a fallback for a screen that does not
-   * want `Intl`. If they disagree with what src/lib/format.ts produces, two headers
-   * on the same page can spell the same month differently — which is exactly what
-   * happened once: CLDR es-ES abbreviates September "sept", and this list said "sep".
-   */
+  // Measured: CLDR es-ES abbreviates September "sept" while this list said "sep", so two headers
+  // on the same page spelled the same month differently.
   it('spells weekdays and months the way format.ts does', () => {
     for (const [language, bundle, locale] of [
       ['es', es, 'es-ES'],
@@ -109,12 +94,8 @@ describe('locale files', () => {
     }
   });
 
-  /**
-   * src/lib/text.ts holds the one sentence the SERVER composes, out of these same files.
-   * It cannot import `SUPPORTED_LANGUAGES` (that module initialises i18next, and with it
-   * React, which the data layer must stay clear of), so the two lists are held together
-   * here instead.
-   */
+  // text.ts cannot import SUPPORTED_LANGUAGES: that module initialises i18next, and with it React,
+  // which the data layer must stay clear of.
   it('offers the server the same languages the app does', () => {
     expect([...textLanguages()].sort()).toEqual([...SUPPORTED_LANGUAGES].sort());
   });
@@ -134,8 +115,6 @@ describe('locale files', () => {
     expect(resolve(es as Json, 'grid.bandsLegend')).toBe(
       'Bandas grises: márgenes visuales y comida — solo arrastre manual',
     );
-    // A unit cut at the lunch break is marked at BOTH ends, the ellipsis on the side the
-    // work carries on. See CLAUDE.md, *Blocks and the Lunch Break*.
     expect(resolve(es as Json, 'block.continuesBelow')).toBe('{{hours}} h · sigue…');
     expect(resolve(es as Json, 'block.continuesAbove')).toBe('…sigue · {{hours}} h');
     expect(resolve(es as Json, 'block.overflow')).toBe('desborde {{hours}} h');

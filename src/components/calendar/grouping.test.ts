@@ -1,13 +1,3 @@
-/**
- * The visual unit: what a run contains, and what the group rolls up.
- *
- * A unit is one gesture on screen but several rows in the database. There is one fact left
- * to roll up — the PADLOCK — and it is a yes/no question about the whole unit, so `locked`
- * is a boolean. It carried a second list until 2026-08-18 (`manualBlockIds`, the rows whose
- * length the owner had drawn, which was exactly what *back to automatic* sent); that mark is
- * gone and the padlock is what fixes a length now.
- */
-
 import { describe, expect, it } from 'vitest';
 import { buildRuns, groupBlocks, segmentsOf, type BlockRun } from './grouping';
 import type { WeekBlock } from '../../lib/api-client';
@@ -31,16 +21,8 @@ function block(overrides: Partial<WeekBlock> & { id: string }): WeekBlock {
   };
 }
 
-/**
- * Which internal edge of a unit may say "the work carries on over there".
- *
- * The answer has to be "the one with a real hole on the clock", not "any edge that is not
- * the unit's own end". A unit joins rows with nothing WORKABLE between them, and two rows
- * that simply TOUCH satisfy that too — reachable whenever auto-merge may not fold them,
- * e.g. the scissors putting an hour in the top margin against the row below it. Read off
- * the position in the unit, the marks drew a seam down the middle of one unbroken
- * rectangle and the tooltip announced a lunch break that was not there.
- */
+// Two rows of a unit may simply TOUCH — the scissors putting an hour in the top margin
+// against the row below it — and a seam read off the position would mark that join too.
 describe('segmentsOf — the seam is the hole, not the join', () => {
   const MANUAL_WINDOWS = [
     { startMinutes: 7 * 60, endMinutes: 14 * 60 },
@@ -86,9 +68,8 @@ describe('segmentsOf — the seam is the hole, not the join', () => {
   });
 
   it('says nothing about a hole left by a margin the owner has since set to 0', () => {
-    // 07:00-07:30 was dropped while the top margin existed; the margin is now 0, so the
-    // half hour before 08:00 has stopped being workable and the two rows became one unit.
-    // The hole is real, but it is not the comida and no mark may call it that.
+    // The top margin is now 0, so the half hour before 08:00 has stopped being workable
+    // and the two rows became one unit. The hole is real, but it is not the comida.
     const narrowed = [
       { startMinutes: 8 * 60, endMinutes: 14 * 60 },
       { startMinutes: 15 * 60 + 30, endMinutes: 20 * 60 + 30 },
@@ -116,13 +97,8 @@ describe('segmentsOf — the seam is the hole, not the join', () => {
   });
 });
 
-/**
- * THE UNIT OF A DRAG, which is the run and not the unit on screen (owner, 2026-08-14):
- * «muevo todo hasta la tarea que los separe, indicativo de que esa división la he hecho yo».
- *
- * Read the way the engine reads it (`buildQueue`), so the drag and the reflow cannot
- * disagree about what one job's uninterrupted work is.
- */
+// Read the way the engine reads it (`buildQueue`), so the drag and the reflow cannot
+// disagree about what one job's uninterrupted work is.
 describe('buildRuns', () => {
   const MANUAL = [
     { startMinutes: 7 * 60, endMinutes: 14 * 60 },
@@ -165,8 +141,7 @@ describe('buildRuns', () => {
   });
 
   it('flows past work the engine never moves rather than stopping at it', () => {
-    // A padlocked row is an obstacle the reflow flows around, exactly as `buildQueue` has
-    // it — so it does not divide the job either, and it drags on its own.
+    // An obstacle the reflow flows around does not divide the job, and drags on its own.
     const runs = runsOf([
       block({ id: 'a1', startMinutes: 8 * 60, durationMinutes: 120 }),
       block({ id: 'pinned', projectId: 'reja', startMinutes: 10 * 60, durationMinutes: 60, locked: true }),
@@ -177,9 +152,7 @@ describe('buildRuns', () => {
   });
 
   it('joins three days of one job into ONE run, since nothing but another job divides one', () => {
-    // A night does not break a run and neither does anything else: the hand-set length that
-    // used to end one went with `manual_duration` (2026-08-18), so this is `buildQueue`'s
-    // single item and the drag moves all three days.
+    // A night does not break a run and neither does anything else: one `buildQueue` item.
     const runs = runsOf([
       block({ id: 'wed', date: '2026-08-12', startMinutes: 8 * 60, durationMinutes: 120 }),
       block({ id: 'thu', date: '2026-08-13', startMinutes: 8 * 60, durationMinutes: 60 }),
@@ -191,8 +164,7 @@ describe('buildRuns', () => {
   });
 
   it('carries the unit on screen whole, padlocked rows in it included', () => {
-    // A padlocked 07:00-08:00 against an unlocked 08:00-11:00 is ONE rectangle on screen
-    // with one drag handle, so the run has to contain both or the gesture would split it.
+    // One rectangle on screen with one drag handle: the run has to contain both rows.
     const runs = runsOf([
       block({ id: 'margin', startMinutes: 7 * 60, durationMinutes: 60, locked: true }),
       block({ id: 'period', startMinutes: 8 * 60, durationMinutes: 180 }),

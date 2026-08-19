@@ -7,7 +7,7 @@ import './globals.css';
 import { I18nProvider } from '../src/components/I18nProvider';
 import { ToastProvider } from '../src/components/ui';
 
-/** Icons exactly as public/brand/workwise-brand-guidelines.md specifies them. */
+/** Icons exactly as the brand guidelines specify them. */
 export const metadata: Metadata = {
   title: 'Workwise',
   description: 'Work scheduling for the workshop',
@@ -22,13 +22,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }): React.JSX.Element {
   return (
-    // `lang="es"` is the SERVER's language and matches what i18next initialises with,
-    // so hydration sees identical markup; `I18nProvider` then rewrites it if the owner
-    // has picked another language on this machine.
-    //
-    // `data-theme="light"` is deliberate: workwise-tokens.css ships dark values behind
-    // `prefers-color-scheme`, and this keeps them dormant until dark mode is really
-    // built. Removing this one attribute is what will turn dark on.
+    // `lang="es"` must match what i18next initialises with or hydration sees different markup;
+    // `I18nProvider` rewrites it after mount. `data-theme="light"` keeps the dark values that
+    // workwise-tokens.css ships behind `prefers-color-scheme` dormant — removing it turns dark on.
     <html lang="es" data-theme="light">
       <body>
         <I18nProvider>

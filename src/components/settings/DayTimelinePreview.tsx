@@ -1,23 +1,8 @@
 'use client';
 
 /**
- * CLAUDE.md's day diagram, drawn from the draft instead of typed into a comment:
- *
- *     07:00 ├─ Visual Margin (manual drag-drop only)
- *     08:00 ├─ Period 1 Start
- *     14:00 ├─ Period 1 End / Lunch Break
- *     15:30 ├─ Period 2 Start
- *     19:30 ├─ Period 2 End
- *     20:30 └─ Visual Margin
- *
- * Bands are proportional to their length, so the owner sees the shape of the day their
- * numbers produce — including where auto-fill stops, which is the only way to make
- * `defaultDayCapacity` concrete. It reads the DRAFT, so it updates on every keystroke and
- * before anything is saved.
- *
- * Every colour is a token: `--ww-margin-fill` for the margins, `--ww-gap-fill` for the
- * lunch break (grey bands in the wireframe, "solo arrastre manual"), plain
- * `--ww-surface` for working time.
+ * The day diagram, drawn from the DRAFT: proportional bands, updating on every
+ * keystroke, with the auto-fill stop line on the period it falls in.
  */
 
 import { useTranslation } from 'react-i18next';
@@ -53,8 +38,7 @@ export function DayTimelinePreview({ settings }: DayTimelinePreviewProps): React
   const bands = buildBands(settings, t);
   const shiftMinutes = shiftMinutesOf(settings);
   const stopMinutes = autoFillStopMinutes(settings);
-  // The stop line only says something when auto-fill really stops early. At full
-  // capacity it would sit exactly on the end of the last period and read as noise.
+  // At full capacity the line would sit on the last period's end and read as noise.
   const showStop =
     stopMinutes !== undefined &&
     hoursToMinutes(settings.defaultDayCapacity) < shiftMinutes &&
@@ -109,8 +93,7 @@ export function DayTimelinePreview({ settings }: DayTimelinePreviewProps): React
       <p className={styles.caption}>
         {t('settings.shiftTotal', { hours: format.hourNumber(shiftMinutes) })}
       </p>
-      {/* The margins are drawn but never auto-filled; the grid says the same thing under
-          its own grey bands, and the wording is deliberately shared with it. */}
+      {/* Deliberately the same wording as the grid's own grey-band legend. */}
       <p className={styles.caption}>{t('grid.bandsLegend')}</p>
     </div>
   );

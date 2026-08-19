@@ -1,20 +1,8 @@
 /**
- * Turning the engine's numbers into what the owner reads.
- *
- * Pure, client-safe and free of react-i18next: every function takes the language as
- * an argument. The React-flavoured version is `useFormat()` in src/lib/useFormat.ts,
- * which binds the current language and the `t` function once so a component just
- * calls `format.dayHeader(date)`.
- *
- * Two rules this file exists to enforce, so three screens cannot disagree:
- *
- * - Minutes in, string out. The domain carries INTEGER MINUTES everywhere; hours are
- *   a presentation detail and `2.5` must render as "2,5" in Spanish and "2.5" in
- *   English. Never build an hour label with string concatenation or `toFixed`.
- * - A date is a local `YYYY-MM-DD`, never an instant. `localDateOf` builds the `Date`
- *   that `Intl` needs at LOCAL midnight, from the string's own parts, so nothing here
- *   can shift a day across a timezone the way `new Date("2026-08-13")` (which parses
- *   as UTC) would.
+ * The engine's numbers as what the owner reads. Pure and free of react-i18next: every function takes
+ * the language as an argument (`useFormat()` binds it for a component). Minutes in, string out — 150
+ * is "2,5" in Spanish, so never build an hour label with concatenation or `toFixed` — and a date is a
+ * local `YYYY-MM-DD`, never an instant, so `localDateOf` is the only thing that turns one into a `Date`.
  */
 
 import { MINUTES_PER_DAY, minutesToHHmm, minutesToHours, parseDate, weekdayOf } from './dates';
@@ -24,11 +12,9 @@ import { intlLocaleOf } from './i18n';
 export type TranslateFn = (key: string, values?: Record<string, unknown>) => string;
 
 /**
- * The `Date` an `Intl` formatter needs for a local calendar day.
- *
- * Built from the parts at LOCAL midday rather than midnight: midday is far enough
- * from either boundary that no DST transition (which happens at 02:00/03:00 local)
- * can push the value onto the neighbouring day.
+ * The `Date` an `Intl` formatter needs for a local calendar day. Built from the parts at LOCAL MIDDAY,
+ * far enough from either boundary that no DST transition (02:00/03:00 local) can push it onto the
+ * neighbouring day.
  */
 export function localDateOf(date: string): Date {
   const { year, month, day } = parseDate(date);
@@ -40,10 +26,9 @@ export function localDateOf(date: string): Date {
 // ---------------------------------------------------------------------------
 
 /**
- * Minutes as the NUMBER part of an hours label: 360 -> "6", 150 -> "2,5" (es).
- *
- * The " h" lives in the locale files (`units.hours`), because where the unit goes is
- * a language decision. Use `useFormat().hours()` for the whole label.
+ * Minutes as the NUMBER part of an hours label: 360 -> "6", 150 -> "2,5" (es). The " h" lives in the
+ * locale files (`units.hours`) because where the unit goes is a language decision; `useFormat().hours()`
+ * gives the whole label.
  */
 export function formatHourNumber(minutes: number, language: string): string {
   return new Intl.NumberFormat(intlLocaleOf(language), {
@@ -56,41 +41,16 @@ export function hourInputValue(minutes: number): number {
   return minutesToHours(minutes);
 }
 
-/**
- * What a time outside the calendar day renders as. Deliberately a shape no real time
- * has, so it reads as "this row is wrong" rather than as a plausible hour.
- */
+/** What a time outside the calendar day renders as: deliberately a shape no real time has. */
 export const INVALID_TIME = '--:--';
 
 /**
  * Minutes from midnight as a 24 h clock time: 480 -> "08:00".
  *
- * FAILS SOFT, and only here. `minutesToHHmm` throws on a value outside the day, which is
- * right for the engine and for every write — but on the RENDER path that throw took the
- * whole week view down (`Invalid minutes "1500"`, out of `useFormat().time`) and left the
- * owner an "Application error" with no way back to the calendar. The row it could not
- * draw was the very row they needed to reach in order to fix it.
- *
- * THERE ARE TWO WAYS TO GET HERE AND THIS FUNCTION CANNOT TELL THEM APART, which is why
- * the complaint no longer picks one:
- *
- *  - A ROW STORED OUT OF RANGE. `assertRowInsideDay` makes that unstorable now, but a
- *    database written BEFORE the guard existed still holds one, and a shop PC's
- *    `data/calendar.db` is not something a fix can retroactively repair. The app has to be
- *    able to display the mistake in order to let the owner correct it.
- *  - A VALUE THAT WAS NEVER A TIME OF DAY. `duration` is NET WORKING MINUTES, so
- *    `start + duration` is only a clock reading when those minutes all fit inside the day
- *    from that start. The drag ghost added a whole RUN's minutes — 18 h across two days —
- *    to a 07:00 start and formatted 1500 as an end-of-day, once per pointer move. The old
- *    wording, "a stored row is out of range", sent that investigation to the database, and
- *    the database was clean the whole time.
- *
- * It does not hide a real bug, which was the argument for leaving it throwing:
- *  - `minutesToHHmm` is untouched, so the engine, the repositories, the API and every
- *    test still throw on such a value — the loud path stays loud where it can act;
- *  - the placeholder is VISIBLE on screen, which is louder than a clamp that would have
- *    quietly drawn 25:00 as 01:00;
- *  - and it complains to the console with the offending value and both suspects.
+ * FAILS SOFT, and only here — `minutesToHHmm` still throws, which is right for the engine and every
+ * write, but on the RENDER path that throw took the whole week view down. The console complaint names
+ * BOTH suspects (a row stored out of range; a duration added to a start) because this cannot tell
+ * them apart.
  */
 export function formatTime(minutes: number): string {
   if (!Number.isFinite(minutes) || minutes < 0 || minutes > MINUTES_PER_DAY) {
@@ -138,12 +98,9 @@ export function formatMonthShort(date: string, language: string): string {
 }
 
 /**
- * The long date the summary strip reads inside a sentence:
- * "jueves 27 de agosto", "Thursday 27 August".
- *
- * The comma `es-ES` puts after the weekday is removed, because the strip reads
- * "Taller ocupado hasta el jueves 27 de agosto" and "hasta el jueves, 27 de agosto"
- * is not how the shop would say it.
+ * The long date the summary strip reads inside a sentence: "jueves 27 de agosto". The comma `es-ES`
+ * puts after the weekday is removed — the strip reads "hasta el jueves 27 de agosto", not "hasta el
+ * jueves, 27 de agosto".
  */
 export function formatLongDate(date: string, language: string): string {
   return new Intl.DateTimeFormat(intlLocaleOf(language), {
@@ -181,11 +138,9 @@ export function weekdayNumber(date: string): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Which locale key renders `10–16 ago 2026`, and the parts it interpolates.
- *
- * Three keys rather than one because a week can straddle a month or a year, and
- * where the shared month or year goes is a language decision, not a string-joining
- * one. The caller does `t(key, values)`.
+ * Which locale key renders `10–16 ago 2026`, and the parts it interpolates. Three keys rather than one
+ * because a week can straddle a month or a year, and where the shared month or year goes is a language
+ * decision. The caller does `t(key, values)`.
  */
 export interface WeekRangeLabel {
   key: string;

@@ -1,36 +1,7 @@
 /**
- * WHERE A DROP IS REALLY AIMED — the two rules that turn a pixel under the pointer into a
- * place on the calendar, both decided with the owner on 2026-08-14 and both pure.
- *
- * They exist because the raw minute under the pointer was never what the owner meant:
- *
- * 1. THIRDS (`aimAtThirds`). Over another row, the upper third means "before this one",
- *    the lower third "after it", the middle third "cut it here". It replaces aiming at an
- *    exact minute, which asked the owner for a precision a mouse on a shop PC does not
- *    have and produced the sliver rows: a hair below a row's start ranked the drop one
- *    minute after it and cut the row one minute in (`Beta 08:00-08:01`). With three
- *    targets per row the two halves of a snap step can no longer give opposite answers,
- *    and — because the ghost previews the real outcome — hovering the middle third shows
- *    the row actually splitting, so the rule needs no explaining.
- *
- * 2. THE NEXT DAY (`resolveDropDay`). Aiming below what the day can still hold means the
- *    day after. The owner, on being shown the old behaviour (refuse the drop, freeze the
- *    ghost at the lowest point that fits): «Que se rechaza, de qué friki. Pasa al
- *    siguiente día. ¿Sabes cómo funciona un calendario?» They are right — in any calendar
- *    aiming past the end of a day means the next one — and the ghost moves to that column
- *    while the pointer is still down, so the release is never a surprise.
- *
- * WHY THE ROLL IS ONLY OFFERED ON A DAY THE ENGINE LAYS OUT. "The next day the engine
- * would use" is only a meaningful answer where the engine chooses anything at all. On the
- * weekend and in the past a drop is a literal placement on a day the owner named on
- * purpose, so moving it to another date would be a bigger surprise than the clamp; there
- * the old behaviour stays, and `DragPreview.clamped` says out loud that the ghost has
- * stopped following the hand.
- *
- * The clamp also stays as the LAST RESORT everywhere: a run longer than any remaining day
- * can hold has no next day to go to, and a drop still has to be legal — the request
- * carries the whole run's duration, and a row that ends past the end of its day is a 409
- * `row-past-day-end`.
+ * Where a drop is really aimed: `aimAtThirds` quantises the aim against the row under it, and
+ * `resolveDropDay` moves a release the day cannot hold onto the next day the engine would use.
+ * Both pure.
  */
 
 import { dropLanding, dropLandsLiterally } from '../../lib/dropSlide';
@@ -48,27 +19,13 @@ export interface AimRow {
 }
 
 /**
- * THE MINUTE THE DROP REALLY MEANS, once the row under it has had its say.
+ * The minute the drop really means, once the row under it has had its say. Over free time the aim
+ * is left exactly as it came — the owner is pointing at the clock. Over a row it collapses to that
+ * row's START, MIDDLE or END: before it, cut it, after it.
  *
- * Over free time the aim is left exactly as it came — the owner is pointing at the clock
- * and there is nothing to be relative to. Over a row it collapses to one of three
- * answers, which is the whole point: the row is the target, not the minute.
- *
- * | the aim falls in the row's… | it becomes  | and the drop…                          |
- * |-----------------------------|-------------|----------------------------------------|
- * | upper third                 | its START   | goes in BEFORE it; the row stays whole |
- * | middle third                | its MIDDLE  | CUTS it, the tail carries on after     |
- * | lower third                 | its END     | goes in AFTER it                       |
- *
- * A ROW TOO SHORT TO CUT HAS TWO TARGETS, NOT THREE. Under half an hour neither half of a
- * cut could be a legal row (`MIN_ROW_MINUTES` is a quarter of an hour), so the middle
- * third would offer a gesture whose only possible outcome is a sliver — the very thing
- * thirds were adopted to remove. Such a row is split down the middle into "before" and
- * "after" instead.
- *
- * The cut is the row's own MIDPOINT, snapped, and never within a snap step of either end:
- * the owner is choosing a ROW to cut, not a minute to cut it at, and a cut a quarter of an
- * hour from the edge is a sliver by another name.
+ * A row too short to cut has TWO targets: under two snap steps neither half of a cut could be a
+ * legal row, so it splits down the middle. The cut is the row's snapped MIDPOINT and never within
+ * a snap step of either end — the owner is choosing a row to cut, not a minute to cut it at.
  */
 export function aimAtThirds(
   aimMinutes: number,
@@ -98,55 +55,34 @@ export function aimAtThirds(
 }
 
 /**
- * The day and minute a release really resolves to, and how it got there.
- *
- * Named for the ANSWER, not for the day: `DropDay` in src/lib/dropSlide.ts is one of this
- * function's INPUTS — a day the roll may land on — and two exported types with one name
- * and opposite meanings is how the next agent silently wires the wrong one.
+ * The day and minute a release really resolves to, and how it got there. Named for the ANSWER:
+ * `DropDay` in src/lib/dropSlide.ts is one of this function's INPUTS, and two exported types with
+ * one name and opposite meanings is how the next agent silently wires the wrong one.
  */
 export interface AimedDrop {
   date: string;
   startMinutes: number;
   /**
-   * The release did not fit on the day it was made and moved to the next day the engine
-   * would use. The ghost is drawn on THAT column, so the drop is never a surprise.
+   * The release did not fit the day it was made on and moved to the next day the engine would
+   * use. The ghost is drawn on THAT column, so the drop is never a surprise.
    */
   rolled: boolean;
   /**
-   * Nowhere later could hold it either, so the start was pulled UP to the last minute
-   * that fits. The one case the ghost stops following the pointer — said out loud.
+   * Nowhere later could hold it either, so the start was pulled UP to the last minute that fits.
+   * The one case the ghost stops following the pointer — said out loud.
    */
   clamped: boolean;
 }
 
 /**
- * AIMING BELOW WHAT THE DAY CAN HOLD MEANS THE NEXT DAY.
+ * Aiming below what the day can hold means the next day. `dropLanding` (src/lib/dropSlide.ts) is
+ * the rule, imported rather than mirrored: this file and the write path were briefly two
+ * implementations of it. Added here is only what the server has no opinion about — the clamp, a
+ * fact about the drag axis, and the two flags the ghost speaks with.
  *
- * The run keeps its whole duration in the request, so a release the day cannot hold is not
- * a smaller drop — it is a drop on another day. The next day the engine would use is the
- * next one it writes to at all: not the past, not a closed day, not the weekend. The
- * Friday colchón IS one of them, because overflow from Thursday is exactly what the
- * buffer is for (CLAUDE.md) — and a drop landing there padlocks the run, which the ghost
- * already says in so many words before the release.
- *
- * The rolled drop starts at the next day's FIRST PERIOD, never in its top margin: a margin
- * minute would padlock a run the owner never asked to fix. Landing on that first minute
- * ties with whatever already starts the day, and `rankFor` breaks the tie downwards — so
- * the run ranks after everything on the day it was aimed at and before everything on the
- * day it moved to, which is what "below the bottom of Wednesday" means.
- *
- * WHERE THE ROLL ITSELF COMES FROM: `dropLanding` in src/lib/dropSlide.ts, the same
- * function `moveBlock` and `splitBlock` decide the landing with. It is imported rather
- * than mirrored on purpose — this file and the write path were briefly two
- * implementations of one rule, which is the shape every drift in `dropEffect.ts` has
- * taken. All that is added here is what the SERVER has no opinion about: the clamp, which
- * is a fact about the drag axis, and the two flags the ghost speaks with.
- *
- * THE WALK STOPS AT THE WEEK ON SCREEN. `dayOf` answers "the engine does not lay this out"
- * for any date outside `days`, so a run that no remaining day of this week can hold is
- * clamped and says so, rather than rolling onto a Monday the owner is not looking at. The
- * server would walk a fortnight; it never sees the difference, because a clamped release
- * fits by construction and `dropLanding` returns a fitting release untouched.
+ * The walk stops at the WEEK ON SCREEN, so a run no remaining day of it can hold is clamped rather
+ * than rolled onto a column the owner is not looking at. The server never sees the difference: a
+ * clamped release fits by construction, and `dropLanding` returns a fitting release untouched.
  */
 export function resolveDropDay(input: {
   /** The week's days in calendar order — the roll walks them forward. */
@@ -156,10 +92,9 @@ export function resolveDropDay(input: {
   /** The whole run's net working minutes: what the request will carry. */
   durationMinutes: number;
   /**
-   * The dragged unit is already padlocked, so it lands literally and its footprint has to
-   * fit the day. Without it an unlocked Monday-Thursday release is a queue RANK, which has
-   * no footprint to fit — the reflow takes what the day has left and carries the rest to
-   * the next day — so neither the roll nor the clamp has anything to solve.
+   * The dragged unit is already padlocked, so it lands literally and its footprint has to fit the
+   * day. Without it a Mon-Thu release is a queue RANK with no footprint to fit, so neither the roll
+   * nor the clamp has anything to solve.
    */
   locked?: boolean;
   timeline: Timeline;
@@ -193,13 +128,9 @@ export function resolveDropDay(input: {
   }
 
   /*
-   * A QUEUE RANK IS NEVER CLAMPED EITHER (2026-08-17). The clamp exists so the row a drop
-   * stores ends inside its day; on Monday-Thursday, inside the periods, with the row
-   * unlocked, the drop stores no geometry at all — it writes a rank and the engine fills
-   * what the day has left and carries the rest to the next day. Clamping there pulled the
-   * ghost up to a minute the owner had not aimed at and said «no pueden empezar después
-   * de…» about a release that works perfectly well; and the request it then sent was for a
-   * different rank. Same question the server asks (`dropLandsLiterally`), same answer.
+   * A queue rank is never clamped either: it stores no geometry, so clamping pulled the ghost up
+   * to a minute the owner had not aimed at, said «no pueden empezar después de…» about a release
+   * that works, and then sent a different rank. Same question the server asks.
    */
   if (
     !dropLandsLiterally({
@@ -214,18 +145,10 @@ export function resolveDropDay(input: {
     return { date: input.date, startMinutes: landing.startMinutes, rolled: false, clamped: false };
   }
 
-  // It landed on the day it was released on: either it fitted there, or nothing later
-  // could hold it. Only the second needs the clamp, and only the first may keep a start
-  // the drag axis would otherwise pull onto itself.
-  //
-  // THE LANDING'S MINUTE IS TAKEN, NOT `input.startMinutes`. Landing on the same DAY does not
-  // mean landing on the same MINUTE: `dropLanding` also reads a release with no working time
-  // under it as the next minute that has some, so a release anywhere in the lunch band is
-  // 15:30. Re-deriving the start from the pointer here is what made this file a second
-  // implementation of the rule — the ghost drew a rectangle in the band and the server stored
-  // one after it. It is NOT reported as `clamped`: nothing was pulled back off a limit, and
-  // the clamp's own sentence («no pueden empezar después de…») would be a lie about a start
-  // that works perfectly well.
+  // It landed on the day it was released on: either it fitted, or nothing later could hold it, and
+  // only the second needs the clamp. THE LANDING'S MINUTE IS TAKEN, NOT `input.startMinutes` —
+  // `dropLanding` reads a release with no working time under it as the next minute that has some,
+  // so anywhere in the lunch band is 15:30. Not reported as `clamped`: nothing hit a limit.
   if (fitsFrom(day.manualWindows, landing.startMinutes, input.durationMinutes)) {
     return { date: input.date, startMinutes: landing.startMinutes, rolled: false, clamped: false };
   }

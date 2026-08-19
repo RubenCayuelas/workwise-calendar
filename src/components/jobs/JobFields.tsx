@@ -1,18 +1,6 @@
 'use client';
 
-/**
- * The four fields a job has, in the wireframe's order: Nombre, Descripción, then
- * Horas totales beside Color.
- *
- * Shared by the job panel and the create form so a job is described the same way
- * whether it is being made or edited. It owns no request and no scheduling opinion —
- * it is a controlled form.
- *
- * Two constraints from CLAUDE.md are structural here:
- * - `Color` is the fixed swatch set (`ColorSwatches`), never a free hex input.
- * - Hours are DECIMAL HOURS in this form, because that is what the owner types; the
- *   panels convert with `hoursToMinutes` at the request boundary.
- */
+/** Controlled, shared by the job panel and the create form. Hours here are DECIMAL hours. */
 
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -107,15 +95,10 @@ export function JobFields({
       </Field>
 
       {/*
-        `Horas totales` and `Color` sit side by side in the wireframe, which was drawn
-        with FIVE swatches. The real palette has eight (`--ww-project-1..8`), and eight
-        20px chips plus a stepper do not fit across a 360px panel — they would wrap into
-        a ragged 6 + 2. So the colour row gets the full width and the palette stays one
-        line, which is how a palette is meant to be read.
-
-        The swatches are a radiogroup, so they cannot carry the `Field`'s generated id
-        the way an input does; `ColorSwatches` names itself with the same label for
-        assistive tech, which is why the visible label and the group label match.
+        Full-width row, not beside the stepper as in the wireframe: that was drawn with
+        FIVE swatches, and the real eight 20px chips plus a stepper wrap into a ragged
+        6 + 2 across a 360px panel. A radiogroup cannot carry the `Field`'s generated id,
+        so `ColorSwatches` repeats the label for assistive tech.
       */}
       <Field label={t('jobPanel.color')} error={errors.color}>
         <div className={styles.swatchRow}>
@@ -132,11 +115,9 @@ export function JobFields({
 }
 
 /**
- * Which field an API failure points at, merged with the form's own checks.
- *
- * `local` carries i18n KEYS rather than sentences so the messages re-translate when
- * the owner switches language mid-form; `error` is whatever the last request threw,
- * and `message` is `apiErrorMessage(error, t, language)` computed once by the caller.
+ * Which field an API failure points at, merged with the form's own checks. `local` carries
+ * i18n KEYS, not sentences, so messages re-translate on a mid-form language switch;
+ * `message` is the caller's `apiErrorMessage(error, t, language)`.
  */
 export function jobFieldErrors(
   local: Partial<Record<JobFieldName, string>>,

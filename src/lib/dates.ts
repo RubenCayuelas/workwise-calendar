@@ -1,22 +1,6 @@
 /**
- * The single source of truth for dates and clock arithmetic.
- *
- * Two hard rules the rest of the app depends on:
- *
- * 1. A calendar day is a LOCAL `YYYY-MM-DD` string in the shop's timezone
- *    (Europe/Madrid). It is never derived from a UTC timestamp: SQLite's
- *    `CURRENT_TIMESTAMP` is UTC, so anything saved after 22:00 local would land
- *    on the wrong day. `todayLocal()` is the only door from an instant to a day.
- *
- * 2. Times of day are INTEGER MINUTES FROM MIDNIGHT. Decimal hours exist only at
- *    the database boundary (REAL columns) and in what the user reads, which is
- *    what `hoursToMinutes` / `minutesToHours` are for. Keeping the engine on
- *    integers removes float drift on values like 2.5 h.
- *
- * Everything here is pure. "Now" is an injected parameter so tests are
- * deterministic. Day arithmetic runs in UTC on purpose: UTC has no DST, so
- * adding a day can never skip or repeat one. The UTC instant is an internal
- * carrier for the local date parts, never a timestamp with a meaning of its own.
+ * Dates and clock arithmetic; pure, with "now" injected. A day is a LOCAL `YYYY-MM-DD` and
+ * `todayLocal()` is the only door from an instant to one; a time of day is integer minutes.
  */
 
 export const SHOP_TIME_ZONE = 'Europe/Madrid';
@@ -71,7 +55,6 @@ export function formatDate(parts: DateParts): string {
   return fromUtcInstant(utc);
 }
 
-/** True when `date` is a well-formed local calendar day. */
 export function isValidDate(date: string): boolean {
   try {
     parseDate(date);
@@ -85,7 +68,6 @@ export function isValidDate(date: string): boolean {
 // "Today" in the shop's timezone
 // ---------------------------------------------------------------------------
 
-/** Today as a local `YYYY-MM-DD` in the shop's timezone. */
 export function todayLocal(now: Date = new Date(), timeZone: string = SHOP_TIME_ZONE): string {
   return instantToLocalDate(now, timeZone);
 }
@@ -112,7 +94,6 @@ export function instantToLocalDate(instant: Date, timeZone: string = SHOP_TIME_Z
 // Day arithmetic
 // ---------------------------------------------------------------------------
 
-/** Shifts a day by whole days. Negative values go backwards. */
 export function addDays(date: string, days: number): string {
   return fromUtcInstant(new Date(toUtcInstant(date).getTime() + Math.trunc(days) * MS_PER_DAY));
 }
@@ -127,7 +108,6 @@ export function weekdayOf(date: string): number {
   return ((toUtcInstant(date).getUTCDay() + 6) % 7) + 1;
 }
 
-/** True for Saturday and Sunday — the days the engine never touches. */
 export function isWeekend(date: string): boolean {
   return weekdayOf(date) >= SATURDAY;
 }
@@ -155,7 +135,6 @@ export function isoWeekYear(date: string): number {
   return isoWeekThursday(date).getUTCFullYear();
 }
 
-/** Comparator for `Array.prototype.sort`: negative, zero or positive. */
 export function compareDates(a: string, b: string): number {
   parseDate(a);
   parseDate(b);
@@ -186,7 +165,6 @@ export function hhmmToMinutes(time: string): number {
   return total;
 }
 
-/** Renders minutes from midnight as `HH:mm`. */
 export function minutesToHHmm(minutes: number): string {
   if (!Number.isFinite(minutes) || minutes < 0 || minutes > MINUTES_PER_DAY) {
     throw new RangeError(`Invalid minutes "${minutes}": expected 0-${MINUTES_PER_DAY}`);
@@ -197,7 +175,6 @@ export function minutesToHHmm(minutes: number): string {
   return `${pad2(hours)}:${pad2(rest)}`;
 }
 
-/** Decimal hours (database boundary) to integer minutes (everywhere else). */
 export function hoursToMinutes(hours: number): number {
   if (!Number.isFinite(hours)) {
     throw new RangeError(`Invalid hours "${hours}"`);
@@ -205,7 +182,6 @@ export function hoursToMinutes(hours: number): number {
   return Math.round(hours * MINUTES_PER_HOUR);
 }
 
-/** Integer minutes back to decimal hours, for storage and for display. */
 export function minutesToHours(minutes: number): number {
   if (!Number.isFinite(minutes)) {
     throw new RangeError(`Invalid minutes "${minutes}"`);

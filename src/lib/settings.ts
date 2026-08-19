@@ -1,36 +1,7 @@
 /**
- * The typed settings repository.
- *
- * The `settings` table is key/value TEXT: `'true'`, `'10'`, `'08:00'`. This module
- * is the only place that knows it. Everything else asks for a `Settings` object
- * with real booleans and numbers, so the storage format is an implementation
- * detail rather than a trap at every call site.
- *
- * Two paths, on purpose:
- *
- * - Reading repairs. `readSettings` never throws: a missing or corrupt value
- *   falls back to that key's default, and an inconsistent combination is repaired.
- *   A hand-edited row must not be able to take the calendar down.
- * - Writing rejects. `writeSettings` throws `SettingsValidationError` on anything
- *   malformed or out of range, so the Settings form can point at the field.
- *
- * THERE IS NO EXCEPTION, AND `defaultDayCapacity` USED TO BE ONE. Shortening the
- * periods or switching the afternoon off silently *re-capped* it, which is how the
- * owner ended up running a 6 h capacity against a 10 h shift with every afternoon
- * empty: one toggle off and back on lowered the number and never restored it. The
- * capacity is now rejected like everything else — see CLAUDE.md, *The Capacity Is
- * Never Touched Alone*. A caller that wants a shorter shift has to send the lower
- * capacity WITH it, which is what makes the Settings screen ask first.
- *
- * The read path still clamps, because a hand-edited row above the shift has to be
- * survivable; that repair is never a write.
- *
- * THE INVARIANT THAT KEEPS THE TWO PATHS HONEST: for every field, what `writeSettings`
- * returns is what the next `readSettings` gives back. Where they disagreed, the write was
- * accepting a value the read then corrected — which is the trap wearing another hat. It
- * held for nine fields and not for `defaultDayCapacity`, whose write checked only "more
- * than zero" while the read enforced `[min(1, shift), shift]` in whole minutes: 0.5 h went
- * in and 1 h came out. `validateSettings` now refuses all three bounds.
+ * The typed settings repository — the only module that knows the `settings` table is key/value TEXT.
+ * The READ path repairs (a hand-edited row must not take the calendar down); the WRITE path refuses,
+ * naming the field. Invariant: what `writeSettings` returns is what the next `readSettings` returns.
  */
 
 import { getDb, type Db } from './db';
@@ -44,10 +15,7 @@ import {
 } from './dates';
 import type { DayShape, Settings, SettingsRow, WorkPeriod } from '../types';
 
-/**
- * Factory configuration: the split shift the workshop actually runs.
- * `gapColor` matches `--ww-gap-fill` in public/brand/workwise-tokens.css.
- */
+/** The split shift the workshop runs. `gapColor` matches `--ww-gap-fill` in workwise-tokens.css. */
 export const DEFAULT_SETTINGS: Settings = {
   period1Start: '08:00',
   period1End: '14:00',
@@ -65,7 +33,6 @@ export const DEFAULT_SETTINGS: Settings = {
 export const MIN_MARGIN_HOURS = 0;
 export const MAX_MARGIN_HOURS = 2;
 
-/** The horizon bounds every placement loop, so it needs a floor and a ceiling. */
 export const MIN_HORIZON_WEEKS = 1;
 export const MAX_HORIZON_WEEKS = 104;
 
@@ -95,14 +62,9 @@ export function readSettings(db: Db = getDb()): Settings {
 }
 
 /**
- * Merges `partial` over the stored configuration, validates it and saves it in
- * one transaction. Returns the configuration as it now stands: every submitted
- * field exactly as submitted, plus the stored values for the rest.
- *
- * Nothing is adjusted on the way through — `gapColor` is upper-cased and that is
- * all — so the return value is what is on disk, and a caller may render it. What
- * it CANNOT do is come back different from what was asked for: a capacity the
- * shift cannot buy is a `SettingsValidationError`, not a quiet correction.
+ * Merges `partial` over the stored configuration, validates it and saves it in one transaction.
+ * Nothing is adjusted on the way through — `gapColor` is upper-cased and that is all — so what comes
+ * back is what is on disk: a capacity the shift cannot buy is an error, not a quiet correction.
  */
 export function writeSettings(partial: Partial<Settings>, db: Db = getDb()): Settings {
   const merged = validateSettings({ ...readSettings(db), ...partial });
@@ -120,7 +82,7 @@ export function writeSettings(partial: Partial<Settings>, db: Db = getDb()): Set
   return merged;
 }
 
-/** Every value as the TEXT that goes on disk. Also used to seed the defaults. */
+/** Every value as the TEXT that goes on disk; also used to seed the defaults. */
 export function serializeSettings(settings: Settings): Record<keyof Settings, string> {
   return {
     period1Start: settings.period1Start,
@@ -141,9 +103,8 @@ export function serializeSettings(settings: Settings): Record<keyof Settings, st
 // ---------------------------------------------------------------------------
 
 /**
- * Parses raw TEXT into `Settings`, applying each key's default when the value is
- * missing or unusable, then repairing combinations that cannot be true at once.
- * Pure — no database involved.
+ * Raw TEXT into `Settings`: each key's default where the value is unusable, then combinations that
+ * cannot be true at once repaired. Pure — no database involved.
  */
 export function normalizeSettings(raw: Partial<Record<keyof Settings, string>>): Settings {
   const parsed: Settings = {
@@ -189,11 +150,8 @@ export function normalizeSettings(raw: Partial<Record<keyof Settings, string>>):
     }
   }
 
-  // The one place the capacity is still pulled down without being asked, and only
-  // here: a stored row can hold a value the shift cannot buy (a hand edit, or a
-  // database written before this rule existed), and every derived number downstream
-  // assumes it cannot. Repairing a read is not the trap — silently repairing a WRITE
-  // was, which is why `validateSettings` refuses instead.
+  // The one place the capacity is pulled down unasked: a stored row can hold a value the shift
+  // cannot buy, and every derived number downstream assumes it cannot. A WRITE refuses instead.
   parsed.defaultDayCapacity = clampCapacityToShift(parsed.defaultDayCapacity, parsed);
   return parsed;
 }
@@ -203,13 +161,9 @@ export function normalizeSettings(raw: Partial<Record<keyof Settings, string>>):
 // ---------------------------------------------------------------------------
 
 /**
- * Checks a complete `Settings` and returns it unchanged but for an upper-cased
- * `gapColor`. Throws `SettingsValidationError` on anything out of range, naming the
- * field — including a `defaultDayCapacity` above the hours the enabled periods cover.
- *
- * That last refusal is the whole of *The Capacity Is Never Touched Alone*: a caller
- * shortening the shift must send the lower capacity in the same patch, and a caller
- * that does not is told the ceiling (`maxDayCapacityHours`) rather than corrected.
+ * Checks a complete `Settings` and returns it unchanged but for an upper-cased `gapColor`. Throws
+ * `SettingsValidationError` naming the field — including a `defaultDayCapacity` above the hours the
+ * enabled periods cover, which a caller shortening the shift must lower in the SAME patch.
  */
 export function validateSettings(settings: Settings): Settings {
   const period1Start = requireTime(settings, 'period1Start');
@@ -256,13 +210,8 @@ export function validateSettings(settings: Settings): Settings {
     );
   }
 
-  // The floor and the granularity are refused for the same reason the ceiling is: they
-  // are the OTHER two ways the read path's repair could quietly change this number after
-  // it was accepted. `writeSettings({ defaultDayCapacity: 0.5 })` used to return 0.5 and
-  // then read back as 1 — half an hour of auto-fill a day that nobody chose, the trap
-  // over again in the other direction. The write and the read now agree on the same
-  // range, so `clampCapacityToShift` really is the no-op it claims to be for anything
-  // that came through here.
+  // The floor and the granularity are refused for the same reason the ceiling is: they are the
+  // other two ways the read path's repair could quietly change this number after it was accepted.
   const floorHours = capacityFloorHours(shiftHours);
   if (capacity < floorHours) {
     throw new SettingsValidationError(
@@ -303,10 +252,8 @@ export function workPeriodsOf(settings: Settings): WorkPeriod[] {
 }
 
 /**
- * The longest day the shift can cover, in hours — the ceiling `defaultDayCapacity`
- * may not exceed. Capacity exists to stop auto-fill early, never to book hours the
- * shift does not have. It is what a save is refused against, and what the Settings
- * screen names when it asks whether to lower the capacity.
+ * The longest day the shift can cover, in hours — the ceiling `defaultDayCapacity` may not exceed,
+ * and the number both the refusal and the Settings screen's question name.
  */
 export function maxDayCapacityHours(settings: Settings): number {
   return minutesToHours(shiftMinutesOf(settings));
@@ -322,14 +269,11 @@ export function dayShapeFromSettings(settings: Settings): DayShape {
 
   return {
     periods,
-    // The hand view, derived here so `periods` and `manualWindows` can never disagree
-    // about the same settings — see src/lib/manualWindow.ts.
+    // Derived here so `periods` and `manualWindows` can never disagree — see ./manualWindow.ts.
     manualWindows: manualWindowsOf(periods, marginTopMinutes, marginBottomMinutes),
     shiftMinutes: shiftMinutesOf(settings),
-    // Clamped for the same reason the read path clamps: a `Settings` assembled by hand
-    // could claim more than the shift, and `capacityMinutes` is read as a fact by the
-    // engine and the grid. Anything that came through `readSettings` or `writeSettings`
-    // already fits, so this changes nothing for them.
+    // Clamped for the same reason the read path clamps: a `Settings` assembled by hand could claim
+    // more than the shift. Anything from `readSettings` or `writeSettings` already fits.
     capacityMinutes: hoursToMinutes(clampCapacityToShift(settings.defaultDayCapacity, settings)),
     marginTopMinutes,
     marginBottomMinutes,
@@ -350,12 +294,9 @@ function shiftMinutesOf(settings: Settings): number {
 }
 
 /**
- * Clamps capacity into `[min(1, shift), shift]` and rounds it to a whole minute.
- *
- * A REPAIR, not a rule: only the forgiving read path and the derived `DayShape` use
- * it, so that a corrupt or hand-written value cannot make `capacityMinutes` claim
- * hours the periods do not have. The write path refuses every value this would move —
- * all three bounds, not just the ceiling — see `validateSettings`.
+ * Clamps capacity into `[min(1, shift), shift]` and rounds it to a whole minute. A REPAIR, not a
+ * rule: only the read path and the derived `DayShape` use it, so a hand-written value cannot make
+ * `capacityMinutes` claim hours the periods lack. The write path refuses every value this would move.
  */
 function clampCapacityToShift(hours: number, settings: Settings): number {
   const shiftHours = minutesToHours(shiftMinutesOf(settings));
@@ -368,21 +309,17 @@ function clampCapacityToShift(hours: number, settings: Settings): number {
 }
 
 /**
- * The least the capacity may be: an hour, or the whole shift when the shift is shorter
- * than an hour. A stop line below this is not "finish early", it is a day that plans
- * nothing.
+ * The least the capacity may be: an hour, or the whole shift when that is shorter. Below this is not
+ * "finish early", it is a day that plans nothing.
  */
 function capacityFloorHours(shiftHours: number): number {
   return Math.min(1, shiftHours);
 }
 
 /**
- * Whether an amount of hours lands on a whole minute — the unit everything downstream
- * works in (`hoursToMinutes` rounds, so 5.7777 h silently becomes 347 min).
- *
- * Deliberately tolerant: the Settings screen offers the shift itself as the capacity,
- * and a shift of 593 minutes is `593 / 60`, whose double times 60 is 592.999…. The
- * tolerance is eight orders of magnitude smaller than the rounding this guards against.
+ * Whether an amount of hours lands on a whole minute — the unit everything downstream works in
+ * (`hoursToMinutes` rounds, so 5.7777 h silently becomes 347 min). Tolerant on purpose: the form
+ * offers the shift itself, and a 593-minute shift is `593 / 60`, whose double times 60 is 592.999….
  */
 function isWholeMinutes(hours: number): boolean {
   const minutes = hours * MINUTES_PER_HOUR;

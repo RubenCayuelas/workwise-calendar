@@ -1,24 +1,6 @@
-/**
- * A gesture ends where it was released — pinned.
- *
- * These cases are the owner's own report, «a veces no se coloca exactamente donde
- * quiero», reduced to its arithmetic. The defect was never in the conversion (`durationTo`
- * has always answered 6 h for 10:00 -> 17:30); it was that the AXIS the pointer was read
- * against changed BETWEEN THE PRESS AND THE RELEASE. The drag's own preview swapped the
- * two-line legend under the grid for a one-line hint, `.gridArea` grew by the 9.2 px the
- * legend gave up, the timeline re-fitted from 742 px to 751 px about 50 ms in, and the
- * pixel the owner released on was converted at a scale that had not existed when they
- * pressed: 17:30 read as 17:22 and committed 5,75 h.
- *
- * So every case here does the same thing: it hands the press a `pressAxis`, then hands
- * the pointer events an `options.timeline` that has ALREADY RE-FITTED, and demands the
- * answer the press axis gives. The release pixel is never a literal — it is
- * `metrics.top + pressAxis.yOf(target)`, read off the same geometry the grid paints
- * from, so a future change to the scale or to the axis cannot leave these numbers behind.
- *
- * The two heights are measurements from the running app on 2026-08-13 (1646x963, the
- * shop's window): 742 px at rest, 751 px with the drag hint published.
- */
+// A gesture is resolved against the axis it PRESSED on. Every case here hands the press one axis
+// and the pointer events an axis that has already re-fitted, then demands the press axis's answer.
+// Release pixels are always `metrics.top + pressAxis.yOf(target)`, never literals.
 
 import { describe, expect, it } from 'vitest';
 import { manualWindowsOf } from '../../lib/manualWindow';
@@ -43,7 +25,7 @@ const SHAPE: DayShape = {
   timelineEndMinutes: 20 * 60 + 30,
 };
 
-/** The axis at rest, and the axis the legend's collapse produced mid-drag. */
+/** The axis at rest and the axis the legend's collapse produced mid-drag: measured, 742 and 751 px. */
 const PRESS_AXIS = createTimeline(SHAPE, { fitHeight: 742 });
 const REFITTED_AXIS = createTimeline(SHAPE, { fitHeight: 751 });
 
@@ -55,9 +37,7 @@ const METRICS: GridMetrics = {
     { date: '2026-08-13', left: 200, width: 180 },
     { date: '2026-08-15', left: 380, width: 180 },
   ],
-  // The visible box the edge zones are measured from, and the strips at its two ends: the
-  // time-axis gutter on the left, the minimum on the right. These cases press at x=260 and
-  // never go near either strip, so no page turn is ever in play here.
+  // These cases press at x=260 and never reach either edge strip, so no page turn is in play.
   frame: { left: 142, right: 560, leftZone: 58, rightZone: 40 },
 };
 
@@ -155,33 +135,20 @@ describe('previewResize', () => {
   });
 
   it('holds that answer when the axis re-fits between the press and the release', () => {
-    // Exactly the legend's collapse: the gesture published a preview, the grid grew by
-    // 9 px, and every later pointer event arrives with the new scale in `options`.
+    // The legend's collapse: the grid grew 9 px, so later pointer events carry the new scale.
     const session = press('resize', 14 * 60, PRESS_AXIS);
     const preview = previewResize({ clientY: yOf(17 * 60 + 30) }, session, METRICS, OPTIONS);
 
     expect(preview.durationMinutes).toBe(360);
     // The re-fitted axis still reads that pixel as an earlier minute — the whole defect.
     expect(REFITTED_AXIS.minutesAt(yOf(17 * 60 + 30) - TOP)).toBeLessThan(17 * 60 + 30);
-    /*
-     * AND FARTHER DOWN THE COLUMN THE DRIFT IS STILL WORTH A WHOLE QUARTER OF AN HOUR.
-     * The release point moved here on 2026-08-17, when the axis began compressing the
-     * lunch band: the drift accumulates over WORKING pixels, so at 17:30 it is now 6.7
-     * minutes and snaps back onto its own quarter, while at 19:30 it is 8 and does not.
-     * The defect is the same one and so is its shape — a pixel converted at a scale that
-     * did not exist when the owner pressed — only the depth at which it bites has moved.
-     * 19:30 reads as 19:22 and commits 7,75 h for a gesture that drew 8 h.
-     */
+    // Since the axis compresses the band the drift accumulates over WORKING pixels: 6.7 min at
+    // 17:30, which snaps back onto its quarter, and 8 at 19:30, which commits 7,75 h for 8 h.
     expect(REFITTED_AXIS.minutesAt(yOf(19 * 60 + 30) - TOP)).toBe(19 * 60 + 22);
     expect(previewResize({ clientY: yOf(19 * 60 + 30) }, press('resize', 14 * 60, REFITTED_AXIS), METRICS, OPTIONS).durationMinutes).toBe(480 - SNAP_MINUTES);
   });
 
-  /**
-   * The whole day, one row per release point: the top of the day, either side of the
-   * lunch break, inside it, and the very last minute of the bottom margin. `requested` is
-   * net working minutes from 10:00 — the lunch band contributes nothing, which is why
-   * 14:00 and 15:00 ask for the same 4 h.
-   */
+  // `requested` is NET working minutes from 10:00, which is why 14:00 and 15:00 both ask for 4 h.
   it.each([
     { release: 10 * 60 + 45, requested: 45 },
     { release: 11 * 60 + 45, requested: 105 },
@@ -202,16 +169,8 @@ describe('previewResize', () => {
   });
 });
 
-/**
- * INVARIANT 3, in the drag layer: the ghost may never promise a row that runs past the
- * end of the day, because the server stores what the ghost drew.
- *
- * The bottom margin set to 0 under a row that is already in it is the one shape CLAUDE.md
- * says legitimately survives ("what the owner loses is the margin as a TARGET, not the
- * hours already in it"), and the axis is widened by `cover` so the row stays visible. That
- * widening used to BE the cap: `reachableRuns` closed the last hole at `timeline.endMinutes`,
- * so the drag could grow the row into the very space the row's own overrun had created.
- */
+// The ghost may never promise a row past the end of the day. The trap: a row stranded outside the
+// windows widens the axis (`cover`), and capping at the AXIS let the drag grow into that very space.
 describe('previewResize past the end of the day', () => {
   const NO_BOTTOM_MARGIN: DayShape = {
     ...SHAPE,
@@ -221,8 +180,7 @@ describe('previewResize past the end of the day', () => {
   const STRANDED: WeekDay = day('2026-08-13', {
     manualWindows: [...NO_BOTTOM_MARGIN.manualWindows],
   });
-  // The axis the grid really paints in that state: widened to the containing hour so the
-  // 19:30-20:30 row is not clipped.
+  // The axis the grid paints in that state: widened to the containing hour so the row shows.
   const WIDENED = createTimeline(NO_BOTTOM_MARGIN, { fitHeight: 742, cover: [20 * 60 + 30] });
 
   it('caps a growing row at the end of the day, not at the end of the axis', () => {
@@ -256,12 +214,7 @@ describe('previewResize past the end of the day', () => {
 });
 
 describe('previewMove', () => {
-  /**
-   * The clamp that keeps a dropped unit inside the day. It used to be
-   * `axisEnd − durationMinutes`, which mixes NET working minutes with CLOCK minutes: a 6 h
-   * unit was allowed to start at 13:15, where it needs 7 h 30 of clock, and the server
-   * stored `13:15-14:00` + `15:30-20:45` — a quarter of an hour past the end of the day.
-   */
+  // The clamp is measured in CLOCK minutes: 6 h from 13:15 needs 7 h 30 and ends 20:45, past the day.
   it.each([
     { release: 13 * 60 + 15, start: 13 * 60 },
     { release: 13 * 60 + 30, start: 13 * 60 },
@@ -295,10 +248,8 @@ describe('previewMove', () => {
   });
 
   it('reads a release in the lunch band as 15:30, the first minute that can hold work', () => {
-    // Every minute of the band means the same thing, first and last included, because none of
-    // them is a slot: `firstWorkingMinute` in `dropLanding`, which the ghost imports so it
-    // cannot answer differently from the server. It used to leave the release alone and store
-    // one solid row through the break — `14:00 +120m -> 16:00`, ninety minutes of it lunch.
+    // No minute of the band is a slot: `firstWorkingMinute` in `dropLanding`, which the ghost
+    // imports so it cannot answer differently from the server.
     const session = press('move', 14 * 60, PRESS_AXIS, {
       date: '2026-08-15',
       startMinutes: 8 * 60,
@@ -311,8 +262,7 @@ describe('previewMove', () => {
         `released at ${release}`,
       ).toBe(15 * 60 + 30);
     }
-    // The last minute of the MORNING is still the morning's: it is working time, so it is its
-    // own answer and the row is cut at 14:00 like any other.
+    // The last minute of the MORNING is working time, so it is its own answer.
     expect(
       previewMove({ clientX: 460, clientY: yOf(13 * 60 + 45) }, session, METRICS, OPTIONS)
         .startMinutes,
@@ -320,8 +270,7 @@ describe('previewMove', () => {
   });
 
   it('clamps a run the day cannot hold from 15:30 rather than letting it overrun', () => {
-    // 6 h from 15:30 reaches 21:30. Saturday does not reflow, so there is no next day to roll
-    // to and the drag's own limit answers: the latest start that ends inside the day, 13:00.
+    // Saturday does not reflow, so there is no day to roll to: the drag clamps to 13:00 instead.
     const session = press('move', 14 * 60, PRESS_AXIS, {
       date: '2026-08-15',
       startMinutes: 8 * 60,
@@ -334,11 +283,8 @@ describe('previewMove', () => {
   });
 
   it('keeps the start when the pointer has not travelled at all', () => {
-    // The honest answer to "grabbed here, released on the same pixel" is "it did not
-    // move". With the axis re-derived per event it was not: the grab offset cancels an
-    // ORIGIN error, and this is a SCALE error, so a still hand drifted by nine minutes —
-    // and on the weekend, where the exact minute is kept rather than re-flowed, that
-    // drift was STORED as a quarter of an hour.
+    // The grab offset cancels an ORIGIN error and this is a SCALE error, so a still hand drifted
+    // nine minutes — stored as a quarter of an hour on the weekend, which keeps the minute.
     const grab = 19 * 60 + 10;
     const session = press('move', grab, PRESS_AXIS, { startMinutes: 15 * 60 + 30, durationMinutes: 240 });
     const preview = previewMove({ clientX: 460, clientY: yOf(grab) }, session, METRICS, OPTIONS);
@@ -348,8 +294,7 @@ describe('previewMove', () => {
   });
 
   it('lands a move on the minute the pointer was released on', () => {
-    // Grabbed 30 min into a 09:00 row and released with that grab point on 12:20: the
-    // row starts at 11:50, which snaps to 11:45.
+    // Grabbed 30 min into a 09:00 row, released on 12:20: 11:50, which snaps to 11:45.
     const session = press('move', 9 * 60 + 30, PRESS_AXIS, {
       startMinutes: 9 * 60,
       durationMinutes: 120,
@@ -360,17 +305,8 @@ describe('previewMove', () => {
     expect(preview.startMinutes).toBe(11 * 60 + 45);
   });
 
-  /**
-   * WHAT THE GHOST IS ALLOWED TO PROMISE, which is the whole difference between the two
-   * ways it is drawn. `pinned` says the row keeps the minute it was released on, so the
-   * clock range is a promise; without it the release is only a queue rank.
-   *
-   * The case that was wrong: a drop into a MARGIN or the lunch band is stored exactly as
-   * released on every day, Monday included (`pinsTheRow`, src/lib/operations/blocks.ts) —
-   * the engine's index space has no margin minutes in it. Read off the day alone, the ghost
-   * drew those as an insertion point and the hint promised a re-flow, while the server was
-   * storing them padlocked.
-   */
+  // `pinned` says the row keeps the minute it was released on, so the clock range is a promise;
+  // without it the release is only a queue rank. Read off the DAY alone, a margin drop gets it wrong.
   describe('pinned', () => {
     const moveTo = (date: string, release: number, over: Partial<DragTarget> = {}) => {
       const session = press('move', 8 * 60, PRESS_AXIS, { date, startMinutes: 8 * 60, ...over });
@@ -388,16 +324,13 @@ describe('previewMove', () => {
     });
 
     it('is true in the top margin of that same day', () => {
-      // 07:15 + 2 h: an hour of it is margin, which the engine cannot represent.
+      // 07:15 + 2 h: an hour of it is margin, which the engine's index space cannot represent.
       expect(moveTo('2026-08-13', 7 * 60 + 15, { durationMinutes: 120 }).pinned).toBe(true);
     });
 
     it('is FALSE when the unit merely reaches the bottom margin (2026-08-17)', () => {
-      // 6 h from 13:00 is 13:00-14:00 plus 15:30-20:30, and the last hour of that is
-      // margin — which used to pin it. It does not now: since *fill and overflow* the
-      // minutes past the end of the periods are hours the reflow carries to the next day,
-      // not a claim on the margin. Reading the whole footprint is what padlocked the
-      // owner's 6 h drop into a 4 h afternoon and then refused it a slot.
+      // 6 h from 13:00 reaches an hour into the bottom margin, and those minutes are hours the
+      // reflow carries to the next day, not a claim on the margin.
       expect(moveTo('2026-08-13', 13 * 60, { durationMinutes: 360 }).pinned).toBe(false);
     });
 
@@ -414,17 +347,10 @@ describe('previewMove', () => {
     });
   });
 
-  /**
-   * The ghost stops following the pointer at the last minute the unit can start on and still
-   * end inside the day — a real rule (an unclamped rank comes back 409 `row-past-day-end`),
-   * and one the owner cannot see. `clamped` is what lets the preview say it out loud instead
-   * of freezing in silence for the last third of the column.
-   */
+  // The ghost stops at the last start that ends inside the day (unclamped: 409 `row-past-day-end`),
+  // and `clamped` is what lets it say so instead of freezing in silence.
   describe('clamped', () => {
-    // ONLY A DROP THAT LANDS LITERALLY IS CLAMPED (2026-08-17): the clamp exists so the row
-    // a drop STORES ends inside its day, and an unlocked Monday-to-Thursday release stores
-    // no geometry at all — it is a rank, and the engine fills what the day has left and
-    // carries the rest forward. A padlocked unit is the plainest literal drop.
+    // Only a drop that lands LITERALLY is clamped, so these units are padlocked.
     const releaseAt = (release: number, durationMinutes: number, locked = true) => {
       const session = press('move', 8 * 60, PRESS_AXIS, {
         date: '2026-08-13',
@@ -448,9 +374,7 @@ describe('previewMove', () => {
     });
 
     it('is never set for a queue rank, which has no footprint to fit', () => {
-      // The clamp's own sentence — «6 h no pueden empezar después de las…» — was a lie
-      // about a release that works: the owner's ghost said it a moment before the drop
-      // answered 200 and changed nothing.
+      // Clamping a rank claimed «6 h no pueden empezar después de las…» about a release that works.
       const preview = releaseAt(18 * 60, 360, false);
       expect(preview.startMinutes).toBe(18 * 60);
       expect(preview.clamped).toBe(false);
@@ -463,9 +387,8 @@ describe('previewMove', () => {
   });
 
   it('follows the grid when the grid itself moves under a still hand', () => {
-    // The other half of the promise, and the reason `measure()` stays live: a scroll (or
-    // a banner opening above the grid) means the MINUTE UNDER THE POINTER really did
-    // change, even though the hand did not move. Only the SCALE is fixed at press.
+    // Why `measure()` stays live: a scroll really does change the minute under a still pointer.
+    // Only the SCALE is fixed at press.
     const session = press('move', 9 * 60 + 30, PRESS_AXIS, {
       startMinutes: 9 * 60,
       durationMinutes: 120,
@@ -479,11 +402,8 @@ describe('previewMove', () => {
   });
 });
 
-/**
- * THE TWO RULES THAT DECIDE WHERE A RELEASE REALLY GOES, seen through the preview the
- * owner watches while the pointer is still down. Their own arithmetic is pinned in
- * dropAim.test.ts; what these cases add is that the GESTURE asks them, and in what order.
- */
+// The aim and the day, through the preview. Their arithmetic is pinned in dropAim.test.ts; what
+// these add is that the GESTURE asks them, and in what order.
 describe('previewMove — the aim and the day', () => {
   /** Friday, the colchón: the next day the engine would use after Thursday. */
   const FRIDAY: WeekDay = day('2026-08-14', { role: 'buffer', weekday: 5 });
@@ -512,10 +432,8 @@ describe('previewMove — the aim and the day', () => {
   };
 
   it('moves a LITERAL release the day cannot hold to the next day, at its first period', () => {
-    // 6 h aimed at 18:00 on Thursday: the day ends at 20:30. The owner on the old answer
-    // (refuse it, freeze the ghost): «Pasa al siguiente día. ¿Sabes cómo funciona un
-    // calendario?» The unit is padlocked, which is what makes the release a placement with
-    // a footprint rather than a rank.
+    // 6 h aimed at 18:00 on a day that ends at 20:30. The unit is padlocked, which is what makes
+    // the release a placement with a footprint rather than a rank.
     const preview = releaseOn(18 * 60, 360, [], true);
     expect(preview.date).toBe('2026-08-14');
     expect(preview.startMinutes).toBe(8 * 60);
@@ -539,8 +457,7 @@ describe('previewMove — the aim and the day', () => {
   });
 
   it('quantises the aim against the row under it before asking about the day', () => {
-    // `Alfa` 09:00-13:00: the middle third of it means "cut it", at its own midpoint,
-    // whichever quarter of an hour inside that third the hand happens to be over.
+    // `Alfa` 09:00-13:00: its middle third means "cut it", at the row's own midpoint.
     const alfa: AimRow = { id: 'alfa', startMinutes: 9 * 60, durationMinutes: 240 };
     expect(releaseOn(10 * 60 + 30, 120, [alfa]).startMinutes).toBe(11 * 60);
     expect(releaseOn(11 * 60 + 30, 120, [alfa]).startMinutes).toBe(11 * 60);
@@ -551,15 +468,9 @@ describe('previewMove — the aim and the day', () => {
   });
 });
 
-/**
- * THE WEEK CHANGED UNDER THE POINTER — the block was held at an edge, the calendar paged,
- * and the columns the drag is resolved against are now another week's.
- *
- * The gesture is fixed to the axis it pressed on and that must not change; everything
- * HORIZONTAL must. The one thing that could have remembered the old week is the date the
- * preview falls back to when the pointer is over no column at all, which is exactly where
- * the left-hand edge zone is: the time-axis gutter.
- */
+// The week paged mid-drag: the axis is fixed, everything HORIZONTAL is not. The one thing that
+// could remember the old week is the date the preview falls back to over no column — the gutter,
+// which is exactly where the left edge zone is.
 describe('previewMove after the week has paged', () => {
   const NEXT_WEEK_THURSDAY: WeekDay = day('2026-08-20', { role: 'auto' });
   const NEXT_WEEK_SATURDAY: WeekDay = day('2026-08-22', { role: 'manual', isWeekend: true });
@@ -608,9 +519,8 @@ describe('previewMove after the week has paged', () => {
   });
 
   it('falls back to the nearest column, not to the day it remembers from last week', () => {
-    // x = 60 is the time-axis gutter — the left edge zone, where the pointer sits while it
-    // is paging. Kept, `2026-08-13` would be a date no column carries: the ghost would be
-    // drawn nowhere and the drop resolved against a day `dayAt` cannot find.
+    // x = 60 is the gutter, where the pointer sits while paging. Kept, `2026-08-13` would be a
+    // date no column carries and `dayAt` cannot find.
     const preview = previewMove(
       { clientX: 60, clientY: yOf(10 * 60) },
       paging(),
@@ -622,8 +532,7 @@ describe('previewMove after the week has paged', () => {
   });
 
   it('keeps the remembered column while it is still on screen', () => {
-    // The behaviour that was there before paging existed, and the reason the fallback is
-    // not simply "nearest": leaving the grid sideways keeps the column the drag was over.
+    // Why the fallback is not simply "nearest": leaving the grid sideways keeps the column.
     const preview = previewMove(
       { clientX: 60, clientY: yOf(10 * 60) },
       paging(),

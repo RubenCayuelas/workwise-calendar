@@ -1,23 +1,3 @@
-/**
- * The Settings screen's write path.
- *
- * `src/lib/settings.ts` already validates and stores; the only thing added here is
- * the consequence of a change. Periods, capacity and the horizon are inputs to
- * every day's plannable hours, so a settings write that did not recompose could
- * leave rows sitting in time that is no longer a working period — shortening the
- * afternoon would strand blocks after the new end of day. So the write and the
- * reflow share one transaction: if the reflow cannot be satisfied, the settings
- * change is rolled back with it and nothing is half-applied.
- *
- * Worth knowing before the UI shows the response: what comes back is what was
- * submitted, merged over what was stored. Nothing is adjusted. `defaultDayCapacity`
- * in particular is no longer re-capped to a shortened shift — a patch that would
- * leave it above the hours the enabled periods cover is REFUSED, naming
- * `defaultDayCapacity`, so the caller has to send the capacity it wants along with
- * the shorter shift. That is what lets the Settings screen ask the owner first
- * (CLAUDE.md, *The Capacity Is Never Touched Alone*).
- */
-
 import { getDb, type Db } from '../db';
 import { todayLocal } from '../dates';
 import type { ScheduleSummary } from '../composition';
@@ -36,7 +16,7 @@ export interface SettingsView {
   settings: Settings;
   /** The minutes view the grid draws: periods, capacity, the 07:00-20:30 timeline. */
   shape: DayShape;
-  /** The ceiling the capacity may not exceed, given the current periods. A save above it is refused. */
+  /** A save above it is refused. */
   maxDayCapacityHours: number;
 }
 
@@ -50,13 +30,9 @@ export interface UpdateSettingsResult extends SettingsView {
 }
 
 /**
- * Validates, saves and reflows in one transaction.
- *
- * No intent is passed to `recompose`: a capacity or period change is not the growth
- * of a job, so displaced hours go to the next auto-fill day rather than onto the
- * Friday colchón. One consequence to surface in the UI: NARROWING the planning
- * horizon can fail with `horizon-exceeded` if the queued work no longer fits inside
- * it, and that failure rolls the settings change back.
+ * No intent is passed to `recompose`, so displaced hours go to the next auto-fill day
+ * rather than onto the Friday colchón. NARROWING the horizon can fail with
+ * `horizon-exceeded`, which rolls the save back.
  */
 export function updateSettings(
   patch: Partial<Settings>,
@@ -71,9 +47,8 @@ export function updateSettings(
       settings = writeSettings(definedFieldsOf(patch), db);
     } catch (error) {
       if (error instanceof SettingsValidationError) {
-        // `error.message` is an English developer sentence; it travels in `details`
-        // for the console while the UI words the failure from `messageKey` and
-        // highlights `field`.
+        // `error.message` is an English developer sentence for the console; the UI words
+        // the failure from `messageKey` and highlights `field`.
         throw badRequest('settings-invalid', ERROR_MESSAGE_KEYS.settingsInvalid, {
           field: error.field,
           details: { reason: error.message },
@@ -93,16 +68,10 @@ export function updateSettings(
 }
 
 /**
- * Drops keys whose value is `undefined`.
- *
- * `writeSettings` merges with `{ ...stored, ...patch }`, and a spread does not skip
- * an explicitly-undefined key — it overwrites with `undefined`. A PATCH route reads
- * every optional field and passes what it found, so `{ period2Enabled: false }` over
- * the wire arrives as an object that also carries `period1Start: undefined`, which
- * would wipe the stored time and then fail validation on it. Filtering here rather
- * than at the route keeps every future caller of `updateSettings` safe from the same
- * trap. (The repositories are already immune: they test each key with `!== undefined`
- * instead of spreading.)
+ * Drops keys whose value is `undefined`. `writeSettings` merges by spread, which does NOT
+ * skip an explicitly-undefined key, so `{ period2Enabled: false }` arriving from a route
+ * that read every optional field also carries `period1Start: undefined` — which would wipe
+ * the stored time and then fail validation on it. Filtered here, not at the route.
  */
 function definedFieldsOf(patch: Partial<Settings>): Partial<Settings> {
   const defined: Record<string, unknown> = {};

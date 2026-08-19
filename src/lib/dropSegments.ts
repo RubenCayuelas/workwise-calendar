@@ -1,24 +1,6 @@
 /**
- * How a hand drop is stored: cut at the break between two working periods.
- *
- * CLAUDE.md, *A Drop Is Stored In Segments*: "A dropped block is cut at the break
- * between two working periods, exactly like everything the engine places." 6 h dropped
- * at 10:00 is stored as `10:00-14:00` plus `15:30-17:30`, two rows of one job, on every
- * kind of day.
- *
- * WHY IT LIVES ON ITS OWN, in its own file, instead of inside the engine that applies
- * it: TWO callers need the identical answer and neither may guess it.
- *
- * - `resolveManualPlacement` (src/lib/composition.ts) stores the drop, and measures the
- *   rows it lands across against the time the drop REALLY occupies.
- * - the drag ghost (src/components/calendar/dropEffect.ts, WeekGrid) draws the drop
- *   before the mouse is released, and says what it will do to the row underneath.
- *
- * A preview that promises something the server will not do is worse than no preview at
- * all, and a second implementation of this rule would drift the first time the shift is
- * reconfigured. So there is one implementation and both sides import it. It is pure
- * arithmetic over integer minutes — no clock, no database, no React — so the browser can
- * have it as cheaply as the server can.
+ * How a hand drop is stored: cut at the break between two working periods. One implementation, imported by `resolveManualPlacement` and by the drag
+ * ghost, because a preview that promises what the server will not do is worse than no preview.
  */
 
 import { MINUTES_PER_DAY } from './dates';
@@ -32,40 +14,14 @@ export interface DropSegment {
 }
 
 /**
- * The rows a hand-dropped stretch is stored as: cut wherever it holds minutes on both
- * sides of a NON-WORKING INTERVAL BETWEEN TWO WINDOWS. `duration` is net working time,
- * so 6 h dropped at 10:00 is 10:00-14:00 plus 15:30-17:30 — the same two rows auto-fill
- * would have produced, and the same rule `toClockSegments` applies to everything the
- * engine places.
- *
- * WHICH VIEW OF THE DAY `windows` IS, THE CALLER DECIDES, and every hand action passes the
- * same one: the MANUAL WINDOWS (`manualWindowsOf`, src/lib/manualWindow.ts), the periods
- * with the visual margins fused on. On the documented shift both views leave the lunch
- * break as the only hole, so the cut is identical — the difference is that a row starting
- * in a margin runs on into the period below it with no boundary between them, which is
- * what makes the margins usable at all.
- *
- * A ROW WHOSE START IS NOT WORKING TIME BEGINS AT THE NEXT MINUTE THAT IS
- * (`firstWorkingMinute`), and is then cut like any other. **The returned start may
- * therefore differ from the one that was asked for, and a caller must read it back.** It
- * used to be left alone — "there is no boundary inside such a row to cut it at" — and that
- * was wrong twice over: the boundary is AHEAD of such a row, not inside it, so 2 h released
- * at 14:00 came back as one row `14:00 +120m -> 16:00`, straight through the break the data
- * model says no stored row may cross, claiming two hours of work where ninety minutes of it
- * is lunch. It was not an off-by-one at the edge either: every minute from 14:00 to 15:29
- * did it, because none of them belongs to a window.
- *
- * Two things it still deliberately leaves alone, both of them latitude a hand action really
- * has and neither of them a straddle:
- *
- * - the minutes that run past the LAST window. They stay on the final row, and the
- *   end-of-day guard is what has an opinion about them;
- * - anything whose tail would land past midnight, INCLUDING after the start moved forward.
- *   A row is a rectangle inside ONE day, so the drop is returned precisely as it was made —
- *   at the start it was made at — rather than half-cut, and the caller refuses it as such
- *   (`assertFitsInDay`, and the drawn-footprint cap in the ghost).
- *
- * Always returns at least one segment, so a caller can read `[0]` without a guard.
+ * The rows a hand-dropped stretch is stored as: cut wherever it holds minutes on both sides of a
+ * NON-WORKING INTERVAL BETWEEN TWO WINDOWS. `duration` is net working time, so 6 h at 10:00 is
+ * 10:00-14:00 plus 15:30-17:30. `windows` is the caller's view of the day and every hand action
+ * passes the MANUAL WINDOWS, which is what lets a row starting in a margin run on into the period
+ * below it. A start that is not working time moves to the next minute that is, so **the returned
+ * start may differ from the one asked for and a caller must read it back**. Minutes past the LAST
+ * window stay on the final row, and a stretch whose tail would pass midnight comes back UNCUT so
+ * the caller can refuse the drop as it was made. Always returns at least one segment.
  */
 export function segmentDroppedRow(
   windows: readonly WorkPeriod[],

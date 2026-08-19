@@ -1,15 +1,10 @@
 'use client';
 
 /**
- * `src/lib/format.ts` with the current language and `t` already bound.
- *
- * This is what a component should use. It exists so that "Mié 12 · 08:00–14:00 · 6 h"
- * is assembled in exactly one place: the calendar grid, the job panel's block list
- * and the confirmation dialogs all show that shape, and three screens formatting it
- * separately would drift on the separator, the capitalisation and the decimal comma.
- *
- * Every label goes through a locale key — the punctuation between the parts ("·",
- * "–", where " h" sits) is part of the translation, not of the code.
+ * `src/lib/format.ts` with the current language and `t` already bound — the one place
+ * "Mié 12 · 08:00–14:00 · 6 h" is assembled, so the grid, the job panel and the dialogs
+ * cannot drift on the separator, the capitalisation or the decimal comma. The punctuation
+ * between the parts belongs to the locale key, not to the code.
  */
 
 import { useMemo } from 'react';
@@ -62,11 +57,8 @@ export interface Formatter {
   mediumDate(date: string): string;
 
   /**
-   * "4 h el Mié 12" — an amount of work and the day it lands on.
-   *
-   * One phrase, two readers, on purpose: the ghost says «4 h el lun 17 · 2 h el mar 18» while
-   * the pointer is down and the notice afterwards repeats it, so a drop that fills a day and
-   * carries the rest on is described in the same words before and after it happens.
+   * "4 h el Mié 12" — an amount of work and the day it lands on. One phrase for the ghost
+   * and for the notice afterwards, so a drop reads the same before and after it happens.
    */
   hoursOnDay(date: string, minutes: number): string;
 
@@ -95,8 +87,8 @@ export function useFormat(): Formatter {
         weekday: formatWeekdayShort(date, language),
         day: formatDayOfMonth(date),
       });
-    // The month is part of the option itself, not only of the week heading above it:
-    // a closed select shows the option alone, and "Mié 12" would not say which month.
+    // The month belongs to the option itself: a closed select shows it without the
+    // week heading above it, and "Mié 12" would not say which month.
     const dayOption = (date: string): string =>
       t('units.dayOption', {
         weekday: formatWeekdayShort(date, language),

@@ -1479,6 +1479,21 @@ is in [DECISIONS.md](DECISIONS.md) § Release history.**
 - **Any change to a business rule updates this file**, and appends its reasoning to DECISIONS.md.
 - **All code, comments, variable names**: English. **UI strings**: only in
   `public/locales/{lang}/common.json`, with the es and en key sets identical.
+- **A comment carries what the code cannot, and nothing else.** The path names the module, the
+  identifier names the thing, the type says its shape, this file holds the rules and DECISIONS.md
+  holds the why. A comment restating any of those is a copy that will drift out of step with them.
+  - **Delete**: a doc recoverable from the name or the type (*"the job's name"* over `name`); a file
+    header describing what the filename says; an essay justifying a constant; an obituary for deleted
+    code (git has it); owner quotes; boilerplate true of half the repo (*"pure, so it is testable"*).
+  - **Never write a `CLAUDE.md §` or `DECISIONS.md §` pointer.** That the rules and the reasoning live
+    in those two files is understood, and saying it on every symbol is the noise this rule exists to
+    stop. The owner asked for the pointers to go, twice.
+  - **What earns a comment**: a unit or origin the type cannot state (*"minutes from midnight"*, *"net
+    working minutes"*); a caller obligation; a trap or invariant the next reader would otherwise
+    break; a measured defect or a tried-and-failed alternative not already written down elsewhere.
+  - If it needs a paragraph it is reasoning, and it belongs in DECISIONS.md instead.
+  *(Applied 2026-08-18: 11,027 comment lines over 24,525 of code, then a second pass on the
+  survivors.)*
 - **Integer minutes** everywhere inside the engine; `duration` is net working minutes; no stored row
   straddles a break or leaves its day.
 - **Database**: auto-created `./data/calendar.db` on first run (the directory must be created too).

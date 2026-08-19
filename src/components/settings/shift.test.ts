@@ -65,7 +65,7 @@ describe('the shift and its derived numbers', () => {
   });
 
   it('draws from the top margin to the bottom margin', () => {
-    // 07:00 to 20:30, exactly the timeline in CLAUDE.md's diagram.
+    // 07:00 to 20:30: the documented shift, margin to margin.
     expect(timelineOf(settings())).toEqual({ startMinutes: 420, endMinutes: 1230 });
   });
 
@@ -100,8 +100,7 @@ describe('capacity, the stop line for auto-fill', () => {
 
 describe('applySettingsPatch', () => {
   it('never lowers the capacity to fit a shorter shift — that was the trap', () => {
-    // Switching the afternoon off leaves 10 h of capacity on a 6 h shift. The draft keeps
-    // it: the owner is asked on save, and until then their number is their number.
+    // The afternoon off leaves 10 h on a 6 h shift; the draft keeps it until save.
     const draft = applySettingsPatch(settings(), { period2Enabled: false });
     expect(draft.defaultDayCapacity).toBe(10);
     expect(maxCapacityHours(draft)).toBe(6);
@@ -156,12 +155,8 @@ describe('patchToSave', () => {
     expect(patchToSave(saved, saved)).toEqual({});
   });
 
-  /**
-   * The lowered capacity exists in exactly one place — this patch — and it is only built
-   * when the owner presses Save. A cancelled confirmation never sends anything, because
-   * there is no other path the number could travel on, and the server refuses the shift
-   * change on its own.
-   */
+  // The lowered capacity exists in exactly one place — this patch — so a cancelled
+  // confirmation cannot send it.
   it('carries the lowered capacity with the shift change, in one request', () => {
     expect(patchToSave(settings(), settings({ period2Enabled: false }))).toEqual({
       period2Enabled: false,
@@ -170,8 +165,7 @@ describe('patchToSave', () => {
   });
 
   it('sends nothing at all when the draft matches what is stored', () => {
-    // The state a cancelled confirmation leaves behind, once the owner puts the period
-    // back: no shift change, so no reduction, so no request.
+    // What a cancelled confirmation leaves behind: no shift change, so no request.
     expect(patchToSave(settings(), settings())).toEqual({});
   });
 
@@ -234,9 +228,8 @@ describe('draftIssues', () => {
 
 describe('the mirror of src/lib/settings.ts', () => {
   it('agrees with the server on the default shift and its ceiling', () => {
-    // The one guard against the two copies of this arithmetic drifting apart. src/lib/
-    // settings.ts is the authority; this file only exists because it cannot be imported
-    // from a client component.
+    // src/lib/settings.ts is the authority; this copy exists only because it cannot be
+    // imported from a client component.
     const draft = settings();
     const shape = dayShapeFromSettings(draft);
 

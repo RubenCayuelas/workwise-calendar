@@ -1,31 +1,8 @@
 'use client';
 
 /**
- * `Bloques · 11 h en 4 tramos` and the rows under it.
- *
- * Straight from the wireframe: one row per block, `Mié 12 · 08:00–14:00` on the left,
- * its hours next to it, and a padlock that toggles `locked`.
- *
- * THE TWO ROWS AROUND LUNCH ARE NOT A BUG. CLAUDE.md: "Work crossing the lunch break
- * is stored as two blocks of the same job", and the wireframe deliberately lists
- * `Mar 11 · 13:00–14:00` and `Mar 11 · 15:30–17:30` separately. Nothing here merges
- * them — the calendar draws them as one grouped unit, the panel tells the truth about
- * the rows.
- *
- * ONE MARK REACHES THIS LIST — the PADLOCK (`locked`) — and it is pressed off with the
- * padlock button beside it. A drop onto the buffer, the weekend or a margin sets it, so
- * this list is where a row weeks away can be handed back to the engine: the calendar only
- * shows the week on screen. A ruler for a hand-set LENGTH, and *back to automatic* beside
- * it, stood here until 2026-08-18; both went with `manual_duration`, since the padlock now
- * fixes a row's length as well as its position.
- *
- * A PAST ROW IS DIMMED AND SHOWS ITS PADLOCK AS A STATE, WITHOUT THE BUTTON. The past is
- * read-only to the block gestures, so the padlock and the scissors are refused there and
- * are not drawn. Nothing is stranded by that: a padlock on a past row changes nothing the
- * engine reads, since `isMovable` asks the date before it asks the flag.
- *
- * The list is display + one toggle. The requests belong to the panel, which owns the
- * refetch and the error banner.
+ * `Bloques · 11 h en 4 tramos` and the rows under it: display plus one padlock toggle, and the
+ * only place a row in another week can be unlocked.
  */
 
 import { useTranslation } from 'react-i18next';
@@ -42,15 +19,9 @@ export interface BlockRowsProps {
   blocks: readonly Block[];
   /** The shop's local today, from `WeekView.today`. Dims the frozen past. */
   today?: string;
-  /**
-   * Toggles the padlock. Omit to render the state read-only — as a PAST row always is,
-   * whatever is passed, because the gesture is refused there.
-   */
+  /** Toggles the padlock. Omit to render the state read-only, as a PAST row always is. */
   onToggleLock?: (block: Block) => void;
-  /**
-   * Adds the scissors to each row. The panel is the only way to reach another week's rows.
-   * Never drawn on a past row: the past is read-only to the block gestures.
-   */
+  /** Adds the scissors to each row. Never drawn on a past row. */
   onSplit?: (block: Block) => void;
   /** The row with a request in flight: its buttons lock. */
   busyBlockId?: string | null;
@@ -101,15 +72,8 @@ export function BlockRows({
 
                 {tag === undefined ? null : <span className={styles.blockTag}>{t(tag)}</span>}
 
-                {/*
-                 * THE SCISSORS AND THE PADLOCK ARE ABSENT ON A PAST ROW, not disabled: the
-                 * past is read-only to the block gestures (decided 2026-08-13), so both are
-                 * refused by the server — `split-on-past-day` and a padlock that would
-                 * change nothing, since `isMovable` asks the date before it asks the flag.
-                 * A control that is only ever answered with a refusal is worse than no
-                 * control, and a row already carries its state in the read-only padlock
-                 * below.
-                 */}
+                {/* Absent on a past row, not disabled: a control only ever answered with a
+                    refusal is worse than no control. */}
                 {onSplit === undefined || isPast ? null : (
                   <IconButton
                     size="sm"
@@ -145,8 +109,7 @@ export function BlockRows({
                         <IconLockOpen size={15} stroke={1.75} />
                       )
                     }
-                    // The label names the ACTION, the icon shows the state — an
-                    // icon-only toggle labelled with its state reads backwards.
+                    // The label names the ACTION, the icon shows the state.
                     label={t(block.locked ? 'block.unlock' : 'block.lock')}
                     disabled={disabled || busy}
                     onClick={() => onToggleLock(block)}
@@ -162,10 +125,8 @@ export function BlockRows({
 }
 
 /**
- * The one word a row is worth annotating with, in the day header's own vocabulary.
- *
- * The frozen past first (it explains why the row is dimmed), then the Friday colchón
- * (it explains why hours are sitting there at all), then today.
+ * The one word a row is worth annotating with, in the day header's own vocabulary. The
+ * frozen past first (it explains the dimming), then the Friday colchón, then today.
  */
 function tagOf(block: Block, today: string | undefined): string | undefined {
   if (today !== undefined && compareDates(block.date, today) < 0) return 'day.frozen';

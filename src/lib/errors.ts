@@ -1,18 +1,7 @@
 /**
- * The one error shape the whole API speaks.
- *
- * Two rules, both from CLAUDE.md:
- *
- * - An error never carries a translated sentence. It carries an i18n KEY, and the
- *   Spanish and English wordings live in `public/locales/{es,en}/common.json`.
- *   The engine already works this way (`ComposeError.messageKey`), so a route can
- *   forward an engine failure without inventing prose.
- * - Anything the caller may need in order to word the message goes in `details`,
- *   never spliced into the key. `errors.gapOverLockedBlock` interpolates
- *   `{{projectName}}` from `details`, so one key covers every locked block.
- *
- * `field` exists for form validation: the Settings screen and the job form point
- * at the offending input with it.
+ * The one error shape the whole API speaks: never a translated sentence, an i18n KEY plus
+ * whatever the wording interpolates in `details` — so one key covers every locked block.
+ * `field` is for form validation, and points at the offending input.
  */
 
 export type ErrorStatus = 400 | 404 | 409 | 500;
@@ -40,14 +29,11 @@ interface AppErrorInit {
 }
 
 /**
- * Every deliberate refusal in the data layer throws this. `src/lib/api.ts` is the
- * only place that turns one into a response, so a route handler never builds an
- * error body by hand.
+ * Every deliberate refusal in the data layer throws this; `src/lib/api.ts` is the only
+ * place that turns one into a response.
  *
  * Throwing rather than returning is load bearing: a mutation runs inside a
- * `better-sqlite3` transaction, and a throw is what rolls it back. A refusal that
- * came back as a value would have to be re-thrown to undo the write, so it is
- * thrown from the start.
+ * `better-sqlite3` transaction, and a throw is what rolls it back.
  */
 export class AppError extends Error {
   readonly code: string;
@@ -90,11 +76,7 @@ export function notFound(code: string, messageKey: string, extra: ErrorExtra = {
   return new AppError({ code, messageKey, status: 404, ...extra });
 }
 
-/**
- * 409: the payload is well formed but a business rule refuses it — a gap over a
- * locked block, hours past the planning horizon, shrinking a job's last block.
- * Nothing was written.
- */
+/** 409: well formed, but a business rule refuses it. Nothing was written. */
 export function conflict(code: string, messageKey: string, extra: ErrorExtra = {}): AppError {
   return new AppError({ code, messageKey, status: 409, ...extra });
 }
@@ -105,9 +87,8 @@ export function internal(code: string, messageKey: string, extra: ErrorExtra = {
 }
 
 /**
- * Every i18n key the data layer can return, in one list so it can be diffed
- * against the locale files. The engine owns the keys in `EDIT_MESSAGE_KEYS` and
- * `HORIZON_EXCEEDED_KEY` (src/lib/composition.ts); these are the rest.
+ * Every i18n key the data layer can return, in one list so it can be diffed against the
+ * locale files. The engine owns `EDIT_MESSAGE_KEYS` and `HORIZON_EXCEEDED_KEY`.
  */
 export const ERROR_MESSAGE_KEYS = {
   invalidPayload: 'errors.invalidPayload',
@@ -129,9 +110,7 @@ export const ERROR_MESSAGE_KEYS = {
   splitExceedsBlock: 'errors.splitExceedsBlock',
   splitBelowMinimum: 'errors.splitBelowMinimum',
   deleteLastBlock: 'errors.deleteLastBlock',
-  /** A block gesture on a day the shop has already worked. The past is a record. */
   pastBlockFrozen: 'errors.pastBlockFrozen',
-  /** The other half: a drop aimed at a past day. */
   dropOntoPastDay: 'errors.dropOntoPastDay',
   gapOverLockedBlock: 'errors.gapOverLockedBlock',
   gapOverPastBlock: 'errors.gapOverPastBlock',

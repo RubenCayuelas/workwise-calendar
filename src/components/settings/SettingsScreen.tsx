@@ -1,29 +1,8 @@
 'use client';
 
 /**
- * The Settings screen: the workshop's shift, the auto-fill stop line, the visual
- * margins, the planning horizon, the gap colour and the interface language.
- *
- * THREE THINGS THAT DRIVE THE WHOLE DESIGN OF THIS FILE
- *
- * 1. NOTHING MOVES BY ITSELF, AND THE CAPACITY LEAST OF ALL. Shortening the shift below
- *    `defaultDayCapacity` used to re-cap it — here as the owner typed, and again on the
- *    server as it saved. That is how the shop ended up planning 6 h of a 10 h day for
- *    weeks: one toggle lowered the number and switching back never restored it. The
- *    capacity now stays exactly where the owner put it, the server REFUSES a shift that
- *    cannot buy it, and this screen asks before it sends — naming both numbers and what
- *    the lower one costs per day. Cancel sends nothing, and the rest of the unsaved form
- *    survives untouched, because the draft is never rewritten to ask the question.
- * 2. Narrowing the day is warned about, never silently applied. Switching the afternoon
- *    off, moving a period end earlier or shrinking a visual margin can leave existing
- *    blocks in time that is no longer a working period — or outside the drawn axis
- *    entirely. The save then goes through the same confirmation, which names the blocks.
- *    Nothing is deleted either way (the write and the reflow are one transaction), but
- *    the owner decides.
- * 3. The language is not part of `Settings`. It lives in localStorage under
- *    `workwise.language` (see src/lib/i18n.ts), so its control applies immediately and is
- *    deliberately outside the Save button's scope — which is exactly what
- *    `settings.languageHint` promises.
+ * The Settings screen. The draft is never rewritten to pose a question, which is what lets
+ * Cancel leave the rest of the unsaved form untouched; the language is not part of `Settings`.
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -100,8 +79,8 @@ export function SettingsScreen(): React.JSX.Element {
 
   const [saved, setSaved] = useState<Settings | undefined>(undefined);
   const [draft, setDraft] = useState<Settings | undefined>(undefined);
-  // The raw throwables are kept, not their messages: translating during render means a
-  // language switch re-words an error that is already on screen.
+  // Raw throwables, not messages: translating during render means a language switch
+  // re-words an error already on screen.
   const [loadError, setLoadError] = useState<unknown>(undefined);
   const [saveError, setSaveError] = useState<unknown>(undefined);
   const [attempt, setAttempt] = useState(0);
@@ -129,7 +108,7 @@ export function SettingsScreen(): React.JSX.Element {
     (patch: Partial<Settings>): void => {
       if (draft === undefined) return;
       // A merge and nothing else: the capacity is not pulled down to fit a shorter shift
-      // here, on save, or anywhere between. See ./shift.ts.
+      // here, on save, or anywhere between.
       setDraft(applySettingsPatch(draft, patch));
       // A stale field error would keep pointing at an input the owner has just fixed.
       setSaveError(undefined);
@@ -144,8 +123,7 @@ export function SettingsScreen(): React.JSX.Element {
     [draft],
   );
   // The changed fields PLUS that lowered capacity, so one request carries the whole
-  // decision. `dirty` reads the same patch: lowering the capacity IS a change to save,
-  // even when every field on screen still matches what is stored.
+  // decision. Lowering the capacity IS a change to save, so `dirty` reads the same patch.
   const patch = useMemo(
     () => (saved === undefined || draft === undefined ? {} : patchToSave(saved, draft)),
     [saved, draft],
@@ -161,15 +139,14 @@ export function SettingsScreen(): React.JSX.Element {
       try {
         const result = await updateSettings(fields);
         setSaved(result.settings);
-        // Still the server's values rather than the form's, though they can no longer
-        // disagree: what comes back is what was sent, merged over what was stored.
+        // The server's values, not the form's: the write path no longer adjusts anything
+        // silently, so the two agree — but the server stays the source.
         setDraft(result.settings);
         setPending(undefined);
         toast.success(t('settings.saved'));
       } catch (error) {
         if (!isAbortError(error)) setSaveError(error);
-        // Close the confirmation on failure too, or the message ends up behind its own
-        // scrim. The draft is untouched, so pressing Save again re-runs the same check.
+        // Close the confirmation on failure too, or the message lands behind its own scrim.
         setPending(undefined);
       } finally {
         setSaving(false);
@@ -189,8 +166,7 @@ export function SettingsScreen(): React.JSX.Element {
       try {
         affected = findAffectedBlocks(saved, draft, await loadScheduledBlocks());
       } catch (error) {
-        // The check itself failed. Saving anyway would be exactly the silent discard the
-        // brief forbids, so stop and let the owner retry.
+        // The check itself failed; saving anyway would be a silent discard.
         if (!isAbortError(error)) {
           setSaveError(error);
           return;
@@ -200,9 +176,8 @@ export function SettingsScreen(): React.JSX.Element {
       }
     }
 
-    // Either question goes through the same dialog, and a change can raise both at once —
-    // switching the afternoon off strands the afternoon's blocks AND cannot buy the
-    // capacity. One confirmation states everything the save will do.
+    // Either question goes through the same dialog, and a change can raise both at once:
+    // one confirmation states everything the save will do.
     if (affected.length > 0 || reduction !== undefined) {
       setPending({ patch, affected, risk, reduction });
       return;
@@ -240,9 +215,8 @@ export function SettingsScreen(): React.JSX.Element {
   const failedField = isApiError(saveError) ? saveError.field : undefined;
 
   /**
-   * The message under a control. Local cross-field problems and the server's rejection
-   * share one wording: `errors.settingsInvalid` is the only key the data layer emits for
-   * a bad setting, and inventing prose here would put visible strings in the code.
+   * The message under a control. Local problems and the server's rejection share one
+   * wording: `errors.settingsInvalid` is the only key the data layer emits for a bad setting.
    */
   const errorFor = (field: keyof Settings): string | undefined => {
     if (issues[field] !== undefined) return t('errors.settingsInvalid');
@@ -326,10 +300,9 @@ export function SettingsScreen(): React.JSX.Element {
             value={draft.defaultDayCapacity}
             onChange={(value) => patchDraft({ defaultDayCapacity: value })}
             min={shiftHours > 0 ? minCapacityHours(draft) : undefined}
-            // The shift is the ceiling, EXCEPT while the draft already sits above it: the
-            // stepper clamps on blur, so a max below the current value would have the
-            // field itself lower the number the owner is about to be asked about. At that
-            // value "+" is disabled and "−" still works, which is exactly the offer.
+            // The shift is the ceiling EXCEPT while the draft already sits above it: the
+            // stepper clamps on blur, so a lower max would have the field itself lower the
+            // number the owner is about to be asked about.
             max={shiftHours > 0 ? Math.max(shiftHours, draft.defaultDayCapacity) : undefined}
             step={HOUR_STEP}
             suffix={t('units.hoursSuffix')}
@@ -456,9 +429,8 @@ export function SettingsScreen(): React.JSX.Element {
         </Field>
       </Section>
 
-      {/* The refusal belongs next to the button that caused it: this page is taller than
-          the window, and a banner at the top would land off screen after a click down
-          here. A rejected value is ALSO marked on its own control. */}
+      {/* The refusal belongs next to the button that caused it: this page is taller than the
+          window, so a banner at the top would land off screen. Also marked on its control. */}
       {saveError === undefined ? null : (
         <InlineBanner tone="error" title={t('errors.title')} onDismiss={() => setSaveError(undefined)}>
           {apiErrorMessage(saveError, t, language)}
@@ -521,9 +493,8 @@ export function SettingsScreen(): React.JSX.Element {
                   <span className={styles.warnLine}>
                     {t('units.blocks', { count: pending.affected.length })}
                   </span>
-                  {/* Every affected block, not a truncated sample: the count above it has
-                      to match what is on screen, and the list scrolls inside the dialog
-                      rather than growing it past the window. */}
+                  {/* Every affected block, not a sample: the count above it has to match
+                      what is on screen. The list scrolls inside the dialog. */}
                   <span className={styles.warnList}>
                     {pending.affected.map((entry) => (
                       <span key={entry.block.id} className={styles.warnItem}>
@@ -555,13 +526,9 @@ interface TimeRowProps {
 }
 
 /**
- * One period boundary, as a list of quarter hours rather than `<input type="time">`.
- *
- * A native time input renders in the BROWSER's locale, not the page's: this same form
- * showed "08:00 AM" while the calendar next to it says "08:00–14:00". Times in this app
- * come from `useFormat().time()` precisely so that cannot happen, so the control shows
- * the same 24 h strings the grid does, in both languages. `TimeSelect` is that control,
- * shared with the gap form and the split form.
+ * One period boundary, as a list of quarter hours rather than `<input type="time">`, which
+ * renders in the BROWSER's locale: this form showed "08:00 AM" beside a calendar reading
+ * "08:00–14:00".
  */
 function TimeRow({ label, value, error, disabled = false, onChange }: TimeRowProps): React.JSX.Element {
   return (

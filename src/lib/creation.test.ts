@@ -1,22 +1,3 @@
-/**
- * The start-date planner's specification.
- *
- * `startDate` on the create form means ONE thing — "not before this day" — and every
- * test below names the rule it comes from. Two of them carry the weight:
- *
- * - THE AUTO-LOCK BOUNDARY. A job born beyond the last occupied day has every row
- *   locked, because queue order IS calendar position and the reflow would otherwise
- *   drag it back to today. The edge worth pinning is the day the owner will actually
- *   hit: the chosen date EQUALS the last occupied day, and then there is no lock.
- * - THE ROWS ARE THE ENGINE'S. `planCreation` asks `compose` where the hours go, so a
- *   born job is segmented at the lunch break, capped by plannable minutes and skips
- *   the Friday colchón for its continuation — with no second placement engine to drift.
- *
- * Pure, like the engine it wraps: `today` is an input, times are integer minutes, and
- * assertions read as `YYYY-MM-DD HH:mm-HH:mm project` lines so a failure reads like the
- * calendar.
- */
-
 import { beforeEach, describe, expect, it } from 'vitest';
 import { hhmmToMinutes as t, minutesToHHmm } from './dates';
 import { DEFAULT_SETTINGS, dayShapeFromSettings } from './settings';
@@ -222,8 +203,6 @@ describe('deciding what a start date means', () => {
   });
 
   it('does NOT lock on the boundary: the chosen day IS the last occupied day', () => {
-    // A dense calendar to Thursday: an appended job starts on Thursday, which is not
-    // earlier than the day asked for, so the work in front of it is what holds it.
     const decision = decideStartDate({ ...question, startDate: THU, queueStartDate: THU });
 
     expect(decision.beyondQueue).toBe(false);
@@ -241,8 +220,7 @@ describe('deciding what a start date means', () => {
   });
 
   it('measures the floor against where the ENGINE would fill, not the last row', () => {
-    // A lone locked row far out makes "the last occupied day" say nothing: the engine
-    // would still fill Wednesday first, so a job asked for that day needs the padlock.
+    // A lone locked row far out: the engine would still fill Wednesday first.
     const decision = decideStartDate({
       ...question,
       startDate: NEXT_TUE,
@@ -354,7 +332,6 @@ describe('a date the queue already runs past', () => {
     expect(rows(result)).toEqual([`${WED} 08:00-12:00`]);
     // Nothing is padlocked: it is a queue rank, exactly like a drag.
     expect(expectOk(result).placed.every((row) => !row.locked)).toBe(true);
-    // And the work that was there is still all there, one day further on.
     expect(minutesOf(result, 'bar')).toBe(16 * 60);
   });
 });
@@ -403,8 +380,7 @@ describe('a date beyond everything planned', () => {
     });
     const result = plan(withGap, { startDate: FAR_MON, hours: 4 });
 
-    // Fill and overflow: the two hours in front of the gap are the job's first two, and
-    // the other two carry on after it. The job used to skip the hole and start at 12:00.
+    // Fill and overflow: the two hours in front of the gap, then the rest after it.
     expect(rows(result)).toEqual([`${FAR_MON} 08:00-10:00 [locked]`, `${FAR_MON} 12:00-14:00 [locked]`]);
   });
 
@@ -431,8 +407,7 @@ describe('the buffer, the weekend and the past', () => {
 
     expect(expectOk(result).decision.day).toBe('buffer');
     expect(rows(result)[0]).toBe(`${FRI} 08:00-12:00 [locked]`);
-    // `autoLock` is the OTHER reason to padlock — the whole job, when the queue would not
-    // reach the day. Here the queue does; it is the DAY that earns the padlock.
+    // `autoLock` is the other reason to padlock: the queue not reaching the day at all.
     expect(expectOk(result).decision.autoLock).toBe(false);
     expect(expectOk(result).decision.dayLock).toBe(true);
   });
@@ -459,8 +434,6 @@ describe('the buffer, the weekend and the past', () => {
     const result = plan(calendar, { startDate: SAT, hours: 14 });
     const placed = expectOk(result).placed;
 
-    // Saturday holds what fits (cut at the lunch break, padlocked); the rest is the
-    // engine's business and lands on a weekday with no mark at all.
     expect(placed.filter((row) => row.date === SAT).map((row) => row.locked)).toEqual([
       true,
       true,
@@ -500,14 +473,12 @@ describe('what the plan hands the caller', () => {
 
     expect(collisions).toHaveLength(1);
     expect(collisions[0]).toMatchObject({ projectId: 'bar', date: NEXT_TUE, locked: true, fixed: true });
-    // Fill and overflow: the two free hours in front of the lock are used, and the job
-    // continues after it. The lock itself is untouched, which is what the collision names.
+    // Fill and overflow: the hole in front of the lock is used, the lock untouched.
     expect(rows(result)).toEqual([`${NEXT_TUE} 08:00-10:00 [locked]`, `${NEXT_TUE} 12:00-14:00 [locked]`]);
   });
 
   it('lands the whole calendar on a fixed point: the second pass moves nothing', () => {
-    // The property four rounds of engine work rest on. A plan that is not a fixed point
-    // would reshape the calendar on the next unrelated save.
+    // A plan that is not a fixed point reshapes the calendar on the next unrelated save.
     const calendar = input({
       blocks: [
         block({ project: 'bar', date: WED, from: '08:00', hours: 6 }),

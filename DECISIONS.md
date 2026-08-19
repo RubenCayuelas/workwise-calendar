@@ -212,6 +212,31 @@ The write-path guard is **tolerant in exactly one direction** — no write may m
 — because without that clause it would refuse every unrelated save on a calendar that already has
 one stranded row.
 
+### And the RENDER path fails soft, alone
+
+`minutesToHHmm` throws on a value outside the day, which is right for the engine and for every write.
+On the RENDER path that throw took the whole week view down — `Invalid minutes "1500"`, out of
+`useFormat().time` — and left the owner an "Application error" with no way back to the calendar: **the
+row it could not draw was the very row they needed to reach in order to fix it.** So `formatTime`
+(src/lib/format.ts) returns the `--:--` placeholder and complains to the console instead.
+
+**The complaint names BOTH suspects, because the function cannot tell them apart:**
+
+- **a row stored out of range.** `assertRowInsideDay` makes that unstorable now, but a database
+  written BEFORE the guard existed still holds one, and a shop PC's `data/calendar.db` is not
+  something a fix can retroactively repair;
+- **a value that was never a time of day.** `duration` is NET WORKING MINUTES, so `start + duration`
+  is a clock reading only while those minutes fit inside the day from that start — the drag ghost
+  added a whole RUN's 18 h to a 07:00 start and formatted 1500, once per pointer move (see Open
+  Decision 13, `420 + 1080 = 1500`). The earlier wording said only "a stored row is out of range",
+  which sent that investigation to the database while the database was clean the whole time.
+
+**Leaving it throwing was the rejected alternative**, and failing soft does not hide a real bug:
+`minutesToHHmm` is untouched, so the engine, the repositories, the API and every test still throw on
+such a value — the loud path stays loud where it can act; the placeholder is VISIBLE on screen, which
+is louder than a clamp that would have quietly drawn 25:00 as 01:00; and the console carries the
+offending value with both suspects.
+
 ---
 
 ## The Padlock Is the Only Pin
@@ -223,6 +248,11 @@ one stranded row.
 date:<a Friday>}` answered **200 and changed nothing**, because Friday is in the movable pool so the
 buffer can self-clean, so the reflow pulled the hand-dropped row straight back to Monday and nothing
 on the row distinguished "the engine parked overflow here" from "the owner said Friday".
+
+**The differential is what identified the cause** (recovered from the test banners on 2026-08-18):
+`startMinutes:600`, and the SAME move to a Saturday worked, and to a past Monday worked. **Only Friday
+failed, and silently** — the worst mode. That pattern points at the movable pool rather than at the
+move path, which is what made the pool the thing to change.
 
 It solved that at the cost of a third state whose meaning was invisible and which contradicted the
 owner's model, stated twice:
@@ -1041,6 +1071,29 @@ fix: the whole 11 h landed on Saturday, `08:00-14:00` + `15:30-20:30`, both padl
 
 ---
 
+## A Drop That Overlaps — the failure was invisible, which is why it needed a resolver
+
+**Recovered from the code comments on 2026-08-18** when they were cut back; the rule was in CLAUDE.md
+but this reproduction was in neither document, and it is the reason the mechanism exists at all.
+
+**A hand drop is what creates a fixed-side overlap.** Drop 2 h on a Saturday that already holds a row
+of the same job and BOTH rows are outside the movable pool the instant they are written, so no reflow
+will ever separate them. Verified before the fix: **the two rows overlapped by an hour, the hours
+invariant held, and the grid drew them as two side-by-side lanes with no warning.** Splitting 2 h onto
+a Saturday the job already occupied did the same thing.
+
+**That combination is the whole argument.** Hours conserved, every invariant green, no error, no toast
+— the only symptom a silent two-lane render the owner would have to notice by eye. A failure that
+cannot be detected by the checks is worse than one that throws, so it could not be left to a general
+pass over the calendar; it had to be resolved in the same transaction as the drop that caused it.
+`manualPlacementBlockId` is what closes it, and the test harness therefore asserts the invariants over
+the RESOLVED calendar rather than over the drop's own request.
+
+**Since the padlock became the only pin, a drop into a MARGIN is the same situation on an ordinary
+weekday** — see the margin-collision reproduction under § *Reproductions behind the Open Decisions*.
+
+---
+
 ## A Drop Onto Another Row's Start Goes BEFORE It
 
 **Decided with the owner, 2026-08-13; built 2026-08-14.** The client's nudge is what the rule used
@@ -1184,6 +1237,78 @@ it. Only a drag that barely wandered (under `CLICK_SLOP`) is re-read as a click.
 
 ---
 
+## No Press Ends In Silence
+
+**The press layer's own defects, gathered 2026-08-13 to 2026-08-18**, and written down here because
+the numbers in `useBlockDrag.ts` and `geometry.ts` are otherwise unexplainable. All of them are one
+shape — the app appearing to ignore the owner, or quietly doing something they never aimed at — and
+all were found by pressing on the running app rather than by reading the code.
+
+**How often the bar sits under the cursor, measured:** the action bar is **102 px** anchored 4 px from
+the block's right edge, and it appears UNDER the cursor on the first mouse move. So on every weekend
+column (**129 px** measured) and on every weekday block from about **210 px** down it covers the
+block's own name — the owner's most natural grab point. Swallowing the press there made the drag do
+NOTHING: no ghost, no request, no toast, **and no console error**, which is what makes it a silence
+rather than a mis-click, and what «la app me ignora» actually looks like.
+
+**Three presses ended in silence.** A press has exactly three honest outcomes: it starts a drag, it
+opens the job, or it says why it can do neither (`InertReason`).
+
+- **A press while a save or a reload was in flight was dropped on the floor**, because "a mutation is
+  in flight" lived in `enabled` — and that is precisely the second AFTER a drop, when the next press
+  is most likely. It is an `inert` press now (`busy`): tracked, so a click still opens the job panel,
+  and it explains itself as soon as the travel proves a drag was meant. Asked as a FUNCTION
+  (`writable()`) rather than read from render state, because state arrives one render late and the
+  frame between a mutation starting and the grid re-rendering is exactly where a fast second press
+  lands.
+- **A press on the RESIZE EDGE that did not travel was not read as a click** (the branch asked
+  `kind === 'move'`), so clicking the bottom ten pixels of a row — most of a short row — opened
+  nothing. A click is a click wherever on the block it lands; only the DRAG differs between the two
+  surfaces.
+- **A press that travelled five pixels was a DRAG**, and a five-pixel drag resolves to the slot it
+  started from, so it wrote nothing and was not a click either. `CLICK_SLOP` (12 px) re-reads it as a
+  click, and only when the gesture came to nothing: a drag that really travelled and was deliberately
+  put back stays silent, because the ghost was under the pointer the whole way.
+
+**The hover action bar covered the block it belongs to, on both axes.**
+
+- **Height — measured 2026-08-13.** The bar is 24 px tall and sits 3 px down from the row's top edge;
+  the resize handle takes the bottom `min(10px, 34%)`. A half-hour row is 24 px tall at the fitted
+  scale, so the bar covered all of it and overhung by 4 px, and every press on the row landed on a
+  button — *Cerrar el día aquí* down the middle, *Eliminar* at the right end. The drag still worked (a
+  press on the bar begins the same move); the CLICK could no longer open the job.
+  **`MIN_ACTIONS_HEIGHT` is 56 px**, which leaves at least 19 px of body between the bar and the
+  handle — a target a mouse on a shop PC can acquire. Below it the bar lifts off the row entirely
+  (`.detached`).
+- **Width — the same defect on the other axis, still open until 2026-08-14.** The bar is anchored at
+  the block's right edge and takes the WHOLE top of a narrow block, name included: on a weekend column
+  (116 px floor) and on any weekday column once the window is small enough. Such a block is TALL, so
+  it is not cramped and the bar stayed inside it — a click on the block's own name landed on
+  *Eliminar*, and a gesture that quietly does something else is worse than one that does nothing.
+  **`MIN_BLOCK_GRAB_WIDTH` is 44 px**, about two characters of the job's name plus its padding: enough
+  to see there is block left to press, small enough that the bar is not thrown out of every column on
+  the shop's own monitor. Below it the bar docks outside the top edge, exactly as a cramped row's
+  does — one behaviour, two ways to reach it.
+- The two companion numbers are the same measurement from the other side. **`ACTIONS_BAR_HEIGHT`
+  (27 px**, `--ww-control-height-sm` plus its inset) is what a row needs ABOVE it to dock the bar
+  there rather than under the sticky day header, so a row without it docks below instead;
+  **`ACTIONS_BUTTON_WIDTH` (26 px**, the button plus the bar's 2 px gap) is what lets
+  `blockHoldsActions` measure a bar whose width depends on how many buttons it is showing — three on
+  an ordinary row, four when *cerrar el día aquí* is offered.
+- What is left open is CLAUDE.md's **Open Decision 12**: on a ~150 px weekday column a TALL block
+  still has its top ~28 px covered, and moving the bar outside on narrow columns too would put it over
+  the neighbouring day.
+
+**A press that explained itself must not also do the other thing** (2026-08-14). Dragging a gap said
+*«Los huecos no se arrastran…»* AND opened its form in the same breath: the element is a `<button>`, so
+the browser delivers its click on release however far the pointer travelled in between. Two answers to
+one gesture, one contradicting the other — the owner is told the gesture does nothing and is then shown
+a form they did not ask for. The click is swallowed at the RELEASE rather than where the sentence is
+spoken, because the swallow only survives to the end of the current task and the sentence can be said
+seconds earlier.
+
+---
+
 ## One Axis Per Gesture
 
 **Decided 2026-08-13.** This is the answer to *«a veces no se coloca exactamente donde quiero»*.
@@ -1260,6 +1385,14 @@ at, the starts already taken. Three seams needed work:
 2. **The ghost without a pointer event.** A hand holding still at an edge sends no events, so the
    preview is re-resolved from the last pointer position the moment the columns change (`weekKey`).
    Without it the block vanishes from the hand until the mouse is jiggled.
+   **In a LAYOUT effect, and that is correctness rather than a frame of polish.** A passive effect is
+   flushed in a scheduler callback, so there is a moment when the new columns are in the DOM and the
+   preview still names a day of the week that has left the screen — and a `pointerup` dispatched in
+   that moment was committed against the OLD week. Measured 2026-08-17 by releasing from inside a
+   MutationObserver callback: the columns read `2026-08-24`, no ghost was drawn at all, and the drop
+   was stored on `2026-08-23` and padlocked there, after which `showWeekOf` pulled the screen back a
+   week to show the owner where their block had gone. A layout effect runs inside the same
+   synchronous commit, so that moment does not exist.
 3. **The release that beats the fetch.** Verified with 700 ms of injected latency: the turn fires,
    the block is released before the new week arrives, and the drop belongs to the week that was on
    screen — so the pending page turn is cancelled (`showWeekOf`), or the owner would be left looking
@@ -1762,6 +1895,9 @@ waste the answer.
 8. **The scissors never answer for themselves.** A fragment that reflows back inside the row it came
    from is a 200 that changes nothing, and the UI says nothing — the shape that made the owner report
    Friday drops as "the app ignored me".
+   **Verified on a real server** (recovered from `SplitBlockPanel.tsx` on 2026-08-18): *splitting 2 h
+   onto Wednesday moved those hours behind «Barandilla» on Monday.* The fragment is a queue rank, so
+   to park hours on a day, lock them — which is what `block.splitHint` says in the form.
 
 **Two more, decisions rather than defects:**
 
@@ -1796,7 +1932,10 @@ an already-written rule was fixed.
 RUN*), so its duration is a total across days, and every consumer downstream is handed a number that
 is not a length on one day's clock. The label half of this was fixed earlier the same day
 (`footprintEnd`, which stopped `420 + 1080 = 1500` being printed as a time and stopped the console
-filling with `formatTime` complaints, forty per drag). The integration pass measured what is left:
+filling with `formatTime` complaints, forty per drag). **The sub-midnight overruns were worse for
+being quiet**: 13 h released at 07:00 printed `21:30`, an hour past every rule the grid draws, with
+no complaint anywhere — so the guard could not be "does it render", it had to be the day's own end.
+The integration pass measured what is left:
 
 - **the DRAWN rectangle, which WAS fixed** because CLAUDE.md already forbade the shape: "one
   rectangle straight through the grey band promises a shape that will never exist". `dropFootprint`
@@ -1903,6 +2042,79 @@ does not cover, which is the kind of gap the 14:00 defect lived in.
   overlaps, and `findGapConflicts` / `otherJobOverlaps` — its two halves — already exist. So whichever
   answer the owner picks (refuse naming the row or the gap; cut at the obstacle the way a drop does;
   allow it and draw the overlap on purpose) is a call rather than a new mechanism.
+
+---
+
+## The Comments Were a Third Copy
+
+**Asked for by the owner, 2026-08-18:** *«algunos son gigantes y no necesarios, la ruta y el archivo
+deberian de ser autoexplicativos dejando a los comentarios como innecesarios»*.
+
+**Measured before touching anything.** `src/` was 39,394 lines: **11,027 of comment against 24,525 of
+code**, 0.45 comment lines per code line. 1,751 of them sat in 50 blocks of 25 lines or more, the
+largest 88 lines. Files existed where the prose outweighed the program — `edgePaging.ts` carried 115
+comment lines over 25 of code, `dropOutcome.ts` 149 over 51.
+
+**Why it was safe, and this is the whole argument.** This repository already separates the three kinds
+of writing, and says so in CLAUDE.md's own opening: CLAUDE.md is the WHAT, DECISIONS.md is the WHY.
+The code comments had become a THIRD copy, and usually the lossiest of the three. The case that
+settled it: `edgePaging.ts` spent 24 comment lines justifying `EDGE_REPEAT_DELAY_MS = 800`, while
+§ *The Repeat Is a Metronome, Not an Acceleration* above holds strictly more — the owner's quote, the
+deleted 320/240/200 ramp, the week-34-to-41 measurement, the 600–1000 ms window **and** the per-turn
+timings (503, 809, 885 ms …) that the comment never had. Deleting that essay lost nothing.
+
+**What went:** file-header essays restating the path; restatements of a CLAUDE.md rule; obituaries for
+deleted code (221 lines of *«X used to…», «removed 2026-08-18»* — git holds it); owner quotes (109
+lines, all of them already here); ALL-CAPS rhetorical headings and bulleted justifications of a
+constant; comments restating the line beneath them.
+
+**What stayed:** a trap the next reader would fall into, or a local invariant the types cannot state —
+one sentence. The engine's *do not derive grouping from
+the placement* rule is the model: it survived whole, because the reflow really is derived from the
+grouping and a reader who does not know that will break the fixed point.
+
+**The safeguard, and it fired.** A comment recording a measured defect, a reproduction, or an
+obvious-looking alternative that had been tried and failed was only removable if the note already
+existed in CLAUDE.md or here. **14 notes turned out to be recorded in neither** — the `updated_at`
+trigger that only fires because the UPDATE omits the column, the non-modal side panel, error toasts
+that never auto-dismiss, `getDb` being lazy so migrations do not run during `next build`, the eight-
+swatch deviation from the wireframe — and every one was kept in the code instead of dropped. They are
+the backlog for a later pass, not a loss.
+
+**Result over both passes: 11,375 comment lines became 5,395** — `src/` from 0.45 to **0.21** per
+code line, `app/` from 0.83 to **0.35** — with **zero** references to either document left in the
+code, and 2 remaining comment blocks over 15 lines instead of 50 over 25.
+
+**Not one non-comment line changed**, verified mechanically rather than by eye: comments were
+stripped from both revisions of every touched file and the code compared token by token — 97
+identical line for line, 5 identical once the line-splitting of a JSX comment's braces is ignored,
+**0 genuine changes**. That check earned its keep twice: it caught a JSX comment of my own adding an
+expression node, and it localised the damage when eight agents died mid-edit on a session limit and
+left `Timeline` missing `endMinutes`, `yOf` and `GridMetrics.columns` — three declarations whose doc
+comments were still sitting there orphaned. `tsc` clean, 887 tests in 30 files, lint clean, build
+clean.
+
+**`app/` was found late and was the worst of it**: 0.83 comment lines per code line, and
+`app/api/blocks/[id]/route.ts` carried a 104-line header over 49 lines of code — a complete
+re-statement of the drop, padlock, resize and overflow rules. What earns a place in an HTTP route is
+the request and response SHAPE, which a caller reads, and the fields that mislead if read alone
+(`placedBlockIds` is normally longer than one; `block` can be null; `changed` is the only honest
+answer to "did anything happen").
+
+**A SECOND PASS, and a correction from the owner.** Reviewing the first, they asked for two more
+things: *«no menciones todo el rato que está en el decisions puesto que ya se sabe implícitamente»*,
+and *«elimina todo lo no necesario repetitivo o que se puede omitir como comentario indicando que hace
+una función y el nombre de la misma ya te dice lo que hace»*.
+
+Both are right, and the first is a correction of the first pass's own output: it had ADDED
+`CLAUDE.md §` / `DECISIONS.md §` pointers as the cheap way to keep a deleted essay reachable — 97 of
+them across 55 files. That the rules live in one file and the reasoning in the other is understood by
+anyone reading this repository; repeating it on every symbol is the same noise in a shorter form. They
+are gone, and the rule in CLAUDE.md now forbids writing them. Also gone: docs recoverable from the
+identifier and its type, and the decorative rules of dashes around section labels.
+
+**The rule that stops it growing back** is in CLAUDE.md § Notes for Development. It was missing, which
+is why the essays were written in the first place: nothing said not to.
 
 ---
 
@@ -2089,6 +2301,13 @@ bottom edges, *Volver a automático* from the hover bar — and the stored rows 
   hours onto that untouchable row, straddling the lunch break and, past midnight, taking the whole
   page down. The growth target now agrees with the movable pool, and a write-path guard makes an
   out-of-day row impossible to store. See *Job Editing: Adding/Removing Hours*.
+  **The exact reproduction**, kept because it needed no unusual gesture at all — a past Mon-Thu row is
+  never marked (its day role is `auto`) and a row on TODAY becomes a past row overnight: a 2 h job on
+  yesterday raised to 6 h stored `12:00 + 360 min`, one row straight through the lunch break claiming
+  6 h where the clock holds 4.5 h; raised to 13 h it became `12:00-25:00` and took the whole calendar
+  page down from `useFormat().time`. `lastAutomatic` had tested the stored MARKS only, which read like
+  the whole rule because a hand drop onto Sat/Sun always left one — so the weekend was covered in
+  practice and only the past was reachable.
 
 **v0.5 — the optional start date on the create form (2026-08-12).** See *Creating a Job With a Start
 Date* for the rule. `src/lib/creation.ts` is pure, holds all of it, and is the ONE planner behind both
@@ -2121,7 +2340,9 @@ OPENING edge only.
 
 **v0.6 — the three defects found on v0.5, and the one idea behind all three (2026-08-13).** The
 owner reported a split block marked on one side only, a resize that stopped dead at the lunch break
-and at the margins, and margins that were configurable but unusable. All three came from the same
+and at the margins, and margins that were configurable but unusable. Measured on the middle
+one: `maxDurationFrom` stopped at 14:00 for a row starting at 12:00 — **120 minutes** — so a 4 h
+morning row could not be made longer by any gesture at all. All three came from the same
 gap — the code knew only the ENGINE's view of a day — so the fix is *The Manual Window*, derived
 once and read by every hand gesture, with auto-fill and the capacity stop-line still reading the
 periods alone.

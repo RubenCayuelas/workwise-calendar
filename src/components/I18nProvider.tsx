@@ -3,17 +3,9 @@
 /**
  * Mounts the i18next instance for the whole app and owns the language choice.
  *
- * Mounted once in `app/layout.tsx`, above everything else, so any client component
- * can call `useTranslation()` from react-i18next.
- *
- * The order of events on a page load is deliberate:
- *
- * 1. The server renders in Spanish (`DEFAULT_LANGUAGE`), and so does the client's
- *    first render — identical markup, no hydration mismatch.
- * 2. After mount, the stored preference is read and applied. React re-renders with
- *    it, which is a normal update rather than a hydration error.
- * 3. `<html lang>` follows every change, so the document always declares the
- *    language it is actually written in.
+ * The server render and the client's first render are both `DEFAULT_LANGUAGE`, so the
+ * markup matches; the stored preference is applied after mount, as an ordinary update
+ * rather than a hydration mismatch. `<html lang>` follows every change.
  */
 
 import { useEffect, useMemo, type ReactNode } from 'react';
@@ -29,8 +21,7 @@ import i18n, {
 
 export function I18nProvider({ children }: { children: ReactNode }): React.JSX.Element {
   useEffect(() => {
-    // `<html lang>` is set by the layout for the server render; from here on it
-    // tracks the instance, including the restore below.
+    // Set by the layout for the server render; from here on it tracks the instance.
     const syncDocumentLanguage = (language: string): void => {
       document.documentElement.lang = language;
     };
@@ -62,10 +53,7 @@ export interface UseLanguageResult {
   languages: readonly Language[];
 }
 
-/**
- * Read and change the interface language. Re-renders on every change because
- * `useTranslation` subscribes to i18next's `languageChanged`.
- */
+/** Read and change the interface language; re-renders on i18next's `languageChanged`. */
 export function useLanguage(): UseLanguageResult {
   const { i18n: instance } = useTranslation();
   const current = instance.resolvedLanguage ?? instance.language;

@@ -1,13 +1,3 @@
-/**
- * The eight ways a drop can end, and the one way it is allowed to say nothing.
- *
- * The rule these pin down is the owner's complaint, generalised: a drag that produces no
- * visible change must never be indistinguishable from a drag the app ignored. Friday was
- * the case that actually shipped (200, nothing moved, no message); the others — the row
- * settling back where it started, the hours carrying on into another week, a row of the
- * same job absorbing it — have exactly the same shape on screen.
- */
-
 import { describe, expect, it } from 'vitest';
 import { describeDrop, type DropOutcomeInput } from './dropOutcome';
 
@@ -43,8 +33,7 @@ describe('describeDrop', () => {
   });
 
   it('announces the padlock the drop added, which is a new state rather than a movement', () => {
-    // Friday's own defect: the drop now sticks, and the visible difference is a padlock
-    // the owner did not press — so it has to be said, with its undo.
+    // The visible difference is a padlock the owner did not press, so it is said.
     expect(
       describeDrop(
         input({
@@ -56,8 +45,7 @@ describe('describeDrop', () => {
   });
 
   it('says nothing about a padlock the row already had', () => {
-    // Dragging a padlocked row keeps it exactly where it was released, which is what the
-    // owner asked for and already knows. Only a NEW padlock is news.
+    // The row is exactly where it was released, so only a NEW padlock is news.
     expect(
       describeDrop(
         input({
@@ -77,13 +65,6 @@ describe('describeDrop', () => {
     ).toEqual({ kind: 'leftWeek', date: '2026-08-24' });
   });
 
-  /*
-   * THE OTHER SIDE OF THE SAME WEEK, and not the same sentence. Measured in the browser
-   * on 2026-08-17: a 10 h run dragged from Monday 17 August into the week of 7 September
-   * and released on the Wednesday came back on Wednesday 19 AUGUST — the drop is a rank,
-   * and its contiguous place is behind the work that is already there. `leftWeek`'s words
-   * ("no longer fitted this week: its hours carry on") describe the opposite journey.
-   */
   it('tells a row the queue laid out EARLIER apart from one that overflowed', () => {
     expect(
       describeDrop(
@@ -131,12 +112,6 @@ describe('describeDrop', () => {
     ).toBeNull();
   });
 
-  /*
-   * EDGE PAGING: the block was picked up in one week and released in another, so the week
-   * on screen is not the week the drag started in. The row is exactly where it was
-   * released — every other branch would therefore be silent — and the thing the owner
-   * cannot see for themselves is which week they are now looking at.
-   */
   it('names the week when the drag paged into it', () => {
     expect(
       describeDrop(
@@ -150,8 +125,7 @@ describe('describeDrop', () => {
   });
 
   it('still leads with the padlock when a paged drop landed on the weekend', () => {
-    // Two true things; the padlock is the one that is new STATE, and its sentence names
-    // the day it fixed the row to, which says the week as plainly as the other would.
+    // The padlock is the one that is new STATE, and its sentence names the day too.
     expect(
       describeDrop(
         input({
@@ -174,12 +148,7 @@ describe('describeDrop', () => {
     ).toEqual({ kind: 'leftWeek', date: '2026-08-24' });
   });
 
-  /*
-   * FILL AND OVERFLOW, the outcome the owner's own report produced. Their words: «Si quiero
-   * colocar la tarea test3 en el hueco del lunes no se divide sino que dice que no cabe.»
-   * It divides now, and the sentence has to name both days — `landed` is only the first row,
-   * so nothing else in this file could have told them.
-   */
+  // `landed` is only the first row, so nothing else in this file could name both days.
   it('names every day the hours ended up on when they filled and carried on', () => {
     expect(
       describeDrop(
@@ -221,12 +190,8 @@ describe('describeDrop', () => {
     ).toEqual({ kind: 'filled', date: '2026-08-13' });
   });
 
-  /*
-   * THE SERVER SAYS IT, THE CLIENT DOES NOT INFER IT. `changed` is asked of the ROWS, so a
-   * pass that folded a run into one row and laid it out again reports `false` even though
-   * every id in sight is new — and a drop the reflow answered with the calendar the owner
-   * already had is exactly the silence this whole round came from.
-   */
+  // `changed` is asked of the ROWS, so a pass that folded a run into one row and laid it
+  // out again reports `false` even though every id in sight is new.
   it('admits a drop the server wrote nothing for, whatever the ids did', () => {
     expect(
       describeDrop(
