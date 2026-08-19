@@ -73,6 +73,13 @@ export interface DropPin {
   fixed: boolean;
   /** `auto` Mon-Thu, `buffer` Friday, `manual` Sat/Sun. */
   role: DayRole;
+  /**
+   * A whole-day exception from `day_overrides`. Its ROLE is still `auto` on a weekday, so without
+   * this a drop onto a closed Thursday was read as a queue rank: the row was stored unlocked, the
+   * reflow could only move it OFF a day it may not lay out, and the hours arrived on the next open
+   * Monday with no refusal and nothing said.
+   */
+  closed: boolean;
   /** The day's WORKING periods: the minutes auto-fill may use, margins excluded. */
   periods: readonly WorkPeriod[];
   /** The periods with the margins fused on: the view a hand action is cut over. */
@@ -96,7 +103,7 @@ export interface DropPin {
  * is the whole reason it can be dragged at all.
  */
 export function dropLandsLiterally(input: DropPin): boolean {
-  if (input.fixed || input.role !== 'auto') return true;
+  if (input.fixed || input.closed || input.role !== 'auto') return true;
   return startsInManualOnlyTime(
     input.periods,
     firstWorkingMinute(input.manualWindows, input.startMinutes),
@@ -124,6 +131,8 @@ export interface DropDay {
   reflows: boolean;
   /** Which day this is, for `dropLandsLiterally`: only a literal drop has a footprint to fit. */
   role: DayRole;
+  /** Closed by a whole-day exception, which pins a drop exactly as the weekend does. */
+  closed: boolean;
 }
 
 export interface DropLandingInput {
@@ -170,6 +179,7 @@ export function dropLanding(input: DropLandingInput): DropLanding {
   const literal = dropLandsLiterally({
     fixed: input.fixed ?? false,
     role: here.role,
+    closed: here.closed,
     periods: here.periods,
     manualWindows: here.manualWindows,
     startMinutes,

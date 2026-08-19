@@ -506,7 +506,13 @@ describe('gapDropEffect — what an absence dropped here will do', () => {
 // Is the minute under the pointer a promise, or only a place in a queue? Got wrong, the ghost read
 // `09:00–14:00` over Thursday and the row settled on Wednesday at 12:00.
 describe('dropPins — does the row keep the minute it is released on?', () => {
-  const day = { periods: PERIODS, manualWindows: MANUAL_WINDOWS, startMinutes: 10 * 60, durationMinutes: 2 * 60 };
+  const day = {
+    periods: PERIODS,
+    manualWindows: MANUAL_WINDOWS,
+    closed: false,
+    startMinutes: 10 * 60,
+    durationMinutes: 2 * 60,
+  };
 
   it('re-ranks an unlocked unit dropped inside a Monday-to-Thursday period', () => {
     expect(dropPins({ ...day, fixed: false, role: 'auto' })).toBe(false);
@@ -516,6 +522,10 @@ describe('dropPins — does the row keep the minute it is released on?', () => {
     ['the weekend', { fixed: false, role: 'manual' as const }],
     ['the Friday colchón', { fixed: false, role: 'buffer' as const }],
     ['a locked unit or a gap, wherever it lands', { fixed: true, role: 'auto' as const }],
+    [
+      'a CLOSED weekday, which is a weekend by another name',
+      { fixed: false, closed: true, role: 'auto' as const },
+    ],
   ])('pins the exact minute on %s', (_name, drop) => {
     expect(dropPins({ ...day, ...drop })).toBe(true);
   });

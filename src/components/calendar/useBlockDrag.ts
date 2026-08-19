@@ -709,6 +709,7 @@ export function previewMove(
       dropPins({
         fixed: current.target.fixed,
         role: day.role,
+        closed: day.isClosed,
         periods: day.periods,
         manualWindows: day.manualWindows,
         startMinutes,

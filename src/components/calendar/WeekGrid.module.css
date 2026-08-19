@@ -846,3 +846,42 @@
     transform: translate(0, 0);
   }
 }
+
+/* --------------------------------------------------------------------------
+   Painting an absence
+   -------------------------------------------------------------------------- */
+
+/*
+ * The band a paint draws on empty grid space: the gap colour, dashed, because nothing has been
+ * written — the release opens the form and the owner presses Guardar. One rectangle per row the
+ * absence will really be stored as, so it is cut at the comida like every other ghost here.
+ */
+.paintBand {
+  position: absolute;
+  right: 2px;
+  left: 2px;
+  z-index: 4;
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  padding: 4px 7px;
+  border: 1px dashed var(--ww-border-strong);
+  border-radius: var(--ww-radius);
+  background: var(--ww-gap-color, var(--ww-gap-fill));
+  font-size: var(--ww-text-sm);
+  line-height: var(--ww-line-tight);
+  pointer-events: none;
+}
+
+.paintLabel {
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  color: var(--ww-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.paintHours {
+  color: var(--ww-text-muted);
+  font-size: var(--ww-text-xs);
+}

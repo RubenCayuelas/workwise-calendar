@@ -67,32 +67,40 @@ export function createGap(input: SaveGapInput, db: Db = getDb()): GapMutation {
   const today = input.today ?? todayLocal();
 
   return runTransaction(db, () => {
-    const rows = assertGapFits(
-      { date: input.date, startMinutes: input.startMinutes, durationMinutes: input.durationMinutes },
-      today,
-      db,
-    );
-
-    // One unit id across every segment: the halves around the comida are ONE absence, and the grid
-    // must not have to guess that from two identical reason strings.
-    const unitId = newId();
-    const gaps = rows.map((row) =>
-      insertGap(
-        {
-          id: newId(),
-          date: input.date,
-          startMinutes: row.startMinutes,
-          durationMinutes: row.durationMinutes,
-          reason: input.reason,
-          unitId,
-        },
-        db,
-      ),
-    );
-
+    const gaps = insertAbsence(input, today, db);
     const report = recompose(db, { today });
     return { gap: gaps[0], gaps, summary: report.summary };
   });
+}
+
+/**
+ * One absence written, every refusal already asked, and NO REFLOW: a caller writing a whole range of
+ * them recomposes once at the end, so the hours are displaced by one pass and reported once. Must be
+ * called inside a transaction — on its own it can leave rows the reflow has not settled.
+ */
+export function insertAbsence(input: SaveGapInput, today: string, db: Db): Gap[] {
+  const rows = assertGapFits(
+    { date: input.date, startMinutes: input.startMinutes, durationMinutes: input.durationMinutes },
+    today,
+    db,
+  );
+
+  // One unit id across every segment: the halves around the comida are ONE absence, and the grid
+  // must not have to guess that from two identical reason strings.
+  const unitId = newId();
+  return rows.map((row) =>
+    insertGap(
+      {
+        id: newId(),
+        date: input.date,
+        startMinutes: row.startMinutes,
+        durationMinutes: row.durationMinutes,
+        reason: input.reason,
+        unitId,
+      },
+      db,
+    ),
+  );
 }
 
 /**

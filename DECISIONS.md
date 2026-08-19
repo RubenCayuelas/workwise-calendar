@@ -1976,6 +1976,118 @@ Over HTTP with no browser: a drag aimed at `14:30` stored from `15:30`; a resize
 refused `row-past-day-end` (the client clamps to 5 h there, so the UI never asks); `action: 'nudge'` a 400
 naming the three it accepts.
 
+## A Long Absence Is One Gesture, and a Closed Day Has a Screen
+
+**2026-08-19, phases 5 and 6 of the gaps round.** The evidence was the shop's own file: `2026-09-01` …
+`09-04`, four `gaps` of `08:00 +11,5 h` reason "Feria", typed one per day — and `day_overrides`, the table
+that models exactly that, holding **zero rows**. Not because the mechanism was missing: `getDayConfig`,
+`plannableMinutes`, `dayReflows`, `.columnClosed` and `closeDayOffer` had all been reading it since the
+initial migration. It had never had a screen or a route, so the only way to say "we are closed that week"
+was four hand-typed gaps. **The acceptance test for the round is whether that week now takes one gesture.**
+
+### One screen, and the choice is made inside it
+
+Two screens — one for a gap, one for closing days — was the obvious shape and is what the owner rejected by
+asking for a selector. The two things differ in ONE decision (does the day keep any plannable hours?) and
+agree on everything else: which days, and why. So `Ausencias` has two modes over one `Desde` / `Hasta` and
+one reason field, the existing gap form became the `Un hueco` mode, and its two OLD shapes — editing an
+absence, and *cerrar el día aquí* — are untouched, still writing through `/api/gaps` and still reaching the
+frozen past. A range of one day is not a special case: it is `to` omitted.
+
+**The API mirrors the screen** rather than the tables: `POST /api/absences {kind, from, to?, …}`,
+`POST /api/absences/preview`, `DELETE /api/absences/closed-days?from=&to=`. Naming the routes after
+`gaps` and `day_overrides` would have put the mode selector's job back in the caller.
+
+### The range skips the weekend, and says so
+
+Saturday and Sunday are outside the engine, so a Mon-Fri range that spans one must not spend two rows on
+it. But a range **entirely inside one weekend** is the owner naming those days on purpose (an absence there
+is a label and a dimmed column, which is worth something), so those are kept. The rule is four lines in
+`src/lib/absences.ts` with its own test, and both the save and the preview REPORT the days they dropped —
+a skip nobody is told about is the kind of thing that gets rediscovered as a bug.
+
+### The warning is the real write, rolled back
+
+The spec asked for a warning that names the hours, the jobs and the date they land on, and for cancelling
+to write nothing. The honest way to answer "what would this do" is not a model of the reflow — only a whole
+pass knows where the queue's cursor reaches, which is the whole reason `POST /api/projects/preview` exists
+and the shape the task pointed at. So `previewAbsence` runs `writeAbsence` for real inside a transaction it
+then rolls back (`dryRun`, carrying the result out through the throw). Consequences, all wanted:
+
+- the preview **refuses exactly what the save would refuse** — a padlocked row in the way, a horizon the
+  hours no longer fit in — so the screen can hide `Guardar` instead of offering a save that will fail;
+- the displaced hours are **read from the rows before and after**, per job, never predicted;
+- **nothing it returns carries an id**, because every row it wrote was rolled back. `AbsencePreview` is
+  geometry only; an id from a dry run would name a row that will never exist.
+
+Cancelling is then not a mechanism at all: the preview is shown inline and the owner does not press
+Guardar. A confirmation DIALOG was the alternative and buys nothing here — the numbers need room, and a
+range is retyped, not confirmed.
+
+### Two defects found by building it
+
+**A drop onto a closed weekday was not literal.** Measured: a 2 h unlocked row released on a closed
+Thursday at 09:00 came back on the next open **Monday at 08:00, unlocked, with a 200 and no notice**.
+`dropLandsLiterally` asked `fixed || role !== 'auto'`, and a closed Thursday's role is still `auto`; the
+row was stored as a queue rank, and since the engine may not lay a closed day out, the only thing the
+reflow could do with it was carry it off. CLAUDE.md's own refusal table already said *«a closed day
+(day_overrides) | yes | same as a weekend»*, and spec §6 asserted the behaviour as existing — both were
+false. `DropPin.closed` (and `DropDay.closed`) now travel with `role` through all six call sites, so the
+ghost, the landing and the write path answer together. **It is what makes "a closed day accepts work
+dropped by hand and never auto-recovers it" true**: the drop padlocks, and the padlock is what holds it.
+
+**An unplaceable close bricked every later write.** With the horizon at 2 weeks and 70 h queued, closing
+three days answered 409 `horizon-exceeded` — correctly — but the four `day_overrides` rows had been written
+OUTSIDE the reflow's transaction, so they survived the refusal. Every subsequent write then hit the same
+409, **including deleting the job that would not fit**: the calendar was unusable without SQL. The upserts
+and `recompose` now sit in one `runTransaction`, and the test asserts the calendar is byte-identical after
+the refusal and that a close which does fit still goes through.
+
+### The three calls the spec left open, and how each was answered
+
+**Closing a day that holds work the engine cannot move is REFUSED, naming it.** The alternative — write the
+override and leave the padlocked row sitting on a day that reports no capacity at all — is a day whose
+header says *cerrado* over two hours of work. A gap in the same position is refused by name, so a closed
+day is refused the same way, over the whole day, through the same `findGapConflicts`. It got **its own
+three sentences** (`closedDayOverLockedBlock` / `…PastBlock` / `…WeekendBlock`): reusing the gap's said
+*«Ese hueco pisa «Nave»…»* about a gesture that creates no gap, which was visible on screen the first time
+it fired.
+
+**Reopening drops the ROW, except where it carries a hand-entered `capacity_hours`.** That column has no
+screen and nothing could put it back, so there only `is_closed` is cleared. The same reading fixed a
+silent loss on the way IN: `upsertDayOverride` writes all four columns, so closing a day that carried a
+capacity would have blanked it — the note is now carried through explicitly.
+
+**The way into a closed day is its own column.** A gap is an object you press; a closed day is only a
+dimmed column, so a mistyped "Feira" would have been unreachable. Pressing one opens `Ausencias` in
+`Cerrar días` on that day with the note pre-filled, next to a `Reabrir` button. Painting there is refused
+for the same reason and opens the same screen: a gap on a day with no plannable hours is meaningless.
+
+### Painting only ever makes gaps, which dissolved a question
+
+The threshold question — how big a painted band has to be before it means "close the day" — was asked and
+then **answered by not existing**: painting makes gaps and nothing else, so `07:00→20:30` is a 12 h gap in
+two rows that LOOKS like a closed day and is not one. That is a deliberate near-miss, not an oversight;
+adding a threshold would put a guess where the mode selector already asks the question out loud.
+
+The band is measured in NET working minutes over the manual windows (`paintedSpan`, tested), paints in
+either direction, starts at the first minute that can hold work when the press lands in the comida, and is
+drawn as the ROWS the absence will be stored as. Below a quarter of an hour there is no band and no form:
+a press that wandered is not a gesture. And it writes NOTHING — the release opens the form, which is the
+rule the owner set for *cerrar el día aquí* on 2026-08-18 and the reason this gesture is safe to put on
+empty space with no modifier key.
+
+### Driven over HTTP and in a real browser
+
+On a scratch database (`WORKWISE_DB_PATH`, port 3213), the owner's own week: the preview named *«Se
+cerrarán 4 días… El taller pasará a estar ocupado hasta el lunes 14 de septiembre. Se aparta 30 h de un
+trabajo: 30 h → 14 sept 2026 Portón»*, `Cancelar` left `day_overrides` empty, and Guardar wrote exactly
+four rows. The week then read `Mar 1 Feria` / `Mié 2 Feria` / `Jue 3 Feria` / `Vie 4 Feria` over four
+dimmed columns with the work vacated to Monday. A paint on Friday drew `10:00–13:00 · 3 h` and opened the
+form on that day with those hours; a 1,5 h gap over five days previewed as `13:00–14:00 1 h` +
+`15:30–16:00 0,5 h` with *«El mismo hueco… en cada uno de los 5 días»* and three jobs' hours named;
+pressing the closed Wednesday offered `Reabrir`, and reopening it filled the day again on the same pass.
+
 ## Deleting a Job Leaves Its Past Intact
 
 **Decided with the owner, 2026-08-13.** The past is a record. Cascading the whole job away would
@@ -3070,3 +3182,32 @@ scratch database and in a real browser at 1500×950 — the table of gestures is
 *Not built, deliberately:* the absences screen and its date range, the painting gesture, the bulk-creation
 warning and the closed-day screen. *Left open and not invented:* two gaps may overlap each other, which the
 spec does not settle.
+
+**v0.17 — built: a long absence is one gesture, and a closed day has a screen.** Phases 5 and 6 of the gaps
+round (2026-08-19), which finish it. The reasoning, the two defects it found and the browser run are in
+§ *A Long Absence Is One Gesture, and a Closed Day Has a Screen*.
+
+- [x] `POST /api/absences` (`kind: 'gap' | 'closed-days'`, `from`, `to?`) — a RANGE in ONE transaction;
+      `POST /api/absences/preview`, which runs the real write and rolls it back;
+      `DELETE /api/absences/closed-days?from=&to=`
+- [x] `absenceRange`: the weekend skipped unless the range is entirely inside one, both halves reported
+- [x] `Ausencias` with two modes over one `Desde`/`Hasta`, the old gap form becoming `Un hueco` with its two
+      previous shapes untouched; `summarizeAbsence` decides every sentence and is tested
+- [x] the warning: the days, the rows one day holds, the hours, the jobs and the day they land on
+- [x] painting on empty grid space (`usePaintAbsence`, `paintedSpan`) — gaps only, one column, net minutes,
+      drawn as the rows it will be stored as, and it writes NOTHING
+- [x] the closed day on screen: `Mar 1 · Feria` from `note`, the dimmed column, and its own column as the
+      way in to editing or reopening it
+- [x] **defect**: a drop onto a closed weekday was a queue rank, so the hours left for the next open Monday
+      unlocked and unannounced — `DropPin.closed` through all six call sites
+- [x] **defect**: the overrides were written outside the reflow's transaction, so an unplaceable close
+      survived its own 409 and every later write answered it, deletions included
+- [x] the closed day's own three refusal sentences; `capacity_hours` carried through a close and kept on a
+      reopen, since no screen could put it back
+
+Verified on 2026-08-19: `tsc --noEmit` clean, `vitest run` **977 passing across 33 files** (+42, the five
+2000-seed harnesses untouched and green), `next lint` clean, `next build` clean. Driven over real HTTP on a
+scratch database and in a real browser at 1440×900; `data/calendar.db` untouched.
+
+*Left open by the owner, deliberately:* whether a closed day belongs in the summary strip's sentence, and
+whether a gap unit should be reachable from the job panel's list.

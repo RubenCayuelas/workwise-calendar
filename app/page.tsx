@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import { CalendarScreen } from '../src/components/calendar';
-import { GapPanel, JobPanel, NewJobPanel, SplitBlockPanel } from '../src/components/jobs';
+import { AbsencePanel, JobPanel, NewJobPanel, SplitBlockPanel } from '../src/components/jobs';
 import type { Block } from '../src/lib/api-client';
 
 export default function HomePage(): React.JSX.Element {
@@ -62,26 +62,34 @@ export default function HomePage(): React.JSX.Element {
           onChanged={onChanged}
         />
       )}
-      renderGapForm={({
+      renderAbsenceForm={({
         gap,
         closeDay,
+        kind,
         close,
         onChanged,
         today,
         shape,
         gapColor,
         defaultDate,
+        defaultReason,
+        defaultStartMinutes,
+        defaultDurationMinutes,
         horizonWeeks,
       }) => (
-        <GapPanel
+        <AbsencePanel
           open
           gap={gap ?? undefined}
           // "Stop the day here" is the same gap, pre-filled: same panel, same endpoint.
           closeDay={closeDay ?? undefined}
+          defaultKind={kind}
           today={today}
           shape={shape}
           gapColor={gapColor}
           defaultDate={defaultDate}
+          defaultReason={defaultReason}
+          defaultStartMinutes={defaultStartMinutes}
+          defaultDurationMinutes={defaultDurationMinutes}
           horizonWeeks={horizonWeeks}
           onClose={close}
           onChanged={onChanged}

@@ -19,7 +19,9 @@ export type JobsMutationKind =
   | 'block-split'
   | 'gap-created'
   | 'gap-updated'
-  | 'gap-deleted';
+  | 'gap-deleted'
+  | 'days-closed'
+  | 'days-reopened';
 
 export interface JobsMutationEvent {
   kind: JobsMutationKind;

@@ -11,8 +11,9 @@ import { useTranslation } from 'react-i18next';
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 import { useFormat } from '../../lib/useFormat';
 import { addDays } from '../../lib/dates';
-import { netMinutesOf } from '../../lib/manualWindow';
+import { clockEndOf, netMinutesOf } from '../../lib/manualWindow';
 import { fillStartFor, planDropSpill, spillByDay, type SpillDay } from '../../lib/dropSpill';
+import { segmentDroppedRow } from '../../lib/dropSegments';
 import type { CloseDayInput, CloseDayRequest } from '../../lib/closeDay';
 import { closeDayAfter, closeDayInputFor } from './closeDayOffer';
 import type { Gap, GapUnit } from '../../types';
@@ -56,6 +57,7 @@ import {
 } from './grouping';
 import { EDGE_ZONE_PX, type EdgeHold, type EdgeSide } from './edgePaging';
 import type { BlockDragTarget, DragController, GapDragTarget } from './useBlockDrag';
+import type { PaintController } from './usePaintAbsence';
 import styles from './WeekGrid.module.css';
 
 /** A fragment waiting for the click that says where it goes. */
@@ -104,6 +106,12 @@ export interface WeekGridProps {
   /** A mutation is in flight. */
   busy: boolean;
   drag: DragController;
+  /**
+   * Painting a band on EMPTY grid space, which only ever opens the absences form pre-filled. Its
+   * press lives on the column background: every draggable thing on the grid stops propagation, so a
+   * press on a block or an absence never reaches it.
+   */
+  paint: PaintController;
   placing: PlacingFragment | null;
   onPlace: (slot: { date: string; startMinutes: number }) => void;
   onOpenJob: (projectId: string) => void;
@@ -129,6 +137,7 @@ export function WeekGrid({
   stale,
   busy,
   drag,
+  paint,
   placing,
   onPlace,
   onOpenJob,
@@ -315,6 +324,7 @@ export function WeekGrid({
       dropPins({
         fixed: false,
         role: day.role,
+        closed: day.isClosed,
         periods: day.periods,
         manualWindows: day.manualWindows,
         startMinutes: hover.startMinutes,
@@ -350,6 +360,7 @@ export function WeekGrid({
         dropPins({
           fixed: false,
           role: day.role,
+          closed: day.isClosed,
           periods: day.periods,
           manualWindows: day.manualWindows,
           startMinutes: hit.snappedMinutes,
@@ -442,6 +453,7 @@ export function WeekGrid({
               busy={busy || stale}
               ghost={ghost}
               drag={drag}
+              paint={paint}
               placing={placing}
               placingSlot={hover}
               placingGhost={placingGhost}
@@ -525,11 +537,13 @@ function DayHeader({ day, slide }: { day: WeekDay; slide: WeekSlide }): React.JS
   const { t } = useTranslation();
   const format = useFormat();
 
-  // Past wins over everything: a frozen Friday is not a buffer any more.
+  // Past wins over everything: a frozen Friday is not a buffer any more. On a CLOSED day the
+  // owner's own words are the state — `Mar 1 · Feria` — because "cerrado" is what the dimmed
+  // column already says and the reason is the only thing it cannot.
   const state = day.isPast
     ? t('day.frozen')
     : day.isClosed
-      ? t('day.closed')
+      ? day.note ?? t('day.closed')
       : day.role === 'buffer'
         ? t('day.buffer')
         : null;
@@ -608,6 +622,7 @@ interface DayColumnProps {
    */
   ghost: GhostPlan | null;
   drag: DragController;
+  paint: PaintController;
   placing: PlacingFragment | null;
   /** The slot the pointer is over while placing a fragment. */
   placingSlot: { date: string; startMinutes: number } | null;
@@ -639,6 +654,7 @@ function DayColumn({
   busy,
   ghost,
   drag,
+  paint,
   placing,
   placingSlot,
   placingGhost,
@@ -653,6 +669,8 @@ function DayColumn({
   const format = useFormat();
 
   const bands = nonWorkingBands(day.periods, timeline);
+  /** The band being painted, when it is being painted on THIS column. */
+  const painting = paint.painting?.date === day.date ? paint.painting : null;
   const preview = drag.preview?.date === day.date ? drag.preview : null;
   // The gesture itself, whichever column it was released over: `preview` is null on every other
   // one, while the ghost's colour and total hours are needed wherever its hours land.
@@ -869,6 +887,13 @@ function DayColumn({
         .filter(Boolean)
         .join(' ')}
       data-day-column={day.date}
+      /*
+       * PAINTING starts here, on the column's own background. Everything draggable on the grid
+       * stops propagation at press, so this only ever fires on empty space — and while a split
+       * fragment is waiting for its target the controller is disabled, because there a grid click
+       * already means "put it here".
+       */
+      onPointerDown={(event) => paint.begin(event, day.date)}
     >
       {bands.map((band) => (
         <div
@@ -1197,6 +1222,35 @@ function DayColumn({
                   )}
                 </div>
               ) : null}
+            </div>
+          ))}
+
+      {/* The band, drawn as the ROWS the absence will be stored as — cut at the comida like every
+          other ghost here, because one rectangle through the grey band promises a shape that will
+          never exist. It writes nothing: the release opens the form. */}
+      {painting === null
+        ? null
+        : segmentDroppedRow(day.manualWindows, painting).map((row, index) => (
+            <div
+              key={row.startMinutes}
+              className={styles.paintBand}
+              style={{
+                '--ww-gap-color': gapColor,
+                top: `${timeline.yOf(row.startMinutes)}px`,
+                height: `${timeline.heightBetween(row.startMinutes, row.startMinutes + row.durationMinutes)}px`,
+              } as React.CSSProperties}
+            >
+              {index !== 0 ? null : (
+                <span className={styles.paintLabel}>
+                  {/* Through `clockEndOf`: the band's minutes are NET, so `start + duration` is not
+                      a time of day — a 2 h band from 13:00 ends at 16:30, not 15:00. */}
+                  {format.timeRange(
+                    painting.startMinutes,
+                    clockEndOf(day.manualWindows, painting.startMinutes, painting.durationMinutes),
+                  )}
+                  <span className={styles.paintHours}>{format.hours(painting.durationMinutes)}</span>
+                </span>
+              )}
             </div>
           ))}
 

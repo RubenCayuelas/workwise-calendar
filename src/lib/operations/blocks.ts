@@ -136,6 +136,7 @@ function pinsTheRow(
     // The row's own padlock is the caller's business: it is added, never removed.
     fixed: false,
     role: config.role,
+    closed: config.isClosed,
     periods: config.periods,
     manualWindows: config.manualWindows,
     startMinutes,
@@ -382,6 +383,7 @@ function landingDay(
     manualWindows: config.manualWindows,
     reflows: dayReflows(config, date, today),
     role: config.role,
+    closed: config.isClosed,
   };
 }
 

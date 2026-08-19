@@ -18,7 +18,13 @@ const PERIODS = [
 
 const WINDOWS = manualWindowsOf(PERIODS, 60, 60);
 
-const OPEN: DropDay = { periods: PERIODS, manualWindows: WINDOWS, reflows: true, role: 'auto' };
+const OPEN: DropDay = {
+  periods: PERIODS,
+  manualWindows: WINDOWS,
+  reflows: true,
+  role: 'auto',
+  closed: false,
+};
 
 /** The weekend, a closed day, the frozen past. */
 const FIXED: DropDay = { ...OPEN, reflows: false, role: 'manual' };
@@ -132,6 +138,7 @@ describe('dropLanding — a drop aimed below what the day holds', () => {
       manualWindows: manualWindowsOf([PERIODS[0]], 60, 60),
       reflows: true,
       role: 'auto',
+      closed: false,
     };
     expect(
       dropLanding({ date: THU, startMinutes: t('15:00'), durationMinutes: 120, dayOf: () => morning }),
@@ -189,12 +196,14 @@ describe('dropLandsLiterally — the one place the padlock policy lives', () => 
   const ask = (input: {
     fixed?: boolean;
     role?: DropDay['role'];
+    closed?: boolean;
     startMinutes: number;
     durationMinutes: number;
   }): boolean =>
     dropLandsLiterally({
       fixed: input.fixed ?? false,
       role: input.role ?? 'auto',
+      closed: input.closed ?? false,
       periods: PERIODS,
       manualWindows: WINDOWS,
       startMinutes: input.startMinutes,

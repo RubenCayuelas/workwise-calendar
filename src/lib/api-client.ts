@@ -25,9 +25,17 @@ export type {
   CreationPreviewRow,
 } from './operations/projects';
 export type { CreationMode, StartDateDay } from './creation';
+export type {
+  AbsenceKind,
+  AbsenceMutation,
+  AbsencePreview,
+  AbsencePreviewRow,
+  DisplacedWork,
+} from './operations/absences';
 
 import type { WeekView } from './operations/views';
 import type { CreationOutcome, CreationPreview } from './operations/projects';
+import type { AbsenceKind, AbsenceMutation, AbsencePreview } from './operations/absences';
 
 // ---------------------------------------------------------------------------
 // Response shapes
@@ -645,6 +653,56 @@ export function deleteGap(
   options?: RequestOptions,
 ): Promise<{ deleted: true; summary: ScheduleSummary }> {
   return send('DELETE', `/gaps/${encodeURIComponent(gapId)}`, undefined, options);
+}
+
+// ---------------------------------------------------------------------------
+// Absences: a range of days, in one request
+// ---------------------------------------------------------------------------
+
+/**
+ * What the absences screen sends in either mode. `to` absent means one day; Saturday and Sunday are
+ * skipped unless the whole range is inside one weekend. `reason` is the gap's reason or the closed
+ * day's note. `startMinutes`/`durationMinutes` belong to `gap` and are required there — closing a day
+ * takes no hours.
+ */
+export interface SaveAbsenceInput {
+  kind: AbsenceKind;
+  from: string;
+  to?: string;
+  reason?: string;
+  /** Net working minutes, cut at the comida on the way in, exactly like a single gap. */
+  startMinutes?: number;
+  durationMinutes?: number;
+}
+
+/** One transaction over the whole range: a refusal on any day of it writes nothing. */
+export function saveAbsence(
+  input: SaveAbsenceInput,
+  options?: RequestOptions,
+): Promise<AbsenceMutation> {
+  return send<AbsenceMutation>('POST', '/absences', definedOnly(input), options);
+}
+
+/**
+ * What that save WOULD do — the rows, the days, the jobs it pushes and where their hours land —
+ * writing nothing. It runs the real write and rolls it back, so it REFUSES whatever the save would
+ * refuse: call it before offering Guardar and show the answer.
+ */
+export function previewAbsence(
+  input: SaveAbsenceInput,
+  options?: RequestOptions,
+): Promise<AbsencePreview> {
+  return send<AbsencePreview>('POST', '/absences/preview', definedOnly(input), options);
+}
+
+/** Reopens every closed day in the range; the queue fills them again on the next reflow. */
+export function reopenDays(
+  range: { from: string; to?: string },
+  options?: RequestOptions,
+): Promise<{ dates: string[]; summary: ScheduleSummary }> {
+  const query = new URLSearchParams({ from: range.from });
+  if (range.to !== undefined) query.set('to', range.to);
+  return send('DELETE', `/absences/closed-days?${query.toString()}`, undefined, options);
 }
 
 // ---------------------------------------------------------------------------

@@ -124,13 +124,20 @@ export function resolveDropDay(input: {
           dayOf: (date) => {
             const candidate = input.days.find((other) => other.date === date);
             if (candidate === undefined) {
-              return { periods: [], manualWindows: [], reflows: false, role: 'manual' };
+              return {
+                periods: [],
+                manualWindows: [],
+                reflows: false,
+                role: 'manual',
+                closed: false,
+              };
             }
             return {
               periods: candidate.periods,
               manualWindows: candidate.manualWindows,
               reflows: dayReflowsOn(candidate),
               role: candidate.role,
+              closed: candidate.isClosed,
             };
           },
           maxDays: input.days.length,
@@ -148,6 +155,7 @@ export function resolveDropDay(input: {
     !dropLandsLiterally({
       fixed: input.fixed ?? false,
       role: day.role,
+      closed: day.isClosed,
       periods: day.periods,
       manualWindows: day.manualWindows,
       startMinutes: landing.startMinutes,
