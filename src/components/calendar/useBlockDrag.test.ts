@@ -8,7 +8,14 @@ import type { DayShape, WorkPeriod } from '../../types';
 import type { WeekDay } from '../../lib/api-client';
 import { SNAP_MINUTES, createTimeline, type GridMetrics, type Timeline } from './geometry';
 import type { AimRow } from './dropAim';
-import { previewMove, previewResize, type DragSession, type DragTarget } from './useBlockDrag';
+import {
+  previewMove,
+  previewResize,
+  type BlockDragTarget,
+  type DragSession,
+  type DragTarget,
+  type GapDragTarget,
+} from './useBlockDrag';
 
 const MORNING: WorkPeriod = { startMinutes: 8 * 60, endMinutes: 14 * 60 };
 const AFTERNOON: WorkPeriod = { startMinutes: 15 * 60 + 30, endMinutes: 19 * 60 + 30 };
@@ -79,8 +86,9 @@ const OPTIONS = {
 };
 
 /** `Reja`, the 4 h row of the report: Thursday 10:00-14:00. */
-function target(over: Partial<DragTarget> = {}): DragTarget {
+function target(over: Partial<BlockDragTarget> = {}): BlockDragTarget {
   return {
+    kind: 'block',
     groupId: 'reja',
     projectId: 'p-reja',
     name: 'Reja',
@@ -88,10 +96,36 @@ function target(over: Partial<DragTarget> = {}): DragTarget {
     date: '2026-08-13',
     startMinutes: 10 * 60,
     durationMinutes: 4 * 60,
-    blockIds: ['reja'],
+    rowIds: ['reja'],
     blockId: 'reja',
-    locked: false,
+    fixed: false,
     ...over,
+  };
+}
+
+/**
+ * `Avería torno`, one absence: Thursday 10:00, two hours. A gap is FIXED by itself — it lands on the
+ * minute it is released, on every day — and it names its own day, so it is never rolled to another.
+ */
+function gapTarget(over: Partial<GapDragTarget['gap']> = {}): GapDragTarget {
+  const gap = {
+    id: 'averia',
+    date: '2026-08-13',
+    startMinutes: 10 * 60,
+    durationMinutes: 2 * 60,
+    reason: 'Avería torno',
+    ...over,
+  };
+  return {
+    kind: 'gap',
+    groupId: gap.id,
+    gap,
+    color: '#F2B33D',
+    date: gap.date,
+    startMinutes: gap.startMinutes,
+    durationMinutes: gap.durationMinutes,
+    rowIds: [gap.id],
+    fixed: true,
   };
 }
 
@@ -100,9 +134,18 @@ function press(
   kind: 'move' | 'resize',
   pressMinutes: number,
   axis: Timeline = PRESS_AXIS,
-  over: Partial<DragTarget> = {},
+  over: Partial<BlockDragTarget> = {},
 ): DragSession {
-  const dragTarget = target(over);
+  return pressOn(kind, pressMinutes, target(over), axis);
+}
+
+/** The same, on a target built by hand — which is how an ABSENCE gets in here. */
+function pressOn(
+  kind: 'move' | 'resize',
+  pressMinutes: number,
+  dragTarget: DragTarget,
+  axis: Timeline = PRESS_AXIS,
+): DragSession {
   return {
     kind,
     target: dragTarget,
@@ -308,7 +351,7 @@ describe('previewMove', () => {
   // `pinned` says the row keeps the minute it was released on, so the clock range is a promise;
   // without it the release is only a queue rank. Read off the DAY alone, a margin drop gets it wrong.
   describe('pinned', () => {
-    const moveTo = (date: string, release: number, over: Partial<DragTarget> = {}) => {
+    const moveTo = (date: string, release: number, over: Partial<BlockDragTarget> = {}) => {
       const session = press('move', 8 * 60, PRESS_AXIS, { date, startMinutes: 8 * 60, ...over });
       session.grabOffsetMinutes = 0;
       return previewMove(
@@ -343,7 +386,7 @@ describe('previewMove', () => {
     });
 
     it('is true for a locked unit on a day the engine reflows', () => {
-      expect(moveTo('2026-08-13', 10 * 60, { durationMinutes: 120, locked: true }).pinned).toBe(true);
+      expect(moveTo('2026-08-13', 10 * 60, { durationMinutes: 120, fixed: true }).pinned).toBe(true);
     });
   });
 
@@ -351,12 +394,12 @@ describe('previewMove', () => {
   // and `clamped` is what lets it say so instead of freezing in silence.
   describe('clamped', () => {
     // Only a drop that lands LITERALLY is clamped, so these units are padlocked.
-    const releaseAt = (release: number, durationMinutes: number, locked = true) => {
+    const releaseAt = (release: number, durationMinutes: number, fixed = true) => {
       const session = press('move', 8 * 60, PRESS_AXIS, {
         date: '2026-08-13',
         startMinutes: 8 * 60,
         durationMinutes,
-        locked,
+        fixed,
       });
       session.grabOffsetMinutes = 0;
       return previewMove({ clientX: 260, clientY: yOf(release) }, session, METRICS, OPTIONS);
@@ -419,13 +462,13 @@ describe('previewMove — the aim and the day', () => {
     release: number,
     durationMinutes: number,
     rows: readonly AimRow[] = [],
-    locked = false,
+    fixed = false,
   ) => {
     const session = press('move', 8 * 60, PRESS_AXIS, {
       date: '2026-08-13',
       startMinutes: 8 * 60,
       durationMinutes,
-      locked,
+      fixed,
     });
     session.grabOffsetMinutes = 0;
     return previewMove({ clientX: 260, clientY: yOf(release) }, session, METRICS, optionsWith(rows));
@@ -540,5 +583,81 @@ describe('previewMove after the week has paged', () => {
       OPTIONS,
     );
     expect(preview.date).toBe('2026-08-13');
+  });
+});
+
+// A GAP is dragged like a padlocked row and resized like a stretch, with two differences the ghost
+// has to get right: its DAY is as literal as its minute, and its bottom edge sizes the absence.
+describe('the two gestures on an ABSENCE', () => {
+  /** Friday, so a roll would have somewhere to go. Its absence is the point of these cases. */
+  const FRIDAY: WeekDay = day('2026-08-14', { role: 'buffer', weekday: 5 });
+  const WEEK = [THURSDAY, FRIDAY, SATURDAY];
+  const options = {
+    dayAt: (date: string): WeekDay | undefined => WEEK.find((candidate) => candidate.date === date),
+    days: (): readonly WeekDay[] => WEEK,
+    rowsOn: (): readonly AimRow[] => [],
+  };
+
+  it('is refused on a past day, which is where the server answers `drop-onto-past-day`', () => {
+    const frozen = day('2026-08-13', { isPast: true });
+    const session = pressOn('move', 10 * 60, gapTarget());
+    session.grabOffsetMinutes = 0;
+    const preview = previewMove({ clientX: 260, clientY: yOf(12 * 60) }, session, METRICS, {
+      dayAt: () => frozen,
+      days: (): readonly WeekDay[] => [frozen],
+      rowsOn: (): readonly AimRow[] => [],
+    });
+    expect(preview.allowed).toBe(false);
+  });
+
+  /** Released at `release` with the pointer on Thursday's column, the unit grabbed at its start. */
+  const release = (releaseMinutes: number, over: Partial<GapDragTarget['gap']> = {}) => {
+    const session = pressOn('move', 10 * 60, gapTarget(over));
+    session.grabOffsetMinutes = 0;
+    return previewMove({ clientX: 260, clientY: yOf(releaseMinutes) }, session, METRICS, options);
+  };
+
+  it('keeps the minute it was released on, and asks for the padlock that goes with it', () => {
+    const preview = release(12 * 60);
+    expect(preview).toMatchObject({ date: '2026-08-13', startMinutes: 12 * 60, pinned: true });
+  });
+
+  it('is stored from the first minute that can hold work when it is aimed at the comida', () => {
+    // Nothing happens during the break by definition, so the whole band means 15:30 — the same
+    // reading `segmentDroppedRow` gives it on the way in.
+    for (const aim of [14 * 60, 14 * 60 + 30, 15 * 60 + 15]) {
+      expect(release(aim).startMinutes, `aimed at ${aim}`).toBe(15 * 60 + 30);
+    }
+  });
+
+  it('is CLAMPED at the end of the day rather than carried to the next one', () => {
+    // A block padlocked and released here rolls to Friday (see the case above). An absence must not:
+    // the owner named the day the machine broke, so the clamp is the smaller surprise.
+    const preview = release(18 * 60, { durationMinutes: 6 * 60 });
+    expect(preview.date).toBe('2026-08-13');
+    expect(preview.startMinutes).toBe(13 * 60);
+    expect(preview.clamped).toBe(true);
+    expect(preview.rolled).toBe(false);
+  });
+
+  it('pins on a Monday-to-Thursday day too, where a block would only take a rank', () => {
+    // A gap is not in the queue, so there is no rank for it to take.
+    expect(release(9 * 60).pinned).toBe(true);
+  });
+
+  it('sizes the whole absence from its own start, across the comida', () => {
+    // The unit starts at 10:00; released on 17:30 that is 10:00-14:00 plus 15:30-17:30.
+    const session = pressOn('resize', 12 * 60, gapTarget());
+    expect(previewResize({ clientY: yOf(17 * 60 + 30) }, session, METRICS, options).durationMinutes).toBe(
+      6 * 60,
+    );
+  });
+
+  it("stops at the end of the day's last manual window, margin included", () => {
+    // From 10:00 the day holds 4 h before the comida and 5 h after it, margin and all.
+    const session = pressOn('resize', 12 * 60, gapTarget());
+    expect(previewResize({ clientY: yOf(22 * 60) }, session, METRICS, options).durationMinutes).toBe(
+      9 * 60,
+    );
   });
 });

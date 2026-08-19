@@ -15,7 +15,7 @@ import { netMinutesOf } from '../../lib/manualWindow';
 import { fillStartFor, planDropSpill, spillByDay, type SpillDay } from '../../lib/dropSpill';
 import type { CloseDayInput, CloseDayRequest } from '../../lib/closeDay';
 import { closeDayAfter, closeDayInputFor } from './closeDayOffer';
-import type { Gap } from '../../types';
+import type { Gap, GapUnit } from '../../types';
 import type { WeekBlock, WeekDay, WeekView } from '../../lib/api-client';
 import { CalendarBlock } from './CalendarBlock';
 import {
@@ -35,14 +35,17 @@ import {
   dropPredecessor,
   footprintEnd,
   footprintWithinDay,
+  gapDropEffect,
   resolveDropPreview,
   type DropEffect,
   type DropResolution,
+  type GapEffect,
   type QueueRow,
 } from './dropEffect';
 import {
   buildRuns,
   gapSegmentsOf,
+  gapUnitOf,
   groupBlocks,
   groupGaps,
   packDay,
@@ -52,7 +55,7 @@ import {
   type GapGroup,
 } from './grouping';
 import { EDGE_ZONE_PX, type EdgeHold, type EdgeSide } from './edgePaging';
-import { usePressHint, type DragController, type DragTarget, type InertReason } from './useBlockDrag';
+import type { BlockDragTarget, DragController, GapDragTarget } from './useBlockDrag';
 import styles from './WeekGrid.module.css';
 
 /** A fragment waiting for the click that says where it goes. */
@@ -104,18 +107,17 @@ export interface WeekGridProps {
   placing: PlacingFragment | null;
   onPlace: (slot: { date: string; startMinutes: number }) => void;
   onOpenJob: (projectId: string) => void;
-  /** Wired only when the gap form exists; without it gaps are labels. */
-  onOpenGap?: (gap: Gap) => void;
+  /**
+   * The KEYBOARD's way into a gap's form (Enter or Space). The pointer's click goes through the drag
+   * layer instead, exactly like a block's, so one press can never answer twice. Wired only when the
+   * gap form exists; without it a gap is a label — which can still be dragged.
+   */
+  onOpenGap?: (unit: GapUnit) => void;
   onToggleLock: (block: WeekBlock) => void;
   /** "Stop the day here": opens the gap form pre-filled. Wired only when that form exists. */
   onCloseDay?: (request: CloseDayRequest) => void;
   onSplit: (block: WeekBlock) => void;
   onDelete: (block: WeekBlock) => void;
-  /**
-   * A press the grid cannot turn into a gesture, saying why. The TARGET is optional because
-   * neither of these two is about a row; a block's own inert presses arrive via `onInert`.
-   */
-  onPressHint: (reason: InertReason, target?: DragTarget) => void;
   metricsRef: React.MutableRefObject<(() => GridMetrics | null) | null>;
   settle: SettleRequest | null;
   onSettled: () => void;
@@ -135,7 +137,6 @@ export function WeekGrid({
   onCloseDay,
   onSplit,
   onDelete,
-  onPressHint,
   metricsRef,
   settle,
   onSettled,
@@ -146,10 +147,6 @@ export function WeekGrid({
   // The visible box: the grid can be WIDER and scroll inside it on a narrow window, which is
   // why the edge zones are measured from the frame. See `GridMetrics.frame`.
   const frameRef = useRef<HTMLDivElement | null>(null);
-  // Which hint a gap arms depends on why it cannot be dragged right now.
-  const onPressGap = usePressHint(() => onPressHint('gap'));
-  // Travelled or not: while a save is in flight there is no click to fall back on.
-  const onPressGapBusy = usePressHint(() => onPressHint('busy'), true);
 
   const measure = useCallback((): GridMetrics | null => {
     const root = gridRef.current;
@@ -293,7 +290,7 @@ export function WeekGrid({
       date: preview.date,
       startMinutes: preview.startMinutes,
       durationMinutes: preview.durationMinutes,
-      movingBlockIds: target.blockIds,
+      movingBlockIds: target.rowIds,
     });
   }, [drag.preview, drag.target, planDrop]);
 
@@ -316,7 +313,7 @@ export function WeekGrid({
     if (day === undefined || day.isPast) return null;
     if (
       dropPins({
-        locked: false,
+        fixed: false,
         role: day.role,
         periods: day.periods,
         manualWindows: day.manualWindows,
@@ -351,7 +348,7 @@ export function WeekGrid({
       const literal =
         day === undefined ||
         dropPins({
-          locked: false,
+          fixed: false,
           role: day.role,
           periods: day.periods,
           manualWindows: day.manualWindows,
@@ -450,8 +447,6 @@ export function WeekGrid({
               placingGhost={placingGhost}
               onOpenJob={onOpenJob}
               onOpenGap={onOpenGap}
-              onPressGap={onPressGap}
-              onPressGapBusy={onPressGapBusy}
               onToggleLock={onToggleLock}
               onCloseDay={onCloseDay}
               onSplit={onSplit}
@@ -619,11 +614,8 @@ interface DayColumnProps {
   /** The fragment's hours as the reflow will lay them out, or `null` where it lands literally. */
   placingGhost: GhostPlan | null;
   onOpenJob: (projectId: string) => void;
-  onOpenGap?: (gap: Gap) => void;
-  /** Arms the "a gap is not dragged" hint. One handler for every gap on the grid. */
-  onPressGap: (event: React.PointerEvent) => void;
-  /** The same, for a gap pressed while a save is in flight: it says "wait" instead. */
-  onPressGapBusy: (event: React.PointerEvent) => void;
+  /** The keyboard's way into a gap's form; the pointer's goes through the drag layer. */
+  onOpenGap?: (unit: GapUnit) => void;
   onToggleLock: (block: WeekBlock) => void;
   onCloseDay?: (request: CloseDayRequest) => void;
   onSplit: (block: WeekBlock) => void;
@@ -652,8 +644,6 @@ function DayColumn({
   placingGhost,
   onOpenJob,
   onOpenGap,
-  onPressGap,
-  onPressGapBusy,
   onToggleLock,
   onCloseDay,
   onSplit,
@@ -687,25 +677,46 @@ function DayColumn({
   const resolution = useMemo<DropResolution | null>(() => {
     // Nothing to promise about a drop that will not be accepted; a resize touches its own row.
     if (preview === null || !preview.allowed || preview.kind !== 'move') return null;
-    if (drag.target === null) return null;
+    // An ABSENCE is answered for by `gapEffect` below: the server resolves it with a different
+    // vocabulary — no slide, no merge, no cut — so this resolver has nothing true to say about one.
+    if (drag.target === null || drag.target.kind !== 'block') return null;
     return resolveDropPreview({
       rows: groups.flatMap((group) => group.blocks),
       // Gaps are occupancy too: what a drop is refused by, or slid past.
       gaps,
-      movingBlockIds: drag.target.blockIds,
+      movingBlockIds: drag.target.rowIds,
       projectId: drag.target.projectId,
       dayIsWeekend: day.isWeekend,
       // The gesture asked the whole pin question, day AND slot. See `DragPreview.pinned`.
       pinned: preview.pinned === true,
       // The engine lays this day out, so a collision here can never refuse the drop.
       dayReflows: dayReflowsOn(day),
-      locked: drag.target.locked,
+      locked: drag.target.fixed,
       // Measured against this day's MANUAL WINDOWS, the same view the server cuts the drop over.
       manualWindows: day.manualWindows,
       startMinutes: preview.startMinutes,
       durationMinutes: preview.durationMinutes,
     });
   }, [preview, drag.target, groups, gaps, day]);
+
+  /**
+   * The same question for an absence, and for BOTH its gestures: what the save will refuse over, or
+   * push aside. A gap is never slid and never merged, so there is no minute to settle either — the
+   * one it was released on is the one that is stored. A resize is asked too, because growing an
+   * absence over a padlocked row is refused exactly as dragging it there is, and the footprint is
+   * the same shape either way: the unit's start and the gesture's net minutes.
+   */
+  const gapEffect = useMemo<GapEffect | null>(() => {
+    if (preview === null || !preview.allowed) return null;
+    if (drag.target?.kind !== 'gap') return null;
+    return gapDropEffect({
+      rows: groups.flatMap((group) => group.blocks),
+      dayIsWeekend: day.isWeekend,
+      manualWindows: day.manualWindows,
+      startMinutes: preview.startMinutes,
+      durationMinutes: preview.durationMinutes,
+    });
+  }, [preview, drag.target, groups, day]);
 
   /** A rank, not a place: `ghost` is non-null exactly when the drop is a queue rank. */
   const ranked = ghost !== null;
@@ -730,6 +741,21 @@ function DayColumn({
 
   /** What the drop will do to the row underneath: a cut, a displacement, a merge, a refusal. */
   const dropEffect: DropEffect | null = resolution?.effect ?? null;
+
+  /**
+   * The ONE sentence the ghost prints about what it lands on, whichever gesture is in the air. Two
+   * vocabularies, because the server has two: a block's drop cuts, merges or is blocked; an absence
+   * is refused or pushes work forward.
+   */
+  const effectSentence =
+    dropEffect !== null
+      ? { key: DROP_EFFECT_KEYS[dropEffect.kind], name: dropEffect.projectName }
+      : gapEffect !== null
+        ? { key: GAP_EFFECT_KEYS[gapEffect.kind], name: gapEffect.projectName }
+        : null;
+
+  /** Nothing will be saved: a forbidden day, or something in the footprint that will not move. */
+  const denied = dropEffect?.kind === 'blocked' || gapEffect?.kind === 'blocked';
 
   /**
    * The rectangles the ghost is drawn as: one per row the gesture will be STORED as, for a move
@@ -896,11 +922,19 @@ function DayColumn({
          * The same view the block grouping was read over. A gap's duration is net working minutes, so
          * a gap across the comida is TWO rows, drawn joined with the seam and the `sigue…` marks
          * exactly as a job cut there is — one unit, one reason, one lane.
+         *
+         * AND IT IS DRAGGED, like a padlocked row: the whole UNIT moves, it lands on the minute it
+         * was released and only a press that TRAVELS moves it — a plain click opens the form.
          */}
         {gapSegmentsOf(gapGroups, day.manualWindows).map((segment) => {
           const { gap, group, isFirst, isLast, seamAbove, seamBelow } = segment;
           const lane = lanes.get(group.id) ?? SINGLE_LANE;
           const label = format.dayTimeHours(gap.date, gap.startMinutes, gap.durationMinutes);
+          // The absence, not this row: both gestures and the form address the unit.
+          const gapTarget = gapTargetFor(group, gapColor);
+          // Same order as a block's: the past is a stronger rule than a save in flight. A CLICK
+          // still opens the form on both, which is how a past absence is corrected.
+          const inert = day.isPast ? ('past' as const) : busy ? ('busy' as const) : undefined;
           const style = {
             '--ww-gap-color': gapColor,
             top: `${timeline.yOf(gap.startMinutes)}px`,
@@ -919,6 +953,7 @@ function DayColumn({
             isLast ? styles.gapLast : '',
             seamAbove ? styles.gapContinued : '',
             seamBelow ? styles.gapContinuesBelow : '',
+            drag.liftedRowIds.includes(gap.id) ? styles.gapLifted : '',
           ]
             .filter(Boolean)
             .join(' ');
@@ -939,32 +974,56 @@ function DayColumn({
             : seamBelow
               ? t('block.markContinuesBelow')
               : '';
-          const facts = [group.reason, label, seamHint].filter((line) => line !== '');
+          // A gap's whole gesture vocabulary, none of it visible by looking. Withheld on a frozen
+          // day, where the two gestures are refused and only the form is left.
+          const gestures = day.isPast
+            ? [t('day.frozenHint')]
+            : [t('grid.gapDrag'), isLast ? t('grid.gapResize') : '', t('grid.gapOpens')];
+          const facts = [group.reason, label, seamHint, ...gestures].filter((line) => line !== '');
 
-          return onOpenGap === undefined ? (
-            <div key={gap.id} className={className} style={style} title={facts.join('\n')}>
-              {body}
-            </div>
-          ) : (
-            <button
+          return (
+            <div
               key={gap.id}
-              type="button"
-              className={`${className} ${styles.gapButton}`}
+              className={className}
               style={style}
-              // The last line is a gap's whole gesture vocabulary: it opens, it does not drag.
-              title={[...facts, t('grid.gapOpensHint')].join('\n')}
-              // `aria-disabled`, not `disabled`: a disabled button takes the press and drops it
-              // — no form, no drag, no message. The form is still withheld; the press says why.
-              aria-disabled={busy}
-              // A press that turns into a drag has nothing to start here, so it says so. While
-              // busy the same handler answers every press. See `usePressHint`.
-              onPointerDown={busy ? onPressGapBusy : onPressGap}
-              onClick={() => {
-                if (!busy) onOpenGap(gap);
-              }}
+              title={facts.join('\n')}
+              /*
+               * A DIV rather than a BUTTON, and the click comes from the drag layer: `begin`'s
+               * `preventDefault` does not stop a button firing its own click, so a press that did
+               * not travel would open the form twice — once natively and once as `onClick`. The
+               * keyboard has no press to own, so it goes straight to the form.
+               */
+              role={onOpenGap === undefined ? undefined : 'button'}
+              tabIndex={onOpenGap === undefined ? undefined : 0}
+              onPointerDown={(event) => drag.beginMove(event, gapTarget, { inert })}
+              onKeyDown={
+                onOpenGap === undefined
+                  ? undefined
+                  : (event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      onOpenGap(gapTarget.gap);
+                    }
+              }
             >
               {body}
-            </button>
+              {/*
+               * The bottom edge, on the LAST row of the unit only: an absence has ONE duration,
+               * measured from its own start, so that edge is the only one that is its END. It sizes
+               * ABSOLUTELY — there is no job to hand hours to, so nothing is ever asked — and this
+               * is no exception to «the padlock holds the length»: that rule is about rows the
+               * ENGINE lays out, and a gap never is one.
+               */}
+              {!isLast || day.isPast ? null : (
+                <div
+                  className={styles.gapResize}
+                  role="separator"
+                  aria-label={t('grid.gapResize')}
+                  title={t('grid.gapResizeHint')}
+                  onPointerDown={(event) => drag.beginResize(event, gapTarget, { inert })}
+                />
+              )}
+            </div>
           );
         })}
 
@@ -993,7 +1052,7 @@ function DayColumn({
               blockWidth={columnWidth === null ? null : columnWidth / lane.lanes - 4}
               overflow={isOverflow(segment.group, day)}
               frozen={day.isPast}
-              lifted={drag.liftedBlockIds.includes(segment.block.id)}
+              lifted={drag.liftedRowIds.includes(segment.block.id)}
               cutAtMinutes={
                 dropEffect?.kind === 'cut' && dropEffect.blockId === segment.block.id
                   ? dropEffect.cutMinutes
@@ -1052,7 +1111,7 @@ function DayColumn({
                 // hours land in — asked of the whole gesture, never of this column.
                 index === 0 && carriesLabel ? '' : styles.ghostContinued,
                 // A refusal is drawn like a forbidden day: the save writes nothing either way.
-                gesture.allowed && dropEffect?.kind !== 'blocked' ? '' : styles.ghostDenied,
+                gesture.allowed && !denied ? '' : styles.ghostDenied,
               ]
                 .filter(Boolean)
                 .join(' ')}
@@ -1131,9 +1190,9 @@ function DayColumn({
                       {t('grid.dropSlid', { time: format.time(ghostStartMinutes) })}
                     </span>
                   )}
-                  {dropEffect === null ? null : (
+                  {effectSentence === null ? null : (
                     <span className={styles.ghostEffect}>
-                      {t(DROP_EFFECT_KEYS[dropEffect.kind], { name: dropEffect.projectName })}
+                      {t(effectSentence.key, { name: effectSentence.name })}
                     </span>
                   )}
                 </div>
@@ -1229,6 +1288,15 @@ const DROP_EFFECT_KEYS: Record<DropEffect['kind'], string> = {
   gap: 'grid.dropOnGap',
 };
 
+/**
+ * The same for an ABSENCE, and the words are its own: the sentences above are about a block landing
+ * on something, and «se unirá» or «se queda en la hora exacta» are not things a gap does.
+ */
+const GAP_EFFECT_KEYS: Record<GapEffect['kind'], string> = {
+  blocked: 'grid.gapBlocked',
+  displace: 'grid.gapDisplaces',
+};
+
 interface WeekLayout {
   groups: Map<string, BlockGroup[]>;
   gaps: Map<string, Gap[]>;
@@ -1287,10 +1355,11 @@ function buildLayout(view: WeekView): WeekLayout {
  * What a press on this unit picks up: the whole RUN it belongs to. The unit on screen is where
  * the gesture STARTS — what the outcome sentence is measured against — but the run is what MOVES.
  */
-function targetFor(group: BlockGroup, day: WeekDay, run: BlockRun): DragTarget {
+function targetFor(group: BlockGroup, day: WeekDay, run: BlockRun): BlockDragTarget {
   const first = group.blocks[0];
   const last = group.blocks[group.blocks.length - 1];
   return {
+    kind: 'block',
     groupId: group.id,
     projectId: group.projectId,
     name: first.project.name,
@@ -1298,9 +1367,30 @@ function targetFor(group: BlockGroup, day: WeekDay, run: BlockRun): DragTarget {
     date: day.date,
     startMinutes: group.startMinutes,
     durationMinutes: run.totalMinutes,
-    blockIds: run.blockIds,
+    rowIds: run.blockIds,
     blockId: last.id,
-    locked: group.locked,
+    // A padlocked unit is fixed by itself: it lands on the minute it is released, on any day.
+    fixed: group.locked,
+  };
+}
+
+/**
+ * What a press on a gap picks up: the whole ABSENCE. `fixed` is unconditional — a gap lands on the
+ * minute it was released, on every day, because it is not in the queue and there is no rank for it
+ * to take. Both halves around the comida travel in `rowIds`, so neither is an obstacle to the drag.
+ */
+function gapTargetFor(group: GapGroup, gapColor: string): GapDragTarget {
+  const unit = gapUnitOf(group);
+  return {
+    kind: 'gap',
+    groupId: group.id,
+    gap: unit,
+    color: gapColor,
+    date: unit.date,
+    startMinutes: unit.startMinutes,
+    durationMinutes: unit.durationMinutes,
+    rowIds: group.gaps.map((row) => row.id),
+    fixed: true,
   };
 }
 

@@ -59,7 +59,7 @@ Enable quick visual reorganization via drag & drop.
     ordinary block: surrounding unlocked work reflows around it, and placement by hand changes the
     *order*, not the block's mobility.
 
-- **Gap** (id, date, start_time, duration, reason, created_at, updated_at)
+- **Gap** (id, date, start_time, duration, reason, unit_id, created_at, updated_at)
   - A **break/hole** in the schedule (admin, maintenance, machine breakdown).
   - `reason`: Optional text. Can be empty.
   - All gaps share one visual colour (configurable in Settings).
@@ -68,6 +68,15 @@ Enable quick visual reorganization via drag & drop.
   - `duration` is **NET WORKING MINUTES, exactly like a block's** (changed 2026-08-19), and **a stored
     gap row never straddles a non-working interval** either — so the invariant holds for EVERY row in
     the app and `start_time + duration` is any row's clock extent — see *Blocks and the Lunch Break*.
+  - `unit_id`: **which rows are ONE ABSENCE.** The two halves around the comida share one and carry
+    one reason between them, and **ANY ROW OF A UNIT ADDRESSES THE UNIT** — a PATCH and a DELETE both
+    mean the whole absence, whichever row they name. It cannot be the reason text: `deleteProject`
+    writes the same sentence on every past row, so two absences that merely touch would fuse.
+  - **An absence is fully described by (date, start, NET duration)** — the same shape a block's resize
+    edits — which is what lets one form and two gestures all mean the same thing. A screen that hands
+    any of them ONE ROW'S duration is claiming the absence is that long; see *Gap Management*.
+  - **In engine terms a gap was always a padlocked task** — fixed occupancy, consumes plannable hours,
+    never recomposed — so it now has the two gestures a padlocked block has: see *Gap Management*.
 
 **ONE MARK AND NO MORE.** A row stops reflowing for exactly one reason, visible on it and undone by
 pressing it: the **padlock** (`locked`). It fixes the row ENTIRE — where it sits *and* how long it is,
@@ -397,9 +406,10 @@ straddling the lunch break; the remainder goes back to `compose` from the follow
 nothing): where the hours really start, the rows they would occupy, what is already sitting across
 the whole span, whether every row would come back locked, and which days are free instead.
 
-### The Past is Frozen — And Read-Only To The Block Gestures
+### The Past is Frozen — And Read-Only To The GRID Gestures
 > **The past is the RECORD of what the shop did. The engine never writes there, and neither does a
-> block gesture: no drag, no resize, no split, no delete, and the padlock stops meaning anything.**
+> grid gesture: no drag, no resize, no split, no delete, and the padlock stops meaning anything. A
+> FORM still reaches it — that is how a mis-recorded day is corrected.**
 
 - The engine **never writes to a date earlier than today**. Past days render dimmed, keep no hover
   action bar, and are not a drop target — at either end: a past row cannot be dragged (409
@@ -417,6 +427,11 @@ the whole span, whether every row would come back locked, and which days are fre
 - **A padlock a row carried into the past simply stays**, and toggling it is refused: it changes
   nothing the engine reads, since `isMovable` asks the date before it asks the flag. Nothing is
   stranded by that — there is no second mark left to hand back.
+- **A GAP is frozen there the same way** (2026-08-19), at both ends: a past absence is not dragged and
+  not resized (409 `past-gap-frozen`) and none is dragged ONTO a past day (409 `drop-onto-past-day`).
+  The grid draws no bottom-edge handle on one, and the press that proves a drag names the way out —
+  **its own FORM**, not the job panel (`notices.pressOnPastGap`). Editing it there is allowed, exactly
+  as editing a job in its form is, which is what `action` on the PATCH exists to distinguish.
 - **Today is fully re-plannable.** To protect work already started this morning, lock that block.
 
 *(Why, including the two judgement calls: DECISIONS.md § The Past is Frozen.)*
@@ -428,6 +443,10 @@ the whole span, whether every row would come back locked, and which days are fre
 
 Resizing is a **transfer inside the job**, with the job's **last block** as the counterparty.
 `total_hours` does not change unless stated otherwise.
+
+**A GAP's bottom edge is a different gesture and no exception to any of this**: it is ABSOLUTE — it
+just sets the absence's duration — because there is no job to transfer hours to, and the rule above is
+about rows the ENGINE lays out, which a gap never is. See *Gaps Are Dragged And Resized*.
 
 **Why the precondition is the whole shape of the gesture** (decided with the owner, 2026-08-18). On a
 row the engine lays out, a hand-set number cannot survive: shrinking Wednesday grows Thursday, frees
@@ -1012,6 +1031,11 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   whether it will padlock. The ghost is drawn **in segments**, one rectangle per row the gesture will
   be stored as, because one rectangle straight through the grey band promises a shape that will never
   exist. **A RESIZE past the break is drawn the same way.**
+  - **A GAP's two gestures get the same ghost, in its own two sentences** (`gapDropEffect`): the rows
+    the absence will be stored as, and either the job it will push forward (`grid.gapDisplaces`) or
+    the fixed row that will make the save write nothing (`grid.gapBlocked`, drawn denied). A gap is
+    never slid, never merged and never cut, so none of a block's other sentences can be true of one —
+    which is why it has a vocabulary of its own rather than borrowing that table.
   - **And the drawn footprint never leaves the day** (`footprintWithinDay`). `segmentDroppedRow` returns
     a stretch UNCUT when its tail would pass midnight, so the server can refuse the drop as it was
     made — and since the drag unit is the whole RUN, that is the ORDINARY case, not a corner: an 18 h
@@ -1213,9 +1237,11 @@ mutation, added because neither is derivable from geometry:
   for this — it would make `.block` a containment context and trap the outside-docked bar behind its
   neighbour. *Stop the day here* is absent where it would do nothing: on a row that already ends the
   day, on the weekend, on a closed day and in the past.
-- **A gesture that cannot write says so exactly once**, and does not also do something else: a press
-  that proves a drag on a gap explains that gaps are not dragged AND swallows the click that would
-  otherwise open the gap form.
+- **A gesture that cannot write says so exactly once**, and does not also do something else. **A GAP
+  now has both gestures** (*Gaps Are Dragged And Resized*), so what is left to say is why one of them
+  cannot run right now — a save in flight, a frozen day — and the CLICK still happens, the form being
+  a read. It is a `div role="button"`, not a `<button>`: `preventDefault` on a pointer-down does not
+  stop a button firing its own click, so a press that did not travel would open the form twice.
 
 #### One Axis Per Gesture
 > **A gesture is resolved against the axis as it was WHEN THE POINTER WENT DOWN. Only the grid's
@@ -1271,10 +1297,52 @@ minute by minute, at several fitted scales — never at sample points.
   over `start + duration` instead, 8 h from 10:00 tests `10:00-18:00`, names rows in the comida where
   nothing can be, and MISSES the padlocked `18:00-19:30` its real second half lands on.
 - **Create in one click**: *stop the day here* from a block's action bar.
-- **Edit**: modify any field; the result is tested and cut exactly as a create is. A PATCH edits **one
-  row**, so editing one half of a gap leaves the other where it is. **Delete**: frees up time;
-  recomposition runs if needed.
-- **Gaps are not dragged.** Pressing one opens its form; a press that travels says so.
+- **Edit**: modify any field; the result is tested and cut exactly as a create is. **A PATCH ADDRESSES
+  THE WHOLE UNIT**, whichever of its rows it names: the duration defaults to the SUM of the unit's
+  rows and the rows the edit becomes are reconciled against the rows it has — updated, inserted or
+  DELETED. **Delete**: takes the whole unit too; it frees up time and recomposition runs if needed.
+- **The FORM edits the absence, never one of its rows.** It is handed (date, start, NET total) for the
+  unit. Handed one half instead, opening the `08:00 +6 h` morning of a 10 h absence and pressing
+  Guardar sent `durationMinutes: 360` for the whole unit and the reconcile deleted the afternoon —
+  4 h destroyed by a save that changed nothing (measured 2026-08-19). `gapUnitOf` in `grouping.ts` is
+  the one place the absence is derived from what is on screen.
+- **The form is the only gesture that reaches a PAST day**, which is how a mis-recorded absence is
+  corrected. The two below are frozen there.
+
+#### Gaps Are Dragged And Resized
+> **REVERSES *«Gaps are not dragged. Pressing one opens its form; a press that travels says so»*
+> (2026-08-19). A gap already WAS a padlocked task to the engine; what it lacked was the two gestures
+> a padlocked block has. A plain CLICK still opens the form — only a press that TRAVELS drags.**
+
+- **The drag is a LITERAL placement**, like a padlocked row: the absence lands on the minute it was
+  released and is cut at the comida. **Never a queue rank — a gap is not in the queue**, so there is
+  no rank for it to take and `dropLandsLiterally` answers `fixed` for it on every day.
+- **The WHOLE UNIT moves.** Both halves travel; the far one is created or deleted by the same
+  transaction, since the absence is (day, start, net duration) and nothing else.
+- **A release aimed at a minute no window covers starts at the first minute that can hold work** —
+  the same rule a block's drop follows (*A Minute With No Working Time*), so a gap aimed anywhere in
+  the comida is stored from 15:30 and the drop SAYS so (`notices.gapMovedTo`).
+- **Its DAY is as literal as its minute, so it is never carried to another one.** A footprint the day
+  cannot hold is CLAMPED to the latest start that fits (`resolveDropDay`'s `rolls: false`), exactly
+  like a weekend drop: the owner named the day the machine broke, and moving an absence to Thursday
+  would be a bigger surprise than the clamp.
+- **The resize (bottom edge) is ABSOLUTE, not a transfer**: it just sets the duration. There is no job
+  to hand hours to, so **`shrink-needs-choice` can never appear on a gap**. It is counted in net
+  working minutes, it CROSSES THE COMIDA — absorbing or creating the far half — and it clamps at the
+  end of the day's last manual window. **This is not an exception to *the padlock holds the length***:
+  that rule is about rows the ENGINE lays out, and a gap never is one.
+- **The handle is on the LAST row of the unit only.** An absence has ONE duration, measured from its
+  own start, so that row's bottom edge is the only edge that is its END.
+- **The refusals are the ones a gap already had**, now reachable from two more gestures: a footprint
+  over a row the engine cannot move is refused naming it (`gapOverLockedBlock` /
+  `gapOverWeekendBlock` / `gapOverPastBlock`), and on Mon-Thu unlocked work is pushed forward. A gap
+  is never SLID and never MERGED — two gaps that touch keep their reasons and stay two.
+- **NEITHER GESTURE CONFIRMS.** A drag and a resize are direct manipulation: the ghost drew the rows
+  and what they would displace, and the result is on screen. Only bulk creation warns.
+- **The past is read-only to both** — see *The Past is Frozen*.
+- **`action` is what tells the server which gesture is asking** (`edit` | `move` | `resize`, absent =
+  `edit`), because a drag and a form save send the same three fields. Without it the past could not be
+  frozen to the gestures while staying open to the form.
 
 ### Settings
 Work periods, auto-fill capacity, visual margins, planning horizon, gap colour, language.
@@ -1474,20 +1542,27 @@ The reproductions are in DECISIONS.md § *Reproductions behind the Open Decision
 
 ## Current Project Status
 
-**v0.15 (current).** The engine, the API, the week view, the gestures and the drag layer are built
-and green: `tsc --noEmit` clean, `vitest run` **903 passing across 30 files** (including five
+**v0.16 (current).** The engine, the API, the week view, the gestures and the drag layer are built
+and green: `tsc --noEmit` clean, `vitest run` **935 passing across 30 files** (including five
 2000-seed property harnesses over placement, manual placement, drops, editing and shrinking — the
 placement one generating off-grid quantities on a quarter of its calendars, which is where the
 quarter-hour floor is really at risk, and asserting strict order on EVERY seed since the hand-set
 duration was deleted), `next lint` clean, `next build` clean.
 
-**NO STORED ROW STRADDLES THE COMIDA ANY MORE — gaps included.** A gap's `duration` became NET working
+**A GAP IS DRAGGED AND RESIZED** (2026-08-19). It was already a padlocked task to the engine; now it has
+the two gestures one has. The drag is a literal placement of the whole UNIT, cut at the comida, never
+rolled to another day; the bottom edge of the unit's last row sets the absence's duration ABSOLUTELY and
+crosses the comida; a plain click still opens the form; and the past is read-only to both while the form
+still reaches it. `DragTarget` is a union (`kind: 'block' | 'gap'`) over one drag controller, so *One
+Axis Per Gesture* has one implementation. **A defect the round fixed before building on it**: the form
+was being handed one ROW of a comida-crossing absence, so opening its morning half and pressing Guardar
+destroyed 4 of its 10 hours.
+
+**NO STORED ROW STRADDLES THE COMIDA — gaps included.** A gap's `duration` became NET working
 minutes on 2026-08-19, so a gap is cut at the break like everything else, its two halves are ONE unit on
 screen, and the one row in the app that could span a break is gone. The four `08:00 +11,5 h` Feria rows
 in the shop's file are split by a one-shot data migration (`data_migrations`, the first of its kind:
-`PRAGMA table_info` cannot see a change of MEANING). **The gestures are not built** — a gap still opens
-its form rather than dragging — see DECISIONS.md § *Gaps Are Cut At The Comida Too* for what the round
-deliberately left for later.
+`PRAGMA table_info` cannot see a change of MEANING).
 
 **A row carries ONE mark, the padlock.** `manual_duration` was deleted on 2026-08-18 with every rule
 that held it up, and the bottom edge now sizes only a row the engine does not lay out. That is the

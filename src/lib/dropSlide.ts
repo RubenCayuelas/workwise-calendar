@@ -66,8 +66,11 @@ export function firstClearStart(input: DropSlideInput): number | null {
 // ---------------------------------------------------------------------------
 
 export interface DropPin {
-  /** The row being dragged already carries a padlock, so it lands wherever it is released. */
-  locked: boolean;
+  /**
+   * The thing being dragged is fixed BY ITSELF, so it lands wherever it is released whatever day
+   * that is: a row carrying a padlock, or a GAP, which is fixed occupancy by definition.
+   */
+  fixed: boolean;
   /** `auto` Mon-Thu, `buffer` Friday, `manual` Sat/Sun. */
   role: DayRole;
   /** The day's WORKING periods: the minutes auto-fill may use, margins excluded. */
@@ -85,12 +88,15 @@ export interface DropPin {
  * (`dropPins`) and by `dropLanding` below.
  *
  * Two reasons, both "the reflow's only answer here would be to undo the gesture": the DAY (the
- * buffer, the weekend, or a row already padlocked) and the SLOT (a start in manual-only time — a
+ * buffer, the weekend, or a thing already fixed) and the SLOT (a start in manual-only time — a
  * visual margin, whose minutes the engine's index space does not hold). The slot is read at the
  * START, not across the footprint: minutes past the periods are hours the reflow carries onward.
+ *
+ * A GAP answers `fixed` and is therefore always literal; nothing else about it is different, which
+ * is the whole reason it can be dragged at all.
  */
 export function dropLandsLiterally(input: DropPin): boolean {
-  if (input.locked || input.role !== 'auto') return true;
+  if (input.fixed || input.role !== 'auto') return true;
   return startsInManualOnlyTime(
     input.periods,
     firstWorkingMinute(input.manualWindows, input.startMinutes),
@@ -127,10 +133,10 @@ export interface DropLandingInput {
   durationMinutes: number;
   dayOf: (date: string) => DropDay;
   /**
-   * The row being dragged is already padlocked, so it lands literally on any day and its
-   * footprint has to fit. Defaults to false — an unlocked row.
+   * The thing being dragged is fixed by itself, so it lands literally on any day and its footprint
+   * has to fit. Defaults to false — an unlocked row.
    */
-  locked?: boolean;
+  fixed?: boolean;
   /** How far forward to look for a day that can hold it. */
   maxDays?: number;
 }
@@ -162,7 +168,7 @@ export function dropLanding(input: DropLandingInput): DropLanding {
   // A queue rank has no footprint to fit: the reflow fills what the day has left and carries the
   // rest forward, so there is nothing here for another DATE to solve.
   const literal = dropLandsLiterally({
-    locked: input.locked ?? false,
+    fixed: input.fixed ?? false,
     role: here.role,
     periods: here.periods,
     manualWindows: here.manualWindows,

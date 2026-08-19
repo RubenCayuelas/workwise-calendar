@@ -17,7 +17,7 @@ import { DEFAULT_LANGUAGE } from './i18n';
 // nothing from the server module (which opens SQLite) reaches the browser bundle.
 export type { WeekBlock, WeekDay, WeekView } from './operations/views';
 export type { FreedHoursChoice, ScheduleSummary } from './composition';
-export type { Block, DayShape, Gap, Project, Settings, WorkPeriod } from '../types';
+export type { Block, DayShape, Gap, GapUnit, Project, Settings, WorkPeriod } from '../types';
 export type {
   CreationOutcome,
   CreationPreview,
@@ -176,6 +176,12 @@ export interface UpdateGapInput {
   durationMinutes?: number;
   /** `null` clears the reason. */
   reason?: string | null;
+  /**
+   * Which gesture is asking. Omitted means `edit`, the form, which reaches the past; `move` and
+   * `resize` are the grid's two gestures and are refused there. A drag and a form save send the
+   * same fields, so the server cannot tell them apart on its own.
+   */
+  action?: 'edit' | 'move' | 'resize';
 }
 
 /** Every request takes one, so a screen can drop a stale fetch on unmount. */
@@ -589,6 +595,11 @@ export function createGap(
   return send<GapMutation>('POST', '/gaps', definedOnly(input), options);
 }
 
+/**
+ * Edits an absence, whichever of its rows `gapId` names: the two halves around the comida are ONE
+ * gap, so an omitted `durationMinutes` defaults to their SUM and sending one half's duration would
+ * claim the whole absence is that long.
+ */
 export function updateGap(
   gapId: string,
   input: UpdateGapInput,
@@ -600,6 +611,33 @@ export function updateGap(
     definedOnly(input),
     options,
   );
+}
+
+/**
+ * The grid's drag: an absence lands on the minute it was released, cut at the comida — a LITERAL
+ * placement, never a queue rank, because a gap is not in the queue. THE STORED START MAY DIFFER
+ * FROM THE ONE SENT (a release with no working time under it becomes the next minute that has
+ * some), so read `gap` back.
+ */
+export function moveGap(
+  gapId: string,
+  drop: { date: string; startMinutes: number },
+  options?: RequestOptions,
+): Promise<GapMutation> {
+  return updateGap(gapId, { ...drop, action: 'move' }, options);
+}
+
+/**
+ * The grid's bottom edge: the absence's NET working minutes, ABSOLUTE rather than a transfer —
+ * there is no job to hand hours to, so nothing is ever asked and `shrink-needs-choice` cannot
+ * happen here. It crosses the comida, creating or deleting the far half.
+ */
+export function resizeGap(
+  gapId: string,
+  durationMinutes: number,
+  options?: RequestOptions,
+): Promise<GapMutation> {
+  return updateGap(gapId, { durationMinutes, action: 'resize' }, options);
 }
 
 export function deleteGap(

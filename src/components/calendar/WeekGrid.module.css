@@ -587,8 +587,58 @@
   border-bottom-style: dashed;
 }
 
-.gapButton {
-  cursor: pointer;
+/*
+ * A gap is DRAGGED like a padlocked row, so the whole rectangle is a grab surface. `grab` and not
+ * `pointer`: the click that opens its form is the gesture it does when the press does NOT travel,
+ * and the cursor names the bigger of the two.
+ */
+.gap[role='button'] {
+  cursor: grab;
+}
+
+/* The unit is in the air; the ghost says where it will land. Same value a block's `.lifted` uses. */
+.gapLifted {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+/*
+ * The absence's bottom edge, on the LAST row of the unit only — the one edge that is its END. Same
+ * ten pixels as a block's handle, so a reach for a length never lands on the body and becomes a
+ * move, and the same hairline appears on hover so the strip can be SEEN before it is pressed.
+ */
+.gapResize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: min(10px, 34%);
+  min-height: 3px;
+  cursor: ns-resize;
+}
+
+.gapResize::after {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  width: 22px;
+  height: 2px;
+  border-radius: var(--ww-radius-pill);
+  background: var(--ww-border-strong);
+  content: '';
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity var(--ww-duration-fast) ease-out;
+}
+
+.gap:hover .gapResize::after {
+  opacity: 0.7;
+}
+
+/* On the handle itself: full strength, so the owner sees they have ACQUIRED it before they press. */
+.gap:hover .gapResize:hover::after {
+  height: 3px;
+  opacity: 1;
 }
 
 .gapReason {

@@ -13,6 +13,7 @@ import {
   dropPredecessor,
   footprintEnd,
   footprintWithinDay,
+  gapDropEffect,
   resolveDropPreview,
   type DropEffectInput,
   type DropRow,
@@ -448,19 +449,73 @@ describe('dayHoldsMinutes — is there any start on this day that would work?', 
   });
 });
 
+// An absence's own ghost: the server answers a gap with two outcomes and neither is a block's.
+describe('gapDropEffect — what an absence dropped here will do', () => {
+  const at = (
+    startMinutes: number,
+    durationMinutes: number,
+    rows: DropRow[],
+    dayIsWeekend = false,
+  ) =>
+    gapDropEffect({ rows, dayIsWeekend, manualWindows: MANUAL_WINDOWS, startMinutes, durationMinutes });
+
+  it('says nothing over free time', () => {
+    expect(at(10 * 60, 120, [row({ id: 'reja', startMinutes: 8 * 60, durationMinutes: 60 })])).toBeNull();
+  });
+
+  it('names the job it will push forward', () => {
+    expect(
+      at(10 * 60, 120, [row({ id: 'reja', startMinutes: 10 * 60, durationMinutes: 120 })]),
+    ).toEqual({ kind: 'displace', projectName: 'Barandilla' });
+  });
+
+  it('is a REFUSAL over a padlocked row: `gap-over-fixed-block` writes nothing', () => {
+    expect(
+      at(10 * 60, 120, [
+        row({ id: 'reja', startMinutes: 10 * 60, durationMinutes: 120, locked: true, project: { name: 'Reja' } }),
+      ]),
+    ).toEqual({ kind: 'blocked', projectName: 'Reja' });
+  });
+
+  it('is a refusal over ANY row of a weekend day, padlock or not', () => {
+    // `isMovable` says no by the DATE there, so nothing will move out of the way.
+    expect(
+      at(10 * 60, 120, [row({ id: 'reja', startMinutes: 10 * 60, durationMinutes: 120 })], true),
+    ).toEqual({ kind: 'blocked', projectName: 'Barandilla' });
+  });
+
+  it('reports the refusal even when an ordinary row comes first on the clock', () => {
+    expect(
+      at(8 * 60, 6 * 60, [
+        row({ id: 'suelta', startMinutes: 8 * 60, durationMinutes: 60 }),
+        row({ id: 'fija', startMinutes: 12 * 60, durationMinutes: 60, locked: true, project: { name: 'Porton' } }),
+      ]),
+    ).toEqual({ kind: 'blocked', projectName: 'Porton' });
+  });
+
+  it('measures the footprint over the comida, so the far half is judged too', () => {
+    // 4 h from 12:00 is 12:00-14:00 and 15:30-17:30; the row it lands on is in the afternoon.
+    expect(
+      at(12 * 60, 4 * 60, [
+        row({ id: 'tarde', startMinutes: 16 * 60, durationMinutes: 60, locked: true, project: { name: 'Escalera' } }),
+      ]),
+    ).toEqual({ kind: 'blocked', projectName: 'Escalera' });
+  });
+});
+
 // Is the minute under the pointer a promise, or only a place in a queue? Got wrong, the ghost read
 // `09:00–14:00` over Thursday and the row settled on Wednesday at 12:00.
 describe('dropPins — does the row keep the minute it is released on?', () => {
   const day = { periods: PERIODS, manualWindows: MANUAL_WINDOWS, startMinutes: 10 * 60, durationMinutes: 2 * 60 };
 
   it('re-ranks an unlocked unit dropped inside a Monday-to-Thursday period', () => {
-    expect(dropPins({ ...day, locked: false, role: 'auto' })).toBe(false);
+    expect(dropPins({ ...day, fixed: false, role: 'auto' })).toBe(false);
   });
 
   it.each([
-    ['the weekend', { locked: false, role: 'manual' as const }],
-    ['the Friday colchón', { locked: false, role: 'buffer' as const }],
-    ['a locked unit, wherever it lands', { locked: true, role: 'auto' as const }],
+    ['the weekend', { fixed: false, role: 'manual' as const }],
+    ['the Friday colchón', { fixed: false, role: 'buffer' as const }],
+    ['a locked unit or a gap, wherever it lands', { fixed: true, role: 'auto' as const }],
   ])('pins the exact minute on %s', (_name, drop) => {
     expect(dropPins({ ...day, ...drop })).toBe(true);
   });
@@ -468,7 +523,7 @@ describe('dropPins — does the row keep the minute it is released on?', () => {
   it('pins a MONDAY drop whose footprint reaches a visual margin', () => {
     // Read off the DAY alone this is a harmless re-rank, and the server stores it as a pin.
     expect(
-      dropPins({ ...day, locked: false, role: 'auto', startMinutes: 7 * 60, durationMinutes: 60 }),
+      dropPins({ ...day, fixed: false, role: 'auto', startMinutes: 7 * 60, durationMinutes: 60 }),
     ).toBe(true);
   });
 
@@ -477,7 +532,7 @@ describe('dropPins — does the row keep the minute it is released on?', () => {
     // where a Mon-Thu drop is an ordinary rank. A MARGIN still pins — it is workable time.
     for (const startMinutes of [14 * 60, 14 * 60 + 30, 15 * 60 + 29, 15 * 60 + 30]) {
       expect(
-        dropPins({ ...day, locked: false, role: 'auto', startMinutes, durationMinutes: 60 }),
+        dropPins({ ...day, fixed: false, role: 'auto', startMinutes, durationMinutes: 60 }),
         `released at ${startMinutes}`,
       ).toBe(false);
     }

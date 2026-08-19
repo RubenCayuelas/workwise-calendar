@@ -17,7 +17,9 @@ import {
   getProject,
   isApiError,
   moveBlock as apiMoveBlock,
+  moveGap as apiMoveGap,
   resizeBlock as apiResizeBlock,
+  resizeGap as apiResizeGap,
   setBlockLock as apiSetBlockLock,
   splitBlock as apiSplitBlock,
   type BlockMutation,
@@ -27,7 +29,7 @@ import {
   type WeekDay,
   type WeekView,
 } from '../../lib/api-client';
-import type { DayShape, Gap } from '../../types';
+import type { DayShape, GapUnit } from '../../types';
 import type { CloseDayRequest } from '../../lib/closeDay';
 import { PROJECT_COLORS } from '../../lib/projectColors';
 import { manualWindowsOf } from '../../lib/manualWindow';
@@ -41,7 +43,13 @@ import { WeekHeader } from './WeekHeader';
 import { WeekGrid, type PlacingFragment, type SettleRequest } from './WeekGrid';
 import { MIN_SPLITTABLE_MINUTES, SplitBlockDialog } from './SplitBlockDialog';
 import { ResizeChoiceDialog } from './ResizeChoiceDialog';
-import { useBlockDrag, type DragTarget, type InertReason } from './useBlockDrag';
+import {
+  useBlockDrag,
+  type BlockDragTarget,
+  type DragTarget,
+  type GapDragTarget,
+  type InertReason,
+} from './useBlockDrag';
 import { useWeek } from './useWeek';
 import styles from './CalendarScreen.module.css';
 
@@ -71,8 +79,12 @@ export interface NewJobContext {
 }
 
 export interface GapFormContext {
-  /** The gap being edited, or `null` for a new one. */
-  gap: Gap | null;
+  /**
+   * The ABSENCE being edited, or `null` for a new one. The UNIT and never one of its rows: a PATCH
+   * addresses the whole gap, so a form fed the `08:00 +6 h` half of a 10 h absence would save it as
+   * a 6 h one.
+   */
+  gap: GapUnit | null;
   /** *Cerrar el día aquí*: the gap is worked out and only the reason is left to ask for. */
   closeDay: CloseDayRequest | null;
   close: () => void;
@@ -119,9 +131,10 @@ export function CalendarScreen({
 
   const [openJobId, setOpenJobId] = useState<string | null>(null);
   const [newJobOpen, setNewJobOpen] = useState(false);
-  const [gapTarget, setGapTarget] = useState<{ gap: Gap | null; closeDay?: CloseDayRequest } | null>(
-    null,
-  );
+  const [gapTarget, setGapTarget] = useState<{
+    gap: GapUnit | null;
+    closeDay?: CloseDayRequest;
+  } | null>(null);
   const [splitSource, setSplitSource] = useState<WeekBlock | null>(null);
   const [placing, setPlacing] = useState<PlacingFragment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ block: WeekBlock; totalMinutes: number } | null>(null);
@@ -131,7 +144,7 @@ export function CalendarScreen({
    * freed hours. The whole gesture is kept, because the answer re-sends it verbatim.
    */
   const [resizeChoice, setResizeChoice] = useState<{
-    target: DragTarget;
+    target: BlockDragTarget;
     durationMinutes: number;
     freedMinutes: number;
     choices: FreedHoursChoice[];
@@ -208,13 +221,13 @@ export function CalendarScreen({
   // --- Gestures ---
 
   /**
-   * A drop, in ONE request and so one transaction: the whole grouped unit moves, because the
+   * A block's drop, in ONE request and so one transaction: the whole grouped unit moves, because the
    * engine merges consecutive rows of one job into a single queue item. And it ANSWERS FOR
    * ITSELF — a rank lands where the reflow puts it, which on screen looks like a
    * drag the app ignored, so `describeDrop` reads what the server actually stored.
    */
-  const onMove = useCallback(
-    (target: DragTarget, drop: { date: string; startMinutes: number }): void => {
+  const onMoveBlock = useCallback(
+    (target: BlockDragTarget, drop: { date: string; startMinutes: number }): void => {
       /*
        * The week the block was released in is the week left on screen. Everything else about the
        * drop is read at the release; the week the NEXT fetch asks for is not, and edge paging
@@ -223,18 +236,18 @@ export function CalendarScreen({
       week.showWeekOf(drop.date);
 
       setSettle({
-        blockId: target.blockIds[0],
+        blockId: target.rowIds[0],
         date: drop.date,
         startMinutes: drop.startMinutes,
         after: viewRef.current,
       });
 
       void mutate(() =>
-        apiMoveBlock(target.blockIds[0], {
+        apiMoveBlock(target.rowIds[0], {
           date: drop.date,
           startMinutes: drop.startMinutes,
           // The whole unit, named: the server folds the rows into the one it is given.
-          unitBlockIds: target.blockIds,
+          unitBlockIds: target.rowIds,
         }),
       ).then((result) => {
         report(result);
@@ -242,7 +255,7 @@ export function CalendarScreen({
 
         // The row the pointer released, as the LAST transaction left it — read from the
         // mutation, not the refetched week. `null`, the id being gone, is itself an answer.
-        const landed = result.blocks.find((row) => row.id === target.blockIds[0]);
+        const landed = result.blocks.find((row) => row.id === target.rowIds[0]);
         // Every row the gesture's hours ended up on: `placedBlockIds` is routinely more than
         // one now that work fills a day and overflows, and `landed` is only the FIRST of them.
         const placed = spillByDay(
@@ -262,8 +275,9 @@ export function CalendarScreen({
                   locked: landed.locked,
                 },
           merged: result.mergedBlockIds.length > 0,
-          // The unit as it was BEFORE the drag: a padlock it already had is not the drop's doing.
-          wasLocked: target.locked,
+          // The unit as it was BEFORE the drag: a padlock it already had is not the drop's doing,
+          // and for a block being fixed by itself is exactly carrying one.
+          wasLocked: target.fixed,
           // The server says it. Comparing rectangles cannot tell a drop the reflow answered with
           // the calendar the owner already had from one that worked.
           changed: result.changed,
@@ -296,12 +310,49 @@ export function CalendarScreen({
   );
 
   /**
-   * A drag released where nothing can be written — today only the frozen past. Worth saying,
-   * because the owner can still edit that day from the job panel.
+   * An absence's drop: a LITERAL placement, so there is no rank to settle, nothing to say about
+   * where the queue put it and no settle animation to run — the ghost already drew the rows it will
+   * be stored as, at the minute it was released. The ONE thing the owner cannot see coming is the
+   * start moving: a release with no working time under it is stored at the next minute that has
+   * some, so a gap aimed at the comida comes back at 15:30 and says so.
    */
-  const onRejected = useCallback((): void => {
-    toast.warning(t('notices.dropRefusedPast'));
-  }, [t, toast]);
+  const onMoveGap = useCallback(
+    (target: GapDragTarget, drop: { date: string; startMinutes: number }): void => {
+      week.showWeekOf(drop.date);
+      void mutate(() => apiMoveGap(target.gap.id, drop)).then((result) => {
+        if (result === undefined || result.gap.startMinutes === drop.startMinutes) return;
+        toast.info(
+          t('notices.gapMovedTo', {
+            day: format.dayHeader(result.gap.date),
+            time: format.time(result.gap.startMinutes),
+          }),
+        );
+      });
+    },
+    [format, mutate, t, toast, week],
+  );
+
+  /** One drop, two kinds of thing: a job's run takes a queue rank, an absence keeps its minute. */
+  const onMove = useCallback(
+    (target: DragTarget, drop: { date: string; startMinutes: number }): void => {
+      if (target.kind === 'gap') onMoveGap(target, drop);
+      else onMoveBlock(target, drop);
+    },
+    [onMoveBlock, onMoveGap],
+  );
+
+  /**
+   * A drag released where nothing can be written — today only the frozen past. Worth saying, because
+   * the way out exists: a job is corrected from its panel and an absence from its own form. Which
+   * SENTENCE depends on what was in hand — pointing the owner at the job panel for an absence sends
+   * them to a screen that knows nothing about it.
+   */
+  const onRejected = useCallback(
+    (target: DragTarget): void => {
+      toast.warning(t(target.kind === 'gap' ? 'notices.dropRefusedPastGap' : 'notices.dropRefusedPast'));
+    },
+    [t, toast],
+  );
 
   /**
    * The bottom edge of a row the engine lays out, which sizes nothing. Two lines saying what a
@@ -309,7 +360,7 @@ export function CalendarScreen({
    * for THIS row: it opens the form and the owner presses Save — never automatic.
    */
   const explainAutomaticLength = useCallback(
-    (target: DragTarget): void => {
+    (target: BlockDragTarget): void => {
       const view = viewRef.current;
       const day = view?.days.find((candidate) => candidate.date === target.date);
       // The ROW the edge belongs to, not the unit: the gap starts where THAT row ends.
@@ -360,13 +411,20 @@ export function CalendarScreen({
 
   /**
    * A press that could not become a gesture, saying why. `automatic` is the odd one out: not a
-   * circumstance that will pass but a RULE about the row, so it gets its own way forward.
+   * circumstance that will pass but a RULE about a block's row, so it gets its own way forward —
+   * and it cannot arrive for a gap, whose length the server always sizes.
    */
   const onInert = useCallback(
-    (reason: InertReason, target?: DragTarget): void => {
+    (reason: InertReason, target: DragTarget): void => {
       // The only reason that is about a ROW, so the only one that reads the target.
       if (reason === 'automatic') {
-        if (target !== undefined) explainAutomaticLength(target);
+        if (target.kind === 'block') explainAutomaticLength(target);
+        return;
+      }
+      // The frozen past names THE WAY OUT, and it is a different form for the two of them: a job's
+      // hours are changed in its panel, an absence in its own.
+      if (reason === 'past' && target.kind === 'gap') {
+        toast.info(t('notices.pressOnPastGap'));
         return;
       }
       toast.info(t(INERT_KEYS[reason]));
@@ -382,8 +440,8 @@ export function CalendarScreen({
    * A SHRINK MAY ASK RATHER THAN SUCCEED (409 `shrink-needs-choice`): not a failure, so it must
    * not reach the banner. Caught here, turned into `ResizeChoiceDialog`, re-sent verbatim.
    */
-  const onResize = useCallback(
-    (target: DragTarget, durationMinutes: number, freedHours?: FreedHoursChoice): void => {
+  const onResizeBlock = useCallback(
+    (target: BlockDragTarget, durationMinutes: number, freedHours?: FreedHoursChoice): void => {
       void mutate(async () => {
         try {
           return await apiResizeBlock(target.blockId, durationMinutes, { freedHours });
@@ -417,6 +475,31 @@ export function CalendarScreen({
     [format, mutate, report, t, toast],
   );
 
+  /**
+   * An absence's bottom edge, and the gesture is ABSOLUTE: it just sets the duration. There is no
+   * counterparty to hand hours to, so nothing is ever asked and `shrink-needs-choice` cannot reach
+   * here. The hours are net working minutes and cross the comida, so the far half is created or
+   * deleted by the same request — which the ghost drew before the release.
+   */
+  const onResizeGap = useCallback(
+    (target: GapDragTarget, durationMinutes: number): void => {
+      void mutate(() => apiResizeGap(target.gap.id, durationMinutes)).then((result) => {
+        if (result === undefined) return;
+        toast.info(t('notices.gapResized', { hours: format.hourNumber(durationMinutes) }));
+      });
+    },
+    [format, mutate, t, toast],
+  );
+
+  /** One edge, two kinds of thing: a transfer inside a job, or an absence's own length. */
+  const onResize = useCallback(
+    (target: DragTarget, durationMinutes: number): void => {
+      if (target.kind === 'gap') onResizeGap(target, durationMinutes);
+      else onResizeBlock(target, durationMinutes);
+    },
+    [onResizeBlock, onResizeGap],
+  );
+
   const onToggleLock = useCallback(
     (block: WeekBlock): void => {
       void mutate(() => apiSetBlockLock(block.id, !block.locked)).then(report);
@@ -447,7 +530,10 @@ export function CalendarScreen({
     onResize,
     onRejected,
     onInert,
-    onClick: (target) => setOpenJobId(target.projectId),
+    // A press that did not travel: the job panel, or the absence's own form. It arrives here rather
+    // than from a native click so one press cannot answer twice — see the gap's `role="button"`.
+    onClick: (target) =>
+      target.kind === 'gap' ? setGapTarget({ gap: target.gap }) : setOpenJobId(target.projectId),
   });
 
   /**
@@ -517,7 +603,7 @@ export function CalendarScreen({
             // A fragment pins on the same days and bands as any drop, and where it pins the
             // minute is stored, so it must not be nudged.
             dropPins({
-              locked: false,
+              fixed: false,
               role: day.role,
               periods: day.periods,
               manualWindows: day.manualWindows,
@@ -595,19 +681,24 @@ export function CalendarScreen({
   const emptyWeek = view !== null && view.blocks.length === 0 && view.gaps.length === 0;
 
   /**
-   * The sentence under the grid while a gesture is in the air; three of them, because a drag
-   * means three things. The same predicate the ghost switches on.
+   * The sentence under the grid while a gesture is in the air. FIVE of them: a gap's two gestures
+   * mean something else from a block's, and a block's move means two things by itself. The same
+   * predicates the ghost switches on.
    */
   const dragHintKey =
     drag.preview === null
       ? 'grid.dropRankHint'
-      : drag.preview.kind === 'resize'
-        ? 'block.resizeHint'
-        : // The gesture's own answer, covering the SLOT as well as the day. See
-          // `DragPreview.pinned`.
-          drag.preview.pinned === true
-          ? 'grid.dropPinHint'
-          : 'grid.dropRankHint';
+      : drag.target?.kind === 'gap'
+        ? drag.preview.kind === 'resize'
+          ? 'grid.gapResizeHint'
+          : 'grid.gapDragHint'
+        : drag.preview.kind === 'resize'
+          ? 'block.resizeHint'
+          : // The gesture's own answer, covering the SLOT as well as the day. See
+            // `DragPreview.pinned`.
+            drag.preview.pinned === true
+            ? 'grid.dropPinHint'
+            : 'grid.dropRankHint';
 
   return (
     <div className="ww-app">
@@ -662,8 +753,6 @@ export function CalendarScreen({
                 onToggleLock={onToggleLock}
                 onSplit={onSplit}
                 onDelete={onDelete}
-                // The same sentence a press on a block gets, for the one thing that is not one.
-                onPressHint={onInert}
                 metricsRef={metricsRef}
                 settle={settle}
                 onSettled={onSettled}
@@ -722,7 +811,7 @@ export function CalendarScreen({
         onCancel={() => setResizeChoice(null)}
         onChoose={(choice) => {
           if (resizeChoice === null) return;
-          onResize(resizeChoice.target, resizeChoice.durationMinutes, choice);
+          onResizeBlock(resizeChoice.target, resizeChoice.durationMinutes, choice);
         }}
       />
 
@@ -814,7 +903,6 @@ const DAY_HEADER_ALLOWANCE = 46;
 const INERT_KEYS: Record<Exclude<InertReason, 'automatic'>, string> = {
   busy: 'notices.pressWhileBusy',
   past: 'notices.pressOnPastDay',
-  gap: 'notices.pressOnGap',
 };
 
 /** One key per branch of `describeDrop`, which is where the branches are decided and tested. */

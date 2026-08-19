@@ -1,9 +1,10 @@
 'use client';
 
 /**
- * Mouse dragging on the week grid: move a job's run, or resize a row by its bottom edge. A drop
- * writes a queue RANK, not a time, and a press that does not travel is a click on the same
- * handler. The vertical axis is FIXED AT PRESS.
+ * Mouse dragging on the week grid: move a unit, or resize it by its bottom edge. TWO KINDS OF THING
+ * are dragged and they differ in one place only, `DragTarget.kind`: a job's RUN, whose drop writes a
+ * queue RANK, and an ABSENCE, whose drop writes the minute it was released on. A press that does not
+ * travel is a click on the same handler. The vertical axis is FIXED AT PRESS.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -21,6 +22,7 @@ import { dropPins } from './dropEffect';
 import { aimAtThirds, resolveDropDay, type AimRow } from './dropAim';
 import { edgeDelayFor, edgeSideAt, type EdgeHold, type EdgeSide } from './edgePaging';
 import type { WeekDay } from '../../lib/api-client';
+import type { GapUnit } from '../../types';
 
 /** Pixels of travel before a press becomes a drag rather than a click. */
 const DRAG_THRESHOLD = 4;
@@ -38,37 +40,61 @@ const CLICK_SLOP = 12;
 export type DragKind = 'move' | 'resize';
 
 /**
- * Why a press cannot write: a save or reload in flight (`busy`), a frozen day (`past`), a gap
- * (`gap`), or the bottom edge of a row the engine lays out (`automatic`, which the server
- * refuses as `resize-needs-padlock`). A CLICK still happens on all but `gap`.
+ * Why a press cannot write: a save or reload in flight (`busy`), a frozen day (`past`), or the
+ * bottom edge of a row the engine lays out (`automatic`, which the server refuses as
+ * `resize-needs-padlock`). A CLICK still happens on every one of them — the panel and the gap form
+ * are reads, and a frozen row is corrected in its form.
  */
-export type InertReason = 'busy' | 'past' | 'gap' | 'automatic';
+export type InertReason = 'busy' | 'past' | 'automatic';
 
-/** What is being dragged. Built by the grid from a group and its rows. */
-export interface DragTarget {
+/**
+ * The geometry every draggable thing on the grid has, whatever it is. Everything this layer needs to
+ * draw a ghost and decide where a release lands is here; what the target IS only matters at the two
+ * ends, the grid that builds it and the screen that writes it.
+ */
+interface DragUnit {
   /** The grouped unit's id (its first row). One drag handle per unit. */
   groupId: string;
-  projectId: string;
-  name: string;
   color: string;
   date: string;
-  /** The unit's first row start for a move; the row's own start for a resize. */
+  /** The unit's first row start for a move; the sized stretch's start for a resize. */
   startMinutes: number;
   /**
-   * Net working minutes. The group's TOTAL for a move — the unit is "one 3h job" even
-   * when stored as two rows — and the row's own duration for a resize.
+   * Net working minutes. The unit's TOTAL for a move — it is "one 3 h thing" even when stored as
+   * two rows — and the stretch's total for a resize.
    */
   durationMinutes: number;
-  /** The whole RUN, in queue order (see `BlockRun` in grouping.ts). A drag moves all of it. */
-  blockIds: string[];
-  /** The single row a resize applies to: the LAST of the unit. */
-  blockId: string;
+  /** Every row the gesture picks up, so a row is never an obstacle to itself. */
+  rowIds: string[];
   /**
-   * Every row of the unit is locked. Read only by the drop preview, which needs it to pick
-   * the side an overlapping drop is resolved on — see `dropEffect.ts`.
+   * The thing being dragged is fixed BY ITSELF, so it keeps the minute it is released on whatever
+   * day that is: a padlocked unit, or an absence. Not the whole pin question — the DAY has its own
+   * say (`dropLandsLiterally`), which is why this only feeds it.
    */
-  locked: boolean;
+  fixed: boolean;
 }
+
+/** A job's RUN: the consecutive rows the engine would lay out as one queue item. */
+export interface BlockDragTarget extends DragUnit {
+  kind: 'block';
+  projectId: string;
+  name: string;
+  /** The single row a resize applies to: the one whose bottom edge was grabbed. */
+  blockId: string;
+}
+
+/**
+ * ONE ABSENCE. `gap` is the whole of it — a PATCH addresses the unit through any of its rows, so a
+ * gesture that named one row's duration would claim the absence is that long — and the geometry
+ * above restates its day, start and net total in this layer's own vocabulary.
+ */
+export interface GapDragTarget extends DragUnit {
+  kind: 'gap';
+  gap: GapUnit;
+}
+
+/** What is being dragged. Built by the grid from a unit and its rows. */
+export type DragTarget = BlockDragTarget | GapDragTarget;
 
 export interface DragPreview {
   kind: DragKind;
@@ -113,9 +139,9 @@ export interface BlockDragOptions {
    */
   days: () => readonly WeekDay[];
   /** The rows already on a date, minus the ones being dragged, to quantise the aim against. */
-  rowsOn: (date: string, excludeBlockIds: readonly string[]) => readonly AimRow[];
+  rowsOn: (date: string, excludeRowIds: readonly string[]) => readonly AimRow[];
   /** The starts already taken on a date, so a drop rank never ties. */
-  takenStartsOn: (date: string, excludeBlockIds: readonly string[]) => number[];
+  takenStartsOn: (date: string, excludeRowIds: readonly string[]) => number[];
   /**
    * The gestures are WIRED AT ALL: the axis has arrived and no split fragment is waiting
    * for its target. "A save is in flight" is NOT here — it is an `inert` press instead.
@@ -146,7 +172,8 @@ export interface BlockDragOptions {
   /**
    * A press that cannot become a gesture said so. Called ONCE per press, the moment the
    * pointer travels far enough to prove a drag was meant. The target travels with the reason
-   * because `automatic` answers with the gap that would end THAT row's day early.
+   * because two answers read it: `automatic` offers the gap that would end THAT row's day early,
+   * and the frozen past names the form to correct it in — a job's panel, or the absence's own.
    */
   onInert: (reason: InertReason, target: DragTarget) => void;
 }
@@ -162,7 +189,8 @@ export interface BeginOptions {
   overlay?: boolean;
   /**
    * This press may not write, and why — see `InertReason`. Still TRACKED rather than dropped:
-   * a click still opens the job panel, and the first real travel says why nothing will move.
+   * a click still opens the job panel (or an absence's form), and the first real travel says why
+   * nothing will move.
    */
   inert?: InertReason;
 }
@@ -176,10 +204,10 @@ export interface DragController {
    */
   target: DragTarget | null;
   /**
-   * The ROWS in the air, for the "lifted" styling — every row of the RUN, since the ghost
-   * draws the run's whole duration.
+   * The ROWS in the air, for the "lifted" styling — every row of the unit, since the ghost
+   * draws its whole duration.
    */
-  liftedBlockIds: readonly string[];
+  liftedRowIds: readonly string[];
   kind: DragKind | null;
   /** The hold in progress at one edge of the grid, which is what the rails are drawn from. */
   edge: EdgeHold | null;
@@ -494,7 +522,7 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
             }
             return;
           }
-          const taken = live.current.takenStartsOn(settled.date, current.target.blockIds);
+          const taken = live.current.takenStartsOn(settled.date, current.target.rowIds);
           live.current.onMove(current.target, {
             date: settled.date,
             // The rank, or the clock: `rankFor` leaves a PINNED drop alone. See its note.
@@ -574,64 +602,12 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
   return {
     preview,
     target,
-    liftedBlockIds: preview === null ? EMPTY_IDS : target?.blockIds ?? EMPTY_IDS,
+    liftedRowIds: preview === null ? EMPTY_IDS : target?.rowIds ?? EMPTY_IDS,
     kind,
     edge,
     beginMove,
     beginResize,
   };
-}
-
-/**
- * A press on something that has no drag gesture at all, wired so it explains itself once per
- * press. The one on the grid is a GAP: gaps are not dragged, so
- * there is nothing to make draggable here — only something to stop being silent about.
- */
-export function usePressHint(
-  onHint: () => void,
-  /**
-   * Speak on the RELEASE too, not only once the press has travelled. The default suits
-   * something that HAS a click (a gap opens its form); `true` is for a press that can do
-   * nothing at all right now, where there is no click to fall back on and every press must
-   * answer — exactly ONCE, which a second `onClick` could not promise.
-   */
-  onRelease = false,
-): (event: React.PointerEvent) => void {
-  const live = useRef(onHint);
-  live.current = onHint;
-  const speakOnRelease = useRef(onRelease);
-  speakOnRelease.current = onRelease;
-
-  return useCallback((event: React.PointerEvent): void => {
-    if (event.button !== 0) return;
-    const originX = event.clientX;
-    const originY = event.clientY;
-    let spoken = false;
-
-    const speak = (): void => {
-      if (spoken) return;
-      spoken = true;
-      live.current();
-    };
-    const onMove = (moveEvent: PointerEvent): void => {
-      if (spoken) return;
-      if (Math.hypot(moveEvent.clientX - originX, moveEvent.clientY - originY) < DRAG_THRESHOLD) return;
-      speak();
-    };
-    const done = (): void => {
-      if (speakOnRelease.current) speak();
-      // A press that explained itself must not ALSO open the form: the element is a `<button>`,
-      // so the browser delivers its click however far the pointer travelled. Swallowed here and
-      // not where the sentence is spoken, because the swallow lasts only to the end of the task.
-      if (spoken) swallowNextClick();
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', done);
-      window.removeEventListener('pointercancel', done);
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', done);
-    window.addEventListener('pointercancel', done);
-  }, []);
 }
 
 /**
@@ -684,16 +660,28 @@ export function previewMove(
       : nearestColumnDate(event.clientX, metrics.columns, remembered));
 
   const exact = timeline.minutesAt(event.clientY - metrics.top) - current.grabOffsetMinutes;
+  // THIRDS ARE FOR A RANK, SO AN ABSENCE DOES NOT GET THEM. Over another row a block's aim collapses
+  // to that row's start, middle or end, because a block's drop is a queue rank and those three mean
+  // before / cut / after. A gap is stored on the minute it was released, so the same collapse would
+  // let it land only on three minutes of any row taller than half an hour — measured: an absence
+  // aimed at 10:00, 12:00 and 13:00 over one 08:00-14:00 row all resolved to the same slot.
   // The rows of the run itself are not obstacles to it: they are what is being moved.
-  const aimed = aimAtThirds(snapTo(exact), rowsOn(aimedDate, current.target.blockIds));
+  const snapped = snapTo(exact);
+  const aimed =
+    current.target.kind === 'block'
+      ? aimAtThirds(snapped, rowsOn(aimedDate, current.target.rowIds))
+      : snapped;
   const settled = resolveDropDay({
     days: days(),
     date: aimedDate,
     startMinutes: aimed,
     durationMinutes: current.target.durationMinutes,
-    // A padlocked unit lands literally, so its footprint has to fit the day — which is
-    // what makes the roll and the clamp its business and not an unlocked run's.
-    locked: current.target.locked,
+    // A unit that is fixed by itself lands literally, so its footprint has to fit the day — which
+    // is what makes the roll and the clamp its business and not an unlocked run's.
+    fixed: current.target.fixed,
+    // An ABSENCE names its day as deliberately as its minute, so it is never carried to another
+    // one: the clamp answers instead. Only a job's run rolls.
+    rolls: current.target.kind === 'block',
     timeline,
   });
 
@@ -719,7 +707,7 @@ export function previewMove(
     pinned:
       day === undefined ||
       dropPins({
-        locked: current.target.locked,
+        fixed: current.target.fixed,
         role: day.role,
         periods: day.periods,
         manualWindows: day.manualWindows,

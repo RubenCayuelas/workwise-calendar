@@ -5,7 +5,7 @@
  */
 
 import { dropLanding, dropLandsLiterally } from '../../lib/dropSlide';
-import { clockEndOf, dayEndMinutes } from '../../lib/manualWindow';
+import { clockEndOf, dayEndMinutes, firstWorkingMinute } from '../../lib/manualWindow';
 import type { WorkPeriod } from '../../types';
 import type { WeekDay } from '../../lib/api-client';
 import { dayReflowsOn } from './dropEffect';
@@ -92,11 +92,17 @@ export function resolveDropDay(input: {
   /** The whole run's net working minutes: what the request will carry. */
   durationMinutes: number;
   /**
-   * The dragged unit is already padlocked, so it lands literally and its footprint has to fit the
-   * day. Without it a Mon-Thu release is a queue RANK with no footprint to fit, so neither the roll
-   * nor the clamp has anything to solve.
+   * The dragged unit is fixed by itself — padlocked, or an absence — so it lands literally and its
+   * footprint has to fit the day. Without it a Mon-Thu release is a queue RANK with no footprint to
+   * fit, so neither the roll nor the clamp has anything to solve.
    */
-  locked?: boolean;
+  fixed?: boolean;
+  /**
+   * May this gesture be carried to another DATE at all? False for an ABSENCE: the owner names the
+   * day a machine broke as deliberately as the hour, so moving it to the next one would be a bigger
+   * surprise than the clamp — the same reason a weekend drop is never rolled either.
+   */
+  rolls?: boolean;
   timeline: Timeline;
 }): AimedDrop {
   const day = input.days.find((candidate) => candidate.date === input.date);
@@ -104,25 +110,31 @@ export function resolveDropDay(input: {
     return { date: input.date, startMinutes: input.startMinutes, rolled: false, clamped: false };
   }
 
-  const landing = dropLanding({
-    date: input.date,
-    startMinutes: input.startMinutes,
-    durationMinutes: input.durationMinutes,
-    locked: input.locked ?? false,
-    dayOf: (date) => {
-      const candidate = input.days.find((other) => other.date === date);
-      if (candidate === undefined) {
-        return { periods: [], manualWindows: [], reflows: false, role: 'manual' };
-      }
-      return {
-        periods: candidate.periods,
-        manualWindows: candidate.manualWindows,
-        reflows: dayReflowsOn(candidate),
-        role: candidate.role,
-      };
-    },
-    maxDays: input.days.length,
-  });
+  const landing =
+    input.rolls === false
+      ? // Nowhere else to go, so only the start is settled — and by the same rule `dropLanding`
+        // applies first: a release with no working time under it means the next minute that has
+        // some, so anywhere in the comida is 15:30.
+        { date: input.date, startMinutes: firstWorkingMinute(day.manualWindows, input.startMinutes) }
+      : dropLanding({
+          date: input.date,
+          startMinutes: input.startMinutes,
+          durationMinutes: input.durationMinutes,
+          fixed: input.fixed ?? false,
+          dayOf: (date) => {
+            const candidate = input.days.find((other) => other.date === date);
+            if (candidate === undefined) {
+              return { periods: [], manualWindows: [], reflows: false, role: 'manual' };
+            }
+            return {
+              periods: candidate.periods,
+              manualWindows: candidate.manualWindows,
+              reflows: dayReflowsOn(candidate),
+              role: candidate.role,
+            };
+          },
+          maxDays: input.days.length,
+        });
   if (landing.date !== input.date) {
     return { ...landing, rolled: true, clamped: false };
   }
@@ -134,7 +146,7 @@ export function resolveDropDay(input: {
    */
   if (
     !dropLandsLiterally({
-      locked: input.locked ?? false,
+      fixed: input.fixed ?? false,
       role: day.role,
       periods: day.periods,
       manualWindows: day.manualWindows,

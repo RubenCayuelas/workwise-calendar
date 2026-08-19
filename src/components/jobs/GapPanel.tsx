@@ -2,7 +2,9 @@
 
 /**
  * The gap form, in two shapes: typed by hand, or "stop the day here" (`closeDay`) with the gap
- * already worked out. One endpoint and one set of refusals either way.
+ * already worked out. One endpoint and one set of refusals either way. It edits an ABSENCE, never
+ * one of its rows, and it is the only way into one on a PAST day — the two grid gestures are frozen
+ * there, this is not.
  *
  * `gapForm.lunchNote` is on the form because lunch is IMPLICIT, not a gap: unsaid, the first thing
  * an owner does here is recreate the lunch break by hand.
@@ -33,7 +35,7 @@ import {
   isApiError,
   updateGap,
   type DayShape,
-  type Gap,
+  type GapUnit,
 } from '../../lib/api-client';
 import {
   MINUTES_PER_DAY,
@@ -57,8 +59,13 @@ const FALLBACK_MAX_HOURS = 12;
 
 export interface GapPanelProps {
   open: boolean;
-  /** Omit to create a gap; pass one to edit it. */
-  gap?: Gap;
+  /**
+   * Omit to create a gap; pass one to edit it. THE WHOLE ABSENCE — its day, its start and the NET
+   * total of its rows — because `PATCH /api/gaps/:id` addresses the unit through whichever row the
+   * id names: handed one half of a comida-crossing gap, this form would save 6 h as the whole of a
+   * 10 h absence and the reconcile would delete the other row.
+   */
+  gap?: GapUnit;
   /** "Stop the day here": the day, moment and span are already decided. Ignored when editing. */
   closeDay?: CloseDayRequest;
   onClose: () => void;

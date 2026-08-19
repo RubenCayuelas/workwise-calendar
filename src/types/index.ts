@@ -65,6 +65,14 @@ export interface Gap {
   updatedAt: string;
 }
 
+/**
+ * ONE ABSENCE, as every screen and every gesture edits it: any of its rows' id, the day, the start
+ * and the NET total. A gap cut at the comida is TWO rows and one absence — `PATCH /api/gaps/:id`
+ * addresses the unit through whichever row it names, so handing a form or a drag ONE ROW'S duration
+ * claims the whole absence is that long, and the next save makes it true.
+ */
+export type GapUnit = Pick<Gap, 'id' | 'date' | 'startMinutes' | 'durationMinutes' | 'reason'>;
+
 /** A whole-day exception: a holiday, a closed week, a day with different hours. No Settings UI. */
 export interface DayOverride {
   date: string;

@@ -32,10 +32,13 @@ export { useWeek, type WeekController } from './useWeek';
 export {
   useBlockDrag,
   type BlockDragOptions,
+  type BlockDragTarget,
   type DragController,
   type DragKind,
   type DragPreview,
+  // A union: a job's RUN or one ABSENCE. Narrow on `kind` before reading either half.
   type DragTarget,
+  type GapDragTarget,
 } from './useBlockDrag';
 
 export {
@@ -94,12 +97,15 @@ export {
   dropPins,
   footprintEnd,
   footprintWithinDay,
+  // What an ABSENCE will do where it lands: its own two answers, not a block's five.
+  gapDropEffect,
   resolveDropPreview,
   type DropEffect,
   type DropEffectInput,
   type DropEffectKind,
   type DropResolution,
   type DropRow,
+  type GapEffect,
 } from './dropEffect';
 
 export {

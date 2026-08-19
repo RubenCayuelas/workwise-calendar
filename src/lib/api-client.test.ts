@@ -19,7 +19,9 @@ import {
   isNetworkError,
   listGaps,
   moveBlock,
+  moveGap,
   resizeBlock,
+  resizeGap,
   setBlockLock,
   updateProject,
   updateSettings,
@@ -131,6 +133,17 @@ describe('requests', () => {
     const { calls } = stubFetch({ body: {} });
     await setBlockLock('a/b?c', false);
     expect(calls[0].url).toBe('/api/blocks/a%2Fb%3Fc');
+  });
+
+  it("names the GESTURE on a gap's PATCH, which the payload alone cannot say", async () => {
+    // A drag and a form save send the same three fields; only `action` lets the server freeze the
+    // two gestures in the past while the form still reaches it.
+    const { calls } = stubFetch({ body: {} });
+    await moveGap('averia', { date: '2026-08-12', startMinutes: 600 });
+    await resizeGap('averia', 240);
+    expect(calls[0].body).toEqual({ date: '2026-08-12', startMinutes: 600, action: 'move' });
+    expect(calls[1].body).toEqual({ durationMinutes: 240, action: 'resize' });
+    expect(calls[0].url).toBe('/api/gaps/averia');
   });
 
   it('drops undefined settings keys — the bug that once wiped period1Start', async () => {

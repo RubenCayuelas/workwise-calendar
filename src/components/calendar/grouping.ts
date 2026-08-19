@@ -6,7 +6,7 @@
  */
 
 import { adjacentInWindows } from '../../lib/manualWindow';
-import type { Gap, WorkPeriod } from '../../types';
+import type { Gap, GapUnit, WorkPeriod } from '../../types';
 import type { WeekBlock } from '../../lib/api-client';
 
 /** Consecutive rows of one job on one day, drawn as a single unit. */
@@ -153,47 +153,61 @@ export interface GapSegment {
 }
 
 /**
- * A day's gap units, in clock order, through `adjacentInWindows` — the same predicate `groupBlocks`
- * uses, so a gap unit and a block unit cannot disagree about where a unit ends.
+ * A day's gap units, in clock order, grouped by `unit_id` ALONE.
  *
- * `unitId` STANDS WHERE A BLOCK'S `projectId` STANDS. It cannot be the reason: the same sentence is
- * written twice by a deleted job, so two absences that merely touch would fuse — and editing one
- * half's reason would split a unit in two.
+ * Where a block's unit has to be DERIVED — `groupBlocks` reads `projectId` plus adjacency, because
+ * nothing stored says which rows are one run — a gap's is a stored fact. Asking for adjacency on top
+ * of it can therefore only DISAGREE with the write path, which always addresses the whole unit:
+ * another absence's row sorting between the two halves made the grid draw one unit as two, each
+ * labelled with half the hours, and a gesture on either then edited the whole absence while claiming
+ * to edit half of it.
  */
-export function groupGaps(gaps: readonly Gap[], manualWindows: readonly WorkPeriod[]): GapGroup[] {
-  const ordered = [...gaps].sort(
+export function groupGaps(gaps: readonly Gap[], _manualWindows: readonly WorkPeriod[] = []): GapGroup[] {
+  const byUnit = new Map<string, GapGroup>();
+
+  for (const gap of [...gaps].sort(
     (a, b) => a.startMinutes - b.startMinutes || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-  );
-  const groups: GapGroup[] = [];
-
-  for (const gap of ordered) {
-    const open = groups[groups.length - 1];
-    const reason = gap.reason ?? '';
-    const joins =
-      open !== undefined &&
-      open.unitId === gap.unitId &&
-      adjacentInWindows(manualWindows, open.endMinutes, gap.startMinutes);
-
-    if (joins) {
-      open.gaps.push(gap);
-      open.totalMinutes += gap.durationMinutes;
-      open.endMinutes = gap.startMinutes + gap.durationMinutes;
+  )) {
+    const open = byUnit.get(gap.unitId);
+    if (open === undefined) {
+      byUnit.set(gap.unitId, {
+        id: gap.id,
+        unitId: gap.unitId,
+        date: gap.date,
+        gaps: [gap],
+        totalMinutes: gap.durationMinutes,
+        startMinutes: gap.startMinutes,
+        endMinutes: gap.startMinutes + gap.durationMinutes,
+        reason: gap.reason ?? '',
+      });
       continue;
     }
-
-    groups.push({
-      id: gap.id,
-      unitId: gap.unitId,
-      date: gap.date,
-      gaps: [gap],
-      totalMinutes: gap.durationMinutes,
-      startMinutes: gap.startMinutes,
-      endMinutes: gap.startMinutes + gap.durationMinutes,
-      reason,
-    });
+    open.gaps.push(gap);
+    open.totalMinutes += gap.durationMinutes;
+    open.startMinutes = Math.min(open.startMinutes, gap.startMinutes);
+    open.endMinutes = Math.max(open.endMinutes, gap.startMinutes + gap.durationMinutes);
   }
 
-  return groups;
+  return [...byUnit.values()].sort(
+    (a, b) => a.startMinutes - b.startMinutes || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+}
+
+/**
+ * The ABSENCE a unit is: its first row's id, the day, the start and the NET TOTAL of its rows. This
+ * is what the form edits and what both gestures send, because `PATCH /api/gaps/:id` addresses the
+ * whole unit through any of its rows — a 10 h absence opened by its `08:00 +6 h` half and saved
+ * unchanged came back 6 h long, the afternoon row deleted by the reconcile.
+ */
+export function gapUnitOf(group: GapGroup): GapUnit {
+  return {
+    id: group.id,
+    date: group.date,
+    startMinutes: group.startMinutes,
+    durationMinutes: group.totalMinutes,
+    // `Gap.reason` is absent rather than empty when there is none, and the form asks for `??  ''`.
+    reason: group.reason === '' ? undefined : group.reason,
+  };
 }
 
 /** Every row of every gap unit, flattened, each told where the break falls inside its unit. */

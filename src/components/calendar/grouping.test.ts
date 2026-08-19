@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildRuns,
   gapSegmentsOf,
+  gapUnitOf,
   groupBlocks,
   groupGaps,
   segmentsOf,
@@ -258,6 +259,34 @@ describe('groupGaps — a gap cut at the comida is one unit', () => {
     ]);
   });
 
+  it('describes the ABSENCE, not the row a gesture happened to grab', () => {
+    // The defect this exists to stop, measured 2026-08-19: the form was handed `segment.gap` — one
+    // ROW — so opening the `08:00 +6 h` half of an 11 h absence and pressing Guardar sent
+    // `durationMinutes: 360` for the whole unit, and the reconcile deleted the afternoon row. The
+    // unit's own start and the SUM of its rows are what a PATCH means.
+    const groups = groupGaps(
+      [
+        gap({ id: 'morning', unitId: 'dia', startMinutes: 8 * 60, durationMinutes: 6 * 60 }),
+        gap({ id: 'afternoon', unitId: 'dia', startMinutes: 15 * 60 + 30, durationMinutes: 5 * 60 }),
+      ],
+      MANUAL_WINDOWS,
+    );
+
+    expect(gapUnitOf(groups[0])).toEqual({
+      // Either row addresses the unit; the first is the one that survives an edit.
+      id: 'morning',
+      date: '2026-08-12',
+      startMinutes: 8 * 60,
+      durationMinutes: 11 * 60,
+      reason: 'Feria',
+    });
+  });
+
+  it('reports NO reason rather than an empty one, which is what the column stores', () => {
+    const groups = groupGaps([gap({ id: 'sin-motivo', reason: undefined })], MANUAL_WINDOWS);
+    expect(gapUnitOf(groups[0]).reason).toBeUndefined();
+  });
+
   it('leaves free time between two gaps as a separator', () => {
     const groups = groupGaps(
       [
@@ -268,6 +297,26 @@ describe('groupGaps — a gap cut at the comida is one unit', () => {
     );
 
     expect(groups).toHaveLength(2);
+  });
+
+  it('keeps a unit together when ANOTHER absence sorts between its halves', () => {
+    // The client used to require adjacency on top of the unit id, so a row landing between the halves
+    // split one absence into two on screen — each labelled with half the hours, while a gesture on
+    // either still edited the whole thing. A drag makes that arrangement a one-gesture accident.
+    const groups = groupGaps(
+      [
+        gap({ id: 'am', unitId: 'averia', startMinutes: 8 * 60, durationMinutes: 60, reason: 'Avería' }),
+        gap({ id: 'other', unitId: 'reunion', startMinutes: 10 * 60, durationMinutes: 60, reason: 'Reunión' }),
+        gap({ id: 'pm', unitId: 'averia', startMinutes: 12 * 60, durationMinutes: 60, reason: 'Avería' }),
+      ],
+      MANUAL_WINDOWS,
+    );
+
+    expect(groups).toHaveLength(2);
+    const averia = groups.find((group) => group.unitId === 'averia');
+    expect(averia?.gaps.map((row) => row.id)).toEqual(['am', 'pm']);
+    // The NET total of the absence, not the clock it spans.
+    expect(averia?.totalMinutes).toBe(2 * 60);
   });
 
   it('marks no seam where the two rows of a unit merely TOUCH', () => {

@@ -2431,6 +2431,38 @@ describe("a gap's hours are net working minutes, so a gap is cut at the comida t
     expect(units.size).toBe(1);
   });
 
+  it('refuses an absence written over another absence, naming it', () => {
+    // Gaps and blocks are ONE occupancy set, so an absence may not be written over an absence either.
+    // Nothing enforced it while a gap could only be typed; a drag makes the collision trivial, and two
+    // overlapping absences are indistinguishable from a write-path bug.
+    createGap({ date: MON, startMinutes: 9 * 60, durationMinutes: 2 * 60, reason: 'Gestiones', today: MON }, db);
+
+    const overlapping = (): unknown =>
+      createGap({ date: MON, startMinutes: 10 * 60, durationMinutes: 60, reason: 'Avería', today: MON }, db);
+
+    expect(overlapping).toThrow(AppError);
+    try {
+      overlapping();
+    } catch (error) {
+      expect((error as AppError).code).toBe('gap-over-gap');
+      // The absence in the way is named by its own clock, so the sentence can point at it.
+      expect((error as AppError).details?.startTime).toBe('09:00');
+    }
+    // Nothing written by the refusal.
+    expect(gapLines()).toEqual([`${MON} 09:00-11:00 Gestiones`]);
+  });
+
+  it('lets an absence be MOVED onto the clock it already occupies', () => {
+    // Its own rows are not obstacles to it: without excluding the unit, every drag of a gap onto a
+    // minute overlapping where it already is would refuse itself.
+    const saved = createGap(
+      { date: MON, startMinutes: 10 * 60, durationMinutes: 2 * 60, reason: 'Feria', today: MON },
+      db,
+    );
+    patchGap(saved.gap.id, { startMinutes: 11 * 60, today: MON }, db);
+    expect(gapLines()).toEqual([`${MON} 11:00-13:00 Feria`]);
+  });
+
   it('never stores a gap that straddles a break, over 400 generated writes', () => {
     // The invariant the whole round rests on, asserted where the only public gate is. Every reader of
     // a stored gap adds `start + duration` to get its clock end — correct ONLY while a row sits inside
@@ -2494,6 +2526,128 @@ describe("a gap's hours are net working minutes, so a gap is cut at the comida t
     // The generator has to actually reach both sides of the guard, or the property proves nothing.
     expect(written).toBeGreaterThan(50);
     expect(refused).toBeGreaterThan(0);
+  });
+
+  // The grid's two gestures, which the form's `edit` is deliberately not: an absence is DRAGGED and
+  // RESIZED, and both are frozen in the past where the form is not.
+  it('drags the whole unit to the minute it was released on, cut at the comida', () => {
+    const saved = createGap(
+      { date: MON, startMinutes: 9 * 60, durationMinutes: 4 * 60, reason: 'Avería', today: MON },
+      db,
+    );
+
+    const moved = patchGap(
+      saved.gap.id,
+      { action: 'move', date: TUE, startMinutes: 12 * 60, today: MON },
+      db,
+    );
+
+    // One absence, two rows, one reason — and 4 h of NET time either side of the break.
+    expect(gapLines()).toEqual([`${TUE} 12:00-14:00 Avería`, `${TUE} 15:30-17:30 Avería`]);
+    expect(moved.gaps.map((row) => row.unitId)).toEqual([saved.gap.unitId, saved.gap.unitId]);
+    expect(moved.gap.id).toBe(saved.gap.id);
+  });
+
+  it('reads a drag aimed at the comida as the first minute that can hold work', () => {
+    // Nothing happens during the break by definition, so the owner accepted that the whole band
+    // means 15:30. The GHOST says it before the release; the stored start proves it.
+    const saved = createGap({ date: MON, startMinutes: 9 * 60, durationMinutes: 60, today: MON }, db);
+
+    const moved = patchGap(
+      saved.gap.id,
+      { action: 'move', date: MON, startMinutes: 14 * 60 + 30, today: MON },
+      db,
+    );
+
+    expect(moved.gap.startMinutes).toBe(15 * 60 + 30);
+    expect(gapLines()).toEqual([`${MON} 15:30-16:30`]);
+  });
+
+  it('moves the unit whichever of its rows the drag names', () => {
+    const saved = createGap(
+      { date: MON, startMinutes: 12 * 60, durationMinutes: 4 * 60, reason: 'Feria', today: MON },
+      db,
+    );
+    expect(gapLines()).toHaveLength(2);
+
+    // The afternoon half named: the absence still moves whole, and it is still 4 h.
+    patchGap(saved.gaps[1].id, { action: 'move', date: TUE, startMinutes: 8 * 60, today: MON }, db);
+
+    expect(gapLines()).toEqual([`${TUE} 08:00-12:00 Feria`]);
+  });
+
+  it('resizes ABSOLUTELY across the comida, and never asks what to do with the hours', () => {
+    // No counterparty and no total to protect, so `shrink-needs-choice` cannot happen here: the
+    // duration is simply the number the edge was dragged to.
+    const saved = createGap(
+      { date: MON, startMinutes: 12 * 60, durationMinutes: 60, reason: 'Avería', today: MON },
+      db,
+    );
+
+    const grown = patchGap(saved.gap.id, { action: 'resize', durationMinutes: 4 * 60, today: MON }, db);
+    expect(gapLines()).toEqual([`${MON} 12:00-14:00 Avería`, `${MON} 15:30-17:30 Avería`]);
+
+    // And back: the far half is DELETED rather than left on disk reading as an absence of its own.
+    const shrunk = patchGap(grown.gap.id, { action: 'resize', durationMinutes: 30, today: MON }, db);
+    expect(gapLines()).toEqual([`${MON} 12:00-12:30 Avería`]);
+    expect(shrunk.gaps.map((row) => row.id)).toEqual([saved.gap.id]);
+    expect(listGaps(db)).toHaveLength(1);
+  });
+
+  it('refuses both gestures on a gap that is already past, and still EDITS it', () => {
+    // The past is the record of what the shop did: it is corrected in the form, not dragged.
+    const saved = createGap(
+      { date: LAST_FRI, startMinutes: 9 * 60, durationMinutes: 60, reason: 'Avería', today: MON },
+      db,
+    );
+
+    expect(
+      refusal(() => patchGap(saved.gap.id, { action: 'move', date: TUE, startMinutes: 8 * 60, today: MON }, db)).code,
+    ).toBe('past-gap-frozen');
+    expect(
+      refusal(() => patchGap(saved.gap.id, { action: 'resize', durationMinutes: 120, today: MON }, db)).code,
+    ).toBe('past-gap-frozen');
+    expect(gapLines()).toEqual([`${LAST_FRI} 09:00-10:00 Avería`]);
+
+    // The way in is the form, which says nothing about a gesture.
+    patchGap(saved.gap.id, { reason: 'Avería torno', durationMinutes: 120, today: MON }, db);
+    expect(gapLines()).toEqual([`${LAST_FRI} 09:00-11:00 Avería torno`]);
+  });
+
+  it('refuses a gap dragged ONTO a past day', () => {
+    const saved = createGap({ date: TUE, startMinutes: 9 * 60, durationMinutes: 60, today: MON }, db);
+
+    const error = refusal(() =>
+      patchGap(saved.gap.id, { action: 'move', date: LAST_FRI, startMinutes: 9 * 60, today: MON }, db),
+    );
+
+    expect(error.code).toBe('drop-onto-past-day');
+    expect(gapLines()).toEqual([`${TUE} 09:00-10:00`]);
+  });
+
+  it('pushes unlocked work forward on a drag, and is refused by a padlocked row', () => {
+    // The refusals are the ones a gap already had, now reachable from a gesture.
+    const puerta = job('Puerta', 4);
+    const porton = job('Porton', 2, GREEN);
+    setBlockLock(porton.blocks[0].id, true, { today: MON }, db);
+    const saved = createGap({ date: TUE, startMinutes: 8 * 60, durationMinutes: 2 * 60, today: MON }, db);
+
+    // Puerta fills 08:00-12:00 and Porton is padlocked at 12:00-14:00: the gap takes the morning
+    // and Puerta flows around the lock, exactly as it would for a gap typed into the form.
+    patchGap(saved.gap.id, { action: 'move', date: MON, startMinutes: 8 * 60, today: MON }, db);
+    expect(calendar()).toEqual([
+      `${MON} 10:00-12:00 Puerta`,
+      `${MON} 12:00-14:00 Porton [locked]`,
+      `${MON} 15:30-17:30 Puerta`,
+    ]);
+
+    // And onto the padlocked row it is refused, naming the job, with nothing written.
+    const error = refusal(() =>
+      patchGap(saved.gap.id, { action: 'move', date: MON, startMinutes: 13 * 60, today: MON }, db),
+    );
+    expect(error.code).toBe('gap-over-fixed-block');
+    expect(error.details).toMatchObject({ projectName: 'Porton', reason: 'locked' });
+    expect(gapLines()).toEqual([`${MON} 08:00-10:00`]);
   });
 
   it('recomposes twice to the same calendar with a segmented gap on the day', () => {

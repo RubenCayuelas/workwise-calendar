@@ -3,10 +3,14 @@
  * break. Every occupancy reader in the app depends on it: it is what makes
  * `startMinutes + durationMinutes` a gap row's CLOCK extent. THE SEGMENTATION THEREFORE HAPPENS ON
  * THE WAY IN, here, and nowhere else.
+ *
+ * The grid's two gestures — dragging an absence and sizing it by its bottom edge — are this same
+ * `patchGap`, with `action` naming which one is asking. Nothing about the write differs; what
+ * `action` buys is the frozen past, which the form must still reach and they must not.
  */
 
 import { getDb, type Db } from '../db';
-import { minutesToHHmm, todayLocal } from '../dates';
+import { compareDates, minutesToHHmm, todayLocal } from '../dates';
 import { findGapConflicts, type GapConflict, type ScheduleSummary } from '../composition';
 import { segmentDroppedRow, type DropSegment } from '../dropSegments';
 import { conflict, notFound, ERROR_MESSAGE_KEYS } from '../errors';
@@ -91,12 +95,22 @@ export function createGap(input: SaveGapInput, db: Db = getDb()): GapMutation {
   });
 }
 
+/**
+ * Which gesture is asking. A gap is edited in its FORM on any day, the past included — a past
+ * absence is part of the record and the record is corrected in a form — but the two GRID gestures
+ * are frozen there exactly as a block's are. The form sends the same three fields a drag does, so
+ * they cannot be told apart by their payload and the caller has to say.
+ */
+export type GapGesture = 'edit' | 'move' | 'resize';
+
 export interface PatchGapInput {
   date?: string;
   startMinutes?: number;
   durationMinutes?: number;
   /** `null` clears the reason. */
   reason?: string | null;
+  /** Absent means `edit`, which is what an HTTP caller with no gesture in mind means. */
+  action?: GapGesture;
   today?: string;
 }
 
@@ -131,9 +145,21 @@ export function patchGap(gapId: string, input: PatchGapInput, db: Db = getDb()):
       startMinutes: input.startMinutes ?? head.startMinutes,
       durationMinutes: input.durationMinutes ?? unitMinutes,
     };
+    if (input.action === 'move' || input.action === 'resize') {
+      assertGestureNotPast(head.date, today, { gapId, date: head.date });
+      assertNotPastTarget(candidate.date, today);
+    }
     // The stored end gives a gap a settings change left hanging past the day's end the same latitude
-    // a block has there: still editable, as long as the edit does not make the overrun worse.
-    const segments = assertGapFits(candidate, today, db, current);
+    // a block has there: still editable, as long as the edit does not make the overrun worse. Read
+    // off the unit's LAST row, which is where the absence really ends — measured from the row the
+    // caller happened to name, a two-row unit was given its morning half's end as its tolerance.
+    const segments = assertGapFits(
+      candidate,
+      today,
+      db,
+      rowsOfUnit[rowsOfUnit.length - 1],
+      current.unitId,
+    );
 
     // One reason for the unit: `undefined` keeps what is stored, `null` clears it.
     const reason = (input.reason === undefined ? head.reason : input.reason) ?? undefined;
@@ -206,6 +232,27 @@ export function deleteGap(
   });
 }
 
+/**
+ * The past is the RECORD of what the shop did, so no GRID gesture writes there — neither end: an
+ * absence stored on a past day is not dragged or resized, and none is dragged ONTO one. The way to
+ * correct a past absence is its form, which is what `action` distinguishes.
+ */
+function assertGestureNotPast(date: string, today: string, details: Record<string, unknown>): void {
+  if (compareDates(date, today) >= 0) return;
+  throw conflict('past-gap-frozen', ERROR_MESSAGE_KEYS.pastGapFrozen, {
+    details: { ...details, date, today },
+  });
+}
+
+/** The same sentence a block's drop gets, and it names no job: it is about the DAY. */
+function assertNotPastTarget(date: string, today: string): void {
+  if (compareDates(date, today) >= 0) return;
+  throw conflict('drop-onto-past-day', ERROR_MESSAGE_KEYS.dropOntoPastDay, {
+    field: 'date',
+    details: { date, today },
+  });
+}
+
 interface ReportedConflict extends GapConflict {
   projectName: string;
   startTime: string;
@@ -232,6 +279,7 @@ function assertGapFits(
   today: string,
   db: Db,
   stored?: Pick<Gap, 'startMinutes' | 'durationMinutes'>,
+  excludeUnitId?: string,
 ): DropSegment[] {
   // Checked on the MERGED gap rather than on the payload, so a PATCH that moves the
   // start without restating the duration is still tested as the rectangle it becomes.
@@ -245,6 +293,28 @@ function assertGapFits(
     dayEndMinutes(manualWindows),
     stored === undefined ? undefined : stored.startMinutes + stored.durationMinutes,
   );
+
+  // GAPS AND BLOCKS ARE ONE OCCUPANCY SET, so an absence may not be written over another absence
+  // either. Nothing enforced it while a gap could only be typed; a drag makes the collision a
+  // one-gesture accident, and two overlapping absences are indistinguishable from a write-path bug.
+  // The unit being written is not its own obstacle: it is what is moving.
+  const others = listGaps(db).filter((row) => row.date === gap.date && row.unitId !== excludeUnitId);
+  for (const row of rows) {
+    const end = row.startMinutes + row.durationMinutes;
+    const hit = others.find(
+      (other) => other.startMinutes < end && other.startMinutes + other.durationMinutes > row.startMinutes,
+    );
+    if (hit === undefined) continue;
+    throw conflict('gap-over-gap', ERROR_MESSAGE_KEYS.gapOverGap, {
+      details: {
+        gapId: hit.id,
+        date: hit.date,
+        startTime: minutesToHHmm(hit.startMinutes),
+        endTime: minutesToHHmm(hit.startMinutes + hit.durationMinutes),
+        reasonSuffix: hit.reason === undefined || hit.reason === '' ? '' : ` («${hit.reason}»)`,
+      },
+    });
+  }
 
   const blocks = listBlocks(db);
   const conflicts = rows.flatMap((row) =>
