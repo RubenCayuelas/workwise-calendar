@@ -40,6 +40,13 @@ describe('getDb', () => {
   it('defaults to ./data/calendar.db under the project root', () => {
     expect(getDbPath()).toBe(path.join(process.cwd(), 'data', 'calendar.db'));
   });
+
+  it('refuses to open that file from a test, because opening it MIGRATES it', () => {
+    // Measured, not hypothetical: on 2026-08-19 a mistyped argument let a trailing `db` parameter
+    // fall back to its default and a data migration ran over the shop's real calendar.
+    expect(() => openDatabase(path.join(process.cwd(), 'data', 'calendar.db'))).toThrow(/Refusing/);
+    expect(() => getDb()).toThrow(/Refusing/);
+  });
 });
 
 describe('the migration meets a database that already holds work', () => {
@@ -170,6 +177,181 @@ describe('the migration meets a database that already holds work', () => {
 
     const again = openDatabase(dbPath);
     expect(again.prepare('SELECT id, locked FROM blocks').all()).toEqual([{ id: 'libre', locked: 0 }]);
+    again.close();
+  });
+});
+
+describe('the gap migration: a duration that used to be clock minutes', () => {
+  /**
+   * The shop's own file, which is where this change came from: four `08:00 +11,5 h` "Feria" gaps —
+   * 11.5 and not 10 because the comida was paid for — and one ordinary gap that crosses nothing.
+   * The legacy file has no `data_migrations` table and no settings, so opening it is the real path:
+   * the schema is created, the DEFAULTS ARE SEEDED, and only then does the data migration read the
+   * shift it must cut at.
+   */
+  const legacyFile = (name: string, rows: string, extra = ''): string => {
+    const dbPath = path.join(scratch, name, 'calendar.db');
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE gaps (
+        id TEXT PRIMARY KEY, date TEXT NOT NULL, start_time TEXT NOT NULL,
+        duration REAL NOT NULL CHECK (duration > 0), reason TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO gaps (id, date, start_time, duration, reason, created_at, updated_at) VALUES ${rows};
+      ${extra}
+    `);
+    legacy.close();
+    return dbPath;
+  };
+
+  const FERIA_WEEK = `
+        ('feria-1', '2026-09-01', '08:00', 11.5, 'Feria',      '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+        ('feria-2', '2026-09-02', '08:00', 11.5, 'Feria',      '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+        ('feria-3', '2026-09-03', '08:00', 11.5, 'Feria',      '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+        ('feria-4', '2026-09-04', '08:00', 11.5, 'Feria',      '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+        ('corto',   '2026-08-24', '09:00', 1,    'Vacaciones', '2026-08-01 09:00:00', '2026-08-01 09:00:00')`;
+
+  const shopFile = (name: string): string => legacyFile(name, FERIA_WEEK);
+
+  const gapLines = (db: ReturnType<typeof openDatabase>): string[] =>
+    (
+      db
+        .prepare('SELECT date, start_time, duration, reason FROM gaps ORDER BY date, start_time')
+        .all() as Array<{ date: string; start_time: string; duration: number; reason: string }>
+    ).map((row) => `${row.date} ${row.start_time} +${row.duration} ${row.reason}`);
+
+  it('splits every gap that crossed the comida and leaves the others byte-identical', () => {
+    const dbPath = shopFile('gaps-clock-minutes');
+    const db = openDatabase(dbPath);
+
+    // Each Feria row becomes the two rows it always was on screen, both keeping the reason. 6 + 4 is
+    // 10 net hours, which is what the day really lost; the missing 1.5 h is the comida, unpaid for now.
+    expect(gapLines(db)).toEqual([
+      '2026-08-24 09:00 +1 Vacaciones',
+      '2026-09-01 08:00 +6 Feria',
+      '2026-09-01 15:30 +4 Feria',
+      '2026-09-02 08:00 +6 Feria',
+      '2026-09-02 15:30 +4 Feria',
+      '2026-09-03 08:00 +6 Feria',
+      '2026-09-03 15:30 +4 Feria',
+      '2026-09-04 08:00 +6 Feria',
+      '2026-09-04 15:30 +4 Feria',
+    ]);
+
+    // The gap that crossed nothing was not written at all: same id, same timestamps.
+    expect(db.prepare("SELECT id, updated_at FROM gaps WHERE date = '2026-08-24'").get()).toEqual({
+      id: 'corto',
+      updated_at: '2026-08-01 09:00:00',
+    });
+    // The morning half keeps the row's identity, so nothing that referred to the gap is orphaned,
+    // and the afternoon half is the same age as its other half.
+    expect(db.prepare("SELECT id, created_at FROM gaps WHERE date = '2026-09-01' ORDER BY start_time").all()).toEqual([
+      { id: 'feria-1', created_at: '2026-08-01 09:00:00' },
+      { id: expect.any(String), created_at: '2026-08-01 09:00:00' },
+    ]);
+    // The two halves it made are ONE unit, so they are drawn joined and edited together.
+    const feria = db
+      .prepare("SELECT unit_id FROM gaps WHERE date = '2026-09-01' ORDER BY start_time")
+      .all() as Array<{ unit_id: string }>;
+    expect(feria[0].unit_id).toBe(feria[1].unit_id);
+    // And the gap it did not touch is a unit of its own: two gaps are never fused by a migration.
+    expect(db.prepare("SELECT unit_id FROM gaps WHERE id = 'corto'").get()).toEqual({
+      unit_id: 'corto',
+    });
+    db.close();
+
+    // Idempotent, and doubly so: every row now sits inside one window, AND both migrations are
+    // recorded, so neither runs again against a shift the owner may have changed since.
+    const again = openDatabase(dbPath);
+    expect(gapLines(again)).toHaveLength(9);
+    expect(again.prepare('SELECT name FROM data_migrations ORDER BY name').all()).toEqual([
+      { name: '2026-08-19-gap-duration-is-net-minutes' },
+      { name: '2026-08-19-gap-unit-ids' },
+    ]);
+    again.close();
+  });
+
+  it('leaves a gap that crosses NO break exactly as it found it, losing no recorded time', () => {
+    // Measured on 2026-08-19: both of these came back SHORTENED, because the migration wrote the old
+    // interval INTERSECTED with the manual windows. An hour of `Madrugon` and an hour and a half of
+    // `Noche` were deleted, which is not a change of units — it is losing what the owner recorded.
+    // A row a shift no longer covers gets the same latitude a stranded block gets: it stays.
+    const dbPath = legacyFile(
+      'gaps-outside-the-windows',
+      `
+        ('madrugon', '2026-08-24', '06:00', 3,   'Madrugon',     '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+        ('noche',    '2026-08-25', '19:00', 3,   'Noche',        '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+        ('comida',   '2026-08-26', '14:15', 0.5, 'Comida larga', '2026-08-01 09:00:00', '2026-08-01 09:00:00')`,
+    );
+    const db = openDatabase(dbPath);
+
+    expect(gapLines(db)).toEqual([
+      '2026-08-24 06:00 +3 Madrugon',
+      '2026-08-25 19:00 +3 Noche',
+      // Wholly inside the comida, where a gap can no longer be recorded. Left as it is rather than
+      // moved to 15:30, which would be the migration deciding a placement the owner never asked for.
+      '2026-08-26 14:15 +0.5 Comida larga',
+    ]);
+    // Untouched means untouched: assigning a unit id is not an edit.
+    expect(db.prepare('SELECT updated_at FROM gaps ORDER BY date').all()).toEqual([
+      { updated_at: '2026-08-01 09:00:00' },
+      { updated_at: '2026-08-01 09:00:00' },
+      { updated_at: '2026-08-01 09:00:00' },
+    ]);
+    db.close();
+  });
+
+  it('re-pairs the halves the split already made on a file it has already run on', () => {
+    // The shop's own database, which ran the split on 2026-08-19 before `unit_id` existed: the
+    // marker is there, so the split must NOT run again, and the two halves of each Feria gap have
+    // nothing left linking them but their date, their reason and the second they were written in.
+    const dbPath = legacyFile(
+      'gaps-already-split',
+      `
+        ('feria-am', '2026-09-01', '08:00', 6, 'Feria', '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+        ('feria-pm', '2026-09-01', '15:30', 4, 'Feria', '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+        ('otro',     '2026-09-01', '19:30', 1, 'Feria', '2026-08-02 11:00:00', '2026-08-02 11:00:00')`,
+      `
+      CREATE TABLE data_migrations (
+        name TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO data_migrations (name) VALUES ('2026-08-19-gap-duration-is-net-minutes');
+    `,
+    );
+    const db = openDatabase(dbPath);
+
+    const units = db
+      .prepare('SELECT id, unit_id FROM gaps ORDER BY start_time')
+      .all() as Array<{ id: string; unit_id: string }>;
+    expect(units[0].unit_id).toBe(units[1].unit_id);
+    // A gap written in another gesture keeps its own unit id even where it TOUCHES one of the halves
+    // and carries the same reason: two gaps that merely touch are two gaps.
+    expect(units[2].unit_id).toBe('otro');
+    // The split did not run again: 6 h and 4 h, not re-cut, and the rows still 10 h between them.
+    expect(gapLines(db)).toEqual([
+      '2026-09-01 08:00 +6 Feria',
+      '2026-09-01 15:30 +4 Feria',
+      '2026-09-01 19:30 +1 Feria',
+    ]);
+    db.close();
+  });
+
+  it('is safe on a database that never had a crossing gap, and on an empty one', () => {
+    const dbPath = path.join(scratch, 'gaps-no-crossing', 'calendar.db');
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+    const first = openDatabase(dbPath);
+    // Nothing to migrate on a brand-new file; both migrations are still recorded, so neither runs
+    // again against a shift the owner may have changed in the meantime.
+    expect(first.prepare('SELECT COUNT(*) AS n FROM data_migrations').get()).toEqual({ n: 2 });
+    first.exec("INSERT INTO gaps (id, date, start_time, duration, reason) VALUES ('g1', '2026-08-24', '09:00', 1, 'Gestiones')");
+    first.close();
+
+    const again = openDatabase(dbPath);
+    expect(gapLines(again)).toEqual(['2026-08-24 09:00 +1 Gestiones']);
     again.close();
   });
 });

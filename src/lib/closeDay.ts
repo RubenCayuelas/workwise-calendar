@@ -6,6 +6,7 @@
  * that — so the plan reports the hours the day loses and the work that cannot stay.
  */
 
+import { netMinutesBetween } from './manualWindow';
 import type { WorkPeriod } from '../types';
 
 /** One row on the day, with its job's name for the preview. */
@@ -19,7 +20,10 @@ export interface CloseDayBlock {
   locked: boolean;
 }
 
-/** Anything already occupying clock time: an existing gap. */
+/**
+ * One stored row of occupancy: an existing gap. Its duration is net working minutes, and since no
+ * stored row straddles the break that is also the clock interval the arithmetic below reads.
+ */
 export interface CloseDaySpan {
   startMinutes: number;
   durationMinutes: number;
@@ -57,10 +61,21 @@ export interface CloseDayPlan {
   date: string;
   /** The gap's start: the moment the day stops. */
   startMinutes: number;
-  /** End of the day's last working period, which is where the gap ends. */
+  /**
+   * End of the day's last working PERIOD, which is where the closed stretch ends. Stopping the day
+   * stops the shift, not the bottom margin — that time was never planned anyway.
+   */
   endMinutes: number;
-  /** Wall-clock minutes of the gap — it may span the lunch break. */
+  /**
+   * NET working minutes of the gap, which is what a gap's duration means. `endMinutes − startMinutes`
+   * would charge the day for the comida: closing at 13:00 on the documented shift is 5 h, not 6.5.
+   */
   durationMinutes: number;
+  /**
+   * The rows the gap will really be stored as: closing at 13:00 proposes `13:00 +1 h` and
+   * `15:30 +4 h`. The save still sends the stretch as ONE request, which `createGap` cuts the same way.
+   */
+  rows: CloseDaySpan[];
   /**
    * The plannable minutes the day actually loses: working time inside the stretch that no
    * existing gap already holds, as a union of intervals so an overlapping gap is not
@@ -129,7 +144,8 @@ export function planCloseDay(input: CloseDayInput, fromMinutes: number): CloseDa
     date: input.date,
     startMinutes,
     endMinutes,
-    durationMinutes: endMinutes - startMinutes,
+    durationMinutes: netMinutesBetween(periods, startMinutes, endMinutes),
+    rows: closedRows(periods, startMinutes, endMinutes),
     workingMinutes: freeWorkingMinutes(periods, input.gaps, startMinutes, endMinutes),
     displaced: [...displaced.values()],
     locked,
@@ -144,6 +160,21 @@ function sortedPeriods(periods: readonly WorkPeriod[]): WorkPeriod[] {
   return [...periods]
     .filter((period) => period.endMinutes > period.startMinutes)
     .sort((a, b) => a.startMinutes - b.startMinutes);
+}
+
+/**
+ * The stretch `[from, to)` as stored gap rows: its minutes inside each PERIOD, in clock order. The
+ * periods and not the manual windows, because closing the day closes the shift — a margin was never
+ * planned, so there is nothing there to close.
+ */
+function closedRows(periods: readonly WorkPeriod[], from: number, to: number): CloseDaySpan[] {
+  const rows: CloseDaySpan[] = [];
+  for (const period of periods) {
+    const start = Math.max(period.startMinutes, from);
+    const end = Math.min(period.endMinutes, to);
+    if (end > start) rows.push({ startMinutes: start, durationMinutes: end - start });
+  }
+  return rows;
 }
 
 function overlapMinutes(span: CloseDaySpan, from: number, to: number): number {

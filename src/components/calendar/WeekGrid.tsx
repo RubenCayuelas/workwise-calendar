@@ -40,7 +40,17 @@ import {
   type DropResolution,
   type QueueRow,
 } from './dropEffect';
-import { buildRuns, groupBlocks, packDay, segmentsOf, type BlockGroup, type BlockRun } from './grouping';
+import {
+  buildRuns,
+  gapSegmentsOf,
+  groupBlocks,
+  groupGaps,
+  packDay,
+  segmentsOf,
+  type BlockGroup,
+  type BlockRun,
+  type GapGroup,
+} from './grouping';
 import { EDGE_ZONE_PX, type EdgeHold, type EdgeSide } from './edgePaging';
 import { usePressHint, type DragController, type DragTarget, type InertReason } from './useBlockDrag';
 import styles from './WeekGrid.module.css';
@@ -424,6 +434,7 @@ export function WeekGrid({
               day={day}
               groups={layout.groups.get(day.date) ?? []}
               gaps={layout.gaps.get(day.date) ?? []}
+              gapGroups={layout.gapGroups.get(day.date) ?? []}
               lanes={layout.lanes.get(day.date) ?? new Map()}
               runs={layout.runs}
               columnWidth={columnWidths.get(day.date) ?? null}
@@ -582,6 +593,8 @@ interface DayColumnProps {
   day: WeekDay;
   groups: BlockGroup[];
   gaps: Gap[];
+  /** The same gaps grouped into units, so the halves of one gap are drawn as one thing. */
+  gapGroups: GapGroup[];
   lanes: Map<string, { lane: number; lanes: number }>;
   /** The whole week's runs, keyed by group id: what a drag of a unit picks up. */
   runs: Map<string, BlockRun>;
@@ -623,6 +636,7 @@ function DayColumn({
   day,
   groups,
   gaps,
+  gapGroups,
   lanes,
   runs,
   columnWidth,
@@ -878,32 +892,67 @@ function DayColumn({
           </span>
         )}
 
-        {gaps.map((gap) => {
-          const lane = lanes.get(gap.id) ?? SINGLE_LANE;
+        {/*
+         * The same view the block grouping was read over. A gap's duration is net working minutes, so
+         * a gap across the comida is TWO rows, drawn joined with the seam and the `sigue…` marks
+         * exactly as a job cut there is — one unit, one reason, one lane.
+         */}
+        {gapSegmentsOf(gapGroups, day.manualWindows).map((segment) => {
+          const { gap, group, isFirst, isLast, seamAbove, seamBelow } = segment;
+          const lane = lanes.get(group.id) ?? SINGLE_LANE;
           const label = format.dayTimeHours(gap.date, gap.startMinutes, gap.durationMinutes);
           const style = {
             '--ww-gap-color': gapColor,
             top: `${timeline.yOf(gap.startMinutes)}px`,
-            // A GAP'S DURATION IS CLOCK MINUTES, not net working ones, so it is the one
-            // occupancy that can contain the compressed band and must be measured between times.
+            // The row's own clock interval: no stored row straddles a break any more, gaps
+            // included, so its net minutes and its clock minutes are the same number.
             height: `${timeline.heightBetween(gap.startMinutes, gap.startMinutes + gap.durationMinutes)}px`,
             left: `calc(${(lane.lane / lane.lanes) * 100}% + 2px)`,
             width: `calc(${100 / lane.lanes}% - 4px)`,
           } as React.CSSProperties;
-          const reason = gap.reason ?? '';
+          // The reason belongs to the UNIT, so the continuation does not repeat it — it says it
+          // carries on instead, the same division of labour a block's two halves use.
+          const reason = seamAbove ? '' : group.reason;
+          const className = [
+            styles.gap,
+            isFirst ? styles.gapFirst : '',
+            isLast ? styles.gapLast : '',
+            seamAbove ? styles.gapContinued : '',
+            seamBelow ? styles.gapContinuesBelow : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
+          const body = (
+            <>
+              <span className={styles.gapReason}>{reason}</span>
+              {seamAbove || seamBelow ? (
+                <span className={styles.gapContinues}>
+                  {t(seamAbove ? 'grid.gapContinuesAbove' : 'grid.gapContinuesBelow')}
+                </span>
+              ) : null}
+            </>
+          );
+          // The seam said in words, because the ellipsis is quiet by design and a narrow column
+          // clips it first.
+          const seamHint = seamAbove
+            ? t('block.markContinuesAbove')
+            : seamBelow
+              ? t('block.markContinuesBelow')
+              : '';
+          const facts = [group.reason, label, seamHint].filter((line) => line !== '');
 
           return onOpenGap === undefined ? (
-            <div key={gap.id} className={styles.gap} style={style} title={`${reason}\n${label}`.trim()}>
-              <span className={styles.gapReason}>{reason}</span>
+            <div key={gap.id} className={className} style={style} title={facts.join('\n')}>
+              {body}
             </div>
           ) : (
             <button
               key={gap.id}
               type="button"
-              className={`${styles.gap} ${styles.gapButton}`}
+              className={`${className} ${styles.gapButton}`}
               style={style}
-              // The third line is a gap's whole gesture vocabulary: it opens, it does not drag.
-              title={`${reason}\n${label}\n${t('grid.gapOpensHint')}`.trim()}
+              // The last line is a gap's whole gesture vocabulary: it opens, it does not drag.
+              title={[...facts, t('grid.gapOpensHint')].join('\n')}
               // `aria-disabled`, not `disabled`: a disabled button takes the press and drops it
               // — no form, no drag, no message. The form is still withheld; the press says why.
               aria-disabled={busy}
@@ -914,7 +963,7 @@ function DayColumn({
                 if (!busy) onOpenGap(gap);
               }}
             >
-              <span className={styles.gapReason}>{reason}</span>
+              {body}
             </button>
           );
         })}
@@ -1183,6 +1232,8 @@ const DROP_EFFECT_KEYS: Record<DropEffect['kind'], string> = {
 interface WeekLayout {
   groups: Map<string, BlockGroup[]>;
   gaps: Map<string, Gap[]>;
+  /** The same gaps as UNITS: the two halves of one gap are one thing on screen. */
+  gapGroups: Map<string, GapGroup[]>;
   lanes: Map<string, Map<string, { lane: number; lanes: number }>>;
   /** The RUN each unit belongs to, keyed by group id. Built for the whole week at once. */
   runs: Map<string, BlockRun>;
@@ -1204,14 +1255,18 @@ function buildLayout(view: WeekView): WeekLayout {
   }
 
   const groups = new Map<string, BlockGroup[]>();
+  const gapGroups = new Map<string, GapGroup[]>();
   const lanes = new Map<string, Map<string, { lane: number; lanes: number }>>();
 
   for (const day of view.days) {
     // Grouped over the MANUAL WINDOWS: two rows are one unit when nothing WORKABLE separates
-    // them, and half an hour of margin between two rows is workable by hand.
+    // them, and half an hour of margin between two rows is workable by hand. Gaps go through the
+    // same predicate, and their units are packed here so a gap cut at the comida takes ONE lane.
     const dayGroups = groupBlocks(blocksByDate.get(day.date) ?? [], day.manualWindows);
+    const dayGapGroups = groupGaps(gapsByDate.get(day.date) ?? [], day.manualWindows);
     groups.set(day.date, dayGroups);
-    lanes.set(day.date, packDay(dayGroups, gapsByDate.get(day.date) ?? []));
+    gapGroups.set(day.date, dayGapGroups);
+    lanes.set(day.date, packDay(dayGroups, dayGapGroups));
   }
 
   // The movable pool as this side can see it — the mirror of `isMovable` in composition.ts.
@@ -1225,7 +1280,7 @@ function buildLayout(view: WeekView): WeekLayout {
     },
   );
 
-  return { groups, gaps: gapsByDate, lanes, runs };
+  return { groups, gaps: gapsByDate, gapGroups, lanes, runs };
 }
 
 /**

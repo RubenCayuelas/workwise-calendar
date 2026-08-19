@@ -74,7 +74,14 @@ export interface BlockMutation {
 }
 
 export interface GapMutation {
+  /**
+   * The row the request was about, and the one a PATCH updated in place. A gap's hours are cut at the
+   * comida like everything else, so THE START MAY DIFFER FROM THE ONE ASKED FOR: a gap aimed at 14:00
+   * comes back at 15:30.
+   */
   gap: Gap;
+  /** Every row the save wrote, in clock order — two of them for a gap across the comida. */
+  gaps: Gap[];
   summary: ScheduleSummary;
 }
 

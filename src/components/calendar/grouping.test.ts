@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { buildRuns, groupBlocks, segmentsOf, type BlockRun } from './grouping';
+import {
+  buildRuns,
+  gapSegmentsOf,
+  groupBlocks,
+  groupGaps,
+  segmentsOf,
+  type BlockRun,
+} from './grouping';
 import type { WeekBlock } from '../../lib/api-client';
+import type { Gap } from '../../types';
 
 const PERIODS = [
   { startMinutes: 8 * 60, endMinutes: 14 * 60 },
@@ -179,5 +187,104 @@ describe('buildRuns', () => {
       block({ id: 'fri', date: '2026-08-14', startMinutes: 8 * 60, durationMinutes: 60 }),
     ]);
     expect(runs.get('fri')).toMatchObject({ date: '2026-08-13', startMinutes: 12 * 60 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The two halves of ONE gap
+// ---------------------------------------------------------------------------
+
+describe('groupGaps — a gap cut at the comida is one unit', () => {
+  const MANUAL_WINDOWS = [
+    { startMinutes: 7 * 60, endMinutes: 14 * 60 },
+    { startMinutes: 15 * 60 + 30, endMinutes: 20 * 60 + 30 },
+  ];
+
+  function gap(overrides: Partial<Gap> & { id: string }): Gap {
+    return {
+      date: '2026-08-12',
+      startMinutes: 10 * 60,
+      durationMinutes: 60,
+      reason: 'Feria',
+      // Its own unit unless the case shares one on purpose: that is what makes two touching
+      // absences stay two.
+      unitId: overrides.id,
+      createdAt: '2026-08-11T09:00:00.000Z',
+      updatedAt: '2026-08-11T09:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  it('joins the two halves and marks both ends of the seam', () => {
+    const groups = groupGaps(
+      [
+        gap({ id: 'morning', unitId: 'dia', startMinutes: 8 * 60, durationMinutes: 6 * 60 }),
+        gap({ id: 'afternoon', unitId: 'dia', startMinutes: 15 * 60 + 30, durationMinutes: 5 * 60 }),
+      ],
+      MANUAL_WINDOWS,
+    );
+
+    expect(groups).toHaveLength(1);
+    // The unit's own hours are NET — 11 h, not the 12.5 h its rectangle spans.
+    expect(groups[0]).toMatchObject({ id: 'morning', totalMinutes: 11 * 60, reason: 'Feria' });
+    expect(groups[0].endMinutes).toBe(20 * 60 + 30);
+
+    const segments = gapSegmentsOf(groups, MANUAL_WINDOWS);
+    expect(segments.map((segment) => [segment.seamAbove, segment.seamBelow])).toEqual([
+      [false, true],
+      [true, false],
+    ]);
+    expect(segments.map((segment) => [segment.isFirst, segment.isLast])).toEqual([
+      [true, false],
+      [false, true],
+    ]);
+  });
+
+  it('keeps two absences apart across the comida even when they say the SAME thing', () => {
+    // The case reason-equality got wrong: a deleted job writes the same sentence on every past row,
+    // so two independent absences would have fused into one unit. Their unit ids differ.
+    const groups = groupGaps(
+      [
+        gap({ id: 'averia', unitId: 'averia', startMinutes: 12 * 60, durationMinutes: 2 * 60, reason: 'Feria' }),
+        gap({ id: 'gestiones', unitId: 'gestiones', startMinutes: 15 * 60 + 30, durationMinutes: 60, reason: 'Feria' }),
+      ],
+      MANUAL_WINDOWS,
+    );
+
+    expect(groups.map((group) => group.id)).toEqual(['averia', 'gestiones']);
+    expect(gapSegmentsOf(groups, MANUAL_WINDOWS).map((segment) => segment.seamBelow)).toEqual([
+      false,
+      false,
+    ]);
+  });
+
+  it('leaves free time between two gaps as a separator', () => {
+    const groups = groupGaps(
+      [
+        gap({ id: 'a', startMinutes: 9 * 60, durationMinutes: 60 }),
+        gap({ id: 'b', startMinutes: 11 * 60, durationMinutes: 60 }),
+      ],
+      MANUAL_WINDOWS,
+    );
+
+    expect(groups).toHaveLength(2);
+  });
+
+  it('marks no seam where the two rows of a unit merely TOUCH', () => {
+    // Same rule as a block's unit: the mark names the BREAK BETWEEN TWO WINDOWS, not the join
+    // between two rows.
+    const groups = groupGaps(
+      [
+        gap({ id: 'first', unitId: 'una', startMinutes: 9 * 60, durationMinutes: 60 }),
+        gap({ id: 'second', unitId: 'una', startMinutes: 10 * 60, durationMinutes: 60 }),
+      ],
+      MANUAL_WINDOWS,
+    );
+
+    expect(groups).toHaveLength(1);
+    expect(gapSegmentsOf(groups, MANUAL_WINDOWS).map((segment) => segment.seamBelow)).toEqual([
+      false,
+      false,
+    ]);
   });
 });

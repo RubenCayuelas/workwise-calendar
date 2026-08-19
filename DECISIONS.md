@@ -1745,7 +1745,111 @@ migrated SQLite database, over every boundary minute plus the scissors' target, 
 settings change stranded in the break, a gap across the break (unchanged, as it must be), and a day
 whose afternoon is switched off (no later working minute, so the roll or the refusal answers).
 
+**The gap's exemption lasted two days.** It was right while a gap's `duration` was clock minutes — there
+was no straddle to remove, because the row meant the wall clock. On 2026-08-19 the units changed and the
+exemption went with them: a gap reads `firstWorkingMinute` like every other gesture now. See § *Gaps Are
+Cut At The Comida Too*.
+
 ---
+
+## Gaps Are Cut At The Comida Too
+
+**2026-08-19.** A gap's `duration` was CLOCK minutes and a gap was the one row in the app allowed to
+span a non-working interval. It is NET WORKING MINUTES now, like a block's, and a stored gap row is cut
+at the break like everything else. This is phase 1 of the round the owner opened with *«los gaps
+actuarán como tareas con candado, en el sentido de que donde se crean ahí se quedan pero las puedo mover
+desde la interfaz»*: the STORED SHAPE only. The drag, the resize, the painting gesture, the absences
+screen and the closed-day screen are later phases and are not built.
+
+**The evidence, from the shop's own database.** Four gaps, `2026-09-01` to `09-04`, each `08:00 +11,5 h`,
+reason "Feria" — a whole week away at the fair. **11.5 and not 10 because the comida was paid for.** The
+owner had typed the wall clock, the app had stored the wall clock, and every reader then had to remember
+that this one table meant something different from the other one. And `day_overrides` had 0 rows: a
+whole-week absence had been built out of gaps because the closed-day mechanism has never had a screen.
+
+**What it buys.** *No stored row straddles a non-working interval* stops being a rule with an exception
+and becomes an invariant of the schema. Everything downstream then follows from ONE fact rather than
+from two: `start + duration` is any row's clock extent, so the plannable-hours union, `findGapConflicts`,
+`firstClearStart`, `mergeIntervals`, `manualDaySegments`, `coveredMinutes`, the ghost's spill and
+`heightBetween` are all correct for a gap for exactly the same reason they were already correct for a
+block. Nothing on the grid is drawn over the 28 px seam any more, which is what the seam was for.
+
+**What it costs, and the owner accepted it in as many words: a gap can no longer be recorded inside the
+comida.** A gesture aimed at a minute no window covers starts at the first minute that can hold work, so
+a gap aimed at 14:00 is stored from 15:30 — the rule *A Minute With No Working Time* already governing
+every drop, now reaching the one row that was exempt. Nothing happens during the break by definition, so
+there was never anything to record there.
+
+**Two smaller consequences, both wanted.** Segmentation reads the MANUAL WINDOW, margins included,
+because a gap is a hand gesture and that is what hand gestures read: a gap may sit in a margin, and "all
+day" on the documented shift is 12 h in two rows (`07:00 +7 h`, `15:30 +5 h`), not 10. And *Cerrar el día
+aquí* now proposes TWO rows where it used to write one across the break, still only proposing —
+*«no se creará el hueco automáticamente, sino que si el usuario lo quiere lo deberá de crear él»*.
+
+**The silent-failure risk was the whole of the work.** A gap is part of the occupancy set the engine
+unions to compute plannable hours, so a net duration read as clock mis-sizes a day with nothing thrown.
+The answer was not to teach eleven call sites to derive a clock end: it was to make the stored row
+satisfy the invariant those sites already assume, and gate it on the way IN. `createGap` and `patchGap`
+segment through `segmentDroppedRow` — the drop path's own function, so a gap and a drop cannot be cut
+differently — and `assertGapFits` then asks the day's end and the fixed work OF EACH ROW.
+
+**One real defect was found by asking it per row rather than per gap** (measured over HTTP, no browser):
+a padlocked `Porton 18:00-19:30` on a Tuesday, and a gap of 8 h from 10:00.
+
+| the question asked | the answer |
+|---|---|
+| over `start + duration` — `10:00-18:00` | names rows inside the comida, where nothing can be; MISSES the padlocked row; **saves on top of it** |
+| over the rows — `10:00-14:00` and `15:30-19:30` | 409 `gap-over-fixed-block` / `errors.gapOverLockedBlock`, naming *Porton 18:00-19:30*, nothing written |
+
+And the mirror holds: 3 h from 10:00 stops at 13:00 and saves, because the padlocked row is no longer in
+its way. The slide agrees too — a padlocked row dropped at 10:00 onto a day carrying `08:00 +6 h` and
+`15:30 +2 h` of gap lands at **17:30**, having stepped past both halves.
+
+**The day's end, not midnight.** `assertFitsInDay` (midnight) was the only ceiling a gap had, which was
+right while a gap's minutes were clock minutes and wrong the moment they became net: 13 h from 08:00
+would have stored a second row running to 22:30. The line is now `dayEndMinutes` over the manual
+windows — 409 `row-past-day-end`, the block path's own guard — and it keeps that guard's one latitude, so
+a gap a settings change stranded past the day's end stays editable as long as the edit does not make the
+overrun worse.
+
+**The migration splits, it does not convert.** Turning the four Feria rows into closed days would rewrite
+what the owner recorded into a different statement about the same week. `08:00 +11,5 h` becomes
+`08:00 +6 h` and `15:30 +4 h`, the reason on both, the morning half keeping the row's id and the
+afternoon half its `created_at`. Re-measured on the real thing: opening the fixture over HTTP gives eight
+rows across the four days and each of those days reports `plannableMinutes: 0`, exactly as the 11.5 h
+rows did — **the meaning is preserved, only the units changed.**
+
+- **What it writes is the same stretch of clock in the new units**: the old interval intersected with the
+  manual windows. A gap already inside one window is therefore left BYTE-IDENTICAL, not rewritten with
+  the values it already has — `2026-08-24 09:00 +1 h` keeps its `updated_at` — and a gap that included
+  minutes the shop cannot work loses exactly those. A gap with no working minutes at all is left alone:
+  there is nothing to convert it to, and deleting what the owner recorded is not a migration's business.
+- **The ordering problem, and the answer.** The split needs the SHIFT to know where the break is, and a
+  stored gap carries no record of the shift it was typed under, so the settings are the only evidence
+  there is. It therefore runs LAST in `runMigrations`, after `seedDefaultSettings`, which is what makes
+  it correct on a database that has never been configured — proved by the fixture, whose file has no
+  `settings` table at all and is migrated against the documented `08:00-14:00` / `15:30-19:30`.
+- **It runs ONCE, and that is a decision.** `data_migrations` is a new table and the first guard of its
+  kind: `PRAGMA table_info` can see a column appear or go, and can see nothing at all when what changed
+  is what a NUMBER MEANS. Re-running would be a no-op today — every row now sits inside one window — but
+  not after the owner narrows the shift, and re-cutting gaps they have since put where they want them,
+  silently, on an app restart, is not a repair.
+
+**The two halves are ONE unit on screen**, joined with the seam and the `sigue…` marks like a job cut at
+the comida, sharing one reason and one lane. Grouping goes through `adjacentInWindows`, the predicate the
+grid already groups blocks with, so a gap unit and a block unit cannot disagree about where a unit ends.
+
+**The reason stands where a block's `projectId` stands**, and it has to be something: two gaps that
+merely touch must NOT be merged, in storage or on screen, because each carries its own reason and
+merging would destroy one. The reason is all a gap has to be identified by. Two rows with the same
+reason and nothing workable between them are drawn as one unit whether one save or two made them —
+there is nothing on them to tell apart, and nothing is claimed on screen beyond what they say.
+
+**What phase 1 deliberately did not do**, so the next round is not misled: a gap is still not dragged
+and not resized (pressing one opens its form); a PATCH edits ONE ROW, so editing one half of a gap
+leaves the other where it is, and a delete removes one half; there is no absences screen, no range, no
+painting gesture and no closed-day screen. `MIN_ROW_MINUTES` is still not a write-path guard, so a
+sub-quarter gap row remains reachable over HTTP exactly as a sub-quarter block row is.
 
 ## Deleting a Job Leaves Its Past Intact
 
@@ -2774,3 +2878,45 @@ broader, and left for the owner:* **Open Decision 4** — every resize is now on
 calendar, so a grown row can sit on another job or on a gap with nothing to separate them afterwards;
 measured on a plain Monday with no margins involved. Open Decision 2 is still open and now arrives as a
 dialog rather than a silent mark.
+
+**v0.15 — built: a gap is cut at the comida, and no stored row straddles a break any more.** Phase 1 of
+the gaps round (2026-08-19), and the STORED SHAPE only. `duration` became NET WORKING MINUTES for a gap
+too, segmented over the MANUAL WINDOWS on the way in (`createGap` / `patchGap` → `segmentDroppedRow`), so
+a gap may sit in a visual margin and "all day" is 12 h in two rows. The reasoning, the evidence and what
+it costs are in § *Gaps Are Cut At The Comida Too*.
+
+- [x] `assertGapFits` cuts first and then asks the day's end (`dayEndMinutes`, 409 `row-past-day-end`,
+      keeping the block guard's one latitude) and `findGapConflicts` OF EACH ROW
+- [x] `planCloseDay` reports net minutes and the rows it proposes; the form still posts ONE request
+- [x] `groupGaps` / `gapSegmentsOf` beside the block pair, `packDay` over units, the seam and the
+      `sigue…` marks on the grid, `grid.gapContinuesAbove` / `Below` in both locales
+- [x] `data_migrations`, the first data migration: the four `08:00 +11,5 h` Feria rows split, once
+
+Verified on 2026-08-19: `tsc --noEmit` clean, `vitest run` **903 passing across 30 files** (the five
+2000-seed harnesses among them, untouched and green), `next lint` clean. Driven over real HTTP against a
+scratch database seeded to the SHAPE OF THE SHOP'S FILE — a `gaps` table in clock minutes, no
+`data_migrations`, no `settings` — on a port of its own: the four Feria rows came back as eight
+(`08:00 +6 h`, `15:30 +4 h`, reason on both), the `2026-08-24 09:00 +1 h` row byte-identical with its
+`updated_at` untouched, and each Feria day still reporting `plannableMinutes: 0`. A second boot changed
+nothing. Then: a gap aimed at `14:00` stored from `15:30`; `07:00 +12 h` stored `07:00 +7 h` and
+`15:30 +5 h`; `08:00 +13 h` refused `row-past-day-end` naming `20:30`; `19:30 +1 h` accepted in the
+bottom margin and `20:00 +1 h` refused; a gap wholly in the top margin costing the day nothing plannable;
+`13:00` + 5 net hours (what *Cerrar el día aquí* posts) stored `13:00 +1 h` and `15:30 +4 h`, the day
+dropping from 10 h to 5 h plannable; 8 h from 10:00 refused by the padlocked `18:00-19:30` it would
+have silently covered, and 3 h from 10:00 saving beside it; a padlocked row dropped at 10:00 onto a day
+holding both halves of a gap sliding to `17:30`. In a real browser at 1500×950 the two halves draw joined
+— `Avería… sigue…` above the seam, `…sigue` below it, dashed edges facing each other, one lane between
+them — and a 12 h gap reaches into both margins with nothing drawn over the seam.
+
+*Not built, deliberately:* the gap drag and resize, the absences screen and its date range, the painting
+gesture, the bulk-creation warning and the closed-day screen. A gap still opens its form when pressed.
+
+*One thing went wrong while building it, and it is worth the paragraph.* `readWeek(db, MON)` — a `Db`
+passed where the reference DATE belongs — let the trailing `db` parameter fall back to `getDb()`, and the
+new data migration ran over `data/calendar.db`, the shop's real file, from inside a test run. Nothing was
+damaged: it did exactly what it is for, splitting the four Feria rows into `08:00 +6 h` and `15:30 +4 h`
+with the reasons kept, touching no block, project or setting (verified by their `updated_at`), and the
+result is even correct under a code revert, since the two rows cover the same clock the one row did. But
+it should have been the owner's own first boot, and `tsc` would have caught the call: it was run after
+`vitest`, not before. `openDatabase` now REFUSES that path whenever `VITEST` is set, with a test of its
+own — the house rule became a mechanism.

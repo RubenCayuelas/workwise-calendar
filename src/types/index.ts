@@ -55,6 +55,12 @@ export interface Gap {
   durationMinutes: number;
   /** Free text such as "Avería torno". May be absent. */
   reason?: string;
+  /**
+   * The gap this row is a PIECE of: the halves around the comida share one, and they carry one
+   * reason between them. Two gaps that merely touch keep different ids and stay two gaps, which a
+   * comparison of their reasons cannot say — the same sentence is written twice by a deleted job.
+   */
+  unitId: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -156,6 +162,8 @@ export interface GapRow {
   start_time: string;
   duration: number;
   reason: string | null;
+  /** NULL on a row written before the column existed; `mapGapRow` reads it as its own unit. */
+  unit_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -208,6 +216,7 @@ export function mapGapRow(row: GapRow): Gap {
     startMinutes: hhmmToMinutes(row.start_time),
     durationMinutes: hoursToMinutes(row.duration),
     reason: textOrUndefined(row.reason),
+    unitId: row.unit_id ?? row.id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -257,6 +266,7 @@ export function toGapRow(gap: Gap): GapRow {
     start_time: minutesToHHmm(gap.startMinutes),
     duration: minutesToHours(gap.durationMinutes),
     reason: gap.reason ?? null,
+    unit_id: gap.unitId,
     created_at: gap.createdAt,
     updated_at: gap.updatedAt,
   };

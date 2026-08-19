@@ -16,7 +16,7 @@ import {
   previewProjectCreation,
 } from './operations/projects';
 import { deleteBlock, moveBlock, resizeBlock, setBlockLock, splitBlock } from './operations/blocks';
-import { createGap, deleteGap } from './operations/gaps';
+import { createGap, deleteGap, patchGap } from './operations/gaps';
 import { updateSettings } from './operations/settings';
 import { readWeek } from './operations/views';
 import { deleteBlocks, insertBlock, listBlocks, updateBlock } from './repositories/blocks';
@@ -1383,11 +1383,12 @@ describe('the lunch break is not a slot', () => {
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
-  it('leaves a GAP across the break exactly where it was put', () => {
-    // A gap's `duration` is CLOCK minutes, so a gap is the one row that MAY span a break.
+  it('moves a GAP aimed at the break to the first minute that can hold work', () => {
+    // A gap's `duration` is NET working minutes now, so a gap is no longer the one row that may span
+    // a break: it reads a non-working start exactly as a drop does, and nothing happens in the comida.
     createGap({ date: THU, startMinutes: 14 * 60, durationMinutes: 120, reason: 'Averia', today: THU }, db);
 
-    expect(gapLines()).toEqual([`${THU} 14:00-16:00 Averia`]);
+    expect(gapLines()).toEqual([`${THU} 15:30-17:30 Averia`]);
   });
 
   it('leaves the hole after the last window alone when the afternoon is switched off', () => {
@@ -2218,6 +2219,293 @@ describe('gaps', () => {
     deleteGap(gap.gap.id, { today: MON }, db);
 
     expect(calendar()).toEqual([`${MON} 08:00-12:00 Puerta`]);
+  });
+});
+
+describe("a gap's hours are net working minutes, so a gap is cut at the comida too", () => {
+  it('stores an all-day gap as TWO rows sharing one reason', () => {
+    // 12 h and not 10: a gap is a hand gesture, so it is read over the MANUAL WINDOWS and may use
+    // the visual margins. `07:00-14:00` is 7 h and `15:30-20:30` is 5 h.
+    const saved = createGap(
+      { date: MON, startMinutes: 7 * 60, durationMinutes: 12 * 60, reason: 'Feria', today: MON },
+      db,
+    );
+
+    expect(gapLines()).toEqual([`${MON} 07:00-14:00 Feria`, `${MON} 15:30-20:30 Feria`]);
+    // Both rows come back, in clock order, and `gap` is the first of them.
+    expect(saved.gaps).toHaveLength(2);
+    expect(saved.gap.id).toBe(saved.gaps[0].id);
+    expect(saved.gaps.map((gap) => gap.durationMinutes)).toEqual([7 * 60, 5 * 60]);
+  });
+
+  it('refuses hours no day can hold, at the end of the last manual window', () => {
+    const error = refusal(() =>
+      createGap({ date: MON, startMinutes: 8 * 60, durationMinutes: 13 * 60, today: MON }, db),
+    );
+
+    // Not midnight: the line is the end of the day for every hand gesture, 20:30 here.
+    expect(error.code).toBe('row-past-day-end');
+    expect(listGaps(db)).toEqual([]);
+  });
+
+  it('may sit entirely inside a visual margin', () => {
+    // Margins accept every hand gesture, and this one costs the day nothing plannable: it is
+    // outside the periods, so `plannableMinutes` is untouched.
+    createGap({ date: MON, startMinutes: 7 * 60, durationMinutes: 60, reason: 'Taller', today: MON }, db);
+
+    expect(gapLines()).toEqual([`${MON} 07:00-08:00 Taller`]);
+    expect(readWeek(MON, { today: MON }, db).days[0].plannableMinutes).toBe(10 * 60);
+  });
+
+  it('leaves two gaps that merely TOUCH as two gaps', () => {
+    // Each carries its own reason and merging one into the other would destroy it.
+    createGap({ date: MON, startMinutes: 9 * 60, durationMinutes: 60, reason: 'Avería', today: MON }, db);
+    createGap({ date: MON, startMinutes: 10 * 60, durationMinutes: 60, reason: 'Gestiones', today: MON }, db);
+
+    expect(gapLines()).toEqual([`${MON} 09:00-10:00 Avería`, `${MON} 10:00-11:00 Gestiones`]);
+  });
+
+  it('costs the day exactly its net minutes, counted as ONE occupancy set with the blocks', () => {
+    job('Puerta', 4);
+    // 8 h from 10:00 reaches 19:30: 4 h of morning left plus the whole afternoon.
+    createGap({ date: MON, startMinutes: 10 * 60, durationMinutes: 8 * 60, reason: 'Feria', today: MON }, db);
+
+    expect(gapLines()).toEqual([`${MON} 10:00-14:00 Feria`, `${MON} 15:30-19:30 Feria`]);
+    // The day has 10 plannable hours and the gap holds 8 of them, so 2 are left — and the job's
+    // 4 h fill those two and carry on to Tuesday.
+    expect(readWeek(MON, { today: MON }, db).days[0].plannableMinutes).toBe(2 * 60);
+    expect(calendar()).toEqual([`${MON} 08:00-10:00 Puerta`, `${TUE} 08:00-10:00 Puerta`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('is refused by a locked row its SECOND half lands on', () => {
+    // The whole point of asking the refusal of each stored ROW: read as one clock interval the
+    // candidate would be 10:00-18:00, which names nothing at 18:00-19:30 and saves on top of it.
+    const porton = job('Porton', 1.5);
+    // Padlocked first, so the drop is a literal placement rather than a queue rank.
+    setBlockLock(porton.blocks[0].id, true, { today: MON }, db);
+    moveBlock(porton.blocks[0].id, { date: MON, startMinutes: 18 * 60, today: MON }, db);
+    expect(calendar()).toEqual([`${MON} 18:00-19:30 Porton [locked]`]);
+
+    const error = refusal(() =>
+      createGap({ date: MON, startMinutes: 10 * 60, durationMinutes: 8 * 60, today: MON }, db),
+    );
+
+    expect(error.code).toBe('gap-over-fixed-block');
+    expect(error.messageKey).toBe('errors.gapOverLockedBlock');
+    expect(error.details).toMatchObject({ projectName: 'Porton', date: MON, startTime: '18:00' });
+    expect(listGaps(db)).toEqual([]);
+  });
+
+  it('does not name a row the gap stops short of', () => {
+    // The mirror of the case above, and the reason the refusal has to be per ROW in both
+    // directions: 3 h from 10:00 is 10:00-13:00 and stops there, so the padlocked row that starts
+    // at 15:30 is not in the way and the gap saves.
+    const porton = job('Porton', 2);
+    setBlockLock(porton.blocks[0].id, true, { today: MON }, db);
+    moveBlock(porton.blocks[0].id, { date: MON, startMinutes: 15 * 60 + 30, today: MON }, db);
+
+    createGap({ date: MON, startMinutes: 10 * 60, durationMinutes: 3 * 60, reason: 'Feria', today: MON }, db);
+
+    expect(gapLines()).toEqual([`${MON} 10:00-13:00 Feria`]);
+    expect(calendar()).toEqual([`${MON} 15:30-17:30 Porton [locked]`]);
+  });
+
+  it('cuts a PATCH at the comida too, giving the far half its own row', () => {
+    const saved = createGap(
+      { date: MON, startMinutes: 12 * 60, durationMinutes: 60, reason: 'Avería', today: MON },
+      db,
+    );
+
+    const patched = patchGap(saved.gap.id, { durationMinutes: 4 * 60, today: MON }, db);
+
+    // The row named keeps its id and takes the first half; the far half is a new row with the
+    // same reason, because the two halves are ONE gap.
+    expect(gapLines()).toEqual([`${MON} 12:00-14:00 Avería`, `${MON} 15:30-17:30 Avería`]);
+    expect(patched.gap.id).toBe(saved.gap.id);
+    expect(patched.gaps.map((gap) => gap.reason)).toEqual(['Avería', 'Avería']);
+  });
+
+  it('EXTENDS the far half a unit already has instead of inserting a second one', () => {
+    // Measured over HTTP on 2026-08-19: the PATCH updated the row named and blindly inserted every
+    // further segment, so re-saving the same geometry left THREE rows on disk, two of them
+    // overlapping, and reported only two.
+    const saved = createGap(
+      { date: MON, startMinutes: 10 * 60, durationMinutes: 8 * 60, reason: 'Feria', today: MON },
+      db,
+    );
+    const afternoonId = saved.gaps[1].id;
+
+    const patched = patchGap(saved.gap.id, { durationMinutes: 8 * 60, today: MON }, db);
+
+    expect(gapLines()).toEqual([`${MON} 10:00-14:00 Feria`, `${MON} 15:30-19:30 Feria`]);
+    // The same two rows, so nothing that referred to either half is orphaned.
+    expect(patched.gaps.map((gap) => gap.id)).toEqual([saved.gap.id, afternoonId]);
+  });
+
+  it('DELETES the far half when the hours no longer reach across the comida', () => {
+    const saved = createGap(
+      { date: MON, startMinutes: 12 * 60, durationMinutes: 4 * 60, reason: 'Avería', today: MON },
+      db,
+    );
+    expect(gapLines()).toHaveLength(2);
+
+    const patched = patchGap(saved.gap.id, { durationMinutes: 60, today: MON }, db);
+
+    expect(gapLines()).toEqual([`${MON} 12:00-13:00 Avería`]);
+    expect(patched.gaps.map((gap) => gap.id)).toEqual([saved.gap.id]);
+  });
+
+  it('is addressed by ANY of its rows: naming either half edits the same absence', () => {
+    // An absence is (day, start, NET duration), so shortening it to 5 h leaves 4 h in the morning and
+    // 1 h after the comida — and it does not matter which half the caller named. The alternative,
+    // letting a PATCH mean "this ROW becomes 1 h", cannot express growing a half across the break
+    // without inventing a second row, which is the defect this replaced.
+    const first = createGap(
+      { date: MON, startMinutes: 10 * 60, durationMinutes: 8 * 60, reason: 'Feria', today: MON },
+      db,
+    );
+    patchGap(first.gaps[1].id, { durationMinutes: 5 * 60, today: MON }, db);
+    const namingTheAfternoon = gapLines();
+
+    // One delete per UNIT, not per row: deleting takes both halves, so iterating the rows would
+    // ask for a row the previous call already removed.
+    while (listGaps(db).length > 0) deleteGap(listGaps(db)[0].id, { today: MON }, db);
+
+    const second = createGap(
+      { date: MON, startMinutes: 10 * 60, durationMinutes: 8 * 60, reason: 'Feria', today: MON },
+      db,
+    );
+    patchGap(second.gaps[0].id, { durationMinutes: 5 * 60, today: MON }, db);
+
+    expect(namingTheAfternoon).toEqual([`${MON} 10:00-14:00 Feria`, `${MON} 15:30-16:30 Feria`]);
+    expect(gapLines()).toEqual(namingTheAfternoon);
+  });
+
+  it('carries a reason change to every row of the unit, and keeps the unit together', () => {
+    // A unit has ONE reason. Editing one half's reason used to split the unit in two — the seam and
+    // the `sigue…` marks gone, the far half still showing the old text.
+    const saved = createGap(
+      { date: MON, startMinutes: 10 * 60, durationMinutes: 8 * 60, reason: 'Puente', today: MON },
+      db,
+    );
+
+    const patched = patchGap(saved.gap.id, { reason: 'Feria', today: MON }, db);
+
+    expect(gapLines()).toEqual([`${MON} 10:00-14:00 Feria`, `${MON} 15:30-19:30 Feria`]);
+    expect(patched.gaps.map((gap) => gap.unitId)).toEqual([saved.gap.unitId, saved.gap.unitId]);
+  });
+
+  it('keeps two gaps that TOUCH in different units, whatever their reasons', () => {
+    // Reachable in production, and the reason a unit is keyed on data rather than on the reason
+    // text: `deleteProject` writes one gap per past row with the SAME composed reason, so a job cut
+    // at the comida yesterday leaves two adjacent gaps that must not be drawn — or edited — as one.
+    const first = createGap(
+      { date: MON, startMinutes: 9 * 60, durationMinutes: 60, reason: 'Avería', today: MON },
+      db,
+    );
+    const second = createGap(
+      { date: MON, startMinutes: 10 * 60, durationMinutes: 60, reason: 'Avería', today: MON },
+      db,
+    );
+
+    expect(first.gap.unitId).not.toBe(second.gap.unitId);
+    // Growing the first one over the second is nobody's reconciliation: the second is its own gap.
+    patchGap(first.gap.id, { durationMinutes: 30, today: MON }, db);
+    expect(gapLines()).toEqual([`${MON} 09:00-09:30 Avería`, `${MON} 10:00-11:00 Avería`]);
+  });
+
+  it('gives one unit id to the gaps a deleted job leaves on one past day', () => {
+    // Two halves of one past row are one absence, so they are drawn joined; two different days are
+    // two units.
+    const barandilla = createProject(
+      { name: 'Barandilla', color: GREEN, totalMinutes: 8 * 60, startDate: LAST_FRI, today: MON },
+      db,
+    );
+    expect(listBlocks(db).filter((block) => block.date === LAST_FRI)).toHaveLength(2);
+
+    deleteProject(barandilla.project.id, { today: MON }, db);
+
+    const units = new Set(listGaps(db).map((gap) => gap.unitId));
+    expect(listGaps(db)).toHaveLength(2);
+    expect(units.size).toBe(1);
+  });
+
+  it('never stores a gap that straddles a break, over 400 generated writes', () => {
+    // The invariant the whole round rests on, asserted where the only public gate is. Every reader of
+    // a stored gap adds `start + duration` to get its clock end — correct ONLY while a row sits inside
+    // one window — and occupancy never throws, so a write path that regressed here would corrupt
+    // placement in silence. A property, not three examples, because the interesting inputs are the
+    // ones nobody would think to type: a start inside the comida, a duration longer than the day, a
+    // start in a margin.
+    const windows = [
+      { startMinutes: 7 * 60, endMinutes: 14 * 60 },
+      { startMinutes: 15 * 60 + 30, endMinutes: 20 * 60 + 30 },
+    ];
+    const insideOneWindow = (gap: { startMinutes: number; durationMinutes: number }): boolean =>
+      windows.some(
+        (w) =>
+          gap.startMinutes >= w.startMinutes && gap.startMinutes + gap.durationMinutes <= w.endMinutes,
+      );
+
+    let seed = 20260819;
+    const next = (limit: number): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % limit;
+    };
+
+    let written = 0;
+    let refused = 0;
+    for (let attempt = 0; attempt < 400; attempt += 1) {
+      const startMinutes = next(96) * 15;
+      const durationMinutes = (next(56) + 1) * 15;
+      let created;
+      try {
+        created = createGap({ date: MON, startMinutes, durationMinutes, today: MON }, db);
+      } catch (error) {
+        // A refusal is a legitimate answer; storing an illegal row is not.
+        expect(error).toBeInstanceOf(AppError);
+        refused += 1;
+        continue;
+      }
+
+      for (const row of created.gaps) {
+        expect(
+          insideOneWindow(row),
+          `created ${minutesToHHmm(row.startMinutes)} +${row.durationMinutes}m from ${minutesToHHmm(startMinutes)} +${durationMinutes}m`,
+        ).toBe(true);
+      }
+      // Every row of one write is one absence.
+      expect(new Set(created.gaps.map((row) => row.unitId)).size).toBe(1);
+      written += 1;
+
+      // And the same must hold after an EDIT, which is the path that used to duplicate rows.
+      try {
+        const patched = patchGap(created.gap.id, { durationMinutes: (next(56) + 1) * 15, today: MON }, db);
+        for (const row of patched.gaps) expect(insideOneWindow(row)).toBe(true);
+        expect(listGaps(db).length).toBe(patched.gaps.length);
+      } catch (error) {
+        expect(error).toBeInstanceOf(AppError);
+      }
+
+      while (listGaps(db).length > 0) deleteGap(listGaps(db)[0].id, { today: MON }, db);
+    }
+
+    // The generator has to actually reach both sides of the guard, or the property proves nothing.
+    expect(written).toBeGreaterThan(50);
+    expect(refused).toBeGreaterThan(0);
+  });
+
+  it('recomposes twice to the same calendar with a segmented gap on the day', () => {
+    job('Puerta', 6);
+    createGap({ date: MON, startMinutes: 10 * 60, durationMinutes: 6 * 60, reason: 'Feria', today: MON }, db);
+    const once = calendar();
+
+    createGap({ date: NEXT_TUE, startMinutes: 8 * 60, durationMinutes: 60, today: MON }, db);
+    deleteGap(listGaps(db).find((gap) => gap.date === NEXT_TUE)!.id, { today: MON }, db);
+
+    expect(calendar()).toEqual(once);
+    expect(() => assertProjectHours(db)).not.toThrow();
   });
 });
 

@@ -119,6 +119,110 @@ export function segmentsOf(
   return segments;
 }
 
+// ---------------------------------------------------------------------------
+// The same question, asked of gaps
+// ---------------------------------------------------------------------------
+
+/** Consecutive rows of ONE gap on one day, drawn as a single unit. */
+export interface GapGroup {
+  /** The first row's id. Stable as long as the group is. */
+  id: string;
+  /** What makes these rows ONE absence. Any of them addresses the whole of it. */
+  unitId: string;
+  date: string;
+  /** In clock order. Always at least one. */
+  gaps: Gap[];
+  /** The time the unit reserves — the "10 h" of a gap split around lunch. */
+  totalMinutes: number;
+  startMinutes: number;
+  /** End of the last row. Includes the lunch break it spans, unlike `totalMinutes`. */
+  endMinutes: number;
+  /** The reason every row of the unit carries. The halves of one gap share it. */
+  reason: string;
+}
+
+/** One gap row, with the unit it belongs to and its place in it. */
+export interface GapSegment {
+  gap: Gap;
+  group: GapGroup;
+  isFirst: boolean;
+  isLast: boolean;
+  /** The break between two windows separates this row from the previous / next row of its unit. */
+  seamAbove: boolean;
+  seamBelow: boolean;
+}
+
+/**
+ * A day's gap units, in clock order, through `adjacentInWindows` — the same predicate `groupBlocks`
+ * uses, so a gap unit and a block unit cannot disagree about where a unit ends.
+ *
+ * `unitId` STANDS WHERE A BLOCK'S `projectId` STANDS. It cannot be the reason: the same sentence is
+ * written twice by a deleted job, so two absences that merely touch would fuse — and editing one
+ * half's reason would split a unit in two.
+ */
+export function groupGaps(gaps: readonly Gap[], manualWindows: readonly WorkPeriod[]): GapGroup[] {
+  const ordered = [...gaps].sort(
+    (a, b) => a.startMinutes - b.startMinutes || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+  const groups: GapGroup[] = [];
+
+  for (const gap of ordered) {
+    const open = groups[groups.length - 1];
+    const reason = gap.reason ?? '';
+    const joins =
+      open !== undefined &&
+      open.unitId === gap.unitId &&
+      adjacentInWindows(manualWindows, open.endMinutes, gap.startMinutes);
+
+    if (joins) {
+      open.gaps.push(gap);
+      open.totalMinutes += gap.durationMinutes;
+      open.endMinutes = gap.startMinutes + gap.durationMinutes;
+      continue;
+    }
+
+    groups.push({
+      id: gap.id,
+      unitId: gap.unitId,
+      date: gap.date,
+      gaps: [gap],
+      totalMinutes: gap.durationMinutes,
+      startMinutes: gap.startMinutes,
+      endMinutes: gap.startMinutes + gap.durationMinutes,
+      reason,
+    });
+  }
+
+  return groups;
+}
+
+/** Every row of every gap unit, flattened, each told where the break falls inside its unit. */
+export function gapSegmentsOf(
+  groups: readonly GapGroup[],
+  manualWindows: readonly WorkPeriod[] = [],
+): GapSegment[] {
+  const segments: GapSegment[] = [];
+  for (const group of groups) {
+    group.gaps.forEach((gap, index) => {
+      const previous = group.gaps[index - 1];
+      const next = group.gaps[index + 1];
+      segments.push({
+        gap,
+        group,
+        isFirst: index === 0,
+        isLast: index === group.gaps.length - 1,
+        seamAbove:
+          previous !== undefined &&
+          isWindowBreak(manualWindows, previous.startMinutes + previous.durationMinutes, gap.startMinutes),
+        seamBelow:
+          next !== undefined &&
+          isWindowBreak(manualWindows, gap.startMinutes + gap.durationMinutes, next.startMinutes),
+      });
+    });
+  }
+  return segments;
+}
+
 /**
  * True when `[from, to)` is the break BETWEEN two manual windows — 14:00-15:30 and nothing else on the
  * documented shift. It must start exactly where one window ends and finish where the next begins: two
@@ -276,14 +380,20 @@ export function assignLanes(items: readonly LaneItem[]): Map<string, LanePlaceme
   return placements;
 }
 
-/** Groups and gaps share the column, so they are packed together. */
-export function packDay(groups: readonly BlockGroup[], gaps: readonly Gap[]): Map<string, LanePlacement> {
+/**
+ * Groups and gaps share the column, so they are packed together — both as UNITS, so the two halves of
+ * one gap take one lane between them instead of each claiming its own.
+ */
+export function packDay(
+  groups: readonly BlockGroup[],
+  gaps: readonly GapGroup[],
+): Map<string, LanePlacement> {
   return assignLanes([
     ...groups.map((group) => ({ id: group.id, startMinutes: group.startMinutes, endMinutes: group.endMinutes })),
-    ...gaps.map((gap) => ({
-      id: gap.id,
-      startMinutes: gap.startMinutes,
-      endMinutes: gap.startMinutes + gap.durationMinutes,
+    ...gaps.map((group) => ({
+      id: group.id,
+      startMinutes: group.startMinutes,
+      endMinutes: group.endMinutes,
     })),
   ]);
 }

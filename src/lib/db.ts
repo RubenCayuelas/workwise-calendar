@@ -11,7 +11,11 @@ let cached: Db | null = null;
 
 /** `WORKWISE_DB_PATH` lets tests point at a throwaway file or `:memory:`. */
 export function getDbPath(): string {
-  return process.env.WORKWISE_DB_PATH ?? path.join(process.cwd(), 'data', 'calendar.db');
+  return process.env.WORKWISE_DB_PATH ?? shopDbPath();
+}
+
+function shopDbPath(): string {
+  return path.join(process.cwd(), 'data', 'calendar.db');
 }
 
 /**
@@ -27,6 +31,17 @@ export function getDb(): Db {
 
 /** Opens and migrates a database without touching the cache. Tests use `:memory:`. */
 export function openDatabase(dbPath: string): Db {
+  // UNDER VITEST THE SHOP'S OWN FILE IS OFF LIMITS, because opening it MIGRATES it. One mistyped
+  // argument — a `Db` passed where a date belonged, letting the trailing `db` parameter fall back to
+  // its default — was enough to run a data migration over the real calendar on 2026-08-19. A test
+  // reaching the default path is a test that forgot `WORKWISE_DB_PATH`, so it is refused rather than
+  // served.
+  if (process.env.VITEST !== undefined && path.resolve(dbPath) === shopDbPath()) {
+    throw new Error(
+      'Refusing to open data/calendar.db from a test: point WORKWISE_DB_PATH at a scratch file or use ":memory:"',
+    );
+  }
+
   if (dbPath !== ':memory:') {
     // SQLite will not create the directory: opening would fail with SQLITE_CANTOPEN.
     fs.mkdirSync(path.dirname(path.resolve(dbPath)), { recursive: true });

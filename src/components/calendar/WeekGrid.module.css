@@ -555,14 +555,36 @@
   display: flex;
   overflow: hidden;
   align-items: flex-start;
+  gap: 4px;
   padding: 5px 7px;
   border: var(--ww-hairline) solid var(--ww-border-strong);
-  border-radius: var(--ww-radius);
+  /* Squared by default and rounded per unit, exactly like a block: a gap cut at the comida is two
+     rows, and rounding the inner corners would draw them as two gaps. */
+  border-radius: 0;
   background: var(--ww-gap-color, var(--ww-gap-fill));
   color: var(--ww-text);
   font-size: var(--ww-text-md);
   text-align: left;
   line-height: var(--ww-line-tight);
+}
+
+.gapFirst {
+  border-top-left-radius: var(--ww-radius);
+  border-top-right-radius: var(--ww-radius);
+}
+
+.gapLast {
+  border-bottom-left-radius: var(--ww-radius);
+  border-bottom-right-radius: var(--ww-radius);
+}
+
+/* The seam, on both sides of the break, and the same pair of rules a block's halves carry. */
+.gapContinued {
+  border-top-style: dashed;
+}
+
+.gapContinuesBelow {
+  border-bottom-style: dashed;
 }
 
 .gapButton {
@@ -573,6 +595,13 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* The loud half of the seam. It gives way to the reason, never the other way round. */
+.gapContinues {
+  flex: 0 0 auto;
+  color: var(--ww-text-muted);
+  white-space: nowrap;
 }
 
 /* --------------------------------------------------------------------------

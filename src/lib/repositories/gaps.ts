@@ -13,10 +13,11 @@
 
 import { getDb, type Db } from '../db';
 import { minutesToHHmm, minutesToHours } from '../dates';
+import { assertRowInsideDay } from '../validation';
 import { mapGapRow, type Gap, type GapRow } from '../../types';
 import { prepared } from './statements';
 
-const COLUMNS = 'id, date, start_time, duration, reason, created_at, updated_at';
+const COLUMNS = 'id, date, start_time, duration, reason, unit_id, created_at, updated_at';
 const CALENDAR_ORDER = 'ORDER BY date, start_time, id';
 
 export interface NewGap {
@@ -25,6 +26,8 @@ export interface NewGap {
   startMinutes: number;
   durationMinutes: number;
   reason?: string;
+  /** The unit this row belongs to. Omitted, the row is its own unit. */
+  unitId?: string;
 }
 
 /** `undefined` leaves a column alone; `null` on `reason` clears it. */
@@ -50,17 +53,24 @@ export function findGap(id: string, db: Db = getDb()): Gap | undefined {
   return row === undefined ? undefined : mapGapRow(row);
 }
 
+/**
+ * `assertRowInsideDay` sits here, and in `updateGap`, for the reason it sits in the block writer: so
+ * no caller can go around it. `assertGapFits` in the operations layer segments and refuses far more
+ * than this, but it only guards the two paths that call it — this guards the table.
+ */
 export function insertGap(gap: NewGap, db: Db = getDb()): Gap {
+  assertRowInsideDay({ id: gap.id, date: gap.date, startMinutes: gap.startMinutes, durationMinutes: gap.durationMinutes });
   prepared(
     db,
-    `INSERT INTO gaps (id, date, start_time, duration, reason)
-     VALUES (@id, @date, @start_time, @duration, @reason)`,
+    `INSERT INTO gaps (id, date, start_time, duration, reason, unit_id)
+     VALUES (@id, @date, @start_time, @duration, @reason, @unit_id)`,
   ).run({
     id: gap.id,
     date: gap.date,
     start_time: minutesToHHmm(gap.startMinutes),
     duration: minutesToHours(gap.durationMinutes),
     reason: gap.reason ?? null,
+    unit_id: gap.unitId ?? gap.id,
   });
   return requireStored(gap.id, db);
 }
@@ -88,8 +98,27 @@ export function updateGap(id: string, patch: GapPatch, db: Db = getDb()): Gap | 
 
   if (assignments.length === 0) return findGap(id, db);
 
+  // Asked of the MERGED row: a patch that moves the start without restating the duration still has to
+  // land inside the day.
+  const stored = findGap(id, db);
+  if (stored !== undefined) {
+    assertRowInsideDay({
+      id,
+      date: patch.date ?? stored.date,
+      startMinutes: patch.startMinutes ?? stored.startMinutes,
+      durationMinutes: patch.durationMinutes ?? stored.durationMinutes,
+    });
+  }
+
   const result = prepared(db, `UPDATE gaps SET ${assignments.join(', ')} WHERE id = @id`).run(params);
   return result.changes === 0 ? undefined : requireStored(id, db);
+}
+
+/** Every row of one unit, in calendar order. The halves around the comida come back together. */
+export function listGapsOfUnit(unitId: string, db: Db = getDb()): Gap[] {
+  return prepared<GapRow>(db, `SELECT ${COLUMNS} FROM gaps WHERE unit_id = ? ${CALENDAR_ORDER}`)
+    .all(unitId)
+    .map(mapGapRow);
 }
 
 export function deleteGap(id: string, db: Db = getDb()): boolean {

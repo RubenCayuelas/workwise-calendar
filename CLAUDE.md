@@ -65,6 +65,9 @@ Enable quick visual reorganization via drag & drop.
   - All gaps share one visual colour (configurable in Settings).
   - **Gaps are time**: they consume the day's plannable hours exactly like locked work does, and are
     fixed occupancy — never auto-recomposed.
+  - `duration` is **NET WORKING MINUTES, exactly like a block's** (changed 2026-08-19), and **a stored
+    gap row never straddles a non-working interval** either — so the invariant holds for EVERY row in
+    the app and `start_time + duration` is any row's clock extent — see *Blocks and the Lunch Break*.
 
 **ONE MARK AND NO MORE.** A row stops reflowing for exactly one reason, visible on it and undone by
 pressing it: the **padlock** (`locked`). It fixes the row ENTIRE — where it sits *and* how long it is,
@@ -548,6 +551,9 @@ Three honest ways, all of which fall out of the rules above:
 2. **Stop the day with a gap.** A **one-click action** on the block's hover bar ("Cerrar el día
    aquí"): it pre-fills a gap from a chosen moment to the end of the day's last enabled period, asks
    only for an optional reason, and states what the day loses and whose hours the engine will move.
+   **Across the comida that is TWO rows** and the plan says so (`CloseDayPlan.rows`), while the hours
+   it asks for are the day's NET working minutes — closing at 13:00 is 5 h, not 6.5 h. One request
+   still: the form posts the stretch and the save cuts it, so there is one refusal and one undo.
    It is an ordinary gap — same endpoint, same refusals, editable and deletable afterwards.
    **It is also what the refused resize offers**, so a reach for the bottom edge of an automatic row
    ends one tap from the thing that really works. **THE APP NEVER CREATES THE GAP ITSELF**, from
@@ -622,9 +628,12 @@ unable to delete the sliver it refuses to store.
 > all — the reflow re-cuts it anyway. **Same cause as Open Decisions 6 and 7; answer the three at
 > once.**
 
-### Blocks and the Lunch Break
+### Blocks and the Lunch Break — And Gaps, the Same Way
 - `duration` always means **net working hours**, so every row is a solid rectangle on the clock and
-  can be interpreted without reading Settings.
+  can be interpreted without reading Settings. **A GAP IS ONE OF THOSE ROWS** (since 2026-08-19), so
+  everything in this section is stated of gaps too, over the *manual window*: a gap of 8 h from 10:00
+  is `10:00-14:00` plus `15:30-19:30`, drawn as ONE unit with the seam and the `sigue…` marks, its
+  reason on the first row and one lane between the two.
 - Work crossing the lunch break is stored as **two blocks** of the same job (13:00-14:00 and
   15:30-17:30 for a 3 h stretch).
 - On screen, consecutive segments of the same job are drawn as **one grouped unit** (outer rounded
@@ -639,6 +648,10 @@ unable to delete the sliver it refuses to store.
   different question.
 - **Auto-merge** joins two blocks of the same job only when they touch **inside the same period on
   the same day**. The two halves around lunch deliberately stay two rows.
+- **TWO GAPS THAT MERELY TOUCH ARE NEVER MERGED**, in storage or on screen: each carries its own
+  reason and merging would destroy one. A gap unit is grouped by `adjacentInWindows` **and the reason**
+  — the reason is all a gap has to be identified by, standing where a block's `projectId` stands
+  (`groupGaps` / `gapSegmentsOf`, next to the block pair in `grouping.ts`).
 
 ### The Unit of a Drag Is the RUN
 > **Dragging any block moves its whole RUN: the consecutive blocks of that job with no other movable
@@ -699,8 +712,9 @@ three of those minutes commit the same duration), so the drop reads it the same 
 - **A Monday-Thursday drop aimed at the break therefore does NOT padlock**: read as 15:30 it is an
   ordinary request inside the periods, so it is a queue rank like any other. The **day** still pins
   (Friday, the weekend), and so does a margin.
-- **A GAP is untouched.** A gap's `duration` is CLOCK minutes — *stop the day here* makes one across
-  the comida on purpose — so a gap is the one row that MAY span a break.
+- **A GAP reads it too** (changed 2026-08-19). A gap's duration is net working minutes, so a gap aimed
+  at the comida is stored from 15:30 and a gap can no longer be recorded inside the break. Nothing
+  happens during it by definition.
 
 `firstWorkingMinute` (`src/lib/manualWindow.ts`) is the rule, and it is read in exactly two places
 so a preview and a write cannot disagree: `dropLanding` settles the gesture's start (the padlock, the
@@ -942,7 +956,8 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
     minute of the seam means 15:30 (*A Minute With No Working Time*). Nobody works there, so a target
     that redirects to the first minute they do is the answer, not a harder aim.
   - **A rectangle is the clock interval it occupies** (`Timeline.heightBetween`). No row straddles a
-    break, so a block's height is its own minutes exactly; a GAP may span one and covers the seam.
+    break — gaps included since 2026-08-19 — so every rectangle's height is its own minutes exactly and
+    **nothing on the grid is drawn over the seam**.
 - **Every hour is labelled**, plus both edges of every period. A label is dropped only where it would
   print over one already placed — 15:00 inside the seam, 20:00 under a cramped 20:30. It replaces "an
   interior tick every three hours", which labelled 08:00 and then 11:00.
@@ -1239,13 +1254,26 @@ minute by minute, at several fitted scales — never at sample points.
   a row the owner has settled by hand — position and length together.
 
 ### Gap Management
-- **Create**: Date + Start Time + Duration + Reason (optional). Refused when it would cover a row the
-  engine cannot move, naming **the reason that actually binds** — a row is classified `locked`, then
-  `weekend`, then `past`, which is exactly the three ways `isMovable` says no. On Saturday the
-  weekend is what holds the row, so a padlocked weekend row is refused as `errors.gapOverWeekendBlock`
-  while `locked` is reserved for the case where the padlock is the ONLY thing holding it.
+- **Create**: Date + Start Time + Duration + Reason (optional). The hours are **net working minutes**,
+  and the save **cuts them at the comida** into one row per manual window they reach, sharing the
+  reason (`createGap` → `segmentDroppedRow` over `manualWindows`). Consequences the form has to live
+  with:
+  - **the stored start may differ from the one asked for** — a gap aimed at 14:00 is stored from 15:30
+    (*A Minute With No Working Time*), and the response carries every row it wrote (`gaps`);
+  - **a gap may sit in a visual margin**, so "all day" is 12 h on the documented shift, not 10;
+  - **the line is the end of the day's last manual window**, not midnight: past it the save is refused
+    409 `row-past-day-end`, writing nothing. The duration field's ceiling is the window's own minutes.
+- **Refused when it would cover a row the engine cannot move**, naming **the reason that actually
+  binds** — a row is classified `locked`, then `weekend`, then `past`, which is exactly the three ways
+  `isMovable` says no. On Saturday the weekend is what holds the row, so a padlocked weekend row is
+  refused as `errors.gapOverWeekendBlock` while `locked` is reserved for the case where the padlock is
+  the ONLY thing holding it. **The refusal is asked of every ROW the gap will be stored as**: measured
+  over `start + duration` instead, 8 h from 10:00 tests `10:00-18:00`, names rows in the comida where
+  nothing can be, and MISSES the padlocked `18:00-19:30` its real second half lands on.
 - **Create in one click**: *stop the day here* from a block's action bar.
-- **Edit**: modify any field. **Delete**: frees up time; recomposition runs if needed.
+- **Edit**: modify any field; the result is tested and cut exactly as a create is. A PATCH edits **one
+  row**, so editing one half of a gap leaves the other where it is. **Delete**: frees up time;
+  recomposition runs if needed.
 - **Gaps are not dragged.** Pressing one opens its form; a press that travels says so.
 
 ### Settings
@@ -1446,12 +1474,20 @@ The reproductions are in DECISIONS.md § *Reproductions behind the Open Decision
 
 ## Current Project Status
 
-**v0.14 (current).** The engine, the API, the week view, the gestures and the drag layer are built
-and green: `tsc --noEmit` clean, `vitest run` **887 passing across 30 files** (including five
+**v0.15 (current).** The engine, the API, the week view, the gestures and the drag layer are built
+and green: `tsc --noEmit` clean, `vitest run` **903 passing across 30 files** (including five
 2000-seed property harnesses over placement, manual placement, drops, editing and shrinking — the
 placement one generating off-grid quantities on a quarter of its calendars, which is where the
 quarter-hour floor is really at risk, and asserting strict order on EVERY seed since the hand-set
 duration was deleted), `next lint` clean, `next build` clean.
+
+**NO STORED ROW STRADDLES THE COMIDA ANY MORE — gaps included.** A gap's `duration` became NET working
+minutes on 2026-08-19, so a gap is cut at the break like everything else, its two halves are ONE unit on
+screen, and the one row in the app that could span a break is gone. The four `08:00 +11,5 h` Feria rows
+in the shop's file are split by a one-shot data migration (`data_migrations`, the first of its kind:
+`PRAGMA table_info` cannot see a change of MEANING). **The gestures are not built** — a gap still opens
+its form rather than dragging — see DECISIONS.md § *Gaps Are Cut At The Comida Too* for what the round
+deliberately left for later.
 
 **A row carries ONE mark, the padlock.** `manual_duration` was deleted on 2026-08-18 with every rule
 that held it up, and the bottom edge now sizes only a row the engine does not lay out. That is the
@@ -1497,5 +1533,8 @@ is in [DECISIONS.md](DECISIONS.md) § Release history.**
 - **Integer minutes** everywhere inside the engine; `duration` is net working minutes; no stored row
   straddles a break or leaves its day.
 - **Database**: auto-created `./data/calendar.db` on first run (the directory must be created too).
-  Point `WORKWISE_DB_PATH` at a scratch file when driving the app — never test against `data/`.
+  Point `WORKWISE_DB_PATH` at a scratch file when driving the app — never test against `data/`. **Under
+  `vitest` that file is refused outright** (`openDatabase`), because opening it MIGRATES it: the rule was
+  broken once, on 2026-08-19, by a mistyped argument that let a trailing `db` parameter fall back to its
+  default, and a data migration ran over the shop's real calendar.
 - **Complexity**: prioritise simplicity. No multi-user, auth, subscriptions. Keep it lean.

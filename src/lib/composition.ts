@@ -534,8 +534,13 @@ function buildPeriodSpans(periods: readonly WorkPeriod[]): { spans: PeriodSpan[]
 
 /**
  * Projects a clock interval onto the index ruler, dropping whatever falls outside the working
- * periods — an obstacle over the lunch break costs the day nothing. This is what makes gaps and
- * locked blocks ONE occupancy set.
+ * periods — so an obstacle sitting in a visual margin costs the day nothing, and neither does the
+ * part of one that a settings change stranded outside the shift. This is what makes gaps and locked
+ * blocks ONE occupancy set.
+ *
+ * IT IS A CLOCK INTERVAL, and both callers build it as `start + duration`, for gaps as well as for
+ * blocks: no stored row of either kind straddles the break, so within its own window a row's net
+ * minutes and its clock minutes are the same number.
  */
 function toIndexRanges(spans: PeriodSpan[], startClock: number, endClock: number): IndexRange[] {
   const ranges: IndexRange[] = [];
@@ -1136,6 +1141,10 @@ export interface GapConflict {
  * The implementer default for a gap on top of existing work: unlocked weekday work is pushed forward
  * by the recomposition, so the only real conflicts are the blocks the engine may not move. `compose`
  * cannot repair an overlap it is forbidden to touch, so the caller refuses the save and names them.
+ *
+ * `gap` IS ONE STORED ROW, never a gap's whole net total: a gap's duration is net working minutes, so
+ * `start + duration` is a clock interval only inside a single window. A caller with hours that reach
+ * across the comida segments them first and asks this of each row.
  */
 export function findGapConflicts(
   blocks: readonly Block[],

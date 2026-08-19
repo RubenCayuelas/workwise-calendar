@@ -118,6 +118,7 @@ function gap(spec: { date: string; from: string; hours: number; reason?: string 
   const index = ++sequence;
   return {
     id: `g${index}`,
+    unitId: `g${index}`,
     date: spec.date,
     startMinutes: t(spec.from),
     durationMinutes: Math.round(spec.hours * 60),

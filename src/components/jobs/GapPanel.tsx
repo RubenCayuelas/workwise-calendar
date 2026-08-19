@@ -44,6 +44,7 @@ import {
   todayLocal,
 } from '../../lib/dates';
 import { dayEndMinutes, planCloseDay, type CloseDayRequest } from '../../lib/closeDay';
+import { netMinutesOf } from '../../lib/manualWindow';
 import { useFormat } from '../../lib/useFormat';
 import { HOUR_STEP, parseClockTime } from './forms';
 import { otherGapConflicts } from './placement';
@@ -126,10 +127,13 @@ export function GapPanel({
     setActionError(null);
   }, [open, gap, closing, defaultDate, defaultDurationMinutes, fallbackStart, reference]);
 
+  /**
+   * A gap's hours are NET working minutes, so the ceiling is the manual window's own minutes — 12 h on
+   * the documented shift, not the 13.5 h the axis is tall. The axis span would let the owner type an
+   * hour and a half the day cannot hold and have the save refuse it.
+   */
   const maxHours =
-    shape === undefined
-      ? FALLBACK_MAX_HOURS
-      : minutesToHours(shape.timelineEndMinutes - shape.timelineStartMinutes);
+    shape === undefined ? FALLBACK_MAX_HOURS : minutesToHours(netMinutesOf(shape.manualWindows));
 
   /**
    * The gap the closing shape would save, recomputed on every keystroke: the moment is the

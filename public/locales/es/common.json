@@ -126,6 +126,8 @@
     "dropCarries": "…sigue aquí · {{hours}} h",
     "placingHint": "Pulsa el día y la hora donde quieres dejar la parte separada. Pulsa Esc para dejarlo como estaba.",
     "gapOpensHint": "Los huecos no se arrastran: pulsa para abrir su ficha y cambiar el día o la hora.",
+    "gapContinuesBelow": "sigue…",
+    "gapContinuesAbove": "…sigue",
     "edgePrevious": "Mantén el bloque aquí para ir a la semana anterior · {{range}}",
     "edgeNext": "Mantén el bloque aquí para ir a la semana siguiente · {{range}}"
   },
@@ -417,7 +419,7 @@
     "projectNotFound": "Ese trabajo ya no existe.",
     "gapNotFound": "Ese hueco ya no existe.",
     "rowExceedsDay": "Ese bloque no cabe en el día: empezando a las {{startTime}} del {{date}} se saldría de la medianoche. Acórtalo o muévelo a otra hora. No se ha guardado nada.",
-    "rowPastDayEnd": "Eso se saldría del día: acabaría a las {{endTime}} del {{date}} y el día termina a las {{dayEndTime}} (margen incluido). Hazlo más corto o suéltalo más temprano. No se ha guardado nada.",
+    "rowPastDayEnd": "Eso se saldría del día: acabaría a las {{endTime}} del {{date}} y el día termina a las {{dayEndTime}} (margen incluido). Hazlo más corto o empiézalo más temprano. No se ha guardado nada.",
     "splitExceedsBlock": "La parte que quieres separar tiene que ser menor que el bloque. Para mover el bloque entero, arrástralo.",
     "splitBelowMinimum": "Los dos trozos tienen que ser de al menos un cuarto de hora. Separa una parte más grande o mueve el bloque entero. No se ha guardado nada.",
     "deleteLastBlock": "Es el único bloque del trabajo. Para quitarlo, elimina el trabajo entero.",

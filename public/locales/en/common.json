@@ -126,6 +126,8 @@
     "dropCarries": "…continues here · {{hours}} h",
     "placingHint": "Click the day and the time where the separated part should go. Press Esc to leave things as they were.",
     "gapOpensHint": "Gaps are not dragged: click to open its form and change the day or the time.",
+    "gapContinuesBelow": "continues…",
+    "gapContinuesAbove": "…continues",
     "edgePrevious": "Hold the block here to go to the previous week · {{range}}",
     "edgeNext": "Hold the block here to go to the next week · {{range}}"
   },
@@ -417,7 +419,7 @@
     "projectNotFound": "That job no longer exists.",
     "gapNotFound": "That gap no longer exists.",
     "rowExceedsDay": "That block does not fit inside the day: starting at {{startTime}} on {{date}} it would run past midnight. Shorten it or move it to another time. Nothing was saved.",
-    "rowPastDayEnd": "That would run past the end of the day: it would finish at {{endTime}} on {{date}} and the day ends at {{dayEndTime}} (margin included). Make it shorter or drop it earlier. Nothing was saved.",
+    "rowPastDayEnd": "That would run past the end of the day: it would finish at {{endTime}} on {{date}} and the day ends at {{dayEndTime}} (margin included). Make it shorter or start it earlier. Nothing was saved.",
     "splitExceedsBlock": "The part you are splitting off must be smaller than the block. To move the whole block, drag it.",
     "splitBelowMinimum": "Both pieces have to be at least a quarter of an hour. Split off a bigger part, or move the whole block. Nothing was saved.",
     "deleteLastBlock": "This is the job's only block. To remove it, delete the whole job.",
