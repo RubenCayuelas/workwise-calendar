@@ -19,7 +19,7 @@ Enable quick visual reorganization via drag & drop.
 - Web app, self-hosted locally (shop PC).
 - Single user (just the shop owner for now).
 - **Desktop only, mouse driven.** No touch support and no narrow/mobile layout (decided 2026-08-11).
-- Stack: Next.js 15 + TypeScript + SQLite.
+- Stack: Next.js 16 + TypeScript + SQLite. Turbopack builds `dev` and `build`; React stays on 18.
 - Priority: **simplicity over optimization**.
 - Code in English, UI in Spanish (i18n-ready for future languages).
 
@@ -1442,6 +1442,20 @@ easy to revisit rather than buried in the code.
   and `note` now have their screen — *The Absences Screen*, `Cerrar días` — and are NOT in Settings:
   closing a week is something the owner does to the calendar, not a preference. `capacity_hours` still
   has none, deliberately (*no half-day*).
+- **Linting is the ESLint CLI on a flat config** (`eslint.config.mjs`, `npm run lint` = `eslint .`).
+  `next lint` does not exist in Next 16 and `next build` no longer lints, so the gate is standalone.
+  Two consequences worth knowing before editing that file:
+  - **`eslint .` walks the whole tree and reads neither `.gitignore` nor `.git/info/exclude`**, so
+    every non-source directory is named in `ignores`. `.claude/worktrees` matters most: it holds a
+    checkout of ANOTHER branch and was being linted as if it were this one.
+  - **`react-hooks/refs` and `react-hooks/set-state-in-effect` are OFF.** They arrived with
+    `eslint-plugin-react-hooks` 7 (the version before had neither) and fire 25 times, every one on a
+    deliberate shape that already carries a comment saying why. Turning them on is a refactor of the
+    drag layer and the portal mount guard, not a lint fix — see *Open Decisions*.
+- **`agentRules: false`** in `next.config.ts`. Without it `next dev` appends a self-rewriting block to
+  **CLAUDE.md** on every start: a dirty tree on every run, and framework prose inside the file that
+  states its own contract in its header. The useful half of that block is kept below, in
+  *Notes for Development*.
 - **Test timeout**: 30 s (`vitest.config.mts`). The suite's property tests run thousands of generated
   calendars each; the seed counts are the guard, so the timeout must not be what decides how many run.
 
@@ -1477,6 +1491,15 @@ DECISIONS.md § *Reproductions behind the Open Decisions*.
   colour pre-filled. DECISIONS.md § Two Parts of One Job.
 
 ### STILL OPEN — ask before inventing an answer
+
+- **25 `react-hooks` 7 findings, silenced rather than fixed** *(2026-08-20, with the Next 16 upgrade)*.
+  `react-hooks/refs` (13) and `react-hooks/set-state-in-effect` (12). Every one is a shape chosen on
+  purpose: `useMounted`'s `setMounted(true)` in an effect, which exists so a portal is not created
+  during hydration; `useWeekSlide` deriving the slide direction from two refs DURING render, so the
+  week animation costs one render and not two; and `live.current = options` in `useBlockDrag`, which
+  exists because without it the window listeners captured stale callbacks and dropped onto a stale
+  week. The rules are right in general and wrong about these three, and the fix is a refactor of the
+  drag layer — the most measured code in the app. **Ask before starting it.**
 
 - **The scissors never answer for themselves.** Their GHOST does (`placingGhost` previews the same
   division a drag does), but nothing is said after the save. Candidates: a `describeDrop`-style
@@ -1533,7 +1556,7 @@ and green: `tsc --noEmit` clean, `vitest run` **977 passing across 33 files** (i
 2000-seed property harnesses over placement, manual placement, drops, editing and shrinking — the
 placement one generating off-grid quantities on a quarter of its calendars, which is where the
 quarter-hour floor is really at risk, and asserting strict order on EVERY seed since the hand-set
-duration was deleted), `next lint` clean, `next build` clean.
+duration was deleted), `eslint .` clean, `next build` clean.
 
 **A LONG ABSENCE IS ONE GESTURE, AND A CLOSED DAY HAS A SCREEN** (2026-08-19). `Ausencias` has two
 modes — *un hueco* and *cerrar días* — sharing `Desde` / `Hasta`, so the shop's four hand-typed `Feria`
@@ -1618,4 +1641,9 @@ is in [DECISIONS.md](DECISIONS.md) § Release history.**
   `vitest` that file is refused outright** (`openDatabase`), because opening it MIGRATES it: the rule was
   broken once, on 2026-08-19, by a mistyped argument that let a trailing `db` parameter fall back to its
   default, and a data migration ran over the shop's real calendar.
+- **Next 16 is newer than the training data of whatever is reading this.** The version-matched docs
+  ship inside the install, at `node_modules/next/dist/docs/` — read them rather than recalling Next 15
+  behaviour. `next lint`, `serverRuntimeConfig`, `publicRuntimeConfig`, AMP and `experimental.ppr` are
+  all gone; `middleware` is now `proxy`; `params`, `searchParams`, `cookies()` and `headers()` are
+  async only.
 - **Complexity**: prioritise simplicity. No multi-user, auth, subscriptions. Keep it lean.

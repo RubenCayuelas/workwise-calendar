@@ -30,7 +30,7 @@ Point `WORKWISE_DB_PATH` at another file to run against a throwaway database.
 | `npm run build` / `npm start` | Production build and server |
 | `npm test` | Vitest suite (engine, repositories, API client, components' pure logic) |
 | `npm run type-check` | `tsc --noEmit` |
-| `npm run lint` | ESLint via `next lint` |
+| `npm run lint` | `eslint .` — the ESLint CLI on a flat config (`eslint.config.mjs`) |
 
 ## Layout
 
@@ -59,7 +59,7 @@ Point `WORKWISE_DB_PATH` at another file to run against a throwaway database.
 ## Status
 
 Wired end to end: the engine, the API, the week view with drag / resize / lock / split / delete, the
-job panel, the absences screen (gaps and closed days), and Settings. `tsc`, `vitest`, `next lint` and
+job panel, the absences screen (gaps and closed days), and Settings. `tsc`, `vitest`, `eslint` and
 `next build` are all green — **CLAUDE.md § Current Project Status has the version and the test count**,
 and it is the only place they are written down, so this file cannot drift from them.
 
