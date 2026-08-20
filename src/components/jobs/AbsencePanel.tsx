@@ -30,6 +30,7 @@ import {
   NumberStepper,
   SidePanel,
   TIME_STEP_MINUTES,
+  clockMinutes,
   TimeSelect,
   useToast,
 } from '../ui';
@@ -57,10 +58,9 @@ import {
   minutesToHours,
   todayLocal,
 } from '../../lib/dates';
-import { dayEndMinutes, planCloseDay, type CloseDayRequest } from '../../lib/closeDay';
+import { lastPeriodEndMinutes, planCloseDay, type CloseDayRequest } from '../../lib/closeDay';
 import { netMinutesOf } from '../../lib/manualWindow';
 import { useFormat, type Formatter } from '../../lib/useFormat';
-import { parseClockTime } from './forms';
 
 /** An absence is drawn on the same quarter-hour grid the calendar snaps to, so the field is too. */
 const ABSENCE_HOUR_STEP = TIME_STEP_MINUTES / 60;
@@ -200,11 +200,11 @@ export function AbsencePanel({
   const plan =
     closing === undefined
       ? null
-      : planCloseDay(closing.input, parseClockTime(startTime) ?? closing.fromMinutes);
+      : planCloseDay(closing.input, clockMinutes(startTime) ?? closing.fromMinutes);
   const closeBounds = closing === undefined ? undefined : momentBounds(closing.input.periods);
 
   const durationMinutes = hoursToMinutes(hours);
-  const startMinutes = parseClockTime(startTime);
+  const startMinutes = clockMinutes(startTime);
   const rangeValid =
     isValidDate(date) && isValidDate(endDate) && compareDates(endDate, date) >= 0;
   const previewable =
@@ -863,7 +863,7 @@ type AbsenceField = 'date' | 'endDate' | 'startTime' | 'duration' | 'reason';
 function momentBounds(
   periods: readonly { startMinutes: number; endMinutes: number }[],
 ): { minMinutes: number; maxMinutes: number } | undefined {
-  const end = dayEndMinutes(periods);
+  const end = lastPeriodEndMinutes(periods);
   if (end === undefined) return undefined;
   return {
     minMinutes: Math.min(...periods.map((period) => period.startMinutes)),

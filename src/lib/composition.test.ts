@@ -1571,7 +1571,7 @@ describe('rule 15 — the hours invariant', () => {
 // The prototype scenarios, ported
 // ---------------------------------------------------------------------------
 
-describe('recompose-poc.js scenario 1 — a job that does not fit spills onto the next day', () => {
+describe('prototype scenario 1 — a job that does not fit spills onto the next day', () => {
   it('places A and B and spills C over the stop line (CHANGED, 2026-08-17)', () => {
     // The prototype pushed C whole to Tuesday. C takes the 3 h Monday's stop line has left and its
     // last hour is Tuesday's.
@@ -1620,7 +1620,7 @@ describe('recompose-poc.js scenario 1 — a job that does not fit spills onto th
   // deliberately CHANGED behaviour. Its regression test is "rule 9 — never brings a later job forward".
 });
 
-describe('recompose-poc.js scenario 2 — a locked block is not a wall', () => {
+describe('prototype scenario 2 — a locked block is not a wall', () => {
   it('carries the flexible work past the locked block instead of stopping at it (KEPT)', () => {
     // The prototype had no real clock, so it placed both flexible jobs before the locked one. What is
     // kept is the property: flexible work resumes after a lock rather than stopping at it.
@@ -1642,7 +1642,7 @@ describe('recompose-poc.js scenario 2 — a locked block is not a wall', () => {
   });
 });
 
-describe('recompose-poc.js scenario 3 — one job split by hand around another', () => {
+describe('prototype scenario 3 — one job split by hand around another', () => {
   it('needs no special case: the two halves are ordinary rows of the same project (KEPT)', () => {
     const composeInput = input({
       today: MON,

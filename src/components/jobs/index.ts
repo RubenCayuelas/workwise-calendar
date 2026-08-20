@@ -38,6 +38,5 @@ export {
 /** The summary strip's sentence. The week header renders the same one — reuse this. */
 export { scheduleSummaryMessage, type SummaryFormatter } from './summary';
 
-export { HOUR_STEP, parseClockTime } from './forms';
 
 export type { JobsMutationEvent, JobsMutationHandler, JobsMutationKind } from './events';
