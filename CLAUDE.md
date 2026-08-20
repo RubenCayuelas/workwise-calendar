@@ -390,17 +390,31 @@ the form's preview, so the form cannot promise a placement the save will not per
 |---|---|---|
 | the queue reaches it: appending the job lands on or after that day | `queue` | one provisional row after the last block. When the queue's own answer is LATER than the day chosen, the form says so before saving. |
 | the same, but the owner disagreed (`force`) | `forced` | one provisional row ranked at 00:00 of that day. The same outcome as creating the job and dragging it there, including that a **locked** row is not moved. |
-| the engine would place it EARLIER, or would not place it there at all (a Friday, a weekend, the past) | `born` | the job's real rows, on that day and the days after, laid out by `compose` itself. |
+| the engine would place it EARLIER, or would not place it there at all (a Friday, a weekend, a **closed day**, the past) | `born` | the job's real rows, on that day and the days after, laid out by `compose` itself. |
 
 **The automatic padlock is mechanical, not a preference.** A job born where the engine would
 otherwise fill earlier has every one of its rows padlocked (`autoLock`) — the padlock is the only
 thing that holds it, and a half-locked job would come apart on the next reflow. Inside the span
 already planned no lock is added, because the work in front of the job is what holds it there.
 
-**Friday and the weekend are honoured after an explicit confirmation**, and the rows landing on the
-chosen day are padlocked (`dayLock`). The job's continuation follows the normal rules from there,
-including skipping the buffer, since it is still a new job. A **past** date is allowed: the rows are
-created there, locked, as a record of work that was done but never logged.
+**Friday, the weekend and a CLOSED DAY are honoured after an explicit confirmation**, and the rows
+landing on the chosen day are padlocked (`dayLock`). The job's continuation follows the normal rules
+from there, including skipping the buffer, since it is still a new job. A **past** date is allowed:
+the rows are created there, locked, as a record of work that was done but never logged.
+
+**A closed day joined that list on 2026-08-20**, and it is a REVERSAL: choosing one used to relocate
+the job to the first open day, which contradicted *a closed day behaves like a weekend* — the rule
+stated in Settings and relied on by every drop onto a dimmed column. It is honoured the way a chosen
+Saturday is, by the same `manualDaySegments` over the day's own periods, for the same reason: the
+engine plans nothing there, so only the owner's choice and the padlock hold the rows.
+
+- **The confirmation is now the SERVER's answer, not the weekday's.** `confirmKindFor` asks the
+  weekday FIRST and lets it win, so a preview that failed or has not arrived can still never let a
+  save honour a Friday or a weekend silently. A closed day is invisible to the weekday — only
+  `day_overrides` knows — so a **dated save waits for its preview** and Guardar is inert until one
+  answers. Without that wait a closed day would be honoured without ever being asked about.
+- **`needsDayConfirmation` and `confirmKind` are one question**, held so by a `Record` over the three
+  kinds: a confirmation with no sentence in it is a dialog the owner cannot read.
 
 **`newProjectIds` still applies in every mode**, so the continuation of a dated job skips the Friday
 buffer like any new job's tail. The chosen day itself is the one exception, opened up explicitly:

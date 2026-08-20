@@ -185,7 +185,7 @@
     "startBuffer": "Es viernes, el colchón: el motor nunca pone ahí trabajos nuevos. Si lo eliges tú se respeta, y el bloque se crea con candado para que el motor no lo recupere.",
     "startWeekend": "Es fin de semana: fuera del motor. Si lo eliges tú se respeta, y el bloque se crea con candado.",
     "startPast": "Es una fecha pasada: los bloques se crean ahí y bloqueados, como registro de un trabajo hecho y no apuntado. El motor no escribe en el pasado.",
-    "startClosed": "Ese día está cerrado y no tiene horas planificables: el trabajo empieza el primer día abierto.",
+    "startClosed": "Ese día está cerrado: el motor no planifica nada en él. Si lo eliges tú se respeta, y el bloque se crea con candado.",
     "startClear": "No hay nada por medio en esos días.",
     "startCollisions_one": "Ya hay {{hours}} h de otro trabajo en esos días:",
     "startCollisions_other": "Ya hay {{hours}} h de otros {{count}} trabajos en esos días:",
@@ -200,6 +200,8 @@
     "confirmBufferBody": "El {{date}} es viernes, el colchón: solo recibe el desborde del trabajo que ha crecido. Si lo pones tú, ahí se queda con candado y el motor no lo recupera.",
     "confirmWeekendTitle": "¿Crear el trabajo en fin de semana?",
     "confirmWeekendBody": "El {{date}} es fin de semana y no se planifica: queda fuera del motor y solo se mueve a mano.",
+    "confirmClosedTitle": "¿Crear el trabajo en un día cerrado?",
+    "confirmClosedBody": "El {{date}} está cerrado y el motor no planifica nada en él. Puesto ahí a mano se queda, con candado, y el motor no lo recupera.",
     "confirmDay": "Sí, crear ahí",
     "createdLocked": "Los bloques se han creado bloqueados en esa fecha. Quita el candado cuando quieras devolverle el trabajo al motor.",
     "createdDayLocked": "El bloque se queda con candado en ese día: lo has elegido tú y el motor no lo recupera. Quita el candado cuando quieras devolvérselo."

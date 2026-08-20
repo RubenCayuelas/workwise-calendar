@@ -2685,6 +2685,65 @@ now correctly ignored for being outside the git repository.
 
 ---
 
+## A Closed Day Chosen As A Start Date Is Honoured
+
+**Decided by the owner, 2026-08-20**, while scoping the paint-creates-a-job round. They were asked
+whether to refuse a closed day, honour it, or leave it, and chose to honour it: *«Dejar elegirlo,
+pero cumplirlo de verdad»*.
+
+**It is a REVERSAL, and the reversed rule is quoted here before it leaves the app.** The string was
+`jobForm.startClosed`:
+
+> *«Ese día está cerrado y no tiene horas planificables: el trabajo empieza el primer día abierto.»*
+
+and the test that pinned it was `'starts on the first open day when the chosen one is closed'`,
+asserting the job landed on the next open day.
+
+**What was actually wrong was not silence — it was disagreement.** The implementer first reported
+this to the owner as a silent bug and had to correct that: the form said the sentence above out
+loud, and where the floor bound the row came back locked. The real defect is that the sentence
+contradicted the one in Settings, which the whole drop path already depends on:
+
+> `absenceForm.closedHint`: *«Un día cerrado se comporta como un fin de semana: el motor no
+> planifica nada en él, pero puedes dejarle trabajo a mano arrastrándolo, y ahí se queda.»*
+
+Two sentences disagreeing about whether a closed day keeps work put there by hand. Honouring the
+choice resolves it in favour of the rule the rest of the app is built on, and adds **no new
+exception**: a closed day was already documented as a weekend by another name.
+
+**There was a genuinely silent half, and it was the other branch.** `engineWouldNotPlace` omitted
+`'closed'`, so where the floor did NOT bind the mode came out `queue` — the job went wherever the
+queue reached, **unlocked**, with no `dayLock` and no confirmation. Measured: with the queue reaching
+past a closed Tuesday, `decideStartDate` answered `mode: 'queue'` and the hours were laid out
+elsewhere carrying no padlock at all.
+
+**Three changes, and the third is the one worth remembering.**
+
+1. `'closed'` joins `engineWouldNotPlace`, and `dayLock` / `needsDayConfirmation` become one
+   expression (`chosenByHand`) over buffer, weekend and closed — they had always been the same list
+   written twice.
+2. `bornDraft` lays a chosen closed day out with `manualDaySegments`, exactly as it does a weekend,
+   and that function's `if (config.isClosed) return []` guard is gone: the CALLER decides which days
+   arrive there, and that guard was what sent the hours to the first open day.
+3. **`nextWeekday` was NOT changed, and the test that would have justified changing it passed before
+   the change.** `rankedRow` writes a queue RANK, so `compose` relocates a tail anchored on a closed
+   day by itself. The test is kept as a regression guard and is honest about having passed first.
+
+**A guarantee that had to be re-earned, not just preserved.** `NewJobPanel` derived the confirmation
+from the weekday alone, with the reason written on it: *«so a failed preview request can never let a
+save honour a Friday or a weekend silently»*. A closed day breaks that premise — nothing about a date
+says it is closed. So `confirmKindFor` asks the weekday FIRST and lets it win, and the server's answer
+only fills the gap the weekday cannot; the price is that **a dated save now waits for its preview**
+(Guardar is inert while one is in flight, and `previewMessage` explains a failure). Taking the
+server's answer alone would have been one line shorter and would have let a Saturday through on a
+failed request.
+
+`confirmKind` is rendered through a `Record` over the three kinds, so a fourth cannot be added
+without words for it: `needsConfirmation` true with `confirmKind` null is a dialog with no sentence
+in it, which is what the old code produced the moment the server started flagging closed days.
+
+---
+
 ## Release history
 
 Each entry records what was built, what was measured, and what the measuring found. They are left as

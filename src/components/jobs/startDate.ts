@@ -1,6 +1,25 @@
 /** The chosen start date as DATA: `notes` are KINDS, and the panel translates each one. */
 
+import { FRIDAY, isWeekend, weekdayOf } from '../../lib/dates';
 import type { CreationPreview, CreationPreviewRow } from '../../lib/api-client';
+
+/** The days honoured only after the owner says so out loud. */
+export type DayConfirmKind = 'buffer' | 'weekend' | 'closed';
+
+/**
+ * Which confirmation a chosen day needs. The WEEKDAY is asked first and wins, so a preview that
+ * failed or has not answered yet can never let a save honour a Friday or a weekend silently. A
+ * CLOSED day is not a weekday fact — only `day_overrides` knows — so it can come from nowhere but
+ * the server, which is why a dated save waits for the preview before it goes through.
+ */
+export function confirmKindFor(
+  date: string,
+  serverKind: DayConfirmKind | null,
+): DayConfirmKind | null {
+  if (isWeekend(date)) return 'weekend';
+  if (weekdayOf(date) === FRIDAY) return 'buffer';
+  return serverKind;
+}
 
 /** One thing worth saying about the chosen date, in the order they are said. */
 export type StartDateNote =
@@ -55,7 +74,7 @@ export interface StartDateSummary {
   notes: StartDateNote[];
   /** The day is only honoured after an explicit confirmation. */
   needsConfirmation: boolean;
-  confirmKind: 'buffer' | 'weekend' | null;
+  confirmKind: DayConfirmKind | null;
   /** Offer "place it that day anyway". */
   canForce: boolean;
   forced: boolean;
@@ -127,7 +146,9 @@ export function summarizeStartDate(
     notes,
     needsConfirmation: preview.needsDayConfirmation,
     confirmKind:
-      preview.day === 'buffer' ? 'buffer' : preview.day === 'weekend' ? 'weekend' : null,
+      preview.day === 'buffer' || preview.day === 'weekend' || preview.day === 'closed'
+        ? preview.day
+        : null,
     canForce: preview.canForce,
     forced: preview.force && preview.mode === 'forced',
   };

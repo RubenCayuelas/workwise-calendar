@@ -285,6 +285,24 @@ describe('deciding what a start date means', () => {
     expect(decideStartDate({ ...question, startDate: SAT, isClosed: true }).day).toBe('weekend');
     expect(decideStartDate({ ...question, startDate: NEXT_MON, isClosed: true }).day).toBe('closed');
   });
+
+  it('padlocks a closed day and asks for a confirmation, exactly as the weekend does', () => {
+    // The floor does NOT bind here — the queue lands later — so `closed` is the only thing that
+    // can make this born. Before 2026-08-20 it could not, and the job started the first open day.
+    const decision = decideStartDate({
+      ...question,
+      startDate: WED,
+      lastOccupiedDate: NEXT_TUE,
+      queueStartDate: NEXT_TUE,
+      isClosed: true,
+    });
+
+    expect(decision.day).toBe('closed');
+    expect(decision.floorBinding).toBe(false);
+    expect(decision.mode).toBe('born');
+    expect(decision.dayLock).toBe(true);
+    expect(decision.needsDayConfirmation).toBe(true);
+  });
 });
 
 describe('a date the queue already runs past', () => {
@@ -445,6 +463,73 @@ describe('the buffer, the weekend and the past', () => {
   });
 });
 
+describe('a closed day chosen as the start date', () => {
+  const CLOSED = { date: NEXT_TUE, isClosed: true, capacityHours: null, note: 'Festivo' };
+
+  /**
+   * Work to NEXT_MON, so an appended job would start on NEXT_WED — the closed Tuesday is skipped.
+   * The floor therefore does NOT bind on NEXT_TUE, which is what isolates the closed day as the
+   * only reason the job is born there.
+   */
+  const calendar = input({
+    blocks: [
+      block({ project: 'bar', date: WED, from: '08:00', hours: 6 }),
+      block({ project: 'bar', date: WED, from: '15:30', hours: 4 }),
+      block({ project: 'bar', date: THU, from: '08:00', hours: 6 }),
+      block({ project: 'bar', date: THU, from: '15:30', hours: 4 }),
+      block({ project: 'bar', date: NEXT_MON, from: '08:00', hours: 6 }),
+      block({ project: 'bar', date: NEXT_MON, from: '15:30', hours: 4 }),
+    ],
+    overrides: [CLOSED],
+  });
+
+  it('lays the hours out on the closed day itself, padlocked', () => {
+    const result = plan(calendar, { startDate: NEXT_TUE, hours: 4 });
+
+    expect(expectOk(result).decision.floorBinding).toBe(false);
+    expect(rows(result)).toEqual([`${NEXT_TUE} 08:00-12:00 [locked]`]);
+  });
+
+  it('padlocks the closed day only: the tail is the engine\'s day', () => {
+    const result = plan(calendar, { startDate: NEXT_TUE, hours: 14 });
+    const placed = expectOk(result).placed;
+    const onClosedDay = placed.filter((row) => row.date === NEXT_TUE);
+
+    // Asserted as MINUTES, not with `every`: an empty day satisfies `every` vacuously, which is
+    // how a version that places nothing there passes a test meant to prove that it does.
+    expect(onClosedDay.reduce((total, row) => total + row.durationMinutes, 0)).toBe(10 * 60);
+    expect(onClosedDay.every((row) => row.locked)).toBe(true);
+    expect(placed.filter((row) => row.date !== NEXT_TUE).every((row) => !row.locked)).toBe(true);
+    expect(placed.some((row) => row.date !== NEXT_TUE)).toBe(true);
+    expect(minutesOf(result, 'new')).toBe(14 * 60);
+  });
+
+  it('never overlaps work already sitting on the closed day', () => {
+    const withWork = input({
+      blocks: [block({ project: 'bar', date: NEXT_TUE, from: '09:00', hours: 2, locked: true })],
+      overrides: [CLOSED],
+    });
+    const result = plan(withWork, { startDate: NEXT_TUE, hours: 3 });
+
+    expect(rows(result)).toEqual([`${NEXT_TUE} 11:00-14:00 [locked]`]);
+  });
+
+  it('skips a closed day when anchoring the tail of a chosen weekend day', () => {
+    const closedMonday = input({
+      overrides: [{ date: NEXT_MON, isClosed: true, capacityHours: null, note: 'Festivo' }],
+    });
+    const result = plan(closedMonday, { startDate: SAT, hours: 14 });
+    const placed = expectOk(result).placed;
+    const onSaturday = placed.filter((row) => row.date === SAT);
+
+    expect(onSaturday.reduce((total, row) => total + row.durationMinutes, 0)).toBe(10 * 60);
+    expect(onSaturday.every((row) => row.locked)).toBe(true);
+    // The tail may not be anchored on the closed Monday: compose lays nothing out there.
+    expect(placed.map((row) => row.date)).not.toContain(NEXT_MON);
+    expect(minutesOf(result, 'new')).toBe(14 * 60);
+  });
+});
+
 describe('what the plan hands the caller', () => {
   it('returns the whole calendar to compose, with the job in it', () => {
     const calendar = input({ blocks: [block({ project: 'bar', date: WED, from: '08:00', hours: 6 })] });
@@ -511,13 +596,14 @@ describe('what the plan hands the caller', () => {
     expect(rows(result)).toEqual([`${SAT} 11:00-14:00 [locked]`]);
   });
 
-  it('starts on the first open day when the chosen one is closed', () => {
+  it('honours a closed day, where the engine would place nothing at all', () => {
     const calendar = input({
       overrides: [{ date: NEXT_TUE, isClosed: true, capacityHours: null, note: 'Festivo' }],
     });
     const result = plan(calendar, { startDate: NEXT_TUE, hours: 4 });
 
     expect(expectOk(result).decision.day).toBe('closed');
-    expect(rows(result)).toEqual([`${NEXT_WED} 08:00-12:00 [locked]`]);
+    expect(rows(result)).toEqual([`${NEXT_TUE} 08:00-12:00 [locked]`]);
+    expect(expectOk(result).decision.needsDayConfirmation).toBe(true);
   });
 });

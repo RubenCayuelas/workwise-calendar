@@ -102,7 +102,14 @@ export function decideStartDate(question: StartDateQuestion): StartDateDecision 
   const floorBinding = queueStartDate === null || compareDates(queueStartDate, startDate) < 0;
 
   // The days the engine will not put a new job on by itself.
-  const engineWouldNotPlace = day === 'buffer' || day === 'weekend' || day === 'past';
+  const engineWouldNotPlace =
+    day === 'buffer' || day === 'weekend' || day === 'past' || day === 'closed';
+
+  // A day the engine would never choose, so the owner's choice is the only thing holding the rows
+  // there — which is what the padlock is for, and what the confirmation asks about. A CLOSED day
+  // joined these on 2026-08-20: until then it was absent, so the hours went to the first open day.
+  const chosenByHand = day === 'buffer' || day === 'weekend' || day === 'closed';
+
   const mode: CreationMode =
     engineWouldNotPlace || floorBinding ? 'born' : question.force === true ? 'forced' : 'queue';
 
@@ -112,8 +119,8 @@ export function decideStartDate(question: StartDateQuestion): StartDateDecision 
     beyondQueue,
     floorBinding,
     autoLock: mode === 'born' && (floorBinding || day === 'past'),
-    dayLock: day === 'buffer' || day === 'weekend',
-    needsDayConfirmation: day === 'buffer' || day === 'weekend',
+    dayLock: chosenByHand,
+    needsDayConfirmation: chosenByHand,
     mode,
   };
 }
@@ -308,9 +315,10 @@ function bornDraft(
   decision: StartDateDecision,
   minutes: number,
 ): DraftBlocks | CreationFailure {
-  const head = isWeekend(decision.startDate)
-    ? manualDaySegments(input, decision.startDate, minutes)
-    : [];
+  const head =
+    decision.day === 'weekend' || decision.day === 'closed'
+      ? manualDaySegments(input, decision.startDate, minutes)
+      : [];
   const headMinutes = head.reduce((total, segment) => total + segment.durationMinutes, 0);
   const rest = minutes - headMinutes;
 
@@ -449,8 +457,10 @@ interface Interval {
  * 08:00 and four from 10:00, a 3 h job is better as one row than as `1 h + 2 h`.
  */
 function manualDaySegments(input: ComposeInput, date: string, minutes: number): Segment[] {
+  // The CALLER decides which days come here — the ones the engine will not lay out — so a closed
+  // day is laid out like a weekend rather than refused. Refusing it here is what sent the hours to
+  // the first open day instead of the day the owner chose.
   const config = input.getDayConfig(date);
-  if (config.isClosed) return [];
 
   const occupied: Interval[] = [];
   for (const gap of input.gaps) {

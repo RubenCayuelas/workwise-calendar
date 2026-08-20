@@ -29,13 +29,19 @@ import {
   type Project,
   type ScheduleSummary,
 } from '../../lib/api-client';
-import { FRIDAY, hoursToMinutes, isValidDate, isWeekend, todayLocal, weekdayOf } from '../../lib/dates';
+import { hoursToMinutes, isValidDate, todayLocal } from '../../lib/dates';
 import { PROJECT_COLORS } from '../../lib/projectColors';
 import { useFormat, type Formatter } from '../../lib/useFormat';
 import { JobFields, jobFieldErrors, type JobFieldName, type JobFormValues } from './JobFields';
 import { PlacementNotice } from './PlacementNotice';
 import { describePlacement, type PlacementOutcome } from './placement';
-import { summarizeStartDate, type StartDateNote, type StartDateSummary } from './startDate';
+import {
+  confirmKindFor,
+  summarizeStartDate,
+  type DayConfirmKind,
+  type StartDateNote,
+  type StartDateSummary,
+} from './startDate';
 import { scheduleSummaryMessage } from './summary';
 import type { JobsMutationHandler } from './events';
 import styles from './jobs.module.css';
@@ -170,9 +176,15 @@ export function NewJobPanel({
   const startSummary: StartDateSummary | null =
     preview === null ? null : summarizeStartDate(preview);
 
-  // Deliberately local rather than taken from the preview: the weekday alone decides it, so a
-  // failed preview request can never let a save honour a Friday or a weekend silently.
-  const dayConfirmKind = !dated || !isValidDate(startDate) ? null : confirmKindOf(startDate);
+  const dayConfirmKind =
+    !dated || !isValidDate(startDate)
+      ? null
+      : confirmKindFor(startDate, startSummary?.confirmKind ?? null);
+
+  // A dated save WAITS for its preview. The weekday answers for a Friday and a weekend on its own,
+  // but a closed day is invisible to it, so saving before the server has spoken could honour one
+  // without ever asking. A preview that fails leaves this true and `previewMessage` says why.
+  const awaitingPreview = previewable && startSummary === null;
 
   const save = async (): Promise<void> => {
     setConfirmOpen(false);
@@ -257,7 +269,7 @@ export function NewJobPanel({
                 className={styles.grow}
                 variant="primary"
                 icon={<IconPlus size={15} stroke={1.75} />}
-                disabled={saving}
+                disabled={saving || awaitingPreview}
                 onClick={submit}
               >
                 {saving ? t('common.saving') : t('jobForm.submit')}
@@ -375,14 +387,10 @@ export function NewJobPanel({
 
       <ConfirmDialog
         open={confirmOpen && dayConfirmKind !== null}
-        title={t(
-          dayConfirmKind === 'weekend' ? 'jobForm.confirmWeekendTitle' : 'jobForm.confirmBufferTitle',
-        )}
+        title={t(CONFIRM_TITLE[dayConfirmKind ?? 'buffer'])}
         description={
           isValidDate(startDate)
-            ? t(dayConfirmKind === 'weekend' ? 'jobForm.confirmWeekendBody' : 'jobForm.confirmBufferBody', {
-                date: format.longDate(startDate),
-              })
+            ? t(CONFIRM_BODY[dayConfirmKind ?? 'buffer'], { date: format.longDate(startDate) })
             : undefined
         }
         confirmLabel={t('jobForm.confirmDay')}
@@ -538,11 +546,18 @@ function StartDatePreview({
   );
 }
 
-/** Which confirmation a chosen day needs, from its weekday alone. */
-function confirmKindOf(date: string): 'buffer' | 'weekend' | null {
-  if (isWeekend(date)) return 'weekend';
-  return weekdayOf(date) === FRIDAY ? 'buffer' : null;
-}
+/** A `Record`, so a new kind of confirmation cannot be added without words for it. */
+const CONFIRM_TITLE: Record<DayConfirmKind, string> = {
+  buffer: 'jobForm.confirmBufferTitle',
+  weekend: 'jobForm.confirmWeekendTitle',
+  closed: 'jobForm.confirmClosedTitle',
+};
+
+const CONFIRM_BODY: Record<DayConfirmKind, string> = {
+  buffer: 'jobForm.confirmBufferBody',
+  weekend: 'jobForm.confirmWeekendBody',
+  closed: 'jobForm.confirmClosedBody',
+};
 
 function blankJob(hours: number, color: string): JobFormValues {
   return { name: '', description: '', hours, color };

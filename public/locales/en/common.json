@@ -185,7 +185,7 @@
     "startBuffer": "That is a Friday, the buffer: the engine never puts new work there. Chosen by hand it is honoured, and the block is created locked so the engine will not reclaim it.",
     "startWeekend": "That is a weekend: outside the engine. Chosen by hand it is honoured, and the block is created locked.",
     "startPast": "That date is in the past: the blocks are created there and locked, as a record of work that was done but never logged. The engine never writes to the past.",
-    "startClosed": "That day is closed and has no plannable hours: the job starts on the first open day.",
+    "startClosed": "That day is closed: the engine plans nothing on it. Chosen by hand it is honoured, and the block is created locked.",
     "startClear": "Nothing is in the way on those days.",
     "startCollisions_one": "There are already {{hours}} h of another job on those days:",
     "startCollisions_other": "There are already {{hours}} h across {{count}} other jobs on those days:",
@@ -200,6 +200,8 @@
     "confirmBufferBody": "{{date}} is a Friday, the buffer: it only takes the overflow of work that has grown. Put there by hand it stays there, locked, and the engine will not reclaim it.",
     "confirmWeekendTitle": "Create the job on the weekend?",
     "confirmWeekendBody": "{{date}} is a weekend and is not planned: it sits outside the engine and only moves by hand.",
+    "confirmClosedTitle": "Create the job on a closed day?",
+    "confirmClosedBody": "{{date}} is closed and the engine plans nothing on it. Put there by hand it stays there, locked, and the engine will not reclaim it.",
     "confirmDay": "Yes, create it there",
     "createdLocked": "The blocks were created locked on that date. Remove the padlock whenever you want to hand the job back to the engine.",
     "createdDayLocked": "The block stays locked on that day: you chose it and the engine will not reclaim it. Remove the padlock whenever you want to hand it back."
