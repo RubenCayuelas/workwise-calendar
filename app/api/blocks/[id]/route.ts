@@ -16,9 +16,10 @@
  * `mergedBlockIds` and `displacedProjectIds` are the overlap resolved in the same
  * transaction, and are empty for `resize` and `lock`.
  *
- * A shrink with nowhere to put the freed hours answers 409 `shrink-needs-choice` carrying
- * `details.freedMinutes` and `details.choices`, writing nothing; send the owner's pick back as
- * `freedHours`. Not sending it again is Cancel.
+ * A resize with hours nothing can take answers 409 and writes nothing, carrying
+ * `details.freedMinutes` and `details.choices`: `shrink-needs-choice` when a shrink frees hours with
+ * no home, `grow-needs-choice` when a grow asks for more than the job's other rows hold. Send the
+ * owner's pick back as `freedHours`; not sending it again is Cancel.
  */
 
 import type { NextRequest } from 'next/server';
@@ -43,8 +44,8 @@ type Context = { params: Promise<{ id: string }> };
 
 const ACTIONS = ['move', 'resize', 'lock'] as const;
 
-/** The two ways out a `shrink-needs-choice` refusal offers. Cancel is not sending one. */
-const FREED_HOURS: readonly FreedHoursChoice[] = ['reduce-total', 'new-block'];
+/** Every answer a resize's dead end can offer, in either direction. Cancel is not sending one. */
+const FREED_HOURS: readonly FreedHoursChoice[] = ['reduce-total', 'new-block', 'add-to-total'];
 
 function readFreedHoursChoice(body: JsonBody): FreedHoursChoice | undefined {
   return readOneOf(body, 'freedHours', FREED_HOURS);

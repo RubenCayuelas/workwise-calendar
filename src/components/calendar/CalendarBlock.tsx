@@ -55,11 +55,6 @@ export interface CalendarBlockProps {
    * (`InertReason.automatic`), which keeps one gesture from quietly becoming the other.
    */
   resizable: boolean;
-  /**
-   * The engine lays this row out, so the edge changes the JOB'S HOURS rather than moving hours
-   * between its rows. Only the tooltip differs; the gesture is the same one.
-   */
-  sizesJobHours?: boolean;
   onPointerDownResize: (event: React.PointerEvent) => void;
   onOpen: () => void;
   onToggleLock: () => void;
@@ -82,7 +77,6 @@ export function CalendarBlock({
   onPointerDownBody,
   onPointerDownActions,
   resizable,
-  sizesJobHours = false,
   onPointerDownResize,
   onOpen,
   onToggleLock,
@@ -275,7 +269,7 @@ export function CalendarBlock({
           className={styles.resize}
           role="separator"
           aria-label={t('block.resize')}
-          title={t(sizesJobHours ? 'block.resizeHintJobHours' : 'block.resizeHint')}
+          title={t('block.resizeHint')}
           onPointerDown={onPointerDownResize}
         />
       )}

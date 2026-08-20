@@ -816,6 +816,7 @@ function clamp(value: number, min: number, max: number): number {
 export type EditErrorCode =
   | 'unknown-block'
   | 'invalid-duration'
+  | 'grow-needs-choice'
   | 'shrink-needs-choice'
   | 'transfer-exceeds-job'
   | 'reduction-exceeds-job';
@@ -823,6 +824,7 @@ export type EditErrorCode =
 export const EDIT_MESSAGE_KEYS: Record<EditErrorCode, string> = {
   'unknown-block': 'errors.unknownBlock',
   'invalid-duration': 'errors.invalidDuration',
+  'grow-needs-choice': 'errors.growNeedsChoice',
   'shrink-needs-choice': 'errors.shrinkNeedsChoice',
   'transfer-exceeds-job': 'errors.transferExceedsJob',
   'reduction-exceeds-job': 'errors.reductionExceedsJob',
@@ -833,7 +835,12 @@ export const EDIT_MESSAGE_KEYS: Record<EditErrorCode, string> = {
  * job smaller, `new-block` gives the hours a row of their own. The third — cancel — is not a value,
  * it is the caller not asking again.
  */
-export type FreedHoursChoice = 'reduce-total' | 'new-block';
+/**
+ * The answers a resize's dead end offers. `reduce-total` and `new-block` answer a SHRINK with hours
+ * nothing can take; `add-to-total` answers a GROW past everything the job's other rows hold. One
+ * channel for both directions, because a resize is one or the other and never both.
+ */
+export type FreedHoursChoice = 'reduce-total' | 'new-block' | 'add-to-total';
 
 export interface EditError {
   code: EditErrorCode;
@@ -960,13 +967,10 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
   const target = draft.find((block) => block.id === resize.blockId);
   if (target === undefined) return failedEdit('unknown-block', { blockId: resize.blockId });
 
-  // WHAT THE EDGE MEANS DEPENDS ON WHETHER THE ENGINE LAYS THIS ROW OUT, and it is available either
-  // way. On a row the owner has pinned, the length is theirs to set and the hours come out of the
-  // job's other rows — a transfer, total unchanged. On a row the engine lays out there is no
-  // geometry to fix (it would be re-derived on the next pass), so what the edge changes is HOW MUCH
-  // WORK THERE IS: the job's estimate. The engine then places those hours, flowing past whatever is
-  // padlocked in the way, and the change survives because it was never a drawing.
-  const engineLaysOut = isMovable(target, resize.today);
+  // ONE MEANING ON EVERY ROW: a TRANSFER inside the job, its later rows the counterparty, and the
+  // estimate moves only where there is nothing left to draw from. The padlock is not a precondition
+  // — it decides whether the new geometry SURVIVES, which is a different question and the owner's to
+  // answer by pressing it.
 
   const next = Math.round(resize.durationMinutes);
   if (!Number.isFinite(next) || next <= 0) {
@@ -993,35 +997,35 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
   let totalMinutesDelta = 0;
   let touchedLockedBlockIds: string[] = [];
 
-  if (engineLaysOut) {
-    // No transfer: handing the hours to another row of this job would free exactly the minutes the
-    // job then flows straight back into, which is the whole reason a stored length was deleted.
-    if (delta > 0) {
-      totalMinutesDelta = delta;
-    } else if (delta < 0) {
-      // Shrinking DESTROYS hours here, so it asks. `new-block` is not among the answers: a row of
-      // its own, of this same job and unpinned, is placed right back where these hours already were.
-      const answer = resize.freedHours;
-      if (answer !== 'reduce-total') {
-        return failedEdit('shrink-needs-choice', {
-          blockId: target.id,
-          projectId: target.projectId,
-          freedMinutes: -delta,
-          choices: ['reduce-total'],
-        });
-      }
-      totalMinutesDelta = delta;
-    }
-  } else if (delta > 0 && isLast) {
+  if (delta > 0 && isLast) {
     // Nothing farther to draw from, so the estimate grows.
     totalMinutesDelta = delta;
   } else if (delta > 0) {
-    const taken = takeMinutes(counterparties, delta);
-    if (!taken.ok) {
-      return failedEdit('transfer-exceeds-job', { blockId: target.id, projectId: target.projectId });
+    // Counted BEFORE anything is taken: `takeMinutes` mutates as it goes, so asking it and then
+    // asking again would drain the job twice.
+    const availableMinutes = counterparties.reduce((total, row) => total + row.durationMinutes, 0);
+
+    if (delta > availableMinutes) {
+      // THE MIRROR OF THE SHRINK'S DEAD END, AND IT ASKS THE SAME WAY. Grown past everything the
+      // job's other rows hold, the only honest answer left is that the job is bigger. Refusing
+      // instead stopped the gesture dead on hours the owner had already drawn.
+      if (resize.freedHours !== 'add-to-total') {
+        return failedEdit('grow-needs-choice', {
+          blockId: target.id,
+          projectId: target.projectId,
+          freedMinutes: delta - availableMinutes,
+          choices: ['add-to-total'],
+        });
+      }
+      const taken = takeMinutes(counterparties, availableMinutes);
+      deletedBlockIds.push(...taken.deletedBlockIds);
+      touchedLockedBlockIds = taken.touchedLockedBlockIds;
+      totalMinutesDelta = delta - availableMinutes;
+    } else {
+      const taken = takeMinutes(counterparties, delta);
+      deletedBlockIds.push(...taken.deletedBlockIds);
+      touchedLockedBlockIds = taken.touchedLockedBlockIds;
     }
-    deletedBlockIds.push(...taken.deletedBlockIds);
-    touchedLockedBlockIds = taken.touchedLockedBlockIds;
   } else if (delta < 0) {
     // THE FREED HOURS GO TO THE JOB'S LAST BLOCK, SKIPPING THE ONES THAT CANNOT TAKE THEM.
     // `lastAutomatic` is that cascade. Hours handed to a row outside the pool are written straight
@@ -1072,6 +1076,23 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
     if (row.locked && !touchedLockedBlockIds.includes(row.id)) touchedLockedBlockIds.push(row.id);
   }
 
+  /*
+   * A LENGTH THAT TAKES MARGIN TIME PADLOCKS ITS ROW. Auto-fill never enters a visual margin, so
+   * without the padlock the very next pass pulls the row back inside the periods and the gesture
+   * undoes itself — which is exactly what "no pisa esa hora de margen" looked like from outside.
+   * The margin is how the owner gets ahead of the work, so the gesture has to hold.
+   *
+   * This rule existed before (`usesManualOnlyTime`) and was deleted with `manual_duration` on
+   * 2026-08-18 because its only reader was a resize that no longer ran on such rows. Restored with
+   * the gesture, 2026-08-20.
+   */
+  const takesMarginTime = segments.some((segment) => {
+    const end = segment.startMinutes + segment.durationMinutes;
+    return !resize.day.periods.some(
+      (period) => segment.startMinutes >= period.startMinutes && end <= period.endMinutes,
+    );
+  });
+
   // The stretch is written over its rows in order: one row for a length that stays inside its
   // window, two once it crosses the break. THE WHOLE STRETCH COMES OUT AS FIXED AS ITS TARGET —
   // half a stretch left to the engine came apart on the very next pass. `touchedLockedBlockIds`
@@ -1084,6 +1105,7 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
         id: resize.newBlockId(),
         startMinutes: segment.startMinutes,
         durationMinutes: segment.durationMinutes,
+        locked: target.locked || takesMarginTime,
         createdAt: resize.now,
         updatedAt: resize.now,
       });
@@ -1091,7 +1113,7 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
     }
     row.startMinutes = segment.startMinutes;
     row.durationMinutes = segment.durationMinutes;
-    row.locked = row.locked || target.locked;
+    row.locked = row.locked || target.locked || takesMarginTime;
   });
 
   // Shrunk back across the break: the rows the stretch no longer needs are gone. Their

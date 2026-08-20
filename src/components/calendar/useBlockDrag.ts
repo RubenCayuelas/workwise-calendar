@@ -80,12 +80,6 @@ export interface BlockDragTarget extends DragUnit {
   name: string;
   /** The single row a resize applies to: the one whose bottom edge was grabbed. */
   blockId: string;
-  /**
-   * The engine lays this row out, so a resize changes the JOB'S HOURS rather than moving hours
-   * between its rows. Only what is SAID afterwards depends on it — the server decides the same thing
-   * for itself from `isMovable`.
-   */
-  sizesJobHours?: boolean;
 }
 
 /**
@@ -209,8 +203,10 @@ export interface DragController {
    */
   target: DragTarget | null;
   /**
-   * The ROWS in the air, for the "lifted" styling — every row of the unit, since the ghost
-   * draws its whole duration.
+   * The ROWS in the air, for the "lifted" styling. A MOVE lifts every row of the unit, since the
+   * ghost draws all of it; a RESIZE lifts only the stretch it reshapes, which is one day — the
+   * caller narrows `rowIds` for it, because lighting the job up across every day it occupies read
+   * as a threat to hours the gesture cannot even reach.
    */
   liftedRowIds: readonly string[];
   kind: DragKind | null;

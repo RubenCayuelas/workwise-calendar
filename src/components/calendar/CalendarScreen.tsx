@@ -420,18 +420,12 @@ export function CalendarScreen({
         // Both numbers come from the GESTURE: the owner drew a STRETCH in net working minutes,
         // and one crossing the lunch break is stored as two rows — so reading the hours back off
         // the row named in the request would answer "4 h" to a 6 h drag.
-        // WHICH SENTENCE depends on where the hours came from. On a row the engine lays out the job
-        // itself got bigger or smaller; on a padlocked one they moved between the job's own rows, and
-        // saying "the padlock holds this duration" about an automatic row is simply false.
-        const shrunk = durationMinutes < target.durationMinutes;
-        const key = target.sizesJobHours
-          ? shrunk
-            ? 'notices.resizeJobShrunk'
-            : 'notices.resizeJobGrown'
-          : shrunk
-            ? 'notices.resizeShrunk'
-            : 'notices.resizeGrown';
-        toast.info(t(key, { name: target.name, hours: format.hourNumber(durationMinutes) }));
+        toast.info(
+          t(durationMinutes < target.durationMinutes ? 'notices.resizeShrunk' : 'notices.resizeGrown', {
+            name: target.name,
+            hours: format.hourNumber(durationMinutes),
+          }),
+        );
       });
     },
     [format, mutate, report, t, toast],

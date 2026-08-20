@@ -1061,13 +1061,6 @@ function DayColumn({
           // The past comes first because `allowed` is worked out for the day the ghost is OVER
           // — a past row dragged onto a future day was accepted and history moved.
           const inert = day.isPast ? ('past' as const) : busy ? ('busy' as const) : undefined;
-          /*
-           * Does the engine lay this row out? The mirror of `isMovable`. The edge is live either way
-           * and it means two different things: on a pinned row the hours come out of the job's other
-           * rows, and on a row the engine lays out there is no drawing to fix, so what changes is the
-           * job's own hours. Only the SENTENCE differs here.
-           */
-          const engineLaysOut = !segment.block.locked && !day.isPast && !day.isWeekend;
           return (
             <CalendarBlock
               key={segment.block.id}
@@ -1091,8 +1084,6 @@ function DayColumn({
               // Every row but a past one: `resizeBlock` refuses the past first and for its own
               // reason (`past-block-frozen`), and accepts every other row.
               resizable={!day.isPast}
-              // Which of the two the tooltip explains.
-              sizesJobHours={engineLaysOut}
               onPointerDownResize={(event) =>
                 drag.beginResize(
                   event,
@@ -1106,8 +1097,11 @@ function DayColumn({
                     durationMinutes: segment.group.blocks
                       .slice(segment.index)
                       .reduce((total, row) => total + row.durationMinutes, 0),
-                    // Which of the two sentences the toast uses afterwards.
-                    sizesJobHours: engineLaysOut,
+                    // THE ROWS IN THE AIR ARE THE STRETCH, not the whole run. A move lifts every row
+                    // of the unit because the ghost draws all of it; a resize reshapes ONE day, and
+                    // lighting up the job across every day it occupies read as "this is about to cut
+                    // hours from those days too" — with no way to aim at them.
+                    rowIds: segment.group.blocks.slice(segment.index).map((row) => row.id),
                   },
                   // The past and a save in flight, carried over from the move. There is no third
                   // reason any more: every row the server accepts, the edge now drags.

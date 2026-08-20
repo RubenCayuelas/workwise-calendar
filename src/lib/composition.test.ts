@@ -2763,44 +2763,37 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     block({ id: 'viernes', project: 'escalera', date: FRI, from: '08:00', hours: 3, locked: true }),
   ];
 
-  it("changes the JOB'S HOURS on a row the engine lays out, and transfers on a padlocked one", () => {
-    // The edge is available on both, and it means two different things. On an automatic row there is
-    // no drawing to fix — the reflow would re-derive it — so what the gesture changes is how much
-    // work there is, and the engine places it. On a padlocked row the length is the owner's, so the
-    // hours come out of the job's other rows and the estimate is untouched.
+  it('is a transfer on EVERY row, and taking margin time padlocks the one it grows', () => {
+    // One meaning everywhere: the hours come from the job's later rows and the estimate does not
+    // move. The padlock is not a precondition — it decides whether the new geometry SURVIVES, which
+    // is why growing INTO A MARGIN applies one: auto-fill never enters a margin, so without it the
+    // next pass pulls the row back and the gesture undoes itself.
     const automatic = [
       block({ id: 'mie', project: 'escalera', date: WED, from: '08:00', hours: 6 }),
-      block({ id: 'jue', project: 'escalera', date: THU, from: '08:00', hours: 4 }),
+      block({ id: 'jue', project: 'escalera', date: THU, from: '08:00', hours: 8 }),
     ];
 
-    // GROWING is applied straight: 6 h -> 8 h adds 2 h to the job.
-    const grown = expectEdited(
+    // 8 h from 08:00 crosses the comida, so it is stored as two rows, and the 2 h come off Thursday.
+    const edit = expectEdited(
       resizeBlock(automatic, resizing({ blockId: 'mie', durationMinutes: 8 * 60, today: WED })),
     );
-    expect(grown.totalMinutesDelta).toBe(2 * 60);
-
-    // SHRINKING destroys hours, so it asks — and `new-block` is not offered, because a row of its
-    // own of this same job, unpinned, is placed straight back where these hours already were.
-    const asked = resizeBlock(automatic, resizing({ blockId: 'mie', durationMinutes: 120, today: WED }));
-    expect(asked.ok).toBe(false);
-    if (asked.ok) throw new Error('shrinking an automatic row must ask');
-    expect(asked.error.code).toBe('shrink-needs-choice');
-    expect(asked.error.choices).toEqual(['reduce-total']);
-    expect(asked.error.freedMinutes).toBe(4 * 60);
-
-    const answered = expectEdited(
-      resizeBlock(
-        automatic,
-        resizing({ blockId: 'mie', durationMinutes: 120, today: WED, freedHours: 'reduce-total' }),
-      ),
-    );
-    expect(answered.totalMinutesDelta).toBe(-4 * 60);
-
-    // The same request on a PADLOCKED row is the transfer, and the estimate does not move.
-    const pinned = automatic.map((row) => (row.id === 'mie' ? { ...row, locked: true } : row));
-    const edit = expectEdited(resizeBlock(pinned, resizing({ blockId: 'mie', durationMinutes: 120, today: WED })));
     expect(edit.totalMinutesDelta).toBe(0);
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([`${WED} 08:00-10:00 [locked]`, `${THU} 08:00-16:00`]);
+    expect(jobRows(edit.blocks, 'escalera')).toEqual([
+      `${WED} 08:00-14:00`,
+      `${WED} 15:30-17:30`,
+      `${THU} 08:00-14:00`,
+    ]);
+    expect(edit.blocks.find((row) => row.id === 'mie')?.locked).toBe(false);
+
+    // 10,5 h reaches 20:00, past the 19:30 end of the periods, so it takes MARGIN time — and the
+    // rows come back padlocked, because auto-fill would otherwise pull them back inside the shift.
+    const intoMargin = expectEdited(
+      resizeBlock(automatic, resizing({ blockId: 'mie', durationMinutes: 10 * 60 + 30, today: WED })),
+    );
+    expect(intoMargin.totalMinutesDelta).toBe(0);
+    expect(
+      intoMargin.blocks.filter((row) => row.date === WED && row.projectId === 'escalera').map((row) => row.locked),
+    ).toEqual([true, true]);
   });
 
   it('refuses it on a Friday and inside a margin too — the pool is the whole question', () => {
@@ -2938,12 +2931,29 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     expect(result.error.freedMinutes).toBe(120);
   });
 
-  it('refuses a growth the rest of the job cannot pay for', () => {
+  /** Every hour the job has, so a growth past all of them can be stated as one number. */
+  function jobMinutes(blocks: readonly Block[]): number {
+    return blocks
+      .filter((row) => row.projectId === 'escalera')
+      .reduce((total, row) => total + row.durationMinutes, 0);
+  }
+
+  it('ASKS when the growth is more than the rest of the job can pay for', () => {
+    // The mirror of the shrink's dead end. Refusing here stopped the gesture dead on hours the owner
+    // had already drawn, so the only honest answer left is offered instead: the job is bigger.
     const result = resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 600, today: MON }));
 
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error('the transfer must be refused');
-    expect(result.error.code).toBe('transfer-exceeds-job');
+    if (result.ok) throw new Error('the growth must be put to the owner');
+    expect(result.error.code).toBe('grow-needs-choice');
+    expect(result.error.choices).toEqual(['add-to-total']);
+
+    // Answered, the job takes everything its other rows had and the estimate covers the rest.
+    const edit = expectEdited(
+      resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 600, today: MON, freedHours: 'add-to-total' })),
+    );
+    expect(edit.totalMinutesDelta).toBe(600 - jobMinutes(job()));
+    expect(minutesByProject(edit.blocks).escalera).toBe(600);
   });
 
   it('deletes a counterparty the transfer empties, cascading backwards', () => {
@@ -4948,18 +4958,7 @@ describe('shrinking a row holds over the same generated calendars', () => {
 
       const asIs = shrink();
 
-      // ON A ROW THE ENGINE LAYS OUT, shrinking always ASKS and the only answer is to take the hours
-      // off the job. `new-block` may never appear there: a row of its own, of this same job and
-      // unpinned, is placed straight back where these hours already were. Asserted on every seed,
-      // then dropped into the generic path below, which checks the answer really works.
-      if (isMovable(target, composeInput.today)) {
-        automatic += 1;
-        expect(asIs.ok, where).toBe(false);
-        if (!asIs.ok) {
-          expect(asIs.error.code, where).toBe('shrink-needs-choice');
-          expect(asIs.error.choices, where).toEqual(['reduce-total']);
-        }
-      }
+      if (isMovable(target, composeInput.today)) automatic += 1;
 
       if (!asIs.ok) {
         // The only refusal a shrink may produce, and it must carry the hours and a way out.
@@ -5000,6 +4999,7 @@ describe('shrinking a row holds over the same generated calendars', () => {
     // Guards on the generator: both halves of the rule have to be reached.
     expect(transferred, 'no shrink ever found a counterparty').toBeGreaterThan(100);
     expect(asked, 'no shrink ever reached the dead end').toBeGreaterThan(100);
+    // The generator has to reach both worlds; the RULE is the same in each, which is the point.
     expect(automatic, 'no shrink ever aimed at a row the engine lays out').toBeGreaterThan(200);
   });
 

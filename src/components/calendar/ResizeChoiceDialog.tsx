@@ -36,6 +36,7 @@ export interface ResizeChoiceDialogProps {
 const LABELS: Record<FreedHoursChoice, { label: string; hint: string }> = {
   'reduce-total': { label: 'resizeChoice.reduceTotal', hint: 'resizeChoice.reduceTotalHint' },
   'new-block': { label: 'resizeChoice.newBlock', hint: 'resizeChoice.newBlockHint' },
+  'add-to-total': { label: 'resizeChoice.addToTotal', hint: 'resizeChoice.addToTotalHint' },
 };
 
 export function ResizeChoiceDialog({

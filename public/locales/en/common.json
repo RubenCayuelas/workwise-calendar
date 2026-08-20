@@ -161,8 +161,7 @@
     "splitHours": "Hours to split off",
     "splitHint": "The split-off part takes a place in the queue and then settles; it does not stay at the time you drop it. Lock it if you need it pinned.",
     "splitConfirm": "Split",
-    "resizeHint": "Enlarging a block takes those hours off the job's last block; shrinking it gives them back. The total does not change. Only blocks with a padlock (or on a weekend) can be resized: the engine decides how long the rest are.",
-    "resizeHintJobHours": "Growing this block adds those hours to the job and the engine places them, flowing past whatever is padlocked. Shrinking it asks before taking them off the total. On a padlocked row the hours come out of the job’s other blocks instead.",
+    "resizeHint": "Growing a block takes those hours from the job’s last block; shrinking it gives them back. The total does not move unless you stretch past what the job can give, and then it asks. Reaching into a margin padlocks the row, so the engine cannot pull it back.",
     "markLocked": "Locked · the engine never moves it from here",
     "markContinuesBelow": "Carries on after lunch",
     "markContinuesAbove": "Carried over from before lunch"
@@ -368,8 +367,6 @@
     "nothingSaved": "Nothing was saved.",
     "resizeShrunk": "\"{{name}}\" is {{hours}} h here now, and the padlock is what holds that length. The spare hours go to the job's last block the engine still places, and whatever is behind it in the queue takes the room.",
     "resizeGrown": "\"{{name}}\" is {{hours}} h here now, and the padlock is what holds that length. Those hours come off the job's last block; if this was the last one, the job's total goes up.",
-    "resizeJobGrown": "«{{name}}» grows to {{hours}} h here: those hours are added to the job and the engine places them, flowing past whatever is padlocked.",
-    "resizeJobShrunk": "«{{name}}» stays at {{hours}} h here, and the job loses those hours from its total.",
     "pressWhileBusy": "Hold on a moment: the previous change is still saving. The calendar accepts drags again as soon as it lands.",
     "pressOnPastDay": "That day has already happened and is not dragged: it is the record of what you did. Change the hours from the job panel.",
     "pressOnPastGap": "That day has already happened and is not dragged: it is the record of what you did. If the gap is wrong, correct it in its form.",
@@ -385,7 +382,9 @@
     "reduceTotalHint": "The job becomes {{hours}} h smaller.",
     "newBlock": "Split: leave them as a block of their own",
     "newBlockHint": "They stay as a loose block you can place wherever you like.",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "addToTotal": "Add the hours to the total",
+    "addToTotalHint": "The job becomes that many hours bigger."
   },
   "weekdays": {
     "short": {
@@ -442,6 +441,7 @@
     "horizonExceededUntil": "The hours do not fit before {{date}}, the end of the planning horizon. Widen the horizon in Settings or reduce the hours. Nothing was saved.",
     "unknownBlock": "That block no longer exists.",
     "invalidDuration": "The duration must be greater than zero.",
+    "growNeedsChoice": "You stretched «{{name}}» {{hours}} h beyond what the rest of the job can give. Add them to the job’s total?",
     "shrinkNeedsChoice": "The hours you are freeing have no block to go to: the others are locked, on the weekend or already past. Tell me what to do with them.",
     "transferExceedsJob": "The job does not have that many hours in later blocks to give up.",
     "reductionExceedsJob": "You cannot remove more hours than the job has.",

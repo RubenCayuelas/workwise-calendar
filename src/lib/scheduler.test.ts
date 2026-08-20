@@ -587,48 +587,37 @@ describe('block gestures', () => {
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
-  it("changes the job's hours on an unlocked row, and transfers once it is padlocked", () => {
-    // The edge works on both, and means two different things. Automatic: no drawing to fix, so what
-    // changes is the job's estimate and the engine places it. Padlocked: the length is the owner's,
-    // so the hours come out of the job's other rows.
-    const puerta = job('Puerta', 8);
+  it('takes the hours from the job on an unlocked row, and asks once there are none left', () => {
+    // One meaning on every row: a transfer inside the job. The padlock is not a precondition; it
+    // decides whether the geometry survives, which is the owner's to press.
+    //
+    // 10,5 h lays out as `Mon 6 h` + `Mon 4 h` + `Tue 0,5 h`, so the stretch grown here — both
+    // Monday rows, 10 h — has a counterparty of exactly half an hour.
+    const puerta = job('Puerta', 10.5);
     const morning = puerta.blocks[0];
     expect(morning.durationMinutes).toBe(6 * 60);
-    const before = calendar();
 
-    // Shrinking an automatic row destroys hours, so it asks and writes nothing until answered.
-    const error = refusal(() => resizeBlock(morning.id, { durationMinutes: 2 * 60, today: MON }, db));
+    // One hour is more than that half, so the rest is put to the owner and NOTHING is written.
+    const before = calendar();
+    const error = refusal(() => resizeBlock(morning.id, { durationMinutes: 11 * 60, today: MON }, db));
     expect(error.status).toBe(409);
-    expect(error.code).toBe('shrink-needs-choice');
-    expect(error.details?.choices).toEqual(['reduce-total']);
+    expect(error.code).toBe('grow-needs-choice');
+    expect(error.details?.choices).toEqual(['add-to-total']);
+    expect(error.details?.freedMinutes).toBe(30);
     expect(calendar()).toEqual(before);
 
-    // GROWING is applied straight: the job gets bigger and the engine lays the hours out. The edge
-    // sizes the STRETCH, which here is both halves of the day — 8 h — so 10 h adds two.
-    const grown = resizeBlock(morning.id, { durationMinutes: 10 * 60, today: MON }, db);
-    expect(listProjects(db)[0].totalMinutes).toBe(10 * 60);
-    expect(grown.blocks.reduce((total, row) => total + row.durationMinutes, 0)).toBe(10 * 60);
+    // Answered, the job pays what it can and the estimate covers exactly the rest.
+    resizeBlock(morning.id, { durationMinutes: 11 * 60, today: MON, freedHours: 'add-to-total' }, db);
+    expect(listProjects(db)[0].totalMinutes).toBe(11 * 60);
     expect(() => assertProjectHours(db)).not.toThrow();
 
-    // Back to 8 h so the padlocked half of the case starts where it did.
-    resizeBlock(morning.id, { durationMinutes: 8 * 60, today: MON, freedHours: 'reduce-total' }, db);
-    expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
-
-    setBlockLock(morning.id, true, { today: MON }, db);
-    const result = resizeBlock(morning.id, { durationMinutes: 2 * 60, today: MON }, db);
-
-    expect(result.block?.durationMinutes).toBe(2 * 60);
-    expect(result.block?.locked).toBe(true);
+    // And it reached past 19:30 into the margin, so the rows it wrote came back padlocked — without
+    // that, auto-fill would pull them back inside the shift on the next pass.
     expect(calendar()).toEqual([
-      `${MON} 08:00-10:00 Puerta [locked]`,
-      // The 4 h went to the job's LAST block, laid out from the padlocked row on: no hole.
-      `${MON} 10:00-14:00 Puerta`,
-      `${MON} 15:30-17:30 Puerta`,
+      `${MON} 08:00-14:00 Puerta [locked]`,
+      `${MON} 15:30-20:30 Puerta [locked]`,
     ]);
-    expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
-    expect(() => assertProjectHours(db)).not.toThrow();
   });
-
   it("stores a resize across the lunch break as two rows — the owner's worked example", () => {
     // The drag layer sends 6 h of NET working minutes: the break adds nothing and the row is stored
     // cut at it like everything else on the calendar.

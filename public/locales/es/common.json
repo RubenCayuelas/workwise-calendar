@@ -161,8 +161,7 @@
     "splitHours": "Horas que se separan",
     "splitHint": "La parte separada toma un puesto en la cola y se recoloca; no se queda en la hora donde la sueltes. Bloquéala si quieres fijarla.",
     "splitConfirm": "Dividir",
-    "resizeHint": "Alargar un bloque quita esas horas del último bloque del trabajo; acortarlo se las devuelve. El total no cambia. Solo se puede en bloques con candado (o de fin de semana): el motor decide la duración de los demás.",
-    "resizeHintJobHours": "Alargar este bloque añade esas horas al trabajo y el motor las coloca, saltando lo que tenga candado. Acortarlo pregunta antes de quitarlas del total. Con candado, en cambio, las horas salen de los otros bloques del mismo trabajo.",
+    "resizeHint": "Alargar un bloque saca esas horas del último bloque del trabajo; acortarlo se las devuelve. El total no cambia salvo que estires más de lo que el trabajo puede dar, y entonces te pregunta. Si llegas al margen, la fila queda con candado para que el motor no la devuelva.",
     "markLocked": "Bloqueado · el motor no lo mueve de aquí",
     "markContinuesBelow": "Sigue después de la comida",
     "markContinuesAbove": "Viene de antes de la comida"
@@ -368,8 +367,6 @@
     "nothingSaved": "No se ha guardado nada.",
     "resizeShrunk": "«{{name}}» se queda en {{hours}} h aquí, y el candado es lo que mantiene esa duración. Las horas que sobran pasan al último bloque del trabajo que coloque el motor, y el hueco lo ocupa lo que venga detrás en la cola.",
     "resizeGrown": "«{{name}}» pasa a {{hours}} h aquí, y el candado es lo que mantiene esa duración. Esas horas salen del último bloque del trabajo; si era el último, sube el total del trabajo.",
-    "resizeJobGrown": "«{{name}}» crece a {{hours}} h aquí: esas horas se añaden al trabajo y el motor las coloca, saltando lo que tenga candado.",
-    "resizeJobShrunk": "«{{name}}» se queda en {{hours}} h aquí y el trabajo pierde esas horas del total.",
     "pressWhileBusy": "Espera un momento: se está guardando el cambio anterior. En cuanto termine, el calendario vuelve a aceptar arrastres.",
     "pressOnPastDay": "Ese día ya ha pasado y no se arrastra: es el registro de lo que hiciste. Cambia las horas desde la ficha del trabajo.",
     "pressOnPastGap": "Ese día ya ha pasado y no se arrastra: es el registro de lo que hiciste. Si el hueco está mal, corrígelo desde su ficha.",
@@ -385,7 +382,9 @@
     "reduceTotalHint": "El trabajo pasa a tener {{hours}} h menos.",
     "newBlock": "Dividir: dejarlas en un bloque aparte",
     "newBlockHint": "Se quedan como un bloque suelto que puedes colocar donde quieras.",
-    "cancel": "Cancelar"
+    "cancel": "Cancelar",
+    "addToTotal": "Añadir las horas al total",
+    "addToTotalHint": "El trabajo pasa a tener esas horas más."
   },
   "weekdays": {
     "short": {
@@ -442,6 +441,7 @@
     "horizonExceededUntil": "No caben todas las horas antes del {{date}}, que es el final del horizonte de planificación. Amplía el horizonte en Configuración o reduce las horas. No se ha guardado nada.",
     "unknownBlock": "Ese bloque ya no existe.",
     "invalidDuration": "La duración tiene que ser mayor que cero.",
+    "growNeedsChoice": "Has estirado «{{name}}» {{hours}} h más de lo que el resto del trabajo puede darte. ¿Se lo añado al total del trabajo?",
     "shrinkNeedsChoice": "Las horas que liberas no tienen a qué bloque ir: los demás están bloqueados, en fin de semana o ya pasados. Dime qué hacer con ellas.",
     "transferExceedsJob": "El trabajo no tiene tantas horas en bloques posteriores para ceder.",
     "reductionExceedsJob": "No se pueden quitar más horas de las que tiene el trabajo.",
