@@ -65,35 +65,6 @@ describe('locale files', () => {
     }
   });
 
-  // Measured: CLDR es-ES abbreviates September "sept" while this list said "sep", so two headers
-  // on the same page spelled the same month differently.
-  it('spells weekdays and months the way format.ts does', () => {
-    for (const [language, bundle, locale] of [
-      ['es', es, 'es-ES'],
-      ['en', en, 'en-GB'],
-    ] as const) {
-      for (let weekday = 1; weekday <= 7; weekday += 1) {
-        // 2026-08-10 is a Monday.
-        const date = new Date(2026, 7, 9 + weekday, 12);
-        expect(resolve(bundle as Json, `weekdays.short.${weekday}`).toLowerCase(), language).toBe(
-          intl(locale, date, { weekday: 'short' }).toLowerCase(),
-        );
-        expect(resolve(bundle as Json, `weekdays.long.${weekday}`).toLowerCase(), language).toBe(
-          intl(locale, date, { weekday: 'long' }).toLowerCase(),
-        );
-      }
-      for (let month = 1; month <= 12; month += 1) {
-        const date = new Date(2026, month - 1, 15, 12);
-        expect(resolve(bundle as Json, `months.short.${month}`).toLowerCase(), language).toBe(
-          intl(locale, date, { month: 'short' }).toLowerCase(),
-        );
-        expect(resolve(bundle as Json, `months.long.${month}`).toLowerCase(), language).toBe(
-          intl(locale, date, { month: 'long' }).toLowerCase(),
-        );
-      }
-    }
-  });
-
   // text.ts cannot import SUPPORTED_LANGUAGES: that module initialises i18next, and with it React,
   // which the data layer must stay clear of.
   it('offers the server the same languages the app does', () => {
@@ -134,11 +105,6 @@ function resolve(bundle: Json, key: string): string {
   }, bundle);
   if (typeof value !== 'string') throw new Error(`Not a string key: ${key}`);
   return value;
-}
-
-function intl(locale: string, date: Date, options: Intl.DateTimeFormatOptions): string {
-  // The same trailing-dot trim `format.ts` applies, so the two are compared like for like.
-  return new Intl.DateTimeFormat(locale, options).format(date).replace(/\.$/, '');
 }
 
 function placeholdersOf(value: string): string[] {

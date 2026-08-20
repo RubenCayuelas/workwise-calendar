@@ -18,12 +18,6 @@ export const PROJECT_COLORS = [
 
 export type ProjectColor = (typeof PROJECT_COLORS)[number];
 
-/** The CSS custom property a swatch corresponds to, for `var()` in a component. */
-export function projectColorToken(color: string): string | undefined {
-  const index = PROJECT_COLORS.indexOf(color.trim().toUpperCase() as ProjectColor);
-  return index === -1 ? undefined : `--ww-project-${index + 1}`;
-}
-
 /**
  * The swatch `value` names, or `undefined` when it names none. Case-insensitive because a
  * hex from a form may be lower case; storage is upper case, like `Settings.gapColor`.
@@ -31,8 +25,4 @@ export function projectColorToken(color: string): string | undefined {
 export function normalizeProjectColor(value: string): ProjectColor | undefined {
   const candidate = value.trim().toUpperCase();
   return PROJECT_COLORS.find((color) => color === candidate);
-}
-
-export function isProjectColor(value: string): boolean {
-  return normalizeProjectColor(value) !== undefined;
 }

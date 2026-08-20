@@ -50,9 +50,8 @@ export interface CalendarBlockProps {
   /** A press on the hover ACTION BAR: it begins the same move as a press on the body. */
   onPointerDownActions: (event: React.PointerEvent) => void;
   /**
-   * The server would accept a resize of this row. The strip is drawn and wired either way;
-   * this is what it SAYS. False also makes the press inert on the caller's side
-   * (`InertReason.automatic`), which keeps one gesture from quietly becoming the other.
+   * The server would accept a resize of this row. False only on a past day, where the bottom
+   * edge is not drawn at all.
    */
   resizable: boolean;
   onPointerDownResize: (event: React.PointerEvent) => void;

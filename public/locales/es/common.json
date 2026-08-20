@@ -1,8 +1,5 @@
 {
   "app": {
-    "name": "Workwise",
-    "title": "Workwise · Calendario del taller",
-    "description": "Planificación del trabajo del taller",
     "logoAlt": "Workwise"
   },
   "languages": {
@@ -11,33 +8,20 @@
   },
   "common": {
     "loading": "Cargando…",
-    "error": "Error",
-    "success": "Hecho",
-    "save": "Guardar",
     "saving": "Guardando…",
     "saved": "Guardado",
     "cancel": "Cancelar",
-    "delete": "Eliminar",
     "deleting": "Eliminando…",
-    "edit": "Editar",
-    "add": "Añadir",
     "close": "Cerrar",
-    "confirm": "Confirmar",
     "retry": "Reintentar",
     "dismiss": "Descartar",
-    "back": "Volver",
     "increase": "Aumentar",
     "decrease": "Disminuir",
-    "optional": "opcional",
-    "none": "Ninguno",
-    "more": "Más",
-    "yes": "Sí",
-    "no": "No"
+    "optional": "opcional"
   },
   "units": {
     "hours": "{{hours}} h",
     "hoursSuffix": "h",
-    "minutes": "{{minutes}} min",
     "timeRange": "{{start}}–{{end}}",
     "dayTime": "{{day}} · {{start}}–{{end}}",
     "dayTimeHours": "{{day}} · {{start}}–{{end}} · {{hours}} h",
@@ -45,8 +29,6 @@
     "listSeparator": " · ",
     "dayOption": "{{weekday}} {{day}} {{month}}",
     "dayOptionToday": "{{date}} · hoy",
-    "weeks_one": "{{count}} semana",
-    "weeks_other": "{{count}} semanas",
     "blocks_one": "{{count}} tramo",
     "blocks_other": "{{count}} tramos"
   },
@@ -61,13 +43,11 @@
     "todayHint": "Ir a la semana de hoy",
     "newJob": "Nuevo trabajo",
     "newJobHint": "Crear un trabajo y añadirlo al final de la cola",
-    "language": "Idioma",
     "languageCurrent": "Idioma: {{language}}",
     "languageSwitch": "Cambiar a {{language}}",
     "menu": "Más opciones",
     "menuSettings": "Configuración",
-    "menuAbsences": "Ausencias",
-    "menuJobs": "Trabajos"
+    "menuAbsences": "Ausencias"
   },
   "summary": {
     "label": "Carga del taller",
@@ -85,7 +65,6 @@
     "frozen": "congelado",
     "buffer": "colchón",
     "closed": "cerrado",
-    "weekend": "fin de semana",
     "todayHint": "Hoy se puede replanificar entero. Bloquea el trabajo que ya hayas empezado.",
     "frozenHint": "El motor no escribe en el pasado, pero tú sí puedes editarlo a mano.",
     "bufferHint": "El viernes es el colchón: solo recibe el desborde del trabajo que ha crecido.",
@@ -148,8 +127,6 @@
     "split": "Dividir",
     "delete": "Eliminar",
     "closeDay": "Cerrar el día aquí",
-    "open": "Abrir el trabajo",
-    "actions": "Acciones del bloque",
     "resize": "Cambiar la duración",
     "drag": "Arrastrar para cambiar el puesto en la cola",
     "label": "{{name}} · {{day}} · {{start}}–{{end}} · {{hours}} h",
@@ -177,7 +154,6 @@
     "color": "Color",
     "blocks_one": "Bloques · {{hours}} h en {{count}} tramo",
     "blocks_other": "Bloques · {{hours}} h en {{count}} tramos",
-    "blockRow": "{{day}} · {{start}}–{{end}}",
     "noBlocks": "Este trabajo todavía no tiene bloques.",
     "save": "Guardar",
     "delete": "Eliminar",
@@ -234,7 +210,6 @@
     "startTime": "Hora de inicio",
     "duration": "Duración",
     "reason": "Motivo",
-    "reasonOptional": "Motivo (opcional)",
     "reasonPlaceholder": "Avería del torno",
     "deletedJobReason": "Trabajo «{{name}}» eliminado",
     "submit": "Guardar hueco",
@@ -364,7 +339,6 @@
     "mergedOverlap_other": "Se ha unido con {{count}} bloques del mismo trabajo que ya estaban ahí. No se ha perdido ninguna hora.",
     "displacedBlocks_one": "Se ha apartado «{{names}}» para hacer sitio y el motor ha recolocado sus horas. Si no te sirve, vuelve a moverlo.",
     "displacedBlocks_other": "Se han apartado {{count}} trabajos ({{names}}) para hacer sitio y el motor ha recolocado sus horas. Si no te sirve, vuelve a moverlos.",
-    "nothingSaved": "No se ha guardado nada.",
     "resizeShrunk": "«{{name}}» se queda en {{hours}} h aquí, y el candado es lo que mantiene esa duración. Las horas que sobran pasan al último bloque del trabajo que coloque el motor, y el hueco lo ocupa lo que venga detrás en la cola.",
     "resizeGrown": "«{{name}}» pasa a {{hours}} h aquí, y el candado es lo que mantiene esa duración. Esas horas salen del último bloque del trabajo; si era el último, sube el total del trabajo.",
     "pressWhileBusy": "Espera un momento: se está guardando el cambio anterior. En cuanto termine, el calendario vuelve a aceptar arrastres.",
@@ -385,56 +359,6 @@
     "cancel": "Cancelar",
     "addToTotal": "Añadir las horas al total",
     "addToTotalHint": "El trabajo pasa a tener esas horas más."
-  },
-  "weekdays": {
-    "short": {
-      "1": "Lun",
-      "2": "Mar",
-      "3": "Mié",
-      "4": "Jue",
-      "5": "Vie",
-      "6": "Sáb",
-      "7": "Dom"
-    },
-    "long": {
-      "1": "lunes",
-      "2": "martes",
-      "3": "miércoles",
-      "4": "jueves",
-      "5": "viernes",
-      "6": "sábado",
-      "7": "domingo"
-    }
-  },
-  "months": {
-    "short": {
-      "1": "ene",
-      "2": "feb",
-      "3": "mar",
-      "4": "abr",
-      "5": "may",
-      "6": "jun",
-      "7": "jul",
-      "8": "ago",
-      "9": "sept",
-      "10": "oct",
-      "11": "nov",
-      "12": "dic"
-    },
-    "long": {
-      "1": "enero",
-      "2": "febrero",
-      "3": "marzo",
-      "4": "abril",
-      "5": "mayo",
-      "6": "junio",
-      "7": "julio",
-      "8": "agosto",
-      "9": "septiembre",
-      "10": "octubre",
-      "11": "noviembre",
-      "12": "diciembre"
-    }
   },
   "errors": {
     "horizonExceeded": "No caben todas las horas dentro del horizonte de planificación. Amplía el horizonte en Configuración o reduce las horas.",
@@ -481,7 +405,6 @@
     "settingsInvalid": "Ese valor de configuración no es válido.",
     "unexpected": "Ha ocurrido un error inesperado. No se ha guardado nada.",
     "loadFailed": "No se han podido cargar los datos del taller.",
-    "saveFailed": "No se ha podido guardar. No se ha cambiado nada.",
     "networkFailed": "No hay conexión con el servidor. No se ha guardado nada.",
     "notFound": "Eso ya no existe. Recarga el calendario.",
     "title": "No se ha podido completar"

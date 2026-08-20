@@ -5,6 +5,10 @@
  *
  * The default `ORDER BY date, start_time, created_at, id` is the engine's INPUT ordering
  * and matches its own `sortedByQueueRank`.
+ *
+ * There is no date-range read here, unlike `listGapsBetween` and `listDayOverridesBetween`:
+ * the engine reflows the whole horizon from `listBlocks`, so nothing ever wanted one week's
+ * blocks alone and the third member of that trio was only ever dead weight.
  */
 
 import { getDb, type Db } from '../db';
@@ -30,13 +34,6 @@ export interface BlockPlacement {
 /** The whole calendar in queue order. Small table; the engine wants all of it. */
 export function listBlocks(db: Db = getDb()): Block[] {
   return prepared<BlockRow>(db, `SELECT ${COLUMNS} FROM blocks ${QUEUE_ORDER}`).all().map(mapBlockRow);
-}
-
-/** Inclusive on both ends — `date` is a sortable `YYYY-MM-DD`, so BETWEEN works. */
-export function listBlocksBetween(from: string, to: string, db: Db = getDb()): Block[] {
-  return prepared<BlockRow>(db, `SELECT ${COLUMNS} FROM blocks WHERE date BETWEEN ? AND ? ${QUEUE_ORDER}`)
-    .all(from, to)
-    .map(mapBlockRow);
 }
 
 /** One job's blocks, in queue order — what the job panel lists as "4 tramos". */

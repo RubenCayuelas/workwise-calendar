@@ -1,11 +1,15 @@
 /**
- * Domain types, plus the row mappers that are the only bridge between SQLite's shapes and the app's.
- * SQLite has no boolean (0/1 on disk, real booleans above the mappers) and stores durations as decimal
- * hours; in memory everything is INTEGER MINUTES, converted back with `minutesToHours` at the edge,
- * once. `date` is always a local shop `YYYY-MM-DD`, and NULL text becomes `undefined`.
+ * Domain types, plus the row mappers that turn SQLite's shapes into the app's. SQLite has no boolean
+ * (0/1 on disk, real booleans above the mappers) and stores durations as decimal hours; in memory
+ * everything is INTEGER MINUTES. `date` is always a local shop `YYYY-MM-DD`, and NULL text becomes
+ * `undefined`.
+ *
+ * READ DIRECTION ONLY. The way back to a row is each repository's own `toParams`, which is where the
+ * write-path guards live; a general `to*Row` mapper here would be a second way to build a row with
+ * none of them.
  */
 
-import { hhmmToMinutes, hoursToMinutes, minutesToHHmm, minutesToHours } from '../lib/dates';
+import { hhmmToMinutes, hoursToMinutes } from '../lib/dates';
 
 // ---------------------------------------------------------------------------
 // Domain
@@ -189,7 +193,7 @@ export interface SettingsRow {
 }
 
 // ---------------------------------------------------------------------------
-// Row mappers — the single conversion point in each direction
+// Row mappers — the single conversion point from a row to the domain
 // ---------------------------------------------------------------------------
 
 export function mapProjectRow(row: ProjectRow): Project {
@@ -236,57 +240,6 @@ export function mapDayOverrideRow(row: DayOverrideRow): DayOverride {
     isClosed: toBoolean(row.is_closed),
     capacityHours: row.capacity_hours,
     note: textOrUndefined(row.note),
-  };
-}
-
-/** The write side of `mapProjectRow`: minutes back to hours, `undefined` back to NULL. */
-export function toProjectRow(project: Project): ProjectRow {
-  return {
-    id: project.id,
-    name: project.name,
-    description: project.description ?? null,
-    color: project.color,
-    total_hours: minutesToHours(project.totalMinutes),
-    created_at: project.createdAt,
-    updated_at: project.updatedAt,
-  };
-}
-
-/** The write side of `mapBlockRow`: minutes back to `HH:mm` + hours, boolean back to 0/1. */
-export function toBlockRow(block: Block): BlockRow {
-  return {
-    id: block.id,
-    project_id: block.projectId,
-    date: block.date,
-    start_time: minutesToHHmm(block.startMinutes),
-    duration: minutesToHours(block.durationMinutes),
-    locked: block.locked ? 1 : 0,
-    created_at: block.createdAt,
-    updated_at: block.updatedAt,
-  };
-}
-
-/** The write side of `mapGapRow`. */
-export function toGapRow(gap: Gap): GapRow {
-  return {
-    id: gap.id,
-    date: gap.date,
-    start_time: minutesToHHmm(gap.startMinutes),
-    duration: minutesToHours(gap.durationMinutes),
-    reason: gap.reason ?? null,
-    unit_id: gap.unitId,
-    created_at: gap.createdAt,
-    updated_at: gap.updatedAt,
-  };
-}
-
-/** The write side of `mapDayOverrideRow`. */
-export function toDayOverrideRow(override: DayOverride): DayOverrideRow {
-  return {
-    date: override.date,
-    is_closed: override.isClosed ? 1 : 0,
-    capacity_hours: override.capacityHours,
-    note: override.note ?? null,
   };
 }
 

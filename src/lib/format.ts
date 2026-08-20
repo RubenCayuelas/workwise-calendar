@@ -5,7 +5,7 @@
  * local `YYYY-MM-DD`, never an instant, so `localDateOf` is the only thing that turns one into a `Date`.
  */
 
-import { MINUTES_PER_DAY, minutesToHHmm, minutesToHours, parseDate, weekdayOf } from './dates';
+import { MINUTES_PER_DAY, minutesToHHmm, minutesToHours, parseDate } from './dates';
 import { intlLocaleOf } from './i18n';
 
 /** A translate function, structurally — so this module never imports i18next. */
@@ -36,11 +36,6 @@ export function formatHourNumber(minutes: number, language: string): string {
   }).format(minutesToHours(minutes));
 }
 
-/** A plain decimal-hours number, for a form input's value. Locale-independent. */
-export function hourInputValue(minutes: number): number {
-  return minutesToHours(minutes);
-}
-
 /** What a time outside the calendar day renders as: deliberately a shape no real time has. */
 export const INVALID_TIME = '--:--';
 
@@ -67,6 +62,11 @@ export function formatTime(minutes: number): string {
 // ---------------------------------------------------------------------------
 // Dates
 // ---------------------------------------------------------------------------
+//
+// Every weekday and month name comes from `Intl`, never from a list in the locale files. A
+// hand-kept list drifted from CLDR: es-ES abbreviates September "sept" while the list said "sep",
+// so two headers on the same page spelled the same month differently. The lists were deleted on
+// 2026-08-20 once nothing read them.
 
 /** Capitalised short weekday, as the day headers show it: "Mié", "Mon". */
 export function formatWeekdayShort(date: string, language: string): string {
@@ -121,16 +121,6 @@ export function formatMediumDate(date: string, language: string): string {
   })
     .format(localDateOf(date))
     .replace(/\./g, '');
-}
-
-/** `YYYY-MM-DD` unchanged — what an `<input type="date">` expects. */
-export function dateInputValue(date: string): string {
-  return date;
-}
-
-/** ISO weekday of a local date, 1 = Monday .. 7 = Sunday. Re-exported for headers. */
-export function weekdayNumber(date: string): number {
-  return weekdayOf(date);
 }
 
 // ---------------------------------------------------------------------------
