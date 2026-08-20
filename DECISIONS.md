@@ -798,8 +798,35 @@ sentences that explained an edge that did nothing (`block.lengthIsAutomatic` and
 54-line toast that carried *Cerrar el día aquí* out of a gesture that now has its own answer. The
 offer still lives on the hover bar, where it always did.
 
+### And then the restoration over-corrected, within the day
+
+Restoring the edge on 2026-08-20 also changed what a grow MEANS on an automatic row: it added the
+hours to the estimate. The owner found that in use within hours: *«añade horas totales al trabajo sin
+que esa fuera mi intención ni arrastré el último bloque sino uno intermedio»*.
+
+Right again, and the fix was to stop inventing: the ORIGINAL rule already said that only the LAST
+block's growth raises the estimate, and an intermediate one draws from the job's later rows. That rule
+was never the problem. What it lacked was an answer for growing past everything those rows hold —
+where it refused with `transfer-exceeds-job` and the gesture stopped dead on hours already drawn. It
+now ASKS, exactly as the shrink's dead end does: 409 `grow-needs-choice`, one answer, `add-to-total`.
+
+**And the margin rule came back with it**, because it is what makes the gesture worth having on an
+automatic row. The owner's use is *«para que pille parte del área de margen y así adelantar trabajo»*
+— and auto-fill never enters a margin, so without the padlock the next pass undoes the drag. That is
+what *«no pisa esa hora de margen»* was: not a refusal, a silent revert. The rule existed
+(`usesManualOnlyTime`), was deleted on 2026-08-18 when the gesture that read it was withdrawn, and is
+restored with it.
+
+**One thing that turned out not to be a defect at all.** The owner also reported the resize appearing
+to reach across days. It does not — `stretchFrom` breaks on `row.date !== target.date`. What they saw
+was the LIFTED styling: dragging highlights the whole unit across every day it occupies, while the
+gesture only reshapes the day under the pointer. Their own diagnosis: *«visualmente parecía que
+recortaría horas de ellos al no poder seleccionarlos»*.
+
 **The lesson worth keeping.** A quote that justifies deleting a MECHANISM does not license removing a
-GESTURE that mechanism happened to serve. When the two are conflated the record says "decided with
+GESTURE that mechanism happened to serve. And a correction is not finished when the gesture is back:
+the round that restores it can just as easily invent new semantics for it, which is what happened here
+and was caught only because the owner used the thing. When the two are conflated the record says "decided with
 the owner" about something they never saw — which is exactly how this went unnoticed for two days.
 
 ---
