@@ -6,7 +6,7 @@
 export { JobPanel, type JobPanelProps } from './JobPanel';
 export { NewJobPanel, type NewJobPanelProps } from './NewJobPanel';
 export { SplitBlockPanel, type SplitBlockPanelProps, type SplitResult } from './SplitBlockPanel';
-export { GapPanel, type GapPanelProps } from './GapPanel';
+export { AbsencePanel, type AbsencePanelProps } from './AbsencePanel';
 
 // The parts, for a screen that wants the pieces rather than the panel.
 export {
@@ -20,6 +20,7 @@ export {
   type JobFormValues,
 } from './JobFields';
 export { BlockRows, type BlockRowsProps } from './BlockRows';
+export { summarizeAbsence, type AbsenceNote, type AbsenceSummary } from './absence';
 export { PlacementNotice, type PlacementNoticeProps } from './PlacementNotice';
 
 export {

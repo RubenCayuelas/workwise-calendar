@@ -89,7 +89,8 @@ export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb
       date: input.date,
       startMinutes: input.startMinutes,
       durationMinutes,
-      locked: block.locked,
+      // A padlocked row is fixed by itself, so its footprint has to fit the day it lands on.
+      fixed: block.locked,
       dayOf: (date) => landingDay(date, dayOf, today),
     });
     const pinned =
@@ -133,8 +134,9 @@ function pinsTheRow(
   const config = dayOf(date);
   return dropLandsLiterally({
     // The row's own padlock is the caller's business: it is added, never removed.
-    locked: false,
+    fixed: false,
     role: config.role,
+    closed: config.isClosed,
     periods: config.periods,
     manualWindows: config.manualWindows,
     startMinutes,
@@ -253,7 +255,7 @@ export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = get
       date: input.date,
       startMinutes: input.startMinutes,
       durationMinutes: input.durationMinutes,
-      locked: block.locked,
+      fixed: block.locked,
       dayOf: (date) => landingDay(date, dayOf, today),
     });
     const pinned =
@@ -381,6 +383,7 @@ function landingDay(
     manualWindows: config.manualWindows,
     reflows: dayReflows(config, date, today),
     role: config.role,
+    closed: config.isClosed,
   };
 }
 

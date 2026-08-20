@@ -367,8 +367,17 @@ export function deleteProject(
 
     const reason = deletedJobGapReason(project.name, options.language);
     const preservedGapIds: string[] = [];
+    // ONE unit per past DAY: the two halves the comida cut are one stretch of work and become one
+    // absence. Without this every half is its own unit, and the sentence they share cannot say
+    // otherwise — the same reason is written on every row here.
+    const unitByDate = new Map<string, string>();
     for (const row of listBlocksByProject(projectId, db)) {
       if (compareDates(row.date, today) >= 0) continue;
+      let unitId = unitByDate.get(row.date);
+      if (unitId === undefined) {
+        unitId = newId();
+        unitByDate.set(row.date, unitId);
+      }
       const gap = insertGap(
         {
           id: newId(),
@@ -376,6 +385,7 @@ export function deleteProject(
           startMinutes: row.startMinutes,
           durationMinutes: row.durationMinutes,
           reason,
+          unitId,
         },
         db,
       );

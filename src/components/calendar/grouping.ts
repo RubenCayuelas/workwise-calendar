@@ -6,7 +6,7 @@
  */
 
 import { adjacentInWindows } from '../../lib/manualWindow';
-import type { Gap, WorkPeriod } from '../../types';
+import type { Gap, GapUnit, WorkPeriod } from '../../types';
 import type { WeekBlock } from '../../lib/api-client';
 
 /** Consecutive rows of one job on one day, drawn as a single unit. */
@@ -113,6 +113,124 @@ export function segmentsOf(
         seamBelow:
           next !== undefined &&
           isWindowBreak(manualWindows, block.startMinutes + block.durationMinutes, next.startMinutes),
+      });
+    });
+  }
+  return segments;
+}
+
+// ---------------------------------------------------------------------------
+// The same question, asked of gaps
+// ---------------------------------------------------------------------------
+
+/** Consecutive rows of ONE gap on one day, drawn as a single unit. */
+export interface GapGroup {
+  /** The first row's id. Stable as long as the group is. */
+  id: string;
+  /** What makes these rows ONE absence. Any of them addresses the whole of it. */
+  unitId: string;
+  date: string;
+  /** In clock order. Always at least one. */
+  gaps: Gap[];
+  /** The time the unit reserves — the "10 h" of a gap split around lunch. */
+  totalMinutes: number;
+  startMinutes: number;
+  /** End of the last row. Includes the lunch break it spans, unlike `totalMinutes`. */
+  endMinutes: number;
+  /** The reason every row of the unit carries. The halves of one gap share it. */
+  reason: string;
+}
+
+/** One gap row, with the unit it belongs to and its place in it. */
+export interface GapSegment {
+  gap: Gap;
+  group: GapGroup;
+  isFirst: boolean;
+  isLast: boolean;
+  /** The break between two windows separates this row from the previous / next row of its unit. */
+  seamAbove: boolean;
+  seamBelow: boolean;
+}
+
+/**
+ * A day's gap units, in clock order, grouped by `unit_id` ALONE.
+ *
+ * Where a block's unit has to be DERIVED — `groupBlocks` reads `projectId` plus adjacency, because
+ * nothing stored says which rows are one run — a gap's is a stored fact. Asking for adjacency on top
+ * of it can therefore only DISAGREE with the write path, which always addresses the whole unit:
+ * another absence's row sorting between the two halves made the grid draw one unit as two, each
+ * labelled with half the hours, and a gesture on either then edited the whole absence while claiming
+ * to edit half of it.
+ */
+export function groupGaps(gaps: readonly Gap[], _manualWindows: readonly WorkPeriod[] = []): GapGroup[] {
+  const byUnit = new Map<string, GapGroup>();
+
+  for (const gap of [...gaps].sort(
+    (a, b) => a.startMinutes - b.startMinutes || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  )) {
+    const open = byUnit.get(gap.unitId);
+    if (open === undefined) {
+      byUnit.set(gap.unitId, {
+        id: gap.id,
+        unitId: gap.unitId,
+        date: gap.date,
+        gaps: [gap],
+        totalMinutes: gap.durationMinutes,
+        startMinutes: gap.startMinutes,
+        endMinutes: gap.startMinutes + gap.durationMinutes,
+        reason: gap.reason ?? '',
+      });
+      continue;
+    }
+    open.gaps.push(gap);
+    open.totalMinutes += gap.durationMinutes;
+    open.startMinutes = Math.min(open.startMinutes, gap.startMinutes);
+    open.endMinutes = Math.max(open.endMinutes, gap.startMinutes + gap.durationMinutes);
+  }
+
+  return [...byUnit.values()].sort(
+    (a, b) => a.startMinutes - b.startMinutes || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+}
+
+/**
+ * The ABSENCE a unit is: its first row's id, the day, the start and the NET TOTAL of its rows. This
+ * is what the form edits and what both gestures send, because `PATCH /api/gaps/:id` addresses the
+ * whole unit through any of its rows — a 10 h absence opened by its `08:00 +6 h` half and saved
+ * unchanged came back 6 h long, the afternoon row deleted by the reconcile.
+ */
+export function gapUnitOf(group: GapGroup): GapUnit {
+  return {
+    id: group.id,
+    date: group.date,
+    startMinutes: group.startMinutes,
+    durationMinutes: group.totalMinutes,
+    // `Gap.reason` is absent rather than empty when there is none, and the form asks for `??  ''`.
+    reason: group.reason === '' ? undefined : group.reason,
+  };
+}
+
+/** Every row of every gap unit, flattened, each told where the break falls inside its unit. */
+export function gapSegmentsOf(
+  groups: readonly GapGroup[],
+  manualWindows: readonly WorkPeriod[] = [],
+): GapSegment[] {
+  const segments: GapSegment[] = [];
+  for (const group of groups) {
+    group.gaps.forEach((gap, index) => {
+      const previous = group.gaps[index - 1];
+      const next = group.gaps[index + 1];
+      segments.push({
+        gap,
+        group,
+        isFirst: index === 0,
+        isLast: index === group.gaps.length - 1,
+        seamAbove:
+          previous !== undefined &&
+          isWindowBreak(manualWindows, previous.startMinutes + previous.durationMinutes, gap.startMinutes),
+        seamBelow:
+          next !== undefined &&
+          isWindowBreak(manualWindows, gap.startMinutes + gap.durationMinutes, next.startMinutes),
       });
     });
   }
@@ -276,14 +394,20 @@ export function assignLanes(items: readonly LaneItem[]): Map<string, LanePlaceme
   return placements;
 }
 
-/** Groups and gaps share the column, so they are packed together. */
-export function packDay(groups: readonly BlockGroup[], gaps: readonly Gap[]): Map<string, LanePlacement> {
+/**
+ * Groups and gaps share the column, so they are packed together — both as UNITS, so the two halves of
+ * one gap take one lane between them instead of each claiming its own.
+ */
+export function packDay(
+  groups: readonly BlockGroup[],
+  gaps: readonly GapGroup[],
+): Map<string, LanePlacement> {
   return assignLanes([
     ...groups.map((group) => ({ id: group.id, startMinutes: group.startMinutes, endMinutes: group.endMinutes })),
-    ...gaps.map((gap) => ({
-      id: gap.id,
-      startMinutes: gap.startMinutes,
-      endMinutes: gap.startMinutes + gap.durationMinutes,
+    ...gaps.map((group) => ({
+      id: group.id,
+      startMinutes: group.startMinutes,
+      endMinutes: group.endMinutes,
     })),
   ]);
 }

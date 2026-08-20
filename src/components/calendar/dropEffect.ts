@@ -79,6 +79,43 @@ export function dayReflowsOn(day: { role: DayRole; isClosed: boolean; isPast: bo
   return !day.isClosed && day.role !== 'manual' && !day.isPast;
 }
 
+/**
+ * What an ABSENCE dropped here will do, which is a different question with different answers: a gap
+ * is never slid, never merged and never cut. Either the footprint covers a row the engine cannot
+ * move — `assertGapFits` refuses the save naming it (`gap-over-fixed-block`) — or it covers ordinary
+ * work, which the same transaction pushes forward.
+ */
+export interface GapEffect {
+  kind: 'blocked' | 'displace';
+  /** The job the sentence names: the first one in the way, in clock order. */
+  projectName: string;
+}
+
+/**
+ * `isMovable` reduces to "padlocked, or a weekend day" here, exactly as it does in `dropEffectOf`:
+ * the drag layer refuses a past day outright, so the third way a row can be fixed cannot arrive.
+ */
+export function gapDropEffect(input: {
+  /** Every row already on the target day. */
+  rows: readonly DropRow[];
+  dayIsWeekend: boolean;
+  manualWindows: readonly WorkPeriod[];
+  startMinutes: number;
+  /** Net working minutes: the absence's own total, cut at the break like everything else. */
+  durationMinutes: number;
+}): GapEffect | null {
+  const footprint = dropFootprint(input);
+  const covered = [...input.rows]
+    .filter((row) => overlapsSegments(footprint, row.startMinutes, row.durationMinutes))
+    .sort((a, b) => a.startMinutes - b.startMinutes || (a.id < b.id ? -1 : 1));
+
+  // The refusal first, being the only outcome where nothing is saved at all.
+  const fixed = covered.find((row) => row.locked || input.dayIsWeekend);
+  if (fixed !== undefined) return { kind: 'blocked', projectName: fixed.project.name };
+  const pushed = covered[0];
+  return pushed === undefined ? null : { kind: 'displace', projectName: pushed.project.name };
+}
+
 export interface QueueRow {
   id: string;
   date: string;

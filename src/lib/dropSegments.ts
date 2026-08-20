@@ -49,7 +49,11 @@ export function segmentDroppedRow(
   return rows;
 }
 
-/** True when `[start, start + duration)` shares clock minutes with any segment. */
+/**
+ * True when `[start, start + duration)` shares clock minutes with any segment. Everything here is
+ * CLOCK minutes, so what a caller passes is one stored ROW — a block or a gap, they are the same
+ * shape — and never a stretch's net total, which is only a clock interval inside one window.
+ */
 export function overlapsSegments(
   segments: readonly DropSegment[],
   startMinutes: number,

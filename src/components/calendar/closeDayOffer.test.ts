@@ -55,6 +55,7 @@ function blockOf(overrides: Partial<WeekBlock> = {}): WeekBlock {
 function gapOf(startMinutes: number, durationMinutes: number): Gap {
   return {
     id: `g-${startMinutes}`,
+    unitId: `g-${startMinutes}`,
     date: '2026-08-19',
     startMinutes,
     durationMinutes,

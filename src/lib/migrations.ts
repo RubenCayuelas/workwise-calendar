@@ -1,5 +1,9 @@
+import { hhmmToMinutes, hoursToMinutes, minutesToHHmm, minutesToHours } from './dates';
 import type { Db } from './db';
-import { DEFAULT_SETTINGS, serializeSettings } from './settings';
+import { newId } from './ids';
+import { adjacentInWindows } from './manualWindow';
+import { DEFAULT_SETTINGS, dayShapeFromSettings, readSettings, serializeSettings } from './settings';
+import type { WorkPeriod } from '../types';
 
 /**
  * The whole schema, as one idempotent `CREATE ... IF NOT EXISTS` sequence — there is no released
@@ -8,12 +12,16 @@ import { DEFAULT_SETTINGS, serializeSettings } from './settings';
  * in `ADDED_COLUMNS`, and one retired since in `REMOVED_COLUMNS`. On disk `duration` and `*_hours` are
  * decimal hours and `created_at` / `updated_at` are UTC; above the row mappers everything is local
  * dates and integer minutes.
+ *
+ * `DATA_MIGRATIONS` is the fourth kind: a change to what the stored NUMBERS mean, which no `PRAGMA`
+ * can see. Those run last, because one of them reads the settings and the defaults are seeded above.
  */
 export function runMigrations(db: Db): void {
   db.exec(SCHEMA);
   addMissingColumns(db);
   dropRemovedColumns(db);
   seedDefaultSettings(db);
+  runDataMigrations(db);
 }
 
 const SCHEMA = `
@@ -49,15 +57,29 @@ CREATE TABLE IF NOT EXISTS blocks (
 );
 
 -- A hole in the schedule (maintenance, breakdown, admin). Gaps are time: they
--- consume the day's plannable hours exactly like locked work does.
+-- consume the day's plannable hours exactly like locked work does. 'duration' is
+-- NET working minutes on disk too, so a gap across the comida is two rows sharing
+-- one unit_id and no stored row of either table straddles a non-working interval.
+-- unit_id is what says the two halves are ONE gap; NULL means the row is its own
+-- unit, which is how a row written before the column reads. Two gaps that merely
+-- touch keep different unit_ids and are never merged.
 CREATE TABLE IF NOT EXISTS gaps (
   id         TEXT PRIMARY KEY,
   date       TEXT NOT NULL,
   start_time TEXT NOT NULL,
   duration   REAL NOT NULL CHECK (duration > 0),
   reason     TEXT,
+  unit_id    TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- The data migrations that have already run. A structural change is guarded by
+-- PRAGMA table_info, which asks the file itself; a change to what a stored NUMBER
+-- MEANS leaves no trace to ask about, so it is recorded here and runs once.
+CREATE TABLE IF NOT EXISTS data_migrations (
+  name       TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Key/value configuration. Everything is TEXT on disk; src/lib/settings.ts is
@@ -122,9 +144,12 @@ END;
  * Columns added to a table after its first release into `data/calendar.db`. A list rather than a
  * version counter because `PRAGMA table_info` gives the same answer however many times it runs.
  * SQLite's `ADD COLUMN` cannot add a NOT NULL column without a default, so a flag added here defaults
- * to the value meaning "as it was before". EMPTY IS THE CORRECT STATE, not a leftover.
+ * to the value meaning "as it was before"; a column whose value is per-row and cannot be a constant
+ * is added NULLABLE and filled by a data migration, which is where the evidence to fill it lives.
  */
-const ADDED_COLUMNS: ReadonlyArray<{ table: string; column: string; definition: string }> = [];
+const ADDED_COLUMNS: ReadonlyArray<{ table: string; column: string; definition: string }> = [
+  { table: 'gaps', column: 'unit_id', definition: 'TEXT' },
+];
 
 function addMissingColumns(db: Db): void {
   for (const { table, column, definition } of ADDED_COLUMNS) {
@@ -161,6 +186,171 @@ function dropRemovedColumns(db: Db): void {
       db.exec(carryOver);
       db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
     })();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Data migrations
+// ---------------------------------------------------------------------------
+
+/**
+ * Changes to the MEANING of stored values. Each runs at most once, in one transaction with the row that
+ * records it, so a failure leaves the file with the old meaning intact and the migration pending.
+ * Append-only: a name that has been released must never be reused.
+ */
+const DATA_MIGRATIONS: ReadonlyArray<{ name: string; run: (db: Db) => void }> = [
+  { name: '2026-08-19-gap-duration-is-net-minutes', run: splitGapsAtBreaks },
+  { name: '2026-08-19-gap-unit-ids', run: assignGapUnitIds },
+];
+
+function runDataMigrations(db: Db): void {
+  const applied = db.prepare('SELECT name FROM data_migrations').all() as Array<{ name: string }>;
+  const done = new Set(applied.map((row) => row.name));
+
+  for (const migration of DATA_MIGRATIONS) {
+    if (done.has(migration.name)) continue;
+    db.transaction(() => {
+      migration.run(db);
+      db.prepare('INSERT INTO data_migrations (name) VALUES (?)').run(migration.name);
+    })();
+  }
+}
+
+/** A gap exactly as it is on disk, before the change of meaning. */
+interface StoredGapRow {
+  id: string;
+  date: string;
+  start_time: string;
+  duration: number;
+  reason: string | null;
+  unit_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * A gap's `duration` was CLOCK minutes; it is NET working minutes now. IT SPLITS ONLY A GAP THAT
+ * CROSSES A BREAK BETWEEN TWO WINDOWS, cutting it at that break, and leaves every other row exactly as
+ * it found it: the shop's four `08:00 +11,5 h` "Feria" rows become `08:00 +6 h` and `15:30 +4 h`, both
+ * keeping the reason, while `06:00 +3 h` keeps its three hours and `14:15 +0,5 h` — a gap wholly inside
+ * the comida, where a gap can no longer be recorded — keeps its half hour where it is.
+ *
+ * It clips nothing, deletes nothing and anchors nothing, because those all lose what the owner
+ * RECORDED, and a row a shift no longer covers has the same standing as a block a settings change
+ * stranded: still there, still editable, never rewritten behind them. Intersecting the old interval
+ * with the windows did clip, measured: an hour of `06:00 +3 h` and ninety minutes of `19:00 +3 h`.
+ *
+ * IT READS THE CURRENT SHIFT, because a stored gap carries no record of the one it was typed under.
+ * Hence its place in `runMigrations`, after the defaults are seeded, and hence running once: a later
+ * change to the shift must not silently re-cut gaps the owner has since put where they want them.
+ */
+function splitGapsAtBreaks(db: Db): void {
+  const windows = dayShapeFromSettings(readSettings(db)).manualWindows;
+  if (windows.length === 0) return;
+
+  const rows = db
+    .prepare('SELECT id, date, start_time, duration, reason, unit_id, created_at, updated_at FROM gaps')
+    .all() as StoredGapRow[];
+
+  const update = db.prepare('UPDATE gaps SET start_time = ?, duration = ?, unit_id = ? WHERE id = ?');
+  const insert = db.prepare(
+    `INSERT INTO gaps (id, date, start_time, duration, reason, unit_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+
+  for (const row of rows) {
+    const startMinutes = hhmmToMinutes(row.start_time);
+    const endMinutes = startMinutes + hoursToMinutes(row.duration);
+    const pieces = cutAtCrossedBreaks(startMinutes, endMinutes, windows);
+    if (pieces.length === 1) continue;
+
+    // The pieces of one gap are one unit, and the morning half keeps the row's identity so nothing
+    // that referred to the gap is orphaned.
+    const unitId = row.unit_id ?? row.id;
+    const [first, ...rest] = pieces;
+    update.run(
+      minutesToHHmm(first.startMinutes),
+      minutesToHours(first.endMinutes - first.startMinutes),
+      unitId,
+      row.id,
+    );
+    for (const piece of rest) {
+      // The original `created_at`: the halves of one gap are the same age.
+      insert.run(
+        newId(),
+        row.date,
+        minutesToHHmm(piece.startMinutes),
+        minutesToHours(piece.endMinutes - piece.startMinutes),
+        row.reason,
+        unitId,
+        row.created_at,
+      );
+    }
+  }
+}
+
+/**
+ * `[from, to)` cut at every break between two windows it holds minutes on BOTH sides of. One piece
+ * back — the interval itself — when it crosses none, whether it lies inside a window, inside a break or
+ * outside the shift altogether: only a straddle is a shape the new units cannot express.
+ */
+function cutAtCrossedBreaks(from: number, to: number, windows: readonly WorkPeriod[]): WorkPeriod[] {
+  const ordered = [...windows].sort((a, b) => a.startMinutes - b.startMinutes);
+  const pieces: WorkPeriod[] = [];
+  let start = from;
+
+  for (let index = 0; index + 1 < ordered.length; index += 1) {
+    const breakStart = ordered[index].endMinutes;
+    const breakEnd = ordered[index + 1].startMinutes;
+    if (breakEnd <= breakStart) continue;
+    if (start >= breakStart || to <= breakEnd) continue;
+    pieces.push({ startMinutes: start, endMinutes: breakStart });
+    start = breakEnd;
+  }
+
+  pieces.push({ startMinutes: start, endMinutes: to });
+  return pieces;
+}
+
+/**
+ * Fills `unit_id` on every row that predates the column. Each row is its own unit, EXCEPT rows the
+ * split above already made: same day, same reason, written in the same second and with nothing
+ * workable between them. That signature is all the evidence a file the split has already run on has
+ * left — the shop's own, migrated on 2026-08-19 before this column existed — and it is what keeps the
+ * two halves of each `Feria` gap one unit on screen instead of two.
+ *
+ * Two gaps the OWNER made are never fused by it: they touch at a minute, not in a second.
+ */
+function assignGapUnitIds(db: Db): void {
+  const windows = dayShapeFromSettings(readSettings(db)).manualWindows;
+  const rows = db
+    .prepare(
+      `SELECT id, date, start_time, duration, reason, unit_id, created_at, updated_at FROM gaps
+        WHERE unit_id IS NULL ORDER BY date, start_time, id`,
+    )
+    .all() as StoredGapRow[];
+
+  const stamp = db.prepare('UPDATE gaps SET unit_id = ? WHERE id = ?');
+  // `trg_gaps_updated_at` bumps `updated_at` on any UPDATE that leaves it equal to what it was, so it
+  // is written back in a SECOND statement, where the two values differ and the trigger stays quiet.
+  // Assigning a unit id is bookkeeping, not an edit of the gap.
+  const restore = db.prepare('UPDATE gaps SET updated_at = ? WHERE id = ?');
+
+  let previous: { row: StoredGapRow; unitId: string; endMinutes: number } | undefined;
+  for (const row of rows) {
+    const startMinutes = hhmmToMinutes(row.start_time);
+    const endMinutes = startMinutes + hoursToMinutes(row.duration);
+    const halvesOfOne =
+      previous !== undefined &&
+      previous.row.date === row.date &&
+      previous.row.reason === row.reason &&
+      previous.row.created_at === row.created_at &&
+      adjacentInWindows(windows, previous.endMinutes, startMinutes);
+
+    const unitId = halvesOfOne && previous !== undefined ? previous.unitId : row.id;
+    stamp.run(unitId, row.id);
+    restore.run(row.updated_at, row.id);
+    previous = { row, unitId, endMinutes };
   }
 }
 

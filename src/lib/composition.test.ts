@@ -118,6 +118,7 @@ function gap(spec: { date: string; from: string; hours: number; reason?: string 
   const index = ++sequence;
   return {
     id: `g${index}`,
+    unitId: `g${index}`,
     date: spec.date,
     startMinutes: t(spec.from),
     durationMinutes: Math.round(spec.hours * 60),
@@ -2748,7 +2749,7 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
 describe('rule — Block Resize (drag the bottom edge) is a transfer inside the job', () => {
   /*
    * THE ROW BEING SIZED ALWAYS CARRIES A PADLOCK, in every test here: the edge only sizes rows the
-   * engine does not lay out, and elsewhere the request is refused with `resize-needs-padlock`. The
+   * engine does not lay out, which is where a transfer's geometry SURVIVES. The
    * COUNTERPARTY is the opposite — always a row the engine still places.
    */
   const job = (): Block[] => [
@@ -2762,27 +2763,37 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     block({ id: 'viernes', project: 'escalera', date: FRI, from: '08:00', hours: 3, locked: true }),
   ];
 
-  it('refuses a row the ENGINE lays out, because its length is the room it has', () => {
-    // On an automatic row the freed hours flow straight back into the room they left, so nothing is
-    // written and the sentence names the two things that do work: the padlock, and a gap.
+  it('is a transfer on EVERY row, and taking margin time padlocks the one it grows', () => {
+    // One meaning everywhere: the hours come from the job's later rows and the estimate does not
+    // move. The padlock is not a precondition — it decides whether the new geometry SURVIVES, which
+    // is why growing INTO A MARGIN applies one: auto-fill never enters a margin, so without it the
+    // next pass pulls the row back and the gesture undoes itself.
     const automatic = [
       block({ id: 'mie', project: 'escalera', date: WED, from: '08:00', hours: 6 }),
-      block({ id: 'jue', project: 'escalera', date: THU, from: '08:00', hours: 4 }),
+      block({ id: 'jue', project: 'escalera', date: THU, from: '08:00', hours: 8 }),
     ];
 
-    const result = resizeBlock(automatic, resizing({ blockId: 'mie', durationMinutes: 120, today: WED }));
+    // 8 h from 08:00 crosses the comida, so it is stored as two rows, and the 2 h come off Thursday.
+    const edit = expectEdited(
+      resizeBlock(automatic, resizing({ blockId: 'mie', durationMinutes: 8 * 60, today: WED })),
+    );
+    expect(edit.totalMinutesDelta).toBe(0);
+    expect(jobRows(edit.blocks, 'escalera')).toEqual([
+      `${WED} 08:00-14:00`,
+      `${WED} 15:30-17:30`,
+      `${THU} 08:00-14:00`,
+    ]);
+    expect(edit.blocks.find((row) => row.id === 'mie')?.locked).toBe(false);
 
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error('an automatic row has no length of its own');
-    expect(result.error.code).toBe('resize-needs-padlock');
-    expect(result.error.blockId).toBe('mie');
-    expect(result.error.messageKey).toBe('errors.resizeNeedsPadlock');
-
-    // Padlock it and the very same request goes through: the padlock is what holds a length.
-    const pinned = automatic.map((row) => (row.id === 'mie' ? { ...row, locked: true } : row));
-    const edit = expectEdited(resizeBlock(pinned, resizing({ blockId: 'mie', durationMinutes: 120, today: WED })));
-    // The 4 h it gives up land on the job's last row the engine still places.
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([`${WED} 08:00-10:00 [locked]`, `${THU} 08:00-16:00`]);
+    // 10,5 h reaches 20:00, past the 19:30 end of the periods, so it takes MARGIN time — and the
+    // rows come back padlocked, because auto-fill would otherwise pull them back inside the shift.
+    const intoMargin = expectEdited(
+      resizeBlock(automatic, resizing({ blockId: 'mie', durationMinutes: 10 * 60 + 30, today: WED })),
+    );
+    expect(intoMargin.totalMinutesDelta).toBe(0);
+    expect(
+      intoMargin.blocks.filter((row) => row.date === WED && row.projectId === 'escalera').map((row) => row.locked),
+    ).toEqual([true, true]);
   });
 
   it('refuses it on a Friday and inside a margin too — the pool is the whole question', () => {
@@ -2920,12 +2931,29 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     expect(result.error.freedMinutes).toBe(120);
   });
 
-  it('refuses a growth the rest of the job cannot pay for', () => {
+  /** Every hour the job has, so a growth past all of them can be stated as one number. */
+  function jobMinutes(blocks: readonly Block[]): number {
+    return blocks
+      .filter((row) => row.projectId === 'escalera')
+      .reduce((total, row) => total + row.durationMinutes, 0);
+  }
+
+  it('ASKS when the growth is more than the rest of the job can pay for', () => {
+    // The mirror of the shrink's dead end. Refusing here stopped the gesture dead on hours the owner
+    // had already drawn, so the only honest answer left is offered instead: the job is bigger.
     const result = resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 600, today: MON }));
 
     expect(result.ok).toBe(false);
-    if (result.ok) throw new Error('the transfer must be refused');
-    expect(result.error.code).toBe('transfer-exceeds-job');
+    if (result.ok) throw new Error('the growth must be put to the owner');
+    expect(result.error.code).toBe('grow-needs-choice');
+    expect(result.error.choices).toEqual(['add-to-total']);
+
+    // Answered, the job takes everything its other rows had and the estimate covers the rest.
+    const edit = expectEdited(
+      resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 600, today: MON, freedHours: 'add-to-total' })),
+    );
+    expect(edit.totalMinutesDelta).toBe(600 - jobMinutes(job()));
+    expect(minutesByProject(edit.blocks).escalera).toBe(600);
   });
 
   it('deletes a counterparty the transfer empties, cascading backwards', () => {
@@ -4903,7 +4931,7 @@ describe('shrinking a row holds over the same generated calendars', () => {
   it('either transfers the hours or asks, and every answer it offers works', () => {
     let transferred = 0;
     let asked = 0;
-    let refused = 0;
+    let automatic = 0;
 
     for (let seed = 1; seed <= 2000; seed += 1) {
       sequence = 0;
@@ -4930,14 +4958,7 @@ describe('shrinking a row holds over the same generated calendars', () => {
 
       const asIs = shrink();
 
-      // THE PRECONDITION, on every seed: the edge only sizes a row the ENGINE DOES NOT LAY OUT. On one
-      // it does, the request is refused with nothing written — there is no third answer.
-      if (isMovable(target, composeInput.today)) {
-        refused += 1;
-        expect(asIs.ok, where).toBe(false);
-        if (!asIs.ok) expect(asIs.error.code, where).toBe('resize-needs-padlock');
-        continue;
-      }
+      if (isMovable(target, composeInput.today)) automatic += 1;
 
       if (!asIs.ok) {
         // The only refusal a shrink may produce, and it must carry the hours and a way out.
@@ -4978,7 +4999,8 @@ describe('shrinking a row holds over the same generated calendars', () => {
     // Guards on the generator: both halves of the rule have to be reached.
     expect(transferred, 'no shrink ever found a counterparty').toBeGreaterThan(100);
     expect(asked, 'no shrink ever reached the dead end').toBeGreaterThan(100);
-    expect(refused, 'no shrink ever aimed at a row the engine lays out').toBeGreaterThan(200);
+    // The generator has to reach both worlds; the RULE is the same in each, which is the point.
+    expect(automatic, 'no shrink ever aimed at a row the engine lays out').toBeGreaterThan(200);
   });
 
   /** The engine settles what an edit produced, with every row inside its day, and settles it once. */

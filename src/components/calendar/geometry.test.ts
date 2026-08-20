@@ -23,7 +23,7 @@ import {
   slotAt,
   snapTo,
 } from './geometry';
-import { assignLanes, groupBlocks, packDay, segmentsOf, workingMinutesBetween } from './grouping';
+import { assignLanes, groupBlocks, groupGaps, packDay, segmentsOf, workingMinutesBetween } from './grouping';
 
 const MORNING: WorkPeriod = { startMinutes: 8 * 60, endMinutes: 14 * 60 };
 const AFTERNOON: WorkPeriod = { startMinutes: 15 * 60 + 30, endMinutes: 19 * 60 + 30 };
@@ -726,6 +726,7 @@ describe('lanes', () => {
   it('packs gaps and blocks together, since they share the column', () => {
     const gap: Gap = {
       id: 'gap-1',
+      unitId: 'gap-1',
       date: '2026-08-11',
       startMinutes: 540,
       durationMinutes: 60,
@@ -733,7 +734,8 @@ describe('lanes', () => {
       updatedAt: '2026-08-11 08:00:00',
     };
     const groups = groupBlocks([block({ startMinutes: 480, durationMinutes: 120 })], SHAPE.manualWindows);
-    const placements = packDay(groups, [gap]);
+    // Gaps are packed as UNITS, so the two halves of one gap share a lane instead of taking two.
+    const placements = packDay(groups, groupGaps([gap], SHAPE.manualWindows));
     expect(placements.get(groups[0].id)?.lanes).toBe(2);
     expect(placements.get('gap-1')?.lanes).toBe(2);
   });

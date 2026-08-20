@@ -1,0 +1,99 @@
+import { describe, expect, it } from 'vitest';
+import { summarizeAbsence } from './absence';
+import type { AbsencePreview } from '../../lib/api-client';
+
+const MON = '2026-08-10';
+const TUE = '2026-08-11';
+const WED = '2026-08-12';
+
+function preview(overrides: Partial<AbsencePreview> = {}): AbsencePreview {
+  return {
+    today: MON,
+    kind: 'closed-days',
+    dates: [MON],
+    skippedDates: [],
+    rows: [],
+    alreadyClosedDates: [],
+    displaced: [],
+    lastOccupiedBefore: null,
+    lastOccupiedAfter: null,
+    ...overrides,
+  };
+}
+
+describe('what a bulk absence is going to cost', () => {
+  it('says a range that moves nothing moves nothing, and stays quiet about it', () => {
+    const summary = summarizeAbsence(preview({ dates: [MON, TUE] }));
+
+    expect(summary.tone).toBe('info');
+    expect(summary.dayCount).toBe(2);
+    expect(summary.displacedMinutes).toBe(0);
+    expect(summary.notes).toContain('movesNothing');
+  });
+
+  it('warns, names the hours and says how much further the calendar now reaches', () => {
+    const summary = summarizeAbsence(
+      preview({
+        dates: [TUE],
+        displaced: [{ projectId: 'p1', name: 'Nave', minutes: 600, landsOn: WED }],
+        lastOccupiedBefore: TUE,
+        lastOccupiedAfter: WED,
+      }),
+    );
+
+    expect(summary.tone).toBe('warning');
+    expect(summary.displacedMinutes).toBe(600);
+    expect(summary.reachesUntil).toBe(WED);
+    expect(summary.notes).toContain('reachesFurther');
+    expect(summary.notes).not.toContain('movesNothing');
+  });
+
+  it('reads the rows of ONE day, because every day of the range repeats them', () => {
+    const summary = summarizeAbsence(
+      preview({
+        kind: 'gap',
+        dates: [MON, TUE],
+        rows: [
+          { date: MON, startMinutes: 780, durationMinutes: 60 },
+          { date: MON, startMinutes: 930, durationMinutes: 120 },
+          { date: TUE, startMinutes: 780, durationMinutes: 60 },
+          { date: TUE, startMinutes: 930, durationMinutes: 120 },
+        ],
+      }),
+    );
+
+    expect(summary.rowsPerDay).toEqual([
+      { date: MON, startMinutes: 780, durationMinutes: 60 },
+      { date: MON, startMinutes: 930, durationMinutes: 120 },
+    ]);
+    expect(summary.notes).toContain('repeatsDaily');
+    expect(summary.notes).toContain('cutAtBreak');
+  });
+
+  it('names the weekend it skipped and the days already closed', () => {
+    const summary = summarizeAbsence(
+      preview({
+        dates: [MON, TUE],
+        skippedDates: ['2026-08-15', '2026-08-16'],
+        alreadyClosedDates: [TUE],
+      }),
+    );
+
+    expect(summary.notes).toContain('skippedWeekend');
+    expect(summary.notes).toContain('alreadyClosed');
+    expect(summary.alreadyClosed).toEqual([TUE]);
+  });
+
+  it('does not claim the calendar reaches further when it does not', () => {
+    const summary = summarizeAbsence(
+      preview({
+        displaced: [{ projectId: 'p1', name: 'Nave', minutes: 120, landsOn: TUE }],
+        lastOccupiedBefore: WED,
+        lastOccupiedAfter: WED,
+      }),
+    );
+
+    expect(summary.reachesUntil).toBeNull();
+    expect(summary.notes).not.toContain('reachesFurther');
+  });
+});

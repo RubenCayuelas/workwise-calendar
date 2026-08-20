@@ -45,15 +45,20 @@ describe('dayEndMinutes', () => {
 });
 
 describe('planCloseDay', () => {
-  it('runs from the chosen moment to the end of the last period, across lunch', () => {
+  it('runs from the chosen moment to the end of the last period, in TWO rows', () => {
     const plan = planCloseDay(day(), 10 * 60);
     expect(plan).not.toBeNull();
     expect(plan?.startMinutes).toBe(10 * 60);
     expect(plan?.endMinutes).toBe(19 * 60 + 30);
-    // Wall clock: 10:00 to 19:30 is 9.5 h, lunch included.
-    expect(plan?.durationMinutes).toBe(570);
-    // Working time: 4 h of morning left plus the whole 4 h afternoon.
+    // NET working minutes, not wall clock: 4 h of morning left plus the whole 4 h afternoon. The
+    // comida is not closed because nothing was open in it.
+    expect(plan?.durationMinutes).toBe(480);
     expect(plan?.workingMinutes).toBe(480);
+    // And the gap it proposes is the two rows a gap of those hours is stored as.
+    expect(plan?.rows).toEqual([
+      { startMinutes: 10 * 60, durationMinutes: 240 },
+      { startMinutes: 15 * 60 + 30, durationMinutes: 240 },
+    ]);
   });
 
   it('ends at the morning when the afternoon is switched off', () => {
@@ -61,12 +66,15 @@ describe('planCloseDay', () => {
     expect(plan?.endMinutes).toBe(14 * 60);
     expect(plan?.durationMinutes).toBe(240);
     expect(plan?.workingMinutes).toBe(240);
+    expect(plan?.rows).toEqual([{ startMinutes: 10 * 60, durationMinutes: 240 }]);
   });
 
   it('counts only the afternoon for a moment inside the lunch break', () => {
     const plan = planCloseDay(day(), 14 * 60 + 30);
     expect(plan?.workingMinutes).toBe(240);
-    expect(plan?.durationMinutes).toBe(300);
+    expect(plan?.durationMinutes).toBe(240);
+    // One row, and it starts where the shop can work again — never inside the comida.
+    expect(plan?.rows).toEqual([{ startMinutes: 15 * 60 + 30, durationMinutes: 240 }]);
   });
 
   it('clamps a moment before the shift up to the start of the day', () => {

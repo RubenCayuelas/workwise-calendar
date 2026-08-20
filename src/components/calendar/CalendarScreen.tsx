@@ -17,9 +17,12 @@ import {
   getProject,
   isApiError,
   moveBlock as apiMoveBlock,
+  moveGap as apiMoveGap,
   resizeBlock as apiResizeBlock,
+  resizeGap as apiResizeGap,
   setBlockLock as apiSetBlockLock,
   splitBlock as apiSplitBlock,
+  type AbsenceKind,
   type BlockMutation,
   type FreedHoursChoice,
   type ScheduleSummary,
@@ -27,7 +30,7 @@ import {
   type WeekDay,
   type WeekView,
 } from '../../lib/api-client';
-import type { DayShape, Gap } from '../../types';
+import type { DayShape, GapUnit } from '../../types';
 import type { CloseDayRequest } from '../../lib/closeDay';
 import { PROJECT_COLORS } from '../../lib/projectColors';
 import { manualWindowsOf } from '../../lib/manualWindow';
@@ -41,7 +44,14 @@ import { WeekHeader } from './WeekHeader';
 import { WeekGrid, type PlacingFragment, type SettleRequest } from './WeekGrid';
 import { MIN_SPLITTABLE_MINUTES, SplitBlockDialog } from './SplitBlockDialog';
 import { ResizeChoiceDialog } from './ResizeChoiceDialog';
-import { useBlockDrag, type DragTarget, type InertReason } from './useBlockDrag';
+import {
+  useBlockDrag,
+  type BlockDragTarget,
+  type DragTarget,
+  type GapDragTarget,
+  type InertReason,
+} from './useBlockDrag';
+import { usePaintAbsence } from './usePaintAbsence';
 import { useWeek } from './useWeek';
 import styles from './CalendarScreen.module.css';
 
@@ -70,11 +80,17 @@ export interface NewJobContext {
   horizonWeeks: number;
 }
 
-export interface GapFormContext {
-  /** The gap being edited, or `null` for a new one. */
-  gap: Gap | null;
+export interface AbsenceFormContext {
+  /**
+   * The ABSENCE being edited, or `null` for a new one. The UNIT and never one of its rows: a PATCH
+   * addresses the whole gap, so a form fed the `08:00 +6 h` half of a 10 h absence would save it as
+   * a 6 h one.
+   */
+  gap: GapUnit | null;
   /** *Cerrar el día aquí*: the gap is worked out and only the reason is left to ask for. */
   closeDay: CloseDayRequest | null;
+  /** Which mode a NEW absence opens in: `closed-days` when the owner pressed a closed column. */
+  kind: AbsenceKind;
   close: () => void;
   onChanged: () => void;
   today: string;
@@ -82,8 +98,13 @@ export interface GapFormContext {
   shape: DayShape;
   /** `settings.gapColor` — the one colour every gap is painted in. */
   gapColor: string;
-  /** A new gap lands on a day the owner can see: today, or this week's Monday. */
+  /** A new absence lands on a day the owner can see: today, or this week's Monday. */
   defaultDate: string;
+  /** The words that day already carries: a closed day's note, so saving cannot blank it. */
+  defaultReason?: string;
+  /** Set by a PAINTED band: the day, start and net duration it drew. Nothing was written. */
+  defaultStartMinutes?: number;
+  defaultDurationMinutes?: number;
   /** `settings.planningHorizonWeeks` — how far ahead the day picker reaches. */
   horizonWeeks: number;
 }
@@ -93,15 +114,15 @@ export interface CalendarScreenProps {
   renderJobPanel?: (context: JobPanelContext) => ReactNode;
   /** `+ Nuevo trabajo`. Without it, the button is disabled. */
   renderNewJob?: (context: NewJobContext) => ReactNode;
-  /** `Nuevo hueco` and clicking a gap. Without it, gaps are read-only labels. */
-  renderGapForm?: (context: GapFormContext) => ReactNode;
+  /** `Ausencias`, clicking a gap, and the paint gesture. Without it, gaps are read-only labels. */
+  renderAbsenceForm?: (context: AbsenceFormContext) => ReactNode;
   settingsHref?: string;
 }
 
 export function CalendarScreen({
   renderJobPanel,
   renderNewJob,
-  renderGapForm,
+  renderAbsenceForm,
   settingsHref = '/settings',
 }: CalendarScreenProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -119,9 +140,16 @@ export function CalendarScreen({
 
   const [openJobId, setOpenJobId] = useState<string | null>(null);
   const [newJobOpen, setNewJobOpen] = useState(false);
-  const [gapTarget, setGapTarget] = useState<{ gap: Gap | null; closeDay?: CloseDayRequest } | null>(
-    null,
-  );
+  const [gapTarget, setGapTarget] = useState<{
+    gap: GapUnit | null;
+    closeDay?: CloseDayRequest;
+    /** Which mode a NEW absence opens in. */
+    kind?: AbsenceKind;
+    /** The day a NEW absence opens on: a painted band's, or a closed column that was pressed. */
+    date?: string;
+    /** The hours a paint drew. Nothing is written until the owner presses Guardar. */
+    painted?: { startMinutes: number; durationMinutes: number };
+  } | null>(null);
   const [splitSource, setSplitSource] = useState<WeekBlock | null>(null);
   const [placing, setPlacing] = useState<PlacingFragment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ block: WeekBlock; totalMinutes: number } | null>(null);
@@ -131,7 +159,7 @@ export function CalendarScreen({
    * freed hours. The whole gesture is kept, because the answer re-sends it verbatim.
    */
   const [resizeChoice, setResizeChoice] = useState<{
-    target: DragTarget;
+    target: BlockDragTarget;
     durationMinutes: number;
     freedMinutes: number;
     choices: FreedHoursChoice[];
@@ -208,13 +236,13 @@ export function CalendarScreen({
   // --- Gestures ---
 
   /**
-   * A drop, in ONE request and so one transaction: the whole grouped unit moves, because the
+   * A block's drop, in ONE request and so one transaction: the whole grouped unit moves, because the
    * engine merges consecutive rows of one job into a single queue item. And it ANSWERS FOR
    * ITSELF — a rank lands where the reflow puts it, which on screen looks like a
    * drag the app ignored, so `describeDrop` reads what the server actually stored.
    */
-  const onMove = useCallback(
-    (target: DragTarget, drop: { date: string; startMinutes: number }): void => {
+  const onMoveBlock = useCallback(
+    (target: BlockDragTarget, drop: { date: string; startMinutes: number }): void => {
       /*
        * The week the block was released in is the week left on screen. Everything else about the
        * drop is read at the release; the week the NEXT fetch asks for is not, and edge paging
@@ -223,18 +251,18 @@ export function CalendarScreen({
       week.showWeekOf(drop.date);
 
       setSettle({
-        blockId: target.blockIds[0],
+        blockId: target.rowIds[0],
         date: drop.date,
         startMinutes: drop.startMinutes,
         after: viewRef.current,
       });
 
       void mutate(() =>
-        apiMoveBlock(target.blockIds[0], {
+        apiMoveBlock(target.rowIds[0], {
           date: drop.date,
           startMinutes: drop.startMinutes,
           // The whole unit, named: the server folds the rows into the one it is given.
-          unitBlockIds: target.blockIds,
+          unitBlockIds: target.rowIds,
         }),
       ).then((result) => {
         report(result);
@@ -242,7 +270,7 @@ export function CalendarScreen({
 
         // The row the pointer released, as the LAST transaction left it — read from the
         // mutation, not the refetched week. `null`, the id being gone, is itself an answer.
-        const landed = result.blocks.find((row) => row.id === target.blockIds[0]);
+        const landed = result.blocks.find((row) => row.id === target.rowIds[0]);
         // Every row the gesture's hours ended up on: `placedBlockIds` is routinely more than
         // one now that work fills a day and overflows, and `landed` is only the FIRST of them.
         const placed = spillByDay(
@@ -262,8 +290,9 @@ export function CalendarScreen({
                   locked: landed.locked,
                 },
           merged: result.mergedBlockIds.length > 0,
-          // The unit as it was BEFORE the drag: a padlock it already had is not the drop's doing.
-          wasLocked: target.locked,
+          // The unit as it was BEFORE the drag: a padlock it already had is not the drop's doing,
+          // and for a block being fixed by itself is exactly carrying one.
+          wasLocked: target.fixed,
           // The server says it. Comparing rectangles cannot tell a drop the reflow answered with
           // the calendar the owner already had from one that worked.
           changed: result.changed,
@@ -296,82 +325,67 @@ export function CalendarScreen({
   );
 
   /**
-   * A drag released where nothing can be written — today only the frozen past. Worth saying,
-   * because the owner can still edit that day from the job panel.
+   * An absence's drop: a LITERAL placement, so there is no rank to settle, nothing to say about
+   * where the queue put it and no settle animation to run — the ghost already drew the rows it will
+   * be stored as, at the minute it was released. The ONE thing the owner cannot see coming is the
+   * start moving: a release with no working time under it is stored at the next minute that has
+   * some, so a gap aimed at the comida comes back at 15:30 and says so.
    */
-  const onRejected = useCallback((): void => {
-    toast.warning(t('notices.dropRefusedPast'));
-  }, [t, toast]);
-
-  /**
-   * The bottom edge of a row the engine lays out, which sizes nothing. Two lines saying what a
-   * length IS and what really changes a day, with *Cerrar el día aquí* riding along pre-filled
-   * for THIS row: it opens the form and the owner presses Save — never automatic.
-   */
-  const explainAutomaticLength = useCallback(
-    (target: DragTarget): void => {
-      const view = viewRef.current;
-      const day = view?.days.find((candidate) => candidate.date === target.date);
-      // The ROW the edge belongs to, not the unit: the gap starts where THAT row ends.
-      const row = view?.blocks.find((block) => block.id === target.blockId);
-      const offer =
-        view === null || day === undefined || row === undefined
-          ? null
-          : closeDayAfter(
-              closeDayInputFor(
-                day,
-                view.blocks.filter((block) => block.date === day.date),
-                view.gaps.filter((gap) => gap.date === day.date),
-              ),
-              row,
-            );
-      // No gap form wired means no form to open, so there is nothing to press either.
-      const action = offer === null || renderGapForm === undefined ? null : offer;
-
-      // Assigned twice: the button dismisses the toast it is inside, and the id only exists
-      // once `show` returns. The click is always later.
-      let toastId = '';
-      toastId = toast.show({
-        tone: 'info',
-        // Long enough to read two lines and reach the button; the others have nothing to press.
-        duration: action === null ? undefined : 12000,
-        message: (
-          <span className={styles.inertHint}>
-            <span>{t('block.lengthIsAutomatic')}</span>
-            <span>{t('block.lengthIsAutomaticHow')}</span>
-            {action === null ? null : (
-              <Button
-                size="sm"
-                icon={<IconClockStop size={14} stroke={1.75} />}
-                onClick={() => {
-                  toast.dismiss(toastId);
-                  setGapTarget({ gap: null, closeDay: action });
-                }}
-              >
-                {t('block.closeDay')}
-              </Button>
-            )}
-          </span>
-        ),
+  const onMoveGap = useCallback(
+    (target: GapDragTarget, drop: { date: string; startMinutes: number }): void => {
+      week.showWeekOf(drop.date);
+      void mutate(() => apiMoveGap(target.gap.id, drop)).then((result) => {
+        if (result === undefined || result.gap.startMinutes === drop.startMinutes) return;
+        toast.info(
+          t('notices.gapMovedTo', {
+            day: format.dayHeader(result.gap.date),
+            time: format.time(result.gap.startMinutes),
+          }),
+        );
       });
     },
-    [renderGapForm, t, toast],
+    [format, mutate, t, toast, week],
+  );
+
+  /** One drop, two kinds of thing: a job's run takes a queue rank, an absence keeps its minute. */
+  const onMove = useCallback(
+    (target: DragTarget, drop: { date: string; startMinutes: number }): void => {
+      if (target.kind === 'gap') onMoveGap(target, drop);
+      else onMoveBlock(target, drop);
+    },
+    [onMoveBlock, onMoveGap],
   );
 
   /**
+   * A drag released where nothing can be written — today only the frozen past. Worth saying, because
+   * the way out exists: a job is corrected from its panel and an absence from its own form. Which
+   * SENTENCE depends on what was in hand — pointing the owner at the job panel for an absence sends
+   * them to a screen that knows nothing about it.
+   */
+  const onRejected = useCallback(
+    (target: DragTarget): void => {
+      toast.warning(t(target.kind === 'gap' ? 'notices.dropRefusedPastGap' : 'notices.dropRefusedPast'));
+    },
+    [t, toast],
+  );
+
+
+  /**
    * A press that could not become a gesture, saying why. `automatic` is the odd one out: not a
-   * circumstance that will pass but a RULE about the row, so it gets its own way forward.
+   * circumstance that will pass but a RULE about a block's row, so it gets its own way forward —
+   * and it cannot arrive for a gap, whose length the server always sizes.
    */
   const onInert = useCallback(
-    (reason: InertReason, target?: DragTarget): void => {
-      // The only reason that is about a ROW, so the only one that reads the target.
-      if (reason === 'automatic') {
-        if (target !== undefined) explainAutomaticLength(target);
+    (reason: InertReason, target: DragTarget): void => {
+      // The frozen past names THE WAY OUT, and it is a different form for the two of them: a job's
+      // hours are changed in its panel, an absence in its own.
+      if (reason === 'past' && target.kind === 'gap') {
+        toast.info(t('notices.pressOnPastGap'));
         return;
       }
       toast.info(t(INERT_KEYS[reason]));
     },
-    [explainAutomaticLength, t, toast],
+    [t, toast],
   );
 
 
@@ -382,8 +396,8 @@ export function CalendarScreen({
    * A SHRINK MAY ASK RATHER THAN SUCCEED (409 `shrink-needs-choice`): not a failure, so it must
    * not reach the banner. Caught here, turned into `ResizeChoiceDialog`, re-sent verbatim.
    */
-  const onResize = useCallback(
-    (target: DragTarget, durationMinutes: number, freedHours?: FreedHoursChoice): void => {
+  const onResizeBlock = useCallback(
+    (target: BlockDragTarget, durationMinutes: number, freedHours?: FreedHoursChoice): void => {
       void mutate(async () => {
         try {
           return await apiResizeBlock(target.blockId, durationMinutes, { freedHours });
@@ -417,6 +431,31 @@ export function CalendarScreen({
     [format, mutate, report, t, toast],
   );
 
+  /**
+   * An absence's bottom edge, and the gesture is ABSOLUTE: it just sets the duration. There is no
+   * counterparty to hand hours to, so nothing is ever asked and `shrink-needs-choice` cannot reach
+   * here. The hours are net working minutes and cross the comida, so the far half is created or
+   * deleted by the same request — which the ghost drew before the release.
+   */
+  const onResizeGap = useCallback(
+    (target: GapDragTarget, durationMinutes: number): void => {
+      void mutate(() => apiResizeGap(target.gap.id, durationMinutes)).then((result) => {
+        if (result === undefined) return;
+        toast.info(t('notices.gapResized', { hours: format.hourNumber(durationMinutes) }));
+      });
+    },
+    [format, mutate, t, toast],
+  );
+
+  /** One edge, two kinds of thing: a transfer inside a job, or an absence's own length. */
+  const onResize = useCallback(
+    (target: DragTarget, durationMinutes: number): void => {
+      if (target.kind === 'gap') onResizeGap(target, durationMinutes);
+      else onResizeBlock(target, durationMinutes);
+    },
+    [onResizeBlock, onResizeGap],
+  );
+
   const onToggleLock = useCallback(
     (block: WeekBlock): void => {
       void mutate(() => apiSetBlockLock(block.id, !block.locked)).then(report);
@@ -447,7 +486,46 @@ export function CalendarScreen({
     onResize,
     onRejected,
     onInert,
-    onClick: (target) => setOpenJobId(target.projectId),
+    // A press that did not travel: the job panel, or the absence's own form. It arrives here rather
+    // than from a native click so one press cannot answer twice — see the gap's `role="button"`.
+    onClick: (target) =>
+      target.kind === 'gap' ? setGapTarget({ gap: target.gap }) : setOpenJobId(target.projectId),
+  });
+
+  /**
+   * Painting a band on empty grid space. IT WRITES NOTHING: the release opens the absences form with
+   * the day, the start and the net duration already in it, and the owner presses Guardar — the app
+   * never creates a gap by itself. Disabled while a split fragment waits for its target, where a
+   * grid click already means "put it here".
+   */
+  const paint = usePaintAbsence({
+    measure: () => metricsRef.current?.() ?? null,
+    timeline: fittedTimeline ?? FALLBACK_TIMELINE,
+    dayAt,
+    enabled: fittedTimeline !== null && placing === null && renderAbsenceForm !== undefined,
+    writable: () => !week.mutating.current && !loading,
+    onPainted: ({ date, ...painted }) => setGapTarget({ gap: null, kind: 'gap', date, painted }),
+    // A day that can take no absence, said once — and for a CLOSED one the honest answer is the
+    // screen that can reopen it, since a dimmed column has nothing else to press.
+    onRefused: (reason, date) => {
+      if (reason !== 'closed') {
+        toast.info(t(reason === 'past' ? 'notices.pressOnPastDay' : 'notices.pressWhileBusy'));
+        return;
+      }
+      setGapTarget({ gap: null, kind: 'closed-days', date });
+    },
+    // The only press the grid background has ever had a use for: a closed column, whose reason and
+    // whose way back out both live on the absences screen.
+    //
+    // THE SAME PRECEDENCE THE TRAVELLING PATH USES, and it has to be: a column that is both closed
+    // AND past was answered by `isPast` on travel and by `isClosed` on a still press, so four pixels
+    // of wobble decided which of two different things the owner was told. The past wins in both, and
+    // reopening a past day would change nothing the engine reads anyway.
+    onClick: (date) => {
+      const day = dayAt(date);
+      if (day === undefined || day.isPast || !day.isClosed) return;
+      setGapTarget({ gap: null, kind: 'closed-days', date });
+    },
   });
 
   /**
@@ -455,9 +533,13 @@ export function CalendarScreen({
    * Axis Per Gesture*, so any late re-fit waits until the hand is off the mouse. Written during
    * render rather than in an effect: the paint must not lag the gesture by a frame.
    */
+  // A PAINT COUNTS AS A GESTURE IN THE AIR, or the rule protects only half the grid: the band and the
+  // hours the form is pre-filled with are read off the axis fixed at press, so a late re-fit under a
+  // still-pressed pointer would hand the owner a duration they never drew.
+  const gestureInAir = drag.kind !== null || paint.painting !== null;
   const heldTimeline = useRef<Timeline | null>(fittedTimeline);
-  if (drag.kind === null) heldTimeline.current = fittedTimeline;
-  const timeline = drag.kind === null ? fittedTimeline : heldTimeline.current;
+  if (!gestureInAir) heldTimeline.current = fittedTimeline;
+  const timeline = gestureInAir ? heldTimeline.current : fittedTimeline;
 
   // The hover bar's delete. The count and total come from `GET /api/projects/:id`, because
   // both are facts about the whole job rather than about the week.
@@ -517,8 +599,9 @@ export function CalendarScreen({
             // A fragment pins on the same days and bands as any drop, and where it pins the
             // minute is stored, so it must not be nudged.
             dropPins({
-              locked: false,
+              fixed: false,
               role: day.role,
+              closed: day.isClosed,
               periods: day.periods,
               manualWindows: day.manualWindows,
               startMinutes: slot.startMinutes,
@@ -595,19 +678,24 @@ export function CalendarScreen({
   const emptyWeek = view !== null && view.blocks.length === 0 && view.gaps.length === 0;
 
   /**
-   * The sentence under the grid while a gesture is in the air; three of them, because a drag
-   * means three things. The same predicate the ghost switches on.
+   * The sentence under the grid while a gesture is in the air. FIVE of them: a gap's two gestures
+   * mean something else from a block's, and a block's move means two things by itself. The same
+   * predicates the ghost switches on.
    */
   const dragHintKey =
     drag.preview === null
       ? 'grid.dropRankHint'
-      : drag.preview.kind === 'resize'
-        ? 'block.resizeHint'
-        : // The gesture's own answer, covering the SLOT as well as the day. See
-          // `DragPreview.pinned`.
-          drag.preview.pinned === true
-          ? 'grid.dropPinHint'
-          : 'grid.dropRankHint';
+      : drag.target?.kind === 'gap'
+        ? drag.preview.kind === 'resize'
+          ? 'grid.gapResizeHint'
+          : 'grid.gapDragHint'
+        : drag.preview.kind === 'resize'
+          ? 'block.resizeHint'
+          : // The gesture's own answer, covering the SLOT as well as the day. See
+            // `DragPreview.pinned`.
+            drag.preview.pinned === true
+            ? 'grid.dropPinHint'
+            : 'grid.dropRankHint';
 
   return (
     <div className="ww-app">
@@ -618,7 +706,9 @@ export function CalendarScreen({
         onNext={week.goNext}
         onToday={week.goToday}
         onNewJob={renderNewJob === undefined ? undefined : () => setNewJobOpen(true)}
-        onNewGap={renderGapForm === undefined ? undefined : () => setGapTarget({ gap: null })}
+        onNewAbsence={
+          renderAbsenceForm === undefined ? undefined : () => setGapTarget({ gap: null })
+        }
         settingsHref={settingsHref}
       />
 
@@ -648,12 +738,13 @@ export function CalendarScreen({
                 stale={loading}
                 busy={busy}
                 drag={drag}
+                paint={paint}
                 placing={placing}
                 onPlace={onPlace}
                 onOpenJob={setOpenJobId}
-                onOpenGap={renderGapForm === undefined ? undefined : (gap) => setGapTarget({ gap })}
+                onOpenGap={renderAbsenceForm === undefined ? undefined : (gap) => setGapTarget({ gap })}
                 onCloseDay={
-                  renderGapForm === undefined
+                  renderAbsenceForm === undefined
                     ? undefined
                     : // A gap IS how a day stops early, so the action opens the gap form
                       // with everything but the reason filled in.
@@ -662,8 +753,6 @@ export function CalendarScreen({
                 onToggleLock={onToggleLock}
                 onSplit={onSplit}
                 onDelete={onDelete}
-                // The same sentence a press on a block gets, for the one thing that is not one.
-                onPressHint={onInert}
                 metricsRef={metricsRef}
                 settle={settle}
                 onSettled={onSettled}
@@ -722,7 +811,7 @@ export function CalendarScreen({
         onCancel={() => setResizeChoice(null)}
         onChoose={(choice) => {
           if (resizeChoice === null) return;
-          onResize(resizeChoice.target, resizeChoice.durationMinutes, choice);
+          onResizeBlock(resizeChoice.target, resizeChoice.durationMinutes, choice);
         }}
       />
 
@@ -767,19 +856,32 @@ export function CalendarScreen({
                 horizonWeeks: view.settings.planningHorizonWeeks,
               })}
 
-          {gapTarget === null || renderGapForm === undefined
+          {gapTarget === null || renderAbsenceForm === undefined
             ? null
-            : renderGapForm({
+            : renderAbsenceForm({
                 gap: gapTarget.gap,
                 closeDay: gapTarget.closeDay ?? null,
+                kind: gapTarget.kind ?? 'gap',
                 close: () => setGapTarget(null),
                 onChanged: week.reload,
                 today: view.today,
                 shape: view.shape,
                 gapColor: view.settings.gapColor,
-                defaultDate: view.week.dates.includes(view.today)
-                  ? view.today
-                  : view.week.startDate,
+                // The day the gesture named — a painted band's, a closed column's — or one the
+                // owner can see.
+                defaultDate:
+                  gapTarget.date ??
+                  (view.week.dates.includes(view.today) ? view.today : view.week.startDate),
+                // A closed day's note, so pressing Guardar cannot blank the reason it was closed for.
+                ...(gapTarget.date === undefined
+                  ? {}
+                  : dayNote(dayAt(gapTarget.date)?.note)),
+                ...(gapTarget.painted === undefined
+                  ? {}
+                  : {
+                      defaultStartMinutes: gapTarget.painted.startMinutes,
+                      defaultDurationMinutes: gapTarget.painted.durationMinutes,
+                    }),
                 horizonWeeks: view.settings.planningHorizonWeeks,
               })}
         </>
@@ -789,6 +891,11 @@ export function CalendarScreen({
 }
 
 // --- Internals ---
+
+/** A day's own words as the form's default reason, and nothing at all when it has none. */
+function dayNote(note: string | undefined): { defaultReason?: string } {
+  return note === undefined ? {} : { defaultReason: note };
+}
 
 /** Stands in for `view.shape` before the first response, only so the drag hook has a timeline. */
 const FALLBACK_PERIODS = [
@@ -811,10 +918,9 @@ const FALLBACK_TIMELINE = createTimeline({
 const DAY_HEADER_ALLOWANCE = 46;
 
 /** One key per `InertReason`, each naming the reason AND what the owner can still do. */
-const INERT_KEYS: Record<Exclude<InertReason, 'automatic'>, string> = {
+const INERT_KEYS: Record<InertReason, string> = {
   busy: 'notices.pressWhileBusy',
   past: 'notices.pressOnPastDay',
-  gap: 'notices.pressOnGap',
 };
 
 /** One key per branch of `describeDrop`, which is where the branches are decided and tested. */

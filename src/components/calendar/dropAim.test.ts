@@ -107,8 +107,8 @@ describe('resolveDropDay', () => {
     date: string,
     startMinutes: number,
     durationMinutes: number,
-    locked = true,
-  ) => resolveDropDay({ days: WEEK, date, startMinutes, durationMinutes, locked, timeline: TIMELINE });
+    fixed = true,
+  ) => resolveDropDay({ days: WEEK, date, startMinutes, durationMinutes, fixed, timeline: TIMELINE });
 
   it('leaves a release the day can hold exactly where it is', () => {
     expect(resolve('2026-08-18', 10 * 60, 120)).toEqual({
@@ -137,7 +137,7 @@ describe('resolveDropDay', () => {
       date: '2026-08-19',
       startMinutes: 19 * 60,
       durationMinutes: 360,
-      locked: true,
+      fixed: true,
       timeline: TIMELINE,
     });
     // Thursday is closed, so it is Friday — the colchón takes a day's overflow.

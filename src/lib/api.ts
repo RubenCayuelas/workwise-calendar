@@ -177,6 +177,15 @@ export function readDateParam(url: URL, key: string): string | undefined {
   return value;
 }
 
+/** The same, for a bound the request cannot do without. */
+export function requireDateParam(url: URL, key: string): string {
+  const value = readDateParam(url, key);
+  if (value === undefined) {
+    throw badRequest('missing-field', ERROR_MESSAGE_KEYS.invalidDate, { field: key });
+  }
+  return value;
+}
+
 export function readFlag(body: JsonBody, key: string): boolean | undefined {
   if (!hasField(body, key)) return undefined;
   const value = body[key];

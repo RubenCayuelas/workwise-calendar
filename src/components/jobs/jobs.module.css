@@ -34,6 +34,56 @@
   min-width: 0;
 }
 
+/* --------------------------------------------------------------------------
+   The absences mode switch — `Un hueco` / `Cerrar días`
+   -------------------------------------------------------------------------- */
+
+/* Two cards side by side rather than a dropdown: the choice decides what the rest of the form
+   asks for, so both answers have to be readable without opening anything. */
+.modes {
+  display: flex;
+  gap: var(--ww-space-2);
+  min-width: 0;
+}
+
+.mode {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--ww-space-2) var(--ww-space-3);
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius);
+  background: var(--ww-surface);
+  cursor: pointer;
+}
+
+.mode:hover {
+  border-color: var(--ww-border-strong);
+}
+
+.modeSelected {
+  border-color: var(--ww-accent-border);
+  background: var(--ww-accent-tint);
+}
+
+.mode:has(:focus-visible) {
+  outline: 2px solid var(--ww-focus-color);
+  outline-offset: 2px;
+}
+
+.modeName {
+  font-size: var(--ww-text-md);
+  font-weight: var(--ww-weight-semibold);
+}
+
+.modeHint {
+  font-size: var(--ww-text-xs);
+  line-height: var(--ww-line-loose);
+  color: var(--ww-text-muted);
+}
+
 /* Gives the palette a control's height, so it lines up with the fields around it. */
 .swatchRow {
   display: flex;

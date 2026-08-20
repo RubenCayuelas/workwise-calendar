@@ -174,7 +174,7 @@ export function CalendarBlock({
         ...markHints,
         ...(frozen
           ? [t('day.frozenHint')]
-          : [t('block.drag'), resizable ? t('block.resize') : t('block.lengthIsAutomatic')]),
+          : [t('block.drag'), t('block.resize')]),
       ].join('\n')}
       style={{
         '--ww-block-color': block.project.color,
@@ -264,23 +264,12 @@ export function CalendarBlock({
        * STRETCH from this row's start, in net working minutes over the day's manual windows:
        * see `durationTo` and `maxDurationFrom` in geometry.ts.
        */}
-      {frozen ? null : resizable ? (
+      {frozen ? null : (
         <div
           className={styles.resize}
           role="separator"
           aria-label={t('block.resize')}
           title={t('block.resizeHint')}
-          onPointerDown={onPointerDownResize}
-        />
-      ) : (
-        /*
-         * The same ten pixels, answering instead of sizing. No role and no label: the strip is
-         * not a control, and its sentence is already on the row's own tooltip.
-         */
-        <div
-          className={`${styles.resize} ${styles.resizeInert}`}
-          aria-hidden="true"
-          title={`${t('block.lengthIsAutomatic')}\n${t('block.lengthIsAutomaticHow')}`}
           onPointerDown={onPointerDownResize}
         />
       )}

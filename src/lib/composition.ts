@@ -534,8 +534,13 @@ function buildPeriodSpans(periods: readonly WorkPeriod[]): { spans: PeriodSpan[]
 
 /**
  * Projects a clock interval onto the index ruler, dropping whatever falls outside the working
- * periods — an obstacle over the lunch break costs the day nothing. This is what makes gaps and
- * locked blocks ONE occupancy set.
+ * periods — so an obstacle sitting in a visual margin costs the day nothing, and neither does the
+ * part of one that a settings change stranded outside the shift. This is what makes gaps and locked
+ * blocks ONE occupancy set.
+ *
+ * IT IS A CLOCK INTERVAL, and both callers build it as `start + duration`, for gaps as well as for
+ * blocks: no stored row of either kind straddles the break, so within its own window a row's net
+ * minutes and its clock minutes are the same number.
  */
 function toIndexRanges(spans: PeriodSpan[], startClock: number, endClock: number): IndexRange[] {
   const ranges: IndexRange[] = [];
@@ -811,17 +816,15 @@ function clamp(value: number, min: number, max: number): number {
 export type EditErrorCode =
   | 'unknown-block'
   | 'invalid-duration'
-  | 'resize-needs-padlock'
+  | 'grow-needs-choice'
   | 'shrink-needs-choice'
-  | 'transfer-exceeds-job'
   | 'reduction-exceeds-job';
 
 export const EDIT_MESSAGE_KEYS: Record<EditErrorCode, string> = {
   'unknown-block': 'errors.unknownBlock',
   'invalid-duration': 'errors.invalidDuration',
-  'resize-needs-padlock': 'errors.resizeNeedsPadlock',
+  'grow-needs-choice': 'errors.growNeedsChoice',
   'shrink-needs-choice': 'errors.shrinkNeedsChoice',
-  'transfer-exceeds-job': 'errors.transferExceedsJob',
   'reduction-exceeds-job': 'errors.reductionExceedsJob',
 };
 
@@ -830,7 +833,12 @@ export const EDIT_MESSAGE_KEYS: Record<EditErrorCode, string> = {
  * job smaller, `new-block` gives the hours a row of their own. The third — cancel — is not a value,
  * it is the caller not asking again.
  */
-export type FreedHoursChoice = 'reduce-total' | 'new-block';
+/**
+ * The answers a resize's dead end offers. `reduce-total` and `new-block` answer a SHRINK with hours
+ * nothing can take; `add-to-total` answers a GROW past everything the job's other rows hold. One
+ * channel for both directions, because a resize is one or the other and never both.
+ */
+export type FreedHoursChoice = 'reduce-total' | 'new-block' | 'add-to-total';
 
 export interface EditError {
   code: EditErrorCode;
@@ -957,11 +965,10 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
   const target = draft.find((block) => block.id === resize.blockId);
   if (target === undefined) return failedEdit('unknown-block', { blockId: resize.blockId });
 
-  // THE ONE PRECONDITION: the engine must not be laying this row out. Refused here rather than in
-  // the operation so the pure engine states its own rule and the UI can mirror it.
-  if (isMovable(target, resize.today)) {
-    return failedEdit('resize-needs-padlock', { blockId: target.id, projectId: target.projectId });
-  }
+  // ONE MEANING ON EVERY ROW: a TRANSFER inside the job, its later rows the counterparty, and the
+  // estimate moves only where there is nothing left to draw from. The padlock is not a precondition
+  // — it decides whether the new geometry SURVIVES, which is a different question and the owner's to
+  // answer by pressing it.
 
   const next = Math.round(resize.durationMinutes);
   if (!Number.isFinite(next) || next <= 0) {
@@ -992,12 +999,31 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
     // Nothing farther to draw from, so the estimate grows.
     totalMinutesDelta = delta;
   } else if (delta > 0) {
-    const taken = takeMinutes(counterparties, delta);
-    if (!taken.ok) {
-      return failedEdit('transfer-exceeds-job', { blockId: target.id, projectId: target.projectId });
+    // Counted BEFORE anything is taken: `takeMinutes` mutates as it goes, so asking it and then
+    // asking again would drain the job twice.
+    const availableMinutes = counterparties.reduce((total, row) => total + row.durationMinutes, 0);
+
+    if (delta > availableMinutes) {
+      // THE MIRROR OF THE SHRINK'S DEAD END, AND IT ASKS THE SAME WAY. Grown past everything the
+      // job's other rows hold, the only honest answer left is that the job is bigger. Refusing
+      // instead stopped the gesture dead on hours the owner had already drawn.
+      if (resize.freedHours !== 'add-to-total') {
+        return failedEdit('grow-needs-choice', {
+          blockId: target.id,
+          projectId: target.projectId,
+          freedMinutes: delta - availableMinutes,
+          choices: ['add-to-total'],
+        });
+      }
+      const taken = takeMinutes(counterparties, availableMinutes);
+      deletedBlockIds.push(...taken.deletedBlockIds);
+      touchedLockedBlockIds = taken.touchedLockedBlockIds;
+      totalMinutesDelta = delta - availableMinutes;
+    } else {
+      const taken = takeMinutes(counterparties, delta);
+      deletedBlockIds.push(...taken.deletedBlockIds);
+      touchedLockedBlockIds = taken.touchedLockedBlockIds;
     }
-    deletedBlockIds.push(...taken.deletedBlockIds);
-    touchedLockedBlockIds = taken.touchedLockedBlockIds;
   } else if (delta < 0) {
     // THE FREED HOURS GO TO THE JOB'S LAST BLOCK, SKIPPING THE ONES THAT CANNOT TAKE THEM.
     // `lastAutomatic` is that cascade. Hours handed to a row outside the pool are written straight
@@ -1048,6 +1074,23 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
     if (row.locked && !touchedLockedBlockIds.includes(row.id)) touchedLockedBlockIds.push(row.id);
   }
 
+  /*
+   * A LENGTH THAT TAKES MARGIN TIME PADLOCKS ITS ROW. Auto-fill never enters a visual margin, so
+   * without the padlock the very next pass pulls the row back inside the periods and the gesture
+   * undoes itself — which is exactly what "no pisa esa hora de margen" looked like from outside.
+   * The margin is how the owner gets ahead of the work, so the gesture has to hold.
+   *
+   * This rule existed before (`usesManualOnlyTime`) and was deleted with `manual_duration` on
+   * 2026-08-18 because its only reader was a resize that no longer ran on such rows. Restored with
+   * the gesture, 2026-08-20.
+   */
+  const takesMarginTime = segments.some((segment) => {
+    const end = segment.startMinutes + segment.durationMinutes;
+    return !resize.day.periods.some(
+      (period) => segment.startMinutes >= period.startMinutes && end <= period.endMinutes,
+    );
+  });
+
   // The stretch is written over its rows in order: one row for a length that stays inside its
   // window, two once it crosses the break. THE WHOLE STRETCH COMES OUT AS FIXED AS ITS TARGET —
   // half a stretch left to the engine came apart on the very next pass. `touchedLockedBlockIds`
@@ -1060,6 +1103,7 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
         id: resize.newBlockId(),
         startMinutes: segment.startMinutes,
         durationMinutes: segment.durationMinutes,
+        locked: target.locked || takesMarginTime,
         createdAt: resize.now,
         updatedAt: resize.now,
       });
@@ -1067,7 +1111,7 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
     }
     row.startMinutes = segment.startMinutes;
     row.durationMinutes = segment.durationMinutes;
-    row.locked = row.locked || target.locked;
+    row.locked = row.locked || target.locked || takesMarginTime;
   });
 
   // Shrunk back across the break: the rows the stretch no longer needs are gone. Their
@@ -1136,6 +1180,10 @@ export interface GapConflict {
  * The implementer default for a gap on top of existing work: unlocked weekday work is pushed forward
  * by the recomposition, so the only real conflicts are the blocks the engine may not move. `compose`
  * cannot repair an overlap it is forbidden to touch, so the caller refuses the save and names them.
+ *
+ * `gap` IS ONE STORED ROW, never a gap's whole net total: a gap's duration is net working minutes, so
+ * `start + duration` is a clock interval only inside a single window. A caller with hours that reach
+ * across the comida segments them first and asks this of each row.
  */
 export function findGapConflicts(
   blocks: readonly Block[],

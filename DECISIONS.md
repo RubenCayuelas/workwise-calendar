@@ -29,9 +29,13 @@ it breaks.
 >
 > Read *back to automatic* as **pressing the padlock**, whether the sentence is about a POSITION or a
 > LENGTH — the action itself (`PATCH {action:"release"}`) is deleted and now answers 400
-> `invalid-action`. A record that says a gesture was *offered on every row*, or that a length *stuck
-> without a padlock*, is describing code that is gone; § *The Padlock Holds the Length* says what
-> replaced it.
+> `invalid-action`. A record that says a length *stuck without a padlock* is describing code that is
+> gone; § *The Padlock Holds the Length* says what replaced it.
+>
+> **But NOT the bottom edge.** It IS offered on every row but a past one, again, since 2026-08-20 —
+> that gesture was withheld for two days on an inference nobody had agreed to, and the withholding is
+> what got undone. A record saying the edge is only on a padlocked row is the mistake, not the rule.
+> § *The Edge Never Needed The Padlock*.
 
 ---
 
@@ -703,8 +707,11 @@ those rows, and on the grid a past row has no bottom-edge strip either.
 
 ## Block Resize, and Shrinking That Asks
 
-> **NARROWED 2026-08-18 by § The Padlock Holds the Length below, and only in ONE place: the gesture is
-> now offered only on a row the engine does not lay out (409 `resize-needs-padlock` elsewhere).**
+> **NARROWED 2026-08-18 and UN-NARROWED 2026-08-20. The narrowing was a mistake and is gone**: the
+> edge is available on every row but a past one, and `resize-needs-padlock` no longer exists. What
+> changed for good is that a grow past everything the job's other rows hold now ASKS
+> (`grow-needs-choice`) instead of refusing, and that taking margin time padlocks the row.
+> Read § The Edge Never Needed The Padlock before this section.**
 > **What still stands, all of it:** resize as a TRANSFER inside the job with the job's last block as
 > counterparty; the freed hours never going to a row outside the movable pool; `isLast` as a dead-end
 > trigger; the three-way question and `choices` travelling in the refusal; and the drag being measured
@@ -754,7 +761,89 @@ job is 2 h; growing the same row to 4 h → the job is 4 h.)*
 
 ---
 
+## The Edge Never Needed The Padlock
+
+**Corrected 2026-08-20, by the owner catching it.** For two days the bottom edge was withheld on any
+row the engine lays out (409 `resize-needs-padlock`), and CLAUDE.md recorded that precondition as
+*«decided with the owner, 2026-08-18»*. It was not. Asked for his exact words, the trace is:
+
+1. **v0.3, ~2026-08-12.** The owner reported the edge *«only works in one direction»* and asked for it
+   to be **always available**. It was, backed by `manual_duration` so the number would stick.
+2. **2026-08-18.** They asked whether the hand-set duration was necessary and gave the reasoning that
+   killed it: *«si lo reduce de miércoles crece en jueves y sitio se libera en miércoles y pasa allí
+   quedando exactamente igual»*.
+3. **The inference.** Deleting the column removed what made the edge work on an unpinned row, and
+   rather than stopping to ask, the round narrowed the gesture to padlocked and weekend rows.
+4. **2026-08-20.** *«mis palabras literales que me has dicho no tienen nada que ver con este
+   problema… nadie dijo en ningún momento que eso debía de desaparecer para los bloques sin
+   candado»*. Correct on both counts.
+
+**Where the reasoning went wrong, precisely.** The quote is about a stored GEOMETRY: a length written
+onto a row the engine re-derives cannot survive. True, and it is why `manual_duration` had to go. But
+it says nothing about whether the edge can be GRABBED, and the round treated the two as one thing.
+
+**What the gesture means on an automatic row**, and the owner had already said it in the same
+breath as the correction: *«esas horas de más se colocan después de la tarea con candado»*. Growing
+such a row is not drawing a length — it is saying THERE IS MORE WORK. That survives every reflow,
+because the engine is what places it. So:
+
+- automatic row → the JOB'S HOURS change, and `compose` lays the difference out;
+- padlocked or weekend row → a TRANSFER inside the job, as before, because there the length is the
+  owner's and the engine hands it back untouched;
+- shrinking an automatic row **asks**, since it destroys hours, and the only answer offered is
+  `reduce-total`: a `new-block` of the same unpinned job is placed straight back where those hours
+  already were.
+
+**One inconsistency this also closes.** The gaps round (2026-08-19) gave a gap a free bottom edge —
+a gap is never engine-laid-out, so it needed no padlock — while an ordinary block still required one.
+The owner noticed that too: *«recuerdo definir que en los gaps sí se puedan redimensionar como los
+bloques normales»*. Now both are available and only the source of the hours differs.
+
+**What was deleted with the precondition**, since it existed only to hold it up: the 409 itself and
+its two locale strings, `InertReason.automatic`, the inert strip and its `cursor: help`, the two
+sentences that explained an edge that did nothing (`block.lengthIsAutomatic` and its `…How`), and the
+54-line toast that carried *Cerrar el día aquí* out of a gesture that now has its own answer. The
+offer still lives on the hover bar, where it always did.
+
+### And then the restoration over-corrected, within the day
+
+Restoring the edge on 2026-08-20 also changed what a grow MEANS on an automatic row: it added the
+hours to the estimate. The owner found that in use within hours: *«añade horas totales al trabajo sin
+que esa fuera mi intención ni arrastré el último bloque sino uno intermedio»*.
+
+Right again, and the fix was to stop inventing: the ORIGINAL rule already said that only the LAST
+block's growth raises the estimate, and an intermediate one draws from the job's later rows. That rule
+was never the problem. What it lacked was an answer for growing past everything those rows hold —
+where it refused with `transfer-exceeds-job` and the gesture stopped dead on hours already drawn. It
+now ASKS, exactly as the shrink's dead end does: 409 `grow-needs-choice`, one answer, `add-to-total`.
+
+**And the margin rule came back with it**, because it is what makes the gesture worth having on an
+automatic row. The owner's use is *«para que pille parte del área de margen y así adelantar trabajo»*
+— and auto-fill never enters a margin, so without the padlock the next pass undoes the drag. That is
+what *«no pisa esa hora de margen»* was: not a refusal, a silent revert. The rule existed
+(`usesManualOnlyTime`), was deleted on 2026-08-18 when the gesture that read it was withdrawn, and is
+restored with it.
+
+**One thing that turned out not to be a defect at all.** The owner also reported the resize appearing
+to reach across days. It does not — `stretchFrom` breaks on `row.date !== target.date`. What they saw
+was the LIFTED styling: dragging highlights the whole unit across every day it occupies, while the
+gesture only reshapes the day under the pointer. Their own diagnosis: *«visualmente parecía que
+recortaría horas de ellos al no poder seleccionarlos»*.
+
+**The lesson worth keeping.** A quote that justifies deleting a MECHANISM does not license removing a
+GESTURE that mechanism happened to serve. And a correction is not finished when the gesture is back:
+the round that restores it can just as easily invent new semantics for it, which is what happened here
+and was caught only because the owner used the thing. When the two are conflated the record says "decided with
+the owner" about something they never saw — which is exactly how this went unnoticed for two days.
+
+---
+
 ## The Padlock Holds the Length
+
+> **READ § The Edge Never Needed The Padlock FIRST.** What the owner decided here — deleting
+> `manual_duration` — stands and was right. What this section then INFERRED, that the bottom edge
+> should only be offered on a row the engine does not lay out, was not their decision and was undone
+> on 2026-08-20. Every sentence below about the gesture being withheld is history.
 
 **Decided with the owner, 2026-08-18. This deletes *A Hand-Set Duration*, below.**
 
@@ -848,7 +937,13 @@ the two entry points proposing different gaps, `WeekGrid`'s private `closeDayAft
 `closeDayInput` memo were extracted to `src/components/calendar/closeDayOffer.ts`, imported by the hover
 bar and by this sentence, with seven cases in `closeDayOffer.test.ts`.
 
-### This reverses the owner's own v0.3 request, and here is why
+### This reversed the owner's own v0.3 request — and the reversal was WRONG. See § The Edge Never Needed The Padlock
+
+> **Superseded 2026-08-20.** Everything below is the reasoning as it stood, kept because the mistake
+> is instructive: the argument is sound about a stored LENGTH and was then applied to a GESTURE, which
+> it does not reach. The owner never asked for the edge to disappear.
+
+
 
 In v0.3 the owner's report was that the bottom edge *"only works in one direction"*, and the answer then
 was to **offer the edge on every row** — the two strings that had explained why it was inert were
@@ -1745,7 +1840,348 @@ migrated SQLite database, over every boundary minute plus the scissors' target, 
 settings change stranded in the break, a gap across the break (unchanged, as it must be), and a day
 whose afternoon is switched off (no later working minute, so the roll or the refusal answers).
 
+**The gap's exemption lasted two days.** It was right while a gap's `duration` was clock minutes — there
+was no straddle to remove, because the row meant the wall clock. On 2026-08-19 the units changed and the
+exemption went with them: a gap reads `firstWorkingMinute` like every other gesture now. See § *Gaps Are
+Cut At The Comida Too*.
+
 ---
+
+## Gaps Are Cut At The Comida Too
+
+**2026-08-19.** A gap's `duration` was CLOCK minutes and a gap was the one row in the app allowed to
+span a non-working interval. It is NET WORKING MINUTES now, like a block's, and a stored gap row is cut
+at the break like everything else. This is phase 1 of the round the owner opened with *«los gaps
+actuarán como tareas con candado, en el sentido de que donde se crean ahí se quedan pero las puedo mover
+desde la interfaz»*: the STORED SHAPE only. The drag, the resize, the painting gesture, the absences
+screen and the closed-day screen are later phases and are not built.
+
+**The evidence, from the shop's own database.** Four gaps, `2026-09-01` to `09-04`, each `08:00 +11,5 h`,
+reason "Feria" — a whole week away at the fair. **11.5 and not 10 because the comida was paid for.** The
+owner had typed the wall clock, the app had stored the wall clock, and every reader then had to remember
+that this one table meant something different from the other one. And `day_overrides` had 0 rows: a
+whole-week absence had been built out of gaps because the closed-day mechanism has never had a screen.
+
+**What it buys.** *No stored row straddles a non-working interval* stops being a rule with an exception
+and becomes an invariant of the schema. Everything downstream then follows from ONE fact rather than
+from two: `start + duration` is any row's clock extent, so the plannable-hours union, `findGapConflicts`,
+`firstClearStart`, `mergeIntervals`, `manualDaySegments`, `coveredMinutes`, the ghost's spill and
+`heightBetween` are all correct for a gap for exactly the same reason they were already correct for a
+block. Nothing on the grid is drawn over the 28 px seam any more, which is what the seam was for.
+
+**What it costs, and the owner accepted it in as many words: a gap can no longer be recorded inside the
+comida.** A gesture aimed at a minute no window covers starts at the first minute that can hold work, so
+a gap aimed at 14:00 is stored from 15:30 — the rule *A Minute With No Working Time* already governing
+every drop, now reaching the one row that was exempt. Nothing happens during the break by definition, so
+there was never anything to record there.
+
+**Two smaller consequences, both wanted.** Segmentation reads the MANUAL WINDOW, margins included,
+because a gap is a hand gesture and that is what hand gestures read: a gap may sit in a margin, and "all
+day" on the documented shift is 12 h in two rows (`07:00 +7 h`, `15:30 +5 h`), not 10. And *Cerrar el día
+aquí* now proposes TWO rows where it used to write one across the break, still only proposing —
+*«no se creará el hueco automáticamente, sino que si el usuario lo quiere lo deberá de crear él»*.
+
+**The silent-failure risk was the whole of the work.** A gap is part of the occupancy set the engine
+unions to compute plannable hours, so a net duration read as clock mis-sizes a day with nothing thrown.
+The answer was not to teach eleven call sites to derive a clock end: it was to make the stored row
+satisfy the invariant those sites already assume, and gate it on the way IN. `createGap` and `patchGap`
+segment through `segmentDroppedRow` — the drop path's own function, so a gap and a drop cannot be cut
+differently — and `assertGapFits` then asks the day's end and the fixed work OF EACH ROW.
+
+**One real defect was found by asking it per row rather than per gap** (measured over HTTP, no browser):
+a padlocked `Porton 18:00-19:30` on a Tuesday, and a gap of 8 h from 10:00.
+
+| the question asked | the answer |
+|---|---|
+| over `start + duration` — `10:00-18:00` | names rows inside the comida, where nothing can be; MISSES the padlocked row; **saves on top of it** |
+| over the rows — `10:00-14:00` and `15:30-19:30` | 409 `gap-over-fixed-block` / `errors.gapOverLockedBlock`, naming *Porton 18:00-19:30*, nothing written |
+
+And the mirror holds: 3 h from 10:00 stops at 13:00 and saves, because the padlocked row is no longer in
+its way. The slide agrees too — a padlocked row dropped at 10:00 onto a day carrying `08:00 +6 h` and
+`15:30 +2 h` of gap lands at **17:30**, having stepped past both halves.
+
+**The day's end, not midnight.** `assertFitsInDay` (midnight) was the only ceiling a gap had, which was
+right while a gap's minutes were clock minutes and wrong the moment they became net: 13 h from 08:00
+would have stored a second row running to 22:30. The line is now `dayEndMinutes` over the manual
+windows — 409 `row-past-day-end`, the block path's own guard — and it keeps that guard's one latitude, so
+a gap a settings change stranded past the day's end stays editable as long as the edit does not make the
+overrun worse.
+
+**The migration splits, it does not convert.** Turning the four Feria rows into closed days would rewrite
+what the owner recorded into a different statement about the same week. `08:00 +11,5 h` becomes
+`08:00 +6 h` and `15:30 +4 h`, the reason on both, the morning half keeping the row's id and the
+afternoon half its `created_at`. Re-measured on the real thing: opening the fixture over HTTP gives eight
+rows across the four days and each of those days reports `plannableMinutes: 0`, exactly as the 11.5 h
+rows did — **the meaning is preserved, only the units changed.**
+
+- **What it writes is the same stretch of clock in the new units**: the old interval intersected with the
+  manual windows. A gap already inside one window is therefore left BYTE-IDENTICAL, not rewritten with
+  the values it already has — `2026-08-24 09:00 +1 h` keeps its `updated_at` — and a gap that included
+  minutes the shop cannot work loses exactly those. A gap with no working minutes at all is left alone:
+  there is nothing to convert it to, and deleting what the owner recorded is not a migration's business.
+- **The ordering problem, and the answer.** The split needs the SHIFT to know where the break is, and a
+  stored gap carries no record of the shift it was typed under, so the settings are the only evidence
+  there is. It therefore runs LAST in `runMigrations`, after `seedDefaultSettings`, which is what makes
+  it correct on a database that has never been configured — proved by the fixture, whose file has no
+  `settings` table at all and is migrated against the documented `08:00-14:00` / `15:30-19:30`.
+- **It runs ONCE, and that is a decision.** `data_migrations` is a new table and the first guard of its
+  kind: `PRAGMA table_info` can see a column appear or go, and can see nothing at all when what changed
+  is what a NUMBER MEANS. Re-running would be a no-op today — every row now sits inside one window — but
+  not after the owner narrows the shift, and re-cutting gaps they have since put where they want them,
+  silently, on an app restart, is not a repair.
+
+**The two halves are ONE unit on screen**, joined with the seam and the `sigue…` marks like a job cut at
+the comida, sharing one reason and one lane. Grouping goes through `adjacentInWindows`, the predicate the
+grid already groups blocks with, so a gap unit and a block unit cannot disagree about where a unit ends.
+
+**`unit_id` stands where a block's `projectId` stands**, and identifying the two halves was the design
+hole the spec did not fill. **It cannot be the reason text**: `deleteProject` writes the same composed
+sentence on every past row it preserves, so two independent absences that happen to touch would fuse into
+one unit — and editing one half's reason would split a unit in two. Two gaps that merely touch must NOT be
+merged, in storage or on screen, because each carries its own reason and merging would destroy one. With
+the column there, **any row of a unit ADDRESSES the unit**, which is what makes "one delete takes both
+halves" and "a PATCH edits the absence" possible at all.
+
+**What phase 1 deliberately did not do**, so the next round is not misled: a gap is still not dragged and
+not resized (pressing one opens its form); there is no absences screen, no range, no painting gesture and
+no closed-day screen. `MIN_ROW_MINUTES` is still not a write-path guard, so a sub-quarter gap row remains
+reachable over HTTP exactly as a sub-quarter block row is. *(The two gestures arrived the same day — see*
+Gaps Are Dragged And Resized *below.)*
+
+## Gaps Are Dragged And Resized
+
+**2026-08-19, phase 2 of the gaps round.** The owner's own framing was the argument: *«los gaps actuarán
+como tareas con candado, en el sentido de que donde se crean ahí se quedan pero las puedo mover desde la
+interfaz»*. In engine terms a gap ALREADY WAS a padlocked task — fixed occupancy, consumes plannable
+hours, never recomposed — so nothing had to be invented for it to move. **What it lacked was the two
+gestures a padlocked block has**, and this round is that and nothing else: the drag, the bottom edge, the
+ghost that states what either one will do, and the past frozen to both.
+
+**It reverses two documented rules**, both quoted here before being deleted from CLAUDE.md: *«Gaps are
+not dragged. Pressing one opens its form; a press that travels says so»*, and the § Block Gestures rule
+that a press proving a drag on a gap *«explains that gaps are not dragged AND swallows the click that
+would otherwise open the gap form»*. The machinery those two sentences described — `usePressHint`, the
+`gap` `InertReason`, `notices.pressOnGap` — is gone, not left dormant: a gap's press now begins a real
+gesture, and a hint that says a gesture does not exist is the one thing that must not survive it.
+
+### The defect that had to be fixed BEFORE building on it
+
+`onOpenGap(segment.gap)` handed the form **one ROW**. Since phase 1 a PATCH addresses the whole UNIT and
+defaults `durationMinutes` to the sum of its rows, so opening the `08:00 +6 h` morning half of a
+`6 h + 4 h` absence and pressing *Guardar* with nothing changed sent `durationMinutes: 360` for the whole
+absence — and the reconcile deleted the afternoon row. **4 h destroyed by a save that changed nothing.**
+Opening the afternoon half instead saved `15:30 +4 h` and moved the surviving id to the afternoon.
+`gapForm.deleteBody` understated the absence for the same reason.
+
+The fix is the rule the round then rests on: **an absence is (day, start, NET total), and every screen and
+every gesture is handed the UNIT**. `gapUnitOf` (grouping.ts) is the one place it is derived from what is
+on screen, `GapUnit` is the type, and the drag target carries it whole so the click that opens the form and
+the drag that moves it cannot disagree. Verified in a real browser: open either half, press Guardar, and
+the two rows come back byte-identical.
+
+### One drag controller, not two
+
+`DragTarget` became a discriminated union — `kind: 'block' | 'gap'` over shared geometry (`groupId`,
+`color`, `date`, `startMinutes`, `durationMinutes`, `rowIds`, `fixed`). A parallel `useGapDrag` was the
+alternative and was rejected: it would have duplicated the session, the click slop, the drag threshold,
+edge paging and its layout effect, Escape, the arrow keys — and above all it would have given *One Axis Per
+Gesture* a SECOND implementation to keep in step. The union costs about five narrows at the two ends, the
+grid that builds a target and the screen that writes it; nothing in `previewResize`, `edgePaging`,
+`geometry` or `dropSpill` knows a gap exists.
+
+**Two renames carry their meaning**: `blockIds` → `rowIds`, because a gap's rows are not blocks; and
+`DropPin.locked` → `fixed`, because the row-side half of the pin question is now "is this thing fixed BY
+ITSELF" and a gap answers yes without carrying a padlock. Passing `locked: true` for a gap would have been
+six edits cheaper and a lie the next reader trips over. `describeDrop`'s `wasLocked` reads the same field
+for a block, where the two questions coincide exactly.
+
+### The three decisions the spec left to the implementer
+
+**A gap's DAY is as literal as its minute.** *Aiming Below What A Day Holds Means The Next Day* rolls a
+literal drop forward to the next day the engine lays out. An absence must not be rolled: the owner names
+the day the machine broke as deliberately as the hour, so a footprint the day cannot hold is CLAMPED to the
+latest start that fits — exactly what a weekend drop already does, and for the reason already written
+there: *«moving it to another DATE would be a bigger surprise than the end-of-day refusal»*. One flag,
+`resolveDropDay`'s `rolls: false`, and it reuses the same `firstWorkingMinute` reading `dropLanding`
+applies first, so a release in the comida still means 15:30.
+
+**The bottom edge is on the LAST row of the unit only.** A block's edge sizes *the stretch that begins at
+that row's start*, which a gap cannot express: `patchGap` addresses the absence, whose duration is measured
+from its OWN start. So the one edge that is the absence's END is the one that gets the handle, and dragging
+it sets the whole absence — which is also what makes shrinking a `6 h + 4 h` unit to 2 h a single request
+that deletes the far half.
+
+**The ghost speaks a vocabulary of its own** (`gapDropEffect`). A gap is never slid, never merged and never
+cut, so not one of a block's five sentences can be true of one; what CAN be true is that the save will be
+refused by a row the engine cannot move (`grid.gapBlocked`, drawn denied) or that it will push ordinary work
+forward (`grid.gapDisplaces`). It is asked of the RESIZE too, because growing an absence over a padlocked
+row is refused exactly as dragging it there is and the footprint is the same shape either way.
+
+### The past needed one additive field on the write path
+
+The spec wants no drag and no resize on a past gap, and the FORM still working there — that is how a
+mis-recorded absence is corrected. But the form and both gestures are the same endpoint sending the same
+three fields, so **the payload cannot say which gesture is asking**. `action?: 'edit' | 'move' | 'resize'`
+(absent = `edit`) mirrors `PATCH /api/blocks/:id` exactly and adds two refusals to the two gestures only:
+409 `past-gap-frozen` when the gap's stored date is past, 409 `drop-onto-past-day` when the target date is.
+Enforcing it in the client alone was rejected: *The Past is Frozen* is stated as a SERVER rule for blocks,
+and a server that accepts what the UI hides is a rule with a hole in it.
+
+**The sentence had to be its own.** `notices.pressOnPastDay` ends *«Cambia las horas desde la ficha del
+trabajo»* — the wrong form for an absence — so a past gap's press answers `notices.pressOnPastGap`, which
+names its own. The UI withholds the handle there and the drag never starts, so nothing is offered that the
+server would refuse.
+
+### Two smaller calls, and one thing left open
+
+**A gap is a `div role="button"`, not a `<button>`.** `begin()` calls `preventDefault`, which does not stop
+a button firing its own click, so keeping the element a button would have given one press two answers — the
+native click AND the drag layer's — which is the precise defect *No Press Ends In Silence* was written
+against. The keyboard keeps its own path to the form (Enter / Space), because a key has no press for the
+drag layer to own.
+
+**Neither gesture confirms.** The owner's rule for the round is that only BULK creation warns before
+displacing work; a drag and a resize are direct manipulation, the ghost drew the rows and what they would
+push, and the result is on screen. A drop that lands where it was released and changes nothing says
+nothing, by the same standard *A Drop Always Answers For Itself* sets for a block; the one thing it DOES
+say is when the stored start moved (`notices.gapMovedTo`), because the comida reading it is the only
+outcome the owner cannot see coming.
+
+**Left open, and NOT invented:** two gaps may overlap each other. `assertGapFits` has never looked at other
+gaps, the lane packer draws them side by side, and the drag makes producing that easy rather than fiddly.
+The spec settles that two gaps which TOUCH do not merge and says nothing about two that overlap, so it is a
+question for the owner, not something to answer while wiring a gesture.
+
+### Driven in a real browser, 1500×950
+
+The gap `Mié 19 12:00 +2 h` / `15:30 +2 h`, one absence of 4 h, on a week with `Barandilla 10 h` and a
+padlocked `Porton 2 h`:
+
+| gesture | the ghost said | what was stored |
+|---|---|---|
+| the morning half dragged up 2 h | `10:00–14:00`, `4 h`, *«Apartará «Barandilla»…»* | one row `10:00 +4 h`, the far half gone, Barandilla pushed to `08:00 +2 h` and `15:30 +4 h` |
+| the last row's bottom edge dragged down 2 h | `12:00–19:30`, `6 h`, two rectangles | `12:00 +2 h` and `15:30 +4 h` |
+| the same edge grown over the padlocked `Porton 09:00–11:00` | *«Ahí hay horas de «Porton» que el motor no puede mover. No se guardará nada.»*, drawn denied | nothing: 409, and the banner carries the server's own sentence |
+| either half clicked, *Guardar* pressed unchanged | — | `12:00 +2 h` and `15:30 +2 h`, unchanged (the 0a defect) |
+| a past gap dragged | no ghost | nothing, and *«Ese día ya ha pasado y no se arrastra… corrígelo desde su ficha.»* |
+| a live gap dragged onto the frozen column | drawn denied | nothing, and *«Ahí no se puede soltar: el pasado está congelado…»* |
+| a past gap CLICKED | — | its form opens, and a save there is accepted |
+
+Over HTTP with no browser: a drag aimed at `14:30` stored from `15:30`; a resize from `15:30` to 6 h
+refused `row-past-day-end` (the client clamps to 5 h there, so the UI never asks); `action: 'nudge'` a 400
+naming the three it accepts.
+
+## A Long Absence Is One Gesture, and a Closed Day Has a Screen
+
+**2026-08-19, phases 5 and 6 of the gaps round.** The evidence was the shop's own file: `2026-09-01` …
+`09-04`, four `gaps` of `08:00 +11,5 h` reason "Feria", typed one per day — and `day_overrides`, the table
+that models exactly that, holding **zero rows**. Not because the mechanism was missing: `getDayConfig`,
+`plannableMinutes`, `dayReflows`, `.columnClosed` and `closeDayOffer` had all been reading it since the
+initial migration. It had never had a screen or a route, so the only way to say "we are closed that week"
+was four hand-typed gaps. **The acceptance test for the round is whether that week now takes one gesture.**
+
+### One screen, and the choice is made inside it
+
+Two screens — one for a gap, one for closing days — was the obvious shape and is what the owner rejected by
+asking for a selector. The two things differ in ONE decision (does the day keep any plannable hours?) and
+agree on everything else: which days, and why. So `Ausencias` has two modes over one `Desde` / `Hasta` and
+one reason field, the existing gap form became the `Un hueco` mode, and its two OLD shapes — editing an
+absence, and *cerrar el día aquí* — are untouched, still writing through `/api/gaps` and still reaching the
+frozen past. A range of one day is not a special case: it is `to` omitted.
+
+**The API mirrors the screen** rather than the tables: `POST /api/absences {kind, from, to?, …}`,
+`POST /api/absences/preview`, `DELETE /api/absences/closed-days?from=&to=`. Naming the routes after
+`gaps` and `day_overrides` would have put the mode selector's job back in the caller.
+
+### The range skips the weekend, and says so
+
+Saturday and Sunday are outside the engine, so a Mon-Fri range that spans one must not spend two rows on
+it. But a range **entirely inside one weekend** is the owner naming those days on purpose (an absence there
+is a label and a dimmed column, which is worth something), so those are kept. The rule is four lines in
+`src/lib/absences.ts` with its own test, and both the save and the preview REPORT the days they dropped —
+a skip nobody is told about is the kind of thing that gets rediscovered as a bug.
+
+### The warning is the real write, rolled back
+
+The spec asked for a warning that names the hours, the jobs and the date they land on, and for cancelling
+to write nothing. The honest way to answer "what would this do" is not a model of the reflow — only a whole
+pass knows where the queue's cursor reaches, which is the whole reason `POST /api/projects/preview` exists
+and the shape the task pointed at. So `previewAbsence` runs `writeAbsence` for real inside a transaction it
+then rolls back (`dryRun`, carrying the result out through the throw). Consequences, all wanted:
+
+- the preview **refuses exactly what the save would refuse** — a padlocked row in the way, a horizon the
+  hours no longer fit in — so the screen can hide `Guardar` instead of offering a save that will fail;
+- the displaced hours are **read from the rows before and after**, per job, never predicted;
+- **nothing it returns carries an id**, because every row it wrote was rolled back. `AbsencePreview` is
+  geometry only; an id from a dry run would name a row that will never exist.
+
+Cancelling is then not a mechanism at all: the preview is shown inline and the owner does not press
+Guardar. A confirmation DIALOG was the alternative and buys nothing here — the numbers need room, and a
+range is retyped, not confirmed.
+
+### Two defects found by building it
+
+**A drop onto a closed weekday was not literal.** Measured: a 2 h unlocked row released on a closed
+Thursday at 09:00 came back on the next open **Monday at 08:00, unlocked, with a 200 and no notice**.
+`dropLandsLiterally` asked `fixed || role !== 'auto'`, and a closed Thursday's role is still `auto`; the
+row was stored as a queue rank, and since the engine may not lay a closed day out, the only thing the
+reflow could do with it was carry it off. CLAUDE.md's own refusal table already said *«a closed day
+(day_overrides) | yes | same as a weekend»*, and spec §6 asserted the behaviour as existing — both were
+false. `DropPin.closed` (and `DropDay.closed`) now travel with `role` through all six call sites, so the
+ghost, the landing and the write path answer together. **It is what makes "a closed day accepts work
+dropped by hand and never auto-recovers it" true**: the drop padlocks, and the padlock is what holds it.
+
+**An unplaceable close bricked every later write.** With the horizon at 2 weeks and 70 h queued, closing
+three days answered 409 `horizon-exceeded` — correctly — but the four `day_overrides` rows had been written
+OUTSIDE the reflow's transaction, so they survived the refusal. Every subsequent write then hit the same
+409, **including deleting the job that would not fit**: the calendar was unusable without SQL. The upserts
+and `recompose` now sit in one `runTransaction`, and the test asserts the calendar is byte-identical after
+the refusal and that a close which does fit still goes through.
+
+### The three calls the spec left open, and how each was answered
+
+**Closing a day that holds work the engine cannot move is REFUSED, naming it.** The alternative — write the
+override and leave the padlocked row sitting on a day that reports no capacity at all — is a day whose
+header says *cerrado* over two hours of work. A gap in the same position is refused by name, so a closed
+day is refused the same way, over the whole day, through the same `findGapConflicts`. It got **its own
+three sentences** (`closedDayOverLockedBlock` / `…PastBlock` / `…WeekendBlock`): reusing the gap's said
+*«Ese hueco pisa «Nave»…»* about a gesture that creates no gap, which was visible on screen the first time
+it fired.
+
+**Reopening drops the ROW, except where it carries a hand-entered `capacity_hours`.** That column has no
+screen and nothing could put it back, so there only `is_closed` is cleared. The same reading fixed a
+silent loss on the way IN: `upsertDayOverride` writes all four columns, so closing a day that carried a
+capacity would have blanked it — the note is now carried through explicitly.
+
+**The way into a closed day is its own column.** A gap is an object you press; a closed day is only a
+dimmed column, so a mistyped "Feira" would have been unreachable. Pressing one opens `Ausencias` in
+`Cerrar días` on that day with the note pre-filled, next to a `Reabrir` button. Painting there is refused
+for the same reason and opens the same screen: a gap on a day with no plannable hours is meaningless.
+
+### Painting only ever makes gaps, which dissolved a question
+
+The threshold question — how big a painted band has to be before it means "close the day" — was asked and
+then **answered by not existing**: painting makes gaps and nothing else, so `07:00→20:30` is a 12 h gap in
+two rows that LOOKS like a closed day and is not one. That is a deliberate near-miss, not an oversight;
+adding a threshold would put a guess where the mode selector already asks the question out loud.
+
+The band is measured in NET working minutes over the manual windows (`paintedSpan`, tested), paints in
+either direction, starts at the first minute that can hold work when the press lands in the comida, and is
+drawn as the ROWS the absence will be stored as. Below a quarter of an hour there is no band and no form:
+a press that wandered is not a gesture. And it writes NOTHING — the release opens the form, which is the
+rule the owner set for *cerrar el día aquí* on 2026-08-18 and the reason this gesture is safe to put on
+empty space with no modifier key.
+
+### Driven over HTTP and in a real browser
+
+On a scratch database (`WORKWISE_DB_PATH`, port 3213), the owner's own week: the preview named *«Se
+cerrarán 4 días… El taller pasará a estar ocupado hasta el lunes 14 de septiembre. Se aparta 30 h de un
+trabajo: 30 h → 14 sept 2026 Portón»*, `Cancelar` left `day_overrides` empty, and Guardar wrote exactly
+four rows. The week then read `Mar 1 Feria` / `Mié 2 Feria` / `Jue 3 Feria` / `Vie 4 Feria` over four
+dimmed columns with the work vacated to Monday. A paint on Friday drew `10:00–13:00 · 3 h` and opened the
+form on that day with those hours; a 1,5 h gap over five days previewed as `13:00–14:00 1 h` +
+`15:30–16:00 0,5 h` with *«El mismo hueco… en cada uno de los 5 días»* and three jobs' hours named;
+pressing the closed Wednesday offered `Reabrir`, and reopening it filled the day again on the same pass.
 
 ## Deleting a Job Leaves Its Past Intact
 
@@ -2774,3 +3210,99 @@ broader, and left for the owner:* **Open Decision 4** — every resize is now on
 calendar, so a grown row can sit on another job or on a gap with nothing to separate them afterwards;
 measured on a plain Monday with no margins involved. Open Decision 2 is still open and now arrives as a
 dialog rather than a silent mark.
+
+**v0.15 — built: a gap is cut at the comida, and no stored row straddles a break any more.** Phase 1 of
+the gaps round (2026-08-19), and the STORED SHAPE only. `duration` became NET WORKING MINUTES for a gap
+too, segmented over the MANUAL WINDOWS on the way in (`createGap` / `patchGap` → `segmentDroppedRow`), so
+a gap may sit in a visual margin and "all day" is 12 h in two rows. The reasoning, the evidence and what
+it costs are in § *Gaps Are Cut At The Comida Too*.
+
+- [x] `assertGapFits` cuts first and then asks the day's end (`dayEndMinutes`, 409 `row-past-day-end`,
+      keeping the block guard's one latitude) and `findGapConflicts` OF EACH ROW
+- [x] `planCloseDay` reports net minutes and the rows it proposes; the form still posts ONE request
+- [x] `groupGaps` / `gapSegmentsOf` beside the block pair, `packDay` over units, the seam and the
+      `sigue…` marks on the grid, `grid.gapContinuesAbove` / `Below` in both locales
+- [x] `data_migrations`, the first data migration: the four `08:00 +11,5 h` Feria rows split, once
+
+Verified on 2026-08-19: `tsc --noEmit` clean, `vitest run` **903 passing across 30 files** (the five
+2000-seed harnesses among them, untouched and green), `next lint` clean. Driven over real HTTP against a
+scratch database seeded to the SHAPE OF THE SHOP'S FILE — a `gaps` table in clock minutes, no
+`data_migrations`, no `settings` — on a port of its own: the four Feria rows came back as eight
+(`08:00 +6 h`, `15:30 +4 h`, reason on both), the `2026-08-24 09:00 +1 h` row byte-identical with its
+`updated_at` untouched, and each Feria day still reporting `plannableMinutes: 0`. A second boot changed
+nothing. Then: a gap aimed at `14:00` stored from `15:30`; `07:00 +12 h` stored `07:00 +7 h` and
+`15:30 +5 h`; `08:00 +13 h` refused `row-past-day-end` naming `20:30`; `19:30 +1 h` accepted in the
+bottom margin and `20:00 +1 h` refused; a gap wholly in the top margin costing the day nothing plannable;
+`13:00` + 5 net hours (what *Cerrar el día aquí* posts) stored `13:00 +1 h` and `15:30 +4 h`, the day
+dropping from 10 h to 5 h plannable; 8 h from 10:00 refused by the padlocked `18:00-19:30` it would
+have silently covered, and 3 h from 10:00 saving beside it; a padlocked row dropped at 10:00 onto a day
+holding both halves of a gap sliding to `17:30`. In a real browser at 1500×950 the two halves draw joined
+— `Avería… sigue…` above the seam, `…sigue` below it, dashed edges facing each other, one lane between
+them — and a 12 h gap reaches into both margins with nothing drawn over the seam.
+
+*Not built, deliberately:* the gap drag and resize, the absences screen and its date range, the painting
+gesture, the bulk-creation warning and the closed-day screen. A gap still opens its form when pressed.
+
+*One thing went wrong while building it, and it is worth the paragraph.* `readWeek(db, MON)` — a `Db`
+passed where the reference DATE belongs — let the trailing `db` parameter fall back to `getDb()`, and the
+new data migration ran over `data/calendar.db`, the shop's real file, from inside a test run. Nothing was
+damaged: it did exactly what it is for, splitting the four Feria rows into `08:00 +6 h` and `15:30 +4 h`
+with the reasons kept, touching no block, project or setting (verified by their `updated_at`), and the
+result is even correct under a code revert, since the two rows cover the same clock the one row did. But
+it should have been the owner's own first boot, and `tsc` would have caught the call: it was run after
+`vitest`, not before. `openDatabase` now REFUSES that path whenever `VITEST` is set, with a test of its
+own — the house rule became a mechanism.
+
+**v0.16 — built: a gap is dragged and resized.** Phase 2 of the gaps round (2026-08-19). A gap was already
+a padlocked task to the engine, so this is the two gestures one has and nothing else. The reasoning, the
+three implementer calls and the browser run are in § *Gaps Are Dragged And Resized*.
+
+- [x] `DragTarget` as a union (`kind: 'block' | 'gap'`) over ONE drag controller; `blockIds` → `rowIds`,
+      `DropPin.locked` → `fixed`; `usePressHint`, the `gap` `InertReason` and `notices.pressOnGap` deleted
+- [x] the drag: a literal placement of the whole unit, cut at the comida, `rolls: false` so it is clamped
+      at the day's end rather than carried to another date
+- [x] the bottom edge on the unit's LAST row: absolute, net minutes, across the comida, no dialog
+- [x] `gapDropEffect` and the ghost's own two sentences (`grid.gapBlocked`, `grid.gapDisplaces`), asked of
+      both gestures
+- [x] `action?: 'edit' | 'move' | 'resize'` on `PATCH /api/gaps/:id`: 409 `past-gap-frozen` and
+      `drop-onto-past-day` for the gestures, the form unchanged and still reaching the past
+- [x] the FORM and both gestures handed the UNIT (`GapUnit`, `gapUnitOf`) — the defect that destroyed 4 h
+      of a 10 h absence on a save that changed nothing
+- [x] the day-end tolerance read off the unit's LAST row rather than the row the caller named
+
+Verified on 2026-08-19: `tsc --noEmit` clean, `vitest run` **935 passing across 30 files** (+22, the five
+2000-seed harnesses untouched and green), `next lint` clean, `next build` clean. Driven over real HTTP on a
+scratch database and in a real browser at 1500×950 — the table of gestures is in the § entry.
+
+*Not built, deliberately:* the absences screen and its date range, the painting gesture, the bulk-creation
+warning and the closed-day screen. *Left open and not invented:* two gaps may overlap each other, which the
+spec does not settle.
+
+**v0.17 — built: a long absence is one gesture, and a closed day has a screen.** Phases 5 and 6 of the gaps
+round (2026-08-19), which finish it. The reasoning, the two defects it found and the browser run are in
+§ *A Long Absence Is One Gesture, and a Closed Day Has a Screen*.
+
+- [x] `POST /api/absences` (`kind: 'gap' | 'closed-days'`, `from`, `to?`) — a RANGE in ONE transaction;
+      `POST /api/absences/preview`, which runs the real write and rolls it back;
+      `DELETE /api/absences/closed-days?from=&to=`
+- [x] `absenceRange`: the weekend skipped unless the range is entirely inside one, both halves reported
+- [x] `Ausencias` with two modes over one `Desde`/`Hasta`, the old gap form becoming `Un hueco` with its two
+      previous shapes untouched; `summarizeAbsence` decides every sentence and is tested
+- [x] the warning: the days, the rows one day holds, the hours, the jobs and the day they land on
+- [x] painting on empty grid space (`usePaintAbsence`, `paintedSpan`) — gaps only, one column, net minutes,
+      drawn as the rows it will be stored as, and it writes NOTHING
+- [x] the closed day on screen: `Mar 1 · Feria` from `note`, the dimmed column, and its own column as the
+      way in to editing or reopening it
+- [x] **defect**: a drop onto a closed weekday was a queue rank, so the hours left for the next open Monday
+      unlocked and unannounced — `DropPin.closed` through all six call sites
+- [x] **defect**: the overrides were written outside the reflow's transaction, so an unplaceable close
+      survived its own 409 and every later write answered it, deletions included
+- [x] the closed day's own three refusal sentences; `capacity_hours` carried through a close and kept on a
+      reopen, since no screen could put it back
+
+Verified on 2026-08-19: `tsc --noEmit` clean, `vitest run` **977 passing across 33 files** (+42, the five
+2000-seed harnesses untouched and green), `next lint` clean, `next build` clean. Driven over real HTTP on a
+scratch database and in a real browser at 1440×900; `data/calendar.db` untouched.
+
+*Left open by the owner, deliberately:* whether a closed day belongs in the summary strip's sentence, and
+whether a gap unit should be reachable from the job panel's list.

@@ -24,7 +24,7 @@ export interface WeekHeaderProps {
   onNext: () => void;
   onToday: () => void;
   onNewJob?: () => void;
-  onNewGap?: () => void;
+  onNewAbsence?: () => void;
   settingsHref: string;
 }
 
@@ -35,7 +35,7 @@ export function WeekHeader({
   onNext,
   onToday,
   onNewJob,
-  onNewGap,
+  onNewAbsence,
   settingsHref,
 }: WeekHeaderProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -87,7 +87,7 @@ export function WeekHeader({
           {t('header.newJob')}
         </Button>
         <LanguageSwitcher />
-        <OverflowMenu settingsHref={settingsHref} onNewGap={onNewGap} />
+        <OverflowMenu settingsHref={settingsHref} onNewAbsence={onNewAbsence} />
       </div>
     </header>
   );
@@ -95,10 +95,10 @@ export function WeekHeader({
 
 function OverflowMenu({
   settingsHref,
-  onNewGap,
+  onNewAbsence,
 }: {
   settingsHref: string;
-  onNewGap?: () => void;
+  onNewAbsence?: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -135,20 +135,20 @@ function OverflowMenu({
 
       {!open ? null : (
         <div className={styles.menuList} role="menu">
-          {onNewGap === undefined ? null : (
+          {onNewAbsence === undefined ? null : (
             <button
               type="button"
               role="menuitem"
               className={styles.menuItem}
               onClick={() => {
                 setOpen(false);
-                onNewGap();
+                onNewAbsence();
               }}
             >
               <span className={styles.menuGlyph} aria-hidden="true">
                 <IconCalendarPlus size={16} stroke={1.75} />
               </span>
-              {t('header.menuNewGap')}
+              {t('header.menuAbsences')}
             </button>
           )}
 

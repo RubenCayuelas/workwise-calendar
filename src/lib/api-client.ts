@@ -17,7 +17,7 @@ import { DEFAULT_LANGUAGE } from './i18n';
 // nothing from the server module (which opens SQLite) reaches the browser bundle.
 export type { WeekBlock, WeekDay, WeekView } from './operations/views';
 export type { FreedHoursChoice, ScheduleSummary } from './composition';
-export type { Block, DayShape, Gap, Project, Settings, WorkPeriod } from '../types';
+export type { Block, DayShape, Gap, GapUnit, Project, Settings, WorkPeriod } from '../types';
 export type {
   CreationOutcome,
   CreationPreview,
@@ -25,9 +25,17 @@ export type {
   CreationPreviewRow,
 } from './operations/projects';
 export type { CreationMode, StartDateDay } from './creation';
+export type {
+  AbsenceKind,
+  AbsenceMutation,
+  AbsencePreview,
+  AbsencePreviewRow,
+  DisplacedWork,
+} from './operations/absences';
 
 import type { WeekView } from './operations/views';
 import type { CreationOutcome, CreationPreview } from './operations/projects';
+import type { AbsenceKind, AbsenceMutation, AbsencePreview } from './operations/absences';
 
 // ---------------------------------------------------------------------------
 // Response shapes
@@ -74,7 +82,14 @@ export interface BlockMutation {
 }
 
 export interface GapMutation {
+  /**
+   * The row the request was about, and the one a PATCH updated in place. A gap's hours are cut at the
+   * comida like everything else, so THE START MAY DIFFER FROM THE ONE ASKED FOR: a gap aimed at 14:00
+   * comes back at 15:30.
+   */
   gap: Gap;
+  /** Every row the save wrote, in clock order — two of them for a gap across the comida. */
+  gaps: Gap[];
   summary: ScheduleSummary;
 }
 
@@ -169,6 +184,12 @@ export interface UpdateGapInput {
   durationMinutes?: number;
   /** `null` clears the reason. */
   reason?: string | null;
+  /**
+   * Which gesture is asking. Omitted means `edit`, the form, which reaches the past; `move` and
+   * `resize` are the grid's two gestures and are refused there. A drag and a form save send the
+   * same fields, so the server cannot tell them apart on its own.
+   */
+  action?: 'edit' | 'move' | 'resize';
 }
 
 /** Every request takes one, so a screen can drop a stale fetch on unmount. */
@@ -483,15 +504,15 @@ export function moveBlock(
 }
 
 /**
- * Dragging the bottom edge: a transfer INSIDE the job, its last row the counterparty. The
- * total changes only when the row being resized IS the last one.
+ * Dragging the bottom edge: longer or shorter, on every row but a past one (409
+ * `past-block-frozen` there, writing nothing).
  *
- * It only sizes a row the engine does not lay out — padlocked, or on a weekend. Anything else
- * is 409 `resize-needs-padlock` and a past row is 409 `past-block-frozen`, both writing
- * nothing, so do not offer the edge there: padlocking first is what fixes a length, and a GAP
- * is what ends a day early. Shrinking with nowhere to put the freed hours answers 409
- * `shrink-needs-choice` carrying `freedMinutes` and `choices`; send the owner's answer back
- * through `freedHours`.
+ * WHERE THE HOURS COME FROM DEPENDS ON THE ROW. On one the engine lays out, the JOB'S estimate
+ * changes and the engine places the difference; growing is applied straight and shrinking answers
+ * 409 `shrink-needs-choice` with the single answer `reduce-total`, because it destroys hours. On a
+ * padlocked or weekend row it is a TRANSFER inside the job, its last row the counterparty, and the
+ * total moves only when the row resized IS the last one; a dead end there answers the same 409 with
+ * `reduce-total` and `new-block`. Either way, send the owner's answer back through `freedHours`.
  */
 export function resizeBlock(
   blockId: string,
@@ -582,6 +603,11 @@ export function createGap(
   return send<GapMutation>('POST', '/gaps', definedOnly(input), options);
 }
 
+/**
+ * Edits an absence, whichever of its rows `gapId` names: the two halves around the comida are ONE
+ * gap, so an omitted `durationMinutes` defaults to their SUM and sending one half's duration would
+ * claim the whole absence is that long.
+ */
 export function updateGap(
   gapId: string,
   input: UpdateGapInput,
@@ -595,11 +621,88 @@ export function updateGap(
   );
 }
 
+/**
+ * The grid's drag: an absence lands on the minute it was released, cut at the comida — a LITERAL
+ * placement, never a queue rank, because a gap is not in the queue. THE STORED START MAY DIFFER
+ * FROM THE ONE SENT (a release with no working time under it becomes the next minute that has
+ * some), so read `gap` back.
+ */
+export function moveGap(
+  gapId: string,
+  drop: { date: string; startMinutes: number },
+  options?: RequestOptions,
+): Promise<GapMutation> {
+  return updateGap(gapId, { ...drop, action: 'move' }, options);
+}
+
+/**
+ * The grid's bottom edge: the absence's NET working minutes, ABSOLUTE rather than a transfer —
+ * there is no job to hand hours to, so nothing is ever asked and `shrink-needs-choice` cannot
+ * happen here. It crosses the comida, creating or deleting the far half.
+ */
+export function resizeGap(
+  gapId: string,
+  durationMinutes: number,
+  options?: RequestOptions,
+): Promise<GapMutation> {
+  return updateGap(gapId, { durationMinutes, action: 'resize' }, options);
+}
+
 export function deleteGap(
   gapId: string,
   options?: RequestOptions,
 ): Promise<{ deleted: true; summary: ScheduleSummary }> {
   return send('DELETE', `/gaps/${encodeURIComponent(gapId)}`, undefined, options);
+}
+
+// ---------------------------------------------------------------------------
+// Absences: a range of days, in one request
+// ---------------------------------------------------------------------------
+
+/**
+ * What the absences screen sends in either mode. `to` absent means one day; Saturday and Sunday are
+ * skipped unless the whole range is inside one weekend. `reason` is the gap's reason or the closed
+ * day's note. `startMinutes`/`durationMinutes` belong to `gap` and are required there — closing a day
+ * takes no hours.
+ */
+export interface SaveAbsenceInput {
+  kind: AbsenceKind;
+  from: string;
+  to?: string;
+  reason?: string;
+  /** Net working minutes, cut at the comida on the way in, exactly like a single gap. */
+  startMinutes?: number;
+  durationMinutes?: number;
+}
+
+/** One transaction over the whole range: a refusal on any day of it writes nothing. */
+export function saveAbsence(
+  input: SaveAbsenceInput,
+  options?: RequestOptions,
+): Promise<AbsenceMutation> {
+  return send<AbsenceMutation>('POST', '/absences', definedOnly(input), options);
+}
+
+/**
+ * What that save WOULD do — the rows, the days, the jobs it pushes and where their hours land —
+ * writing nothing. It runs the real write and rolls it back, so it REFUSES whatever the save would
+ * refuse: call it before offering Guardar and show the answer.
+ */
+export function previewAbsence(
+  input: SaveAbsenceInput,
+  options?: RequestOptions,
+): Promise<AbsencePreview> {
+  return send<AbsencePreview>('POST', '/absences/preview', definedOnly(input), options);
+}
+
+/** Reopens every closed day in the range; the queue fills them again on the next reflow. */
+export function reopenDays(
+  range: { from: string; to?: string },
+  options?: RequestOptions,
+): Promise<{ dates: string[]; summary: ScheduleSummary }> {
+  const query = new URLSearchParams({ from: range.from });
+  if (range.to !== undefined) query.set('to', range.to);
+  return send('DELETE', `/absences/closed-days?${query.toString()}`, undefined, options);
 }
 
 // ---------------------------------------------------------------------------

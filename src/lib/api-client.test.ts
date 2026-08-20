@@ -19,7 +19,12 @@ import {
   isNetworkError,
   listGaps,
   moveBlock,
+  moveGap,
+  previewAbsence,
+  reopenDays,
   resizeBlock,
+  resizeGap,
+  saveAbsence,
   setBlockLock,
   updateProject,
   updateSettings,
@@ -131,6 +136,47 @@ describe('requests', () => {
     const { calls } = stubFetch({ body: {} });
     await setBlockLock('a/b?c', false);
     expect(calls[0].url).toBe('/api/blocks/a%2Fb%3Fc');
+  });
+
+  it("names the GESTURE on a gap's PATCH, which the payload alone cannot say", async () => {
+    // A drag and a form save send the same three fields; only `action` lets the server freeze the
+    // two gestures in the past while the form still reaches it.
+    const { calls } = stubFetch({ body: {} });
+    await moveGap('averia', { date: '2026-08-12', startMinutes: 600 });
+    await resizeGap('averia', 240);
+    expect(calls[0].body).toEqual({ date: '2026-08-12', startMinutes: 600, action: 'move' });
+    expect(calls[1].body).toEqual({ durationMinutes: 240, action: 'resize' });
+    expect(calls[0].url).toBe('/api/gaps/averia');
+  });
+
+  it('sends an absence range as one request, and previews it at its own path', async () => {
+    const { calls } = stubFetch({ body: {} });
+    await saveAbsence({ kind: 'closed-days', from: '2026-09-01', to: '2026-09-04', reason: 'Feria' });
+    await previewAbsence({ kind: 'gap', from: '2026-09-01', startMinutes: 780, durationMinutes: 180 });
+    expect(calls[0].url).toBe('/api/absences');
+    expect(calls[0].body).toEqual({
+      kind: 'closed-days',
+      from: '2026-09-01',
+      to: '2026-09-04',
+      reason: 'Feria',
+    });
+    expect(calls[1].url).toBe('/api/absences/preview');
+    // `to` omitted is a range of one day, and the undefined key must not be sent as null.
+    expect(calls[1].body).toEqual({
+      kind: 'gap',
+      from: '2026-09-01',
+      startMinutes: 780,
+      durationMinutes: 180,
+    });
+  });
+
+  it('reopens a range of closed days with both bounds in the query', async () => {
+    const { calls } = stubFetch({ body: { dates: [] } });
+    await reopenDays({ from: '2026-09-01', to: '2026-09-04' });
+    await reopenDays({ from: '2026-09-01' });
+    expect(calls[0].method).toBe('DELETE');
+    expect(calls[0].url).toBe('/api/absences/closed-days?from=2026-09-01&to=2026-09-04');
+    expect(calls[1].url).toBe('/api/absences/closed-days?from=2026-09-01');
   });
 
   it('drops undefined settings keys — the bug that once wiped period1Start', async () => {

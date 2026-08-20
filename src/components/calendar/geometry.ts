@@ -94,7 +94,9 @@ export interface Timeline {
   yOf(minutes: number): number;
   /**
    * The pixels between two times on the clock, a compressed break included, never under 1px. For any
-   * stored row it equals `duration * pixelsPerMinute` exactly, since no block straddles a break.
+   * stored row it equals `duration * pixelsPerMinute` exactly, since NO stored row straddles a break
+   * — gaps included now that a gap's duration is net working minutes too, so nothing on the grid is
+   * drawn over the seam.
    */
   heightBetween(fromMinutes: number, toMinutes: number): number;
   /** The time at an offset from the top of a column. Clamped to the axis. */

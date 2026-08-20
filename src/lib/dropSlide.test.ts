@@ -18,7 +18,13 @@ const PERIODS = [
 
 const WINDOWS = manualWindowsOf(PERIODS, 60, 60);
 
-const OPEN: DropDay = { periods: PERIODS, manualWindows: WINDOWS, reflows: true, role: 'auto' };
+const OPEN: DropDay = {
+  periods: PERIODS,
+  manualWindows: WINDOWS,
+  reflows: true,
+  role: 'auto',
+  closed: false,
+};
 
 /** The weekend, a closed day, the frozen past. */
 const FIXED: DropDay = { ...OPEN, reflows: false, role: 'manual' };
@@ -50,7 +56,7 @@ describe('dropLanding — a drop aimed below what the day holds', () => {
         date: THU,
         startMinutes: t('13:15'),
         durationMinutes: 360,
-        locked: true,
+        fixed: true,
         dayOf: calendar(WEEKEND),
       }),
     ).toEqual({ date: FRI, startMinutes: t('08:00') });
@@ -82,7 +88,7 @@ describe('dropLanding — a drop aimed below what the day holds', () => {
         date: THU,
         startMinutes: t('13:15'),
         durationMinutes: 360,
-        locked: true,
+        fixed: true,
         dayOf: calendar([...WEEKEND, FRI]),
       }),
     ).toEqual({ date: NEXT_MON, startMinutes: t('08:00') });
@@ -111,7 +117,7 @@ describe('dropLanding — a drop aimed below what the day holds', () => {
         date: THU,
         startMinutes: t('14:00'),
         durationMinutes: 300,
-        locked: true,
+        fixed: true,
         dayOf: calendar(WEEKEND),
       }),
     ).toEqual({ date: THU, startMinutes: t('15:30') });
@@ -120,7 +126,7 @@ describe('dropLanding — a drop aimed below what the day holds', () => {
         date: THU,
         startMinutes: t('14:00'),
         durationMinutes: 315,
-        locked: true,
+        fixed: true,
         dayOf: calendar(WEEKEND),
       }),
     ).toEqual({ date: FRI, startMinutes: t('08:00') });
@@ -132,6 +138,7 @@ describe('dropLanding — a drop aimed below what the day holds', () => {
       manualWindows: manualWindowsOf([PERIODS[0]], 60, 60),
       reflows: true,
       role: 'auto',
+      closed: false,
     };
     expect(
       dropLanding({ date: THU, startMinutes: t('15:00'), durationMinutes: 120, dayOf: () => morning }),
@@ -154,7 +161,7 @@ describe('dropLanding — a drop aimed below what the day holds', () => {
         date: MON,
         startMinutes: t('13:15'),
         durationMinutes: 630,
-        locked: true,
+        fixed: true,
         dayOf: calendar(WEEKEND),
       }),
     ).toEqual({ date: MON, startMinutes: t('13:15') });
@@ -187,14 +194,16 @@ describe('dropLanding — a queue rank has no footprint to fit', () => {
 
 describe('dropLandsLiterally — the one place the padlock policy lives', () => {
   const ask = (input: {
-    locked?: boolean;
+    fixed?: boolean;
     role?: DropDay['role'];
+    closed?: boolean;
     startMinutes: number;
     durationMinutes: number;
   }): boolean =>
     dropLandsLiterally({
-      locked: input.locked ?? false,
+      fixed: input.fixed ?? false,
       role: input.role ?? 'auto',
+      closed: input.closed ?? false,
       periods: PERIODS,
       manualWindows: WINDOWS,
       startMinutes: input.startMinutes,
@@ -204,7 +213,7 @@ describe('dropLandsLiterally — the one place the padlock policy lives', () => 
   it('pins by the DAY: the buffer, the weekend, and a row already padlocked', () => {
     expect(ask({ role: 'buffer', startMinutes: t('09:00'), durationMinutes: 120 })).toBe(true);
     expect(ask({ role: 'manual', startMinutes: t('09:00'), durationMinutes: 120 })).toBe(true);
-    expect(ask({ locked: true, startMinutes: t('09:00'), durationMinutes: 120 })).toBe(true);
+    expect(ask({ fixed: true, startMinutes: t('09:00'), durationMinutes: 120 })).toBe(true);
     expect(ask({ startMinutes: t('09:00'), durationMinutes: 120 })).toBe(false);
   });
 
