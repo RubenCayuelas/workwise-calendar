@@ -1062,9 +1062,10 @@ function DayColumn({
           // — a past row dragged onto a future day was accepted and history moved.
           const inert = day.isPast ? ('past' as const) : busy ? ('busy' as const) : undefined;
           /*
-           * Does the engine lay this row out? The mirror of `isMovable`, and the questions the
-           * server's resize asks before `resize-needs-padlock`. The edge is still drawn and still
-           * pressable — withholding it let the press fall through to the body and start a MOVE.
+           * Does the engine lay this row out? The mirror of `isMovable`. The edge is live either way
+           * and it means two different things: on a pinned row the hours come out of the job's other
+           * rows, and on a row the engine lays out there is no drawing to fix, so what changes is the
+           * job's own hours. Only the SENTENCE differs here.
            */
           const engineLaysOut = !segment.block.locked && !day.isPast && !day.isWeekend;
           return (
@@ -1087,9 +1088,11 @@ function DayColumn({
               onPointerDownBody={(event) => drag.beginMove(event, target, { inert })}
               // The hover bar is over the block, so it drags it too. See `BeginOptions.overlay`.
               onPointerDownActions={(event) => drag.beginMove(event, target, { overlay: true, inert })}
-              // What the server would accept. A past row draws no edge at all: `resizeBlock`
-              // refuses it first and for its own reason (`past-block-frozen`).
-              resizable={!engineLaysOut && !day.isPast}
+              // Every row but a past one: `resizeBlock` refuses the past first and for its own
+              // reason (`past-block-frozen`), and accepts every other row.
+              resizable={!day.isPast}
+              // Which of the two the tooltip explains.
+              sizesJobHours={engineLaysOut}
               onPointerDownResize={(event) =>
                 drag.beginResize(
                   event,
@@ -1103,10 +1106,12 @@ function DayColumn({
                     durationMinutes: segment.group.blocks
                       .slice(segment.index)
                       .reduce((total, row) => total + row.durationMinutes, 0),
+                    // Which of the two sentences the toast uses afterwards.
+                    sizesJobHours: engineLaysOut,
                   },
-                  // Most binding reason first. The past and a save in flight carry over from
-                  // the move; `automatic` is the rule underneath — no length to drag.
-                  { inert: inert ?? (engineLaysOut ? 'automatic' : undefined) },
+                  // The past and a save in flight, carried over from the move. There is no third
+                  // reason any more: every row the server accepts, the edge now drags.
+                  { inert },
                 )
               }
               onOpen={() => onOpenJob(segment.block.projectId)}

@@ -40,12 +40,11 @@ const CLICK_SLOP = 12;
 export type DragKind = 'move' | 'resize';
 
 /**
- * Why a press cannot write: a save or reload in flight (`busy`), a frozen day (`past`), or the
- * bottom edge of a row the engine lays out (`automatic`, which the server refuses as
- * `resize-needs-padlock`). A CLICK still happens on every one of them — the panel and the gap form
- * are reads, and a frozen row is corrected in its form.
+ * Why a press cannot write: a save or reload in flight (`busy`), or a frozen day (`past`). A CLICK
+ * still happens on both — the panel and the gap form are reads, and a frozen row is corrected in its
+ * form.
  */
-export type InertReason = 'busy' | 'past' | 'automatic';
+export type InertReason = 'busy' | 'past';
 
 /**
  * The geometry every draggable thing on the grid has, whatever it is. Everything this layer needs to
@@ -81,6 +80,12 @@ export interface BlockDragTarget extends DragUnit {
   name: string;
   /** The single row a resize applies to: the one whose bottom edge was grabbed. */
   blockId: string;
+  /**
+   * The engine lays this row out, so a resize changes the JOB'S HOURS rather than moving hours
+   * between its rows. Only what is SAID afterwards depends on it — the server decides the same thing
+   * for itself from `isMovable`.
+   */
+  sizesJobHours?: boolean;
 }
 
 /**

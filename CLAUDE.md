@@ -445,44 +445,43 @@ the whole span, whether every row would come back locked, and which days are fre
 *(Why, including the two judgement calls: DECISIONS.md § The Past is Frozen.)*
 
 ### Block Resize (drag the bottom edge)
-> **The bottom edge sizes only a row THE ENGINE DOES NOT LAY OUT: one carrying a padlock, or one on a
-> weekend. Everywhere else there is nothing to size — a block is exactly as big as the room it has —
-> and the request is refused, 409 `resize-needs-padlock`, with nothing written.**
+> **The bottom edge is available on EVERY row but a past one, and it means one thing said two ways:
+> make this stretch of work longer or shorter. Where the hours come from is what differs.**
 
-Resizing is a **transfer inside the job**, with the job's **last block** as the counterparty.
-`total_hours` does not change unless stated otherwise.
+| the row | what the edge changes | `total_hours` |
+|---|---|---|
+| the engine **lays it out** (no padlock, not a weekend) | the JOB'S HOURS — there is no drawing to fix, so the gesture changes how much work there is and the engine places it, flowing past whatever is padlocked | grows; shrinking **asks** first |
+| it carries a **padlock**, or sits on a **weekend** | a TRANSFER inside the job, with the job's last block as the counterparty | unchanged unless stated below |
 
-**A GAP's bottom edge is a different gesture and no exception to any of this**: it is ABSOLUTE — it
-just sets the absence's duration — because there is no job to transfer hours to, and the rule above is
-about rows the ENGINE lays out, which a gap never is. See *Gaps Are Dragged And Resized*.
+**Why an automatic row changes the ESTIMATE rather than its own length.** A hand-set number cannot
+survive there: shrinking Wednesday grows Thursday, frees exactly those minutes on Wednesday, and the
+job flows straight back into them — *«quedando exactamente igual»* (the owner, 2026-08-18, deciding
+that `manual_duration` had to go). But that argument is about a stored GEOMETRY, and it does not reach
+the gesture: changing how many HOURS the job has survives every reflow, because the engine is what
+places them. So the edge stays, and on such a row it does what the owner described — *«esas horas de
+más se colocan después de la tarea con candado»*.
 
-**Why the precondition is the whole shape of the gesture** (decided with the owner, 2026-08-18). On a
-row the engine lays out, a hand-set number cannot survive: shrinking Wednesday grows Thursday, frees
-exactly those minutes on Wednesday, and the job flows straight back into them — *«quedando exactamente
-igual»*. A stored exception (`manual_duration`) made the number stick and cost a rule for every
-consequence; it was deleted. So:
-
-- **the padlock is what holds a length**, and it needs nothing added to it: the engine hands a locked
-  row's geometry straight back, never merges it and never re-derives it. One piece fixes the position
-  and the length, which is why there is no second mark and no undo of its own;
-- **to end a day earlier, make a GAP** — *Cerrar el día aquí*. **THE APP NEVER CREATES THAT GAP.** The
+- **Growing is applied straight.** The job gets those hours and `compose` lays them out.
+- **Shrinking ASKS**, because it destroys hours: 409 `shrink-needs-choice` with the single answer
+  `reduce-total`, and nothing written until it comes back. `new-block` is deliberately absent — a row
+  of its own, of this same job and unpinned, is placed straight back where those hours already were.
+- **The padlock is still what holds a LENGTH**: the engine hands a locked row's geometry back
+  untouched, never merges it and never re-derives it. That is why the same gesture is a transfer there.
+- **To end a day earlier, make a GAP** — *Cerrar el día aquí*. **THE APP NEVER CREATES THAT GAP.** The
   owner was explicit: *«no se creará el hueco automáticamente, sino que si el usuario lo quiere lo
-  deberá de crear él»*. The refusal names the action; the owner takes it;
-- **the edge does not go silent where the server refuses it — it explains itself.** Withholding the
-  strip was tried and is wrong: with nothing there, a press on an automatic row's bottom ten pixels
-  FELL THROUGH TO THE BODY and started a MOVE, so a reach for a length silently re-ranked the queue
-  (measured in the browser). So the strip is drawn on every row except a past one, and says which of
-  the two it is: `ns-resize` and the job-coloured pill where the server will size it, `.resizeInert`
-  with `cursor: help` and a grey hairline pill where it will not. The inert press is handed to the
-  drag as `InertReason.automatic` — no ghost, nothing written, ONE sentence the moment travel proves
-  a drag, and a press that does not travel is still a CLICK that opens the job panel.
-  Its two lines name what the length IS and what does change a day: `block.lengthIsAutomatic` +
-  `block.lengthIsAutomaticHow`;
-- **and the gap the refusal names is ONE TAP AWAY, still never automatic.** The sentence carries a
-  *Cerrar el día aquí* button pre-filled for the row whose edge was pressed; pressing it opens the
-  gap form and **the owner presses Guardar.** Absent when the row has nothing left to close. The
-  offer is computed in one place, `closeDayOffer.ts`, read by the hover bar and by this sentence, so
-  the two can never propose different gaps.
+  deberá de crear él»*.
+- **A GAP's bottom edge is ABSOLUTE** — it just sets the absence's duration — because there is no job
+  to transfer hours to. See *Gaps Are Dragged And Resized*.
+
+> **CORRECTED 2026-08-20, and the correction is the point.** Between 2026-08-18 and this date the edge
+> was **withheld** on any row the engine lays out (409 `resize-needs-padlock`), and this file recorded
+> that precondition as *«decided with the owner»*. **It was not.** The owner decided to delete
+> `manual_duration`, and gave the reasoning above. The precondition was the implementer's inference
+> from it, and it silently reversed the owner's own v0.3 request that the edge *«debería de estar
+> siempre disponible»*. They caught it: *«mis palabras literales no tienen nada que ver con este
+> problema… nadie dijo en ningún momento que eso debía desaparecer para los bloques sin candado»*.
+> Do not re-derive the precondition from the quote; the quote is about a stored length, not about a
+> gesture. *(DECISIONS.md § The Edge Never Needed The Padlock.)*
 
 **The past is refused first and for its own reason** (409 `past-block-frozen`): a past row is outside
 the pool, so the arithmetic would work, but the past is a record.
@@ -1223,15 +1222,12 @@ mutation, added because neither is derivable from geometry:
 
 ### Block Gestures
 - **Drag the body**: move the whole RUN — this reorders the queue and triggers a reflow.
-- **Drag the bottom edge**: resize, as a transfer inside the job — **and only on a row the engine
-  does not lay out**, a padlocked one or one on a weekend. Elsewhere the length IS the room the row
-  has, so there is nothing to size: 409 `resize-needs-padlock`, nothing written.
-  **The strip is still there on those rows, inert and explaining itself** (`.resizeInert`,
-  `cursor: help`) — withheld, the press fell through to the body and started a MOVE — and it offers
-  the gap that really does end a day early. **On a past row no strip is drawn at all.**
-  Where it IS live it works on every row OF A UNIT, because each segment is a real rectangle with a
-  real bottom edge; the drag is capped at the end of the DAY's last manual window and counted in net
-  working minutes; a shrink with nowhere to put the freed hours ASKS.
+- **Drag the bottom edge**: make this stretch of work longer or shorter, on **every row but a past
+  one**. On a row the engine lays out it changes the JOB'S HOURS and the engine places them; on a
+  padlocked or weekend row it is a TRANSFER inside the job. Either way it works on every row OF A
+  UNIT, because each segment is a real rectangle with a real bottom edge; the drag is capped at the
+  end of the DAY's last manual window and counted in net working minutes; and a shrink that has
+  nowhere to put the freed hours ASKS. **On a past row no strip is drawn at all.**
 - **The scissors**: move a PORTION of a job out of its row. Two steps, and the second is not
   optional — the dialog asks how many hours leave the row, then the owner clicks the grid to say
   where they go. A split with an implicit target would park those hours somewhere nobody asked for,

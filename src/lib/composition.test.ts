@@ -2763,26 +2763,43 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     block({ id: 'viernes', project: 'escalera', date: FRI, from: '08:00', hours: 3, locked: true }),
   ];
 
-  it('refuses a row the ENGINE lays out, because its length is the room it has', () => {
-    // On an automatic row the freed hours flow straight back into the room they left, so nothing is
-    // written and the sentence names the two things that do work: the padlock, and a gap.
+  it("changes the JOB'S HOURS on a row the engine lays out, and transfers on a padlocked one", () => {
+    // The edge is available on both, and it means two different things. On an automatic row there is
+    // no drawing to fix — the reflow would re-derive it — so what the gesture changes is how much
+    // work there is, and the engine places it. On a padlocked row the length is the owner's, so the
+    // hours come out of the job's other rows and the estimate is untouched.
     const automatic = [
       block({ id: 'mie', project: 'escalera', date: WED, from: '08:00', hours: 6 }),
       block({ id: 'jue', project: 'escalera', date: THU, from: '08:00', hours: 4 }),
     ];
 
-    const result = resizeBlock(automatic, resizing({ blockId: 'mie', durationMinutes: 120, today: WED }));
+    // GROWING is applied straight: 6 h -> 8 h adds 2 h to the job.
+    const grown = expectEdited(
+      resizeBlock(automatic, resizing({ blockId: 'mie', durationMinutes: 8 * 60, today: WED })),
+    );
+    expect(grown.totalMinutesDelta).toBe(2 * 60);
 
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error('an automatic row has no length of its own');
-    expect(result.error.code).toBe('resize-needs-padlock');
-    expect(result.error.blockId).toBe('mie');
-    expect(result.error.messageKey).toBe('errors.resizeNeedsPadlock');
+    // SHRINKING destroys hours, so it asks — and `new-block` is not offered, because a row of its
+    // own of this same job, unpinned, is placed straight back where these hours already were.
+    const asked = resizeBlock(automatic, resizing({ blockId: 'mie', durationMinutes: 120, today: WED }));
+    expect(asked.ok).toBe(false);
+    if (asked.ok) throw new Error('shrinking an automatic row must ask');
+    expect(asked.error.code).toBe('shrink-needs-choice');
+    expect(asked.error.choices).toEqual(['reduce-total']);
+    expect(asked.error.freedMinutes).toBe(4 * 60);
 
-    // Padlock it and the very same request goes through: the padlock is what holds a length.
+    const answered = expectEdited(
+      resizeBlock(
+        automatic,
+        resizing({ blockId: 'mie', durationMinutes: 120, today: WED, freedHours: 'reduce-total' }),
+      ),
+    );
+    expect(answered.totalMinutesDelta).toBe(-4 * 60);
+
+    // The same request on a PADLOCKED row is the transfer, and the estimate does not move.
     const pinned = automatic.map((row) => (row.id === 'mie' ? { ...row, locked: true } : row));
     const edit = expectEdited(resizeBlock(pinned, resizing({ blockId: 'mie', durationMinutes: 120, today: WED })));
-    // The 4 h it gives up land on the job's last row the engine still places.
+    expect(edit.totalMinutesDelta).toBe(0);
     expect(jobRows(edit.blocks, 'escalera')).toEqual([`${WED} 08:00-10:00 [locked]`, `${THU} 08:00-16:00`]);
   });
 
@@ -4904,7 +4921,7 @@ describe('shrinking a row holds over the same generated calendars', () => {
   it('either transfers the hours or asks, and every answer it offers works', () => {
     let transferred = 0;
     let asked = 0;
-    let refused = 0;
+    let automatic = 0;
 
     for (let seed = 1; seed <= 2000; seed += 1) {
       sequence = 0;
@@ -4931,13 +4948,17 @@ describe('shrinking a row holds over the same generated calendars', () => {
 
       const asIs = shrink();
 
-      // THE PRECONDITION, on every seed: the edge only sizes a row the ENGINE DOES NOT LAY OUT. On one
-      // it does, the request is refused with nothing written — there is no third answer.
+      // ON A ROW THE ENGINE LAYS OUT, shrinking always ASKS and the only answer is to take the hours
+      // off the job. `new-block` may never appear there: a row of its own, of this same job and
+      // unpinned, is placed straight back where these hours already were. Asserted on every seed,
+      // then dropped into the generic path below, which checks the answer really works.
       if (isMovable(target, composeInput.today)) {
-        refused += 1;
+        automatic += 1;
         expect(asIs.ok, where).toBe(false);
-        if (!asIs.ok) expect(asIs.error.code, where).toBe('resize-needs-padlock');
-        continue;
+        if (!asIs.ok) {
+          expect(asIs.error.code, where).toBe('shrink-needs-choice');
+          expect(asIs.error.choices, where).toEqual(['reduce-total']);
+        }
       }
 
       if (!asIs.ok) {
@@ -4979,7 +5000,7 @@ describe('shrinking a row holds over the same generated calendars', () => {
     // Guards on the generator: both halves of the rule have to be reached.
     expect(transferred, 'no shrink ever found a counterparty').toBeGreaterThan(100);
     expect(asked, 'no shrink ever reached the dead end').toBeGreaterThan(100);
-    expect(refused, 'no shrink ever aimed at a row the engine lays out').toBeGreaterThan(200);
+    expect(automatic, 'no shrink ever aimed at a row the engine lays out').toBeGreaterThan(200);
   });
 
   /** The engine settles what an edit produced, with every row inside its day, and settles it once. */

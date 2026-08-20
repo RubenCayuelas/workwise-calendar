@@ -504,15 +504,15 @@ export function moveBlock(
 }
 
 /**
- * Dragging the bottom edge: a transfer INSIDE the job, its last row the counterparty. The
- * total changes only when the row being resized IS the last one.
+ * Dragging the bottom edge: longer or shorter, on every row but a past one (409
+ * `past-block-frozen` there, writing nothing).
  *
- * It only sizes a row the engine does not lay out — padlocked, or on a weekend. Anything else
- * is 409 `resize-needs-padlock` and a past row is 409 `past-block-frozen`, both writing
- * nothing, so do not offer the edge there: padlocking first is what fixes a length, and a GAP
- * is what ends a day early. Shrinking with nowhere to put the freed hours answers 409
- * `shrink-needs-choice` carrying `freedMinutes` and `choices`; send the owner's answer back
- * through `freedHours`.
+ * WHERE THE HOURS COME FROM DEPENDS ON THE ROW. On one the engine lays out, the JOB'S estimate
+ * changes and the engine places the difference; growing is applied straight and shrinking answers
+ * 409 `shrink-needs-choice` with the single answer `reduce-total`, because it destroys hours. On a
+ * padlocked or weekend row it is a TRANSFER inside the job, its last row the counterparty, and the
+ * total moves only when the row resized IS the last one; a dead end there answers the same 409 with
+ * `reduce-total` and `new-block`. Either way, send the owner's answer back through `freedHours`.
  */
 export function resizeBlock(
   blockId: string,

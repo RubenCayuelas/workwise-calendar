@@ -816,7 +816,6 @@ function clamp(value: number, min: number, max: number): number {
 export type EditErrorCode =
   | 'unknown-block'
   | 'invalid-duration'
-  | 'resize-needs-padlock'
   | 'shrink-needs-choice'
   | 'transfer-exceeds-job'
   | 'reduction-exceeds-job';
@@ -824,7 +823,6 @@ export type EditErrorCode =
 export const EDIT_MESSAGE_KEYS: Record<EditErrorCode, string> = {
   'unknown-block': 'errors.unknownBlock',
   'invalid-duration': 'errors.invalidDuration',
-  'resize-needs-padlock': 'errors.resizeNeedsPadlock',
   'shrink-needs-choice': 'errors.shrinkNeedsChoice',
   'transfer-exceeds-job': 'errors.transferExceedsJob',
   'reduction-exceeds-job': 'errors.reductionExceedsJob',
@@ -962,11 +960,13 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
   const target = draft.find((block) => block.id === resize.blockId);
   if (target === undefined) return failedEdit('unknown-block', { blockId: resize.blockId });
 
-  // THE ONE PRECONDITION: the engine must not be laying this row out. Refused here rather than in
-  // the operation so the pure engine states its own rule and the UI can mirror it.
-  if (isMovable(target, resize.today)) {
-    return failedEdit('resize-needs-padlock', { blockId: target.id, projectId: target.projectId });
-  }
+  // WHAT THE EDGE MEANS DEPENDS ON WHETHER THE ENGINE LAYS THIS ROW OUT, and it is available either
+  // way. On a row the owner has pinned, the length is theirs to set and the hours come out of the
+  // job's other rows — a transfer, total unchanged. On a row the engine lays out there is no
+  // geometry to fix (it would be re-derived on the next pass), so what the edge changes is HOW MUCH
+  // WORK THERE IS: the job's estimate. The engine then places those hours, flowing past whatever is
+  // padlocked in the way, and the change survives because it was never a drawing.
+  const engineLaysOut = isMovable(target, resize.today);
 
   const next = Math.round(resize.durationMinutes);
   if (!Number.isFinite(next) || next <= 0) {
@@ -993,7 +993,26 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
   let totalMinutesDelta = 0;
   let touchedLockedBlockIds: string[] = [];
 
-  if (delta > 0 && isLast) {
+  if (engineLaysOut) {
+    // No transfer: handing the hours to another row of this job would free exactly the minutes the
+    // job then flows straight back into, which is the whole reason a stored length was deleted.
+    if (delta > 0) {
+      totalMinutesDelta = delta;
+    } else if (delta < 0) {
+      // Shrinking DESTROYS hours here, so it asks. `new-block` is not among the answers: a row of
+      // its own, of this same job and unpinned, is placed right back where these hours already were.
+      const answer = resize.freedHours;
+      if (answer !== 'reduce-total') {
+        return failedEdit('shrink-needs-choice', {
+          blockId: target.id,
+          projectId: target.projectId,
+          freedMinutes: -delta,
+          choices: ['reduce-total'],
+        });
+      }
+      totalMinutesDelta = delta;
+    }
+  } else if (delta > 0 && isLast) {
     // Nothing farther to draw from, so the estimate grows.
     totalMinutesDelta = delta;
   } else if (delta > 0) {

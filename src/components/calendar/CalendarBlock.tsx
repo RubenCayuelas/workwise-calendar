@@ -55,6 +55,11 @@ export interface CalendarBlockProps {
    * (`InertReason.automatic`), which keeps one gesture from quietly becoming the other.
    */
   resizable: boolean;
+  /**
+   * The engine lays this row out, so the edge changes the JOB'S HOURS rather than moving hours
+   * between its rows. Only the tooltip differs; the gesture is the same one.
+   */
+  sizesJobHours?: boolean;
   onPointerDownResize: (event: React.PointerEvent) => void;
   onOpen: () => void;
   onToggleLock: () => void;
@@ -77,6 +82,7 @@ export function CalendarBlock({
   onPointerDownBody,
   onPointerDownActions,
   resizable,
+  sizesJobHours = false,
   onPointerDownResize,
   onOpen,
   onToggleLock,
@@ -174,7 +180,7 @@ export function CalendarBlock({
         ...markHints,
         ...(frozen
           ? [t('day.frozenHint')]
-          : [t('block.drag'), resizable ? t('block.resize') : t('block.lengthIsAutomatic')]),
+          : [t('block.drag'), t('block.resize')]),
       ].join('\n')}
       style={{
         '--ww-block-color': block.project.color,
@@ -264,23 +270,12 @@ export function CalendarBlock({
        * STRETCH from this row's start, in net working minutes over the day's manual windows:
        * see `durationTo` and `maxDurationFrom` in geometry.ts.
        */}
-      {frozen ? null : resizable ? (
+      {frozen ? null : (
         <div
           className={styles.resize}
           role="separator"
           aria-label={t('block.resize')}
-          title={t('block.resizeHint')}
-          onPointerDown={onPointerDownResize}
-        />
-      ) : (
-        /*
-         * The same ten pixels, answering instead of sizing. No role and no label: the strip is
-         * not a control, and its sentence is already on the row's own tooltip.
-         */
-        <div
-          className={`${styles.resize} ${styles.resizeInert}`}
-          aria-hidden="true"
-          title={`${t('block.lengthIsAutomatic')}\n${t('block.lengthIsAutomaticHow')}`}
+          title={t(sizesJobHours ? 'block.resizeHintJobHours' : 'block.resizeHint')}
           onPointerDown={onPointerDownResize}
         />
       )}

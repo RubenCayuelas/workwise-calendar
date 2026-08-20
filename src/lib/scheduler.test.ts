@@ -587,19 +587,32 @@ describe('block gestures', () => {
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
-  it('refuses an unlocked future row, and sizes the very same row once it is padlocked', () => {
-    // On an automatic row the recomposition re-derives the length from the job's total, so the app
-    // says what the owner has to do — padlock the row, or make a gap — and writes nothing meanwhile.
+  it("changes the job's hours on an unlocked row, and transfers once it is padlocked", () => {
+    // The edge works on both, and means two different things. Automatic: no drawing to fix, so what
+    // changes is the job's estimate and the engine places it. Padlocked: the length is the owner's,
+    // so the hours come out of the job's other rows.
     const puerta = job('Puerta', 8);
     const morning = puerta.blocks[0];
     expect(morning.durationMinutes).toBe(6 * 60);
     const before = calendar();
 
+    // Shrinking an automatic row destroys hours, so it asks and writes nothing until answered.
     const error = refusal(() => resizeBlock(morning.id, { durationMinutes: 2 * 60, today: MON }, db));
     expect(error.status).toBe(409);
-    expect(error.code).toBe('resize-needs-padlock');
-    expect(error.messageKey).toBe('errors.resizeNeedsPadlock');
+    expect(error.code).toBe('shrink-needs-choice');
+    expect(error.details?.choices).toEqual(['reduce-total']);
     expect(calendar()).toEqual(before);
+
+    // GROWING is applied straight: the job gets bigger and the engine lays the hours out. The edge
+    // sizes the STRETCH, which here is both halves of the day — 8 h — so 10 h adds two.
+    const grown = resizeBlock(morning.id, { durationMinutes: 10 * 60, today: MON }, db);
+    expect(listProjects(db)[0].totalMinutes).toBe(10 * 60);
+    expect(grown.blocks.reduce((total, row) => total + row.durationMinutes, 0)).toBe(10 * 60);
+    expect(() => assertProjectHours(db)).not.toThrow();
+
+    // Back to 8 h so the padlocked half of the case starts where it did.
+    resizeBlock(morning.id, { durationMinutes: 8 * 60, today: MON, freedHours: 'reduce-total' }, db);
+    expect(listProjects(db)[0].totalMinutes).toBe(8 * 60);
 
     setBlockLock(morning.id, true, { today: MON }, db);
     const result = resizeBlock(morning.id, { durationMinutes: 2 * 60, today: MON }, db);

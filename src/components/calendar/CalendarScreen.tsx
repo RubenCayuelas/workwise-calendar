@@ -369,60 +369,6 @@ export function CalendarScreen({
     [t, toast],
   );
 
-  /**
-   * The bottom edge of a row the engine lays out, which sizes nothing. Two lines saying what a
-   * length IS and what really changes a day, with *Cerrar el día aquí* riding along pre-filled
-   * for THIS row: it opens the form and the owner presses Save — never automatic.
-   */
-  const explainAutomaticLength = useCallback(
-    (target: BlockDragTarget): void => {
-      const view = viewRef.current;
-      const day = view?.days.find((candidate) => candidate.date === target.date);
-      // The ROW the edge belongs to, not the unit: the gap starts where THAT row ends.
-      const row = view?.blocks.find((block) => block.id === target.blockId);
-      const offer =
-        view === null || day === undefined || row === undefined
-          ? null
-          : closeDayAfter(
-              closeDayInputFor(
-                day,
-                view.blocks.filter((block) => block.date === day.date),
-                view.gaps.filter((gap) => gap.date === day.date),
-              ),
-              row,
-            );
-      // No gap form wired means no form to open, so there is nothing to press either.
-      const action = offer === null || renderAbsenceForm === undefined ? null : offer;
-
-      // Assigned twice: the button dismisses the toast it is inside, and the id only exists
-      // once `show` returns. The click is always later.
-      let toastId = '';
-      toastId = toast.show({
-        tone: 'info',
-        // Long enough to read two lines and reach the button; the others have nothing to press.
-        duration: action === null ? undefined : 12000,
-        message: (
-          <span className={styles.inertHint}>
-            <span>{t('block.lengthIsAutomatic')}</span>
-            <span>{t('block.lengthIsAutomaticHow')}</span>
-            {action === null ? null : (
-              <Button
-                size="sm"
-                icon={<IconClockStop size={14} stroke={1.75} />}
-                onClick={() => {
-                  toast.dismiss(toastId);
-                  setGapTarget({ gap: null, closeDay: action });
-                }}
-              >
-                {t('block.closeDay')}
-              </Button>
-            )}
-          </span>
-        ),
-      });
-    },
-    [renderAbsenceForm, t, toast],
-  );
 
   /**
    * A press that could not become a gesture, saying why. `automatic` is the odd one out: not a
@@ -431,11 +377,6 @@ export function CalendarScreen({
    */
   const onInert = useCallback(
     (reason: InertReason, target: DragTarget): void => {
-      // The only reason that is about a ROW, so the only one that reads the target.
-      if (reason === 'automatic') {
-        if (target.kind === 'block') explainAutomaticLength(target);
-        return;
-      }
       // The frozen past names THE WAY OUT, and it is a different form for the two of them: a job's
       // hours are changed in its panel, an absence in its own.
       if (reason === 'past' && target.kind === 'gap') {
@@ -444,7 +385,7 @@ export function CalendarScreen({
       }
       toast.info(t(INERT_KEYS[reason]));
     },
-    [explainAutomaticLength, t, toast],
+    [t, toast],
   );
 
 
@@ -479,12 +420,18 @@ export function CalendarScreen({
         // Both numbers come from the GESTURE: the owner drew a STRETCH in net working minutes,
         // and one crossing the lunch break is stored as two rows — so reading the hours back off
         // the row named in the request would answer "4 h" to a 6 h drag.
-        toast.info(
-          t(durationMinutes < target.durationMinutes ? 'notices.resizeShrunk' : 'notices.resizeGrown', {
-            name: target.name,
-            hours: format.hourNumber(durationMinutes),
-          }),
-        );
+        // WHICH SENTENCE depends on where the hours came from. On a row the engine lays out the job
+        // itself got bigger or smaller; on a padlocked one they moved between the job's own rows, and
+        // saying "the padlock holds this duration" about an automatic row is simply false.
+        const shrunk = durationMinutes < target.durationMinutes;
+        const key = target.sizesJobHours
+          ? shrunk
+            ? 'notices.resizeJobShrunk'
+            : 'notices.resizeJobGrown'
+          : shrunk
+            ? 'notices.resizeShrunk'
+            : 'notices.resizeGrown';
+        toast.info(t(key, { name: target.name, hours: format.hourNumber(durationMinutes) }));
       });
     },
     [format, mutate, report, t, toast],
@@ -977,7 +924,7 @@ const FALLBACK_TIMELINE = createTimeline({
 const DAY_HEADER_ALLOWANCE = 46;
 
 /** One key per `InertReason`, each naming the reason AND what the owner can still do. */
-const INERT_KEYS: Record<Exclude<InertReason, 'automatic'>, string> = {
+const INERT_KEYS: Record<InertReason, string> = {
   busy: 'notices.pressWhileBusy',
   past: 'notices.pressOnPastDay',
 };

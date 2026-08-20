@@ -754,6 +754,56 @@ job is 2 h; growing the same row to 4 h → the job is 4 h.)*
 
 ---
 
+## The Edge Never Needed The Padlock
+
+**Corrected 2026-08-20, by the owner catching it.** For two days the bottom edge was withheld on any
+row the engine lays out (409 `resize-needs-padlock`), and CLAUDE.md recorded that precondition as
+*«decided with the owner, 2026-08-18»*. It was not. Asked for his exact words, the trace is:
+
+1. **v0.3, ~2026-08-12.** The owner reported the edge *«only works in one direction»* and asked for it
+   to be **always available**. It was, backed by `manual_duration` so the number would stick.
+2. **2026-08-18.** They asked whether the hand-set duration was necessary and gave the reasoning that
+   killed it: *«si lo reduce de miércoles crece en jueves y sitio se libera en miércoles y pasa allí
+   quedando exactamente igual»*.
+3. **The inference.** Deleting the column removed what made the edge work on an unpinned row, and
+   rather than stopping to ask, the round narrowed the gesture to padlocked and weekend rows.
+4. **2026-08-20.** *«mis palabras literales que me has dicho no tienen nada que ver con este
+   problema… nadie dijo en ningún momento que eso debía de desaparecer para los bloques sin
+   candado»*. Correct on both counts.
+
+**Where the reasoning went wrong, precisely.** The quote is about a stored GEOMETRY: a length written
+onto a row the engine re-derives cannot survive. True, and it is why `manual_duration` had to go. But
+it says nothing about whether the edge can be GRABBED, and the round treated the two as one thing.
+
+**What the gesture means on an automatic row**, and the owner had already said it in the same
+breath as the correction: *«esas horas de más se colocan después de la tarea con candado»*. Growing
+such a row is not drawing a length — it is saying THERE IS MORE WORK. That survives every reflow,
+because the engine is what places it. So:
+
+- automatic row → the JOB'S HOURS change, and `compose` lays the difference out;
+- padlocked or weekend row → a TRANSFER inside the job, as before, because there the length is the
+  owner's and the engine hands it back untouched;
+- shrinking an automatic row **asks**, since it destroys hours, and the only answer offered is
+  `reduce-total`: a `new-block` of the same unpinned job is placed straight back where those hours
+  already were.
+
+**One inconsistency this also closes.** The gaps round (2026-08-19) gave a gap a free bottom edge —
+a gap is never engine-laid-out, so it needed no padlock — while an ordinary block still required one.
+The owner noticed that too: *«recuerdo definir que en los gaps sí se puedan redimensionar como los
+bloques normales»*. Now both are available and only the source of the hours differs.
+
+**What was deleted with the precondition**, since it existed only to hold it up: the 409 itself and
+its two locale strings, `InertReason.automatic`, the inert strip and its `cursor: help`, the two
+sentences that explained an edge that did nothing (`block.lengthIsAutomatic` and its `…How`), and the
+54-line toast that carried *Cerrar el día aquí* out of a gesture that now has its own answer. The
+offer still lives on the hover bar, where it always did.
+
+**The lesson worth keeping.** A quote that justifies deleting a MECHANISM does not license removing a
+GESTURE that mechanism happened to serve. When the two are conflated the record says "decided with
+the owner" about something they never saw — which is exactly how this went unnoticed for two days.
+
+---
+
 ## The Padlock Holds the Length
 
 **Decided with the owner, 2026-08-18. This deletes *A Hand-Set Duration*, below.**
@@ -848,7 +898,13 @@ the two entry points proposing different gaps, `WeekGrid`'s private `closeDayAft
 `closeDayInput` memo were extracted to `src/components/calendar/closeDayOffer.ts`, imported by the hover
 bar and by this sentence, with seven cases in `closeDayOffer.test.ts`.
 
-### This reverses the owner's own v0.3 request, and here is why
+### This reversed the owner's own v0.3 request — and the reversal was WRONG. See § The Edge Never Needed The Padlock
+
+> **Superseded 2026-08-20.** Everything below is the reasoning as it stood, kept because the mistake
+> is instructive: the argument is sound about a stored LENGTH and was then applied to a GESTURE, which
+> it does not reach. The owner never asked for the edge to disappear.
+
+
 
 In v0.3 the owner's report was that the bottom edge *"only works in one direction"*, and the answer then
 was to **offer the edge on every row** — the two strings that had explained why it was inert were
