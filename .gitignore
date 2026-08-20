@@ -6,6 +6,10 @@ node_modules/
 # Next.js
 /.next/
 /out/
+# Regenerated on every dev/build, and Next 16 writes it DIFFERENTLY for each:
+# next dev points it at .next/dev/types, next build at .next/types. Tracking it means one
+# of the two always shows as a change. tsc passes without it.
+next-env.d.ts
 .env*.local
 .env*.production
 
