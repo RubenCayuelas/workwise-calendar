@@ -496,58 +496,53 @@ changes on other days is the counterparty giving up or taking hours, not the ges
 **The past is refused first and for its own reason** (409 `past-block-frozen`): a past row is outside
 the pool, so the arithmetic would work, but the past is a record.
 
-| Action | Effect | `total_hours` |
-|---|---|---|
-| Enlarge a block that is **not** the last | Subtract those hours from the last block, cascading backwards (LIFO) and deleting any block that reaches 0 | unchanged |
-| Shrink a block that is **not** the last | Add those hours to the job's last block **the engine still lays out**, skipping the locked ones and cascading backwards | unchanged |
-| Enlarge the **last** block (or the only block) | No farther block to draw from | **increases** |
-| Shrink with **no block that can take the hours** | ASK the owner, three ways out | depends on the answer |
-
-The counterparty rule is the mirror of the precondition: **what is sized is never in the pool and the
-counterparty always is.** A raw `duration` written onto a fixed row is geometry nothing settles.
-
-**SHRINKING ASKS, IT DOES NOT REFUSE.** The dead end is a QUESTION, asked once and answered in the
-same request shape:
+**SHRINKING ASKS, IT DOES NOT REFUSE**, and so does growing past what the job can pay for. Each dead
+end is a QUESTION, asked once and answered in the same request shape:
 
 | the answer | what happens | `total_hours` |
 |---|---|---|
 | **Cancelar** | nothing is written; the client simply does not ask again | unchanged |
 | **Quitar las horas del total** (`freedHours: "reduce-total"`) | the job becomes smaller by those hours | **decreases** |
 | **Dividir** (`freedHours: "new-block"`) | the hours become a block of their own, ranked after the job's last row | unchanged |
+| **Añadir las horas al total** (`freedHours: "add-to-total"`) | answers a GROW: the job becomes bigger by the shortfall | **increases** |
 
-Unanswered, the request is **409 `shrink-needs-choice` / `errors.shrinkNeedsChoice`** that writes
-nothing and carries `freedMinutes` and `choices` — the answers that really exist, so the dialog is
-built from the server's list in ONE round trip. `new-block` is absent when the freed hours are under
-a quarter of an hour. A `freedHours` value the refusal did not offer is a 400, never a silent
-re-ask. `ResizeChoiceDialog` renders it; `details` carries MINUTES only, and the dialog formats them.
+Unanswered, the request is **409 `shrink-needs-choice`** or **409 `grow-needs-choice`**, writing
+nothing and carrying `freedMinutes` and `choices` — the answers that really exist, so the dialog is
+built from the server's list in ONE round trip. `new-block` is absent when the freed hours are under a
+quarter of an hour, and absent from a grow entirely. A `freedHours` value the refusal did not offer is
+a 400, never a silent re-ask. `ResizeChoiceDialog` renders it; `details` carries MINUTES only, and the
+dialog formats them. **`freedHours` is the answer channel for BOTH directions** — the name predates the
+grow and is kept because it is the documented wire field.
 
-**The dead end is exactly two cases**: the stretch being sized contains the job's LAST row, or every
-counterparty is outside the movable pool (locked, weekend, frozen past).
+**The dead ends are three**: the stretch being sized contains the job's LAST row; every counterparty is
+outside the movable pool (locked, weekend, frozen past); or the growth is larger than everything the
+counterparties hold.
 
-**The drag is measured in NET WORKING MINUTES over the day's manual window.**
-- **It crosses the lunch break, which costs nothing.** A row starting at 10:00 dragged to 17:30 is
-  **6 h** — `10:00-14:00` plus `15:30-17:30` — never 7.5 h. Releasing anywhere inside 14:00-15:30
+- **The drag crosses the lunch break, which costs nothing.** A row starting at 10:00 dragged to 17:30
+  is **6 h** — `10:00-14:00` plus `15:30-17:30` — never 7.5 h. Releasing anywhere inside 14:00-15:30
   gives the same 4 h as releasing at 14:00.
 - **It may reach into the visual margins**, and stops at the end of the day's last manual window.
-- **The result is stored in segments**, and **the whole stretch comes out as fixed as the row that
-  was dragged**: every row it writes or absorbs inherits the target's padlock. Half a stretch left to
-  the engine came apart on the very next pass — a padlocked `10:00-14:00` beside an automatic
+- **The result is stored in segments**, and **the whole stretch comes out as fixed as the row that was
+  dragged**: every row it writes or absorbs inherits the target's padlock. Half a stretch left to the
+  engine came apart on the very next pass — a padlocked `10:00-14:00` beside an automatic
   `15:30-17:30` was reflowed to `15:30-19:30`, so the drag stored a length nobody asked for. Same rule
   as `autoLock`: what holds a hand-made shape has to hold all of it.
 
-**What the edge sizes is the STRETCH that begins at that row's start**, not the rectangle: the row
-plus the rows of its own job that continue it on that day and *cannot survive the resize on their
-own* — one the engine does not lay out either (the other fixed half of the same unit), or one the new
-segments land on. **An automatic row the stretch does not reach is left to the engine.**
+**What the edge sizes is the STRETCH that begins at that row's start**, not the rectangle: the row plus
+the rows of its own job that continue it *on that day* and cannot survive the resize on their own — one
+the engine does not lay out either (the other fixed half of the same unit), or one the new segments land
+on. **An automatic row the stretch does not reach is left to the engine**, and the stretch NEVER spans
+days: what changes elsewhere is a counterparty giving up or taking hours.
 
-**The COUNTERPARTY IS ALWAYS A ROW THE ENGINE STILL LAYS OUT.** It is never handed to a row outside
-the pool, because there a raw `duration` writes geometry that stays.
+**The COUNTERPARTY IS ALWAYS A ROW THE ENGINE STILL LAYS OUT** (`lastAutomatic`). Hours handed to a row
+outside the pool are written straight onto the clock, where nothing settles them.
 
 **A LOCKED row the stretch rewrites is named** in `touchedLockedBlockIds` and the UI warns; "a locked
 block is never grown silently".
 
-**Margin time PADLOCKS the row** — stated in full above. `touchedLockedBlockIds` is computed BEFORE
-the stretch's padlock is spread, so a resize never reports a padlock it has just applied.
+**Margin time PADLOCKS the row** — stated in full above. `touchedLockedBlockIds` is computed BEFORE the
+stretch's padlock is spread, so a resize never reports a padlock it has just applied.
+
 
 *(Why: DECISIONS.md § Block Resize, and Shrinking That Asks, and § The Padlock Holds the Length.)*
 
@@ -962,6 +957,9 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
 - **Summary strip** above the grid, amber-tinted:
   `Taller ocupado hasta el jueves 27 de agosto · 96 h en cola · viernes libre`. This is the stated
   objective of the app. Served from one endpoint so `composition.ts` owns the arithmetic.
+  **`GET /api/summary` is API surface, not dead code**, even though the week view reads the same
+  object out of `GET /api/week`: it is the one place the strip's arithmetic is reachable on its own.
+  An audit called it unused on 2026-08-20; it is unused BY THIS APP, which is a different thing.
 - **Header**: logo, `‹ Semana 33 · 10–16 ago 2026 ›`, and `Hoy`, `+ Nuevo trabajo`, language,
   overflow menu.
 - **Visual blocks**: tinted fill with a saturated border in the project colour, name + hours. A unit
@@ -1407,8 +1405,9 @@ Work periods, auto-fill capacity, visual margins, planning horizon, gap colour, 
 
 ## Composition Algorithm Notes
 
-The per-day placement logic was validated in `recompose-poc.js`. Three of its behaviours were checked
-by executing it, and only one survives:
+The per-day placement logic was first validated in a throwaway prototype (`recompose-poc.js`, deleted
+2026-08-20 — every one of its scenarios is a real test now). Three of its behaviours were checked by
+executing it, and **none of the three survives**, which is why the file went:
 
 - ❌ **Overflows the whole item, never splitting it** — replaced by *Fill and Overflow, Always*
   (2026-08-17). The item takes what the day has left and the remainder goes on.
@@ -1584,8 +1583,6 @@ is in [DECISIONS.md](DECISIONS.md) § Release history.**
 - **Read [DECISIONS.md](DECISIONS.md) before changing a rule.** Several of these rules were decided
   against an obvious-looking alternative that had already been tried and had failed for a recorded
   reason.
-- **Review `recompose-poc.js` first** for the per-day placement logic, but see the one behaviour
-  above that must not be ported.
 - **Any change to a business rule updates this file**, and appends its reasoning to DECISIONS.md.
 - **Commits: Conventional Commits, SUBJECT ONLY** (decided by the owner, 2026-08-20).
   `type(scope): subject`, imperative, ~72 characters, no body. The reasoning goes to DECISIONS.md,

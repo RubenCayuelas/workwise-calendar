@@ -17,6 +17,7 @@ import {
   NumberStepper,
   SidePanel,
   TimeSelect,
+  clockMinutes,
 } from '../ui';
 import {
   apiErrorMessage,
@@ -34,7 +35,7 @@ import {
   todayLocal,
 } from '../../lib/dates';
 import { useFormat } from '../../lib/useFormat';
-import { HOUR_STEP as STEP_HOURS, parseClockTime } from './forms';
+import { HOUR_STEP as STEP_HOURS } from '../settings/shift';
 import type { JobsMutationHandler } from './events';
 import styles from './jobs.module.css';
 
@@ -138,7 +139,7 @@ export function SplitBlockPanel({
       setLocalError({ field: 'date', key: 'errors.invalidDate' });
       return;
     }
-    const startMinutes = parseClockTime(startTime);
+    const startMinutes = clockMinutes(startTime);
     if (startMinutes === undefined || startMinutes + durationMinutes > MINUTES_PER_DAY) {
       setLocalError({ field: 'startTime', key: 'errors.invalidTime' });
       return;

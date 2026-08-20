@@ -314,34 +314,6 @@
 }
 
 /*
- * THE SAME STRIP ON A ROW THE ENGINE LAYS OUT, where it sizes nothing (2026-08-18).
- *
- * It is kept — a reach for the bottom edge must not fall through to the body and become a
- * MOVE — and it is a QUESTION rather than a handle, which the pointer has to be able to see
- * before it presses:
- *
- * - `help`, not `ns-resize`: the cursor is the only thing that says which of the two edges
- *   this is before anything happens. It is honest about what a press gets, which is a
- *   sentence.
- * - THE PILL IS GREY AND STAYS THIN. The job-coloured pill that thickens under the pointer
- *   means "you have acquired this", and it must not be shown where nothing can be acquired;
- *   a hairline in the border colour says "there is something here" without promising a drag.
- *
- * The two `:hover` rules out-specify the coloured ones above, which are already matching by
- * then (`.block:hover .resize::after` and `.block:hover .resize:hover::after`).
- */
-.resizeInert {
-  cursor: help;
-}
-
-.block:hover .resizeInert::after,
-.block:hover .resizeInert:hover::after {
-  height: 2px;
-  background: var(--ww-border);
-  opacity: 0.9;
-}
-
-/*
  * A save or a reload is in flight, so nothing can start. The cursor says so — it used to go
  * on saying `grab` while every press was being dropped on the floor, which is the difference
  * between "wait a moment" and "this app ignores me".

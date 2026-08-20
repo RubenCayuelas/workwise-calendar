@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { dayEndMinutes, planCloseDay, type CloseDayBlock, type CloseDayInput } from './closeDay';
+import { lastPeriodEndMinutes, planCloseDay, type CloseDayBlock, type CloseDayInput } from './closeDay';
 
 const MORNING = { startMinutes: 8 * 60, endMinutes: 14 * 60 };
 const AFTERNOON = { startMinutes: 15 * 60 + 30, endMinutes: 19 * 60 + 30 };
@@ -33,14 +33,14 @@ function block(overrides: Partial<CloseDayBlock> = {}): CloseDayBlock {
   };
 }
 
-describe('dayEndMinutes', () => {
+describe('lastPeriodEndMinutes', () => {
   it('is the end of the last enabled period', () => {
-    expect(dayEndMinutes([MORNING, AFTERNOON])).toBe(19 * 60 + 30);
-    expect(dayEndMinutes([MORNING])).toBe(14 * 60);
+    expect(lastPeriodEndMinutes([MORNING, AFTERNOON])).toBe(19 * 60 + 30);
+    expect(lastPeriodEndMinutes([MORNING])).toBe(14 * 60);
   });
 
   it('is undefined on a day with no periods', () => {
-    expect(dayEndMinutes([])).toBeUndefined();
+    expect(lastPeriodEndMinutes([])).toBeUndefined();
   });
 });
 

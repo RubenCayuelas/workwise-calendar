@@ -95,8 +95,15 @@ export interface CloseDayRequest {
   fromMinutes: number;
 }
 
-/** End of the day's last working period, or `undefined` on a day with no periods. */
-export function dayEndMinutes(periods: readonly WorkPeriod[]): number | undefined {
+/**
+ * End of the day's last WORKING PERIOD, or `undefined` on a day with no periods.
+ *
+ * Not `dayEndMinutes` from `manualWindow.ts`, which this file also imports: that one is the end of the
+ * last MANUAL WINDOW — margins included — and falls back to midnight instead of `undefined`. Same
+ * shape, different answer, and the distinction between a period and a manual window is one the rules
+ * require naming everywhere, so the two may not share a name.
+ */
+export function lastPeriodEndMinutes(periods: readonly WorkPeriod[]): number | undefined {
   const sorted = sortedPeriods(periods);
   return sorted.length === 0 ? undefined : sorted[sorted.length - 1].endMinutes;
 }

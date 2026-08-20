@@ -40,7 +40,6 @@ Point `WORKWISE_DB_PATH` at another file to run against a throwaway database.
 - **src/components/** — `calendar/` (grid, gestures), `jobs/` (side panels), `settings/`, `ui/`
 - **public/locales/{es,en}/common.json** — every user-facing string
 - **public/brand/** — logo, icons and `workwise-tokens.css` (the colour tokens)
-- **recompose-poc.js** — the validated per-day placement prototype the engine derives from
 
 ## Conventions
 
@@ -59,6 +58,10 @@ Point `WORKWISE_DB_PATH` at another file to run against a throwaway database.
 
 ## Status
 
-v0.2 is wired end to end: the engine, the API, the week view with drag/resize/lock/split/delete,
-the job and gap panels, and the Settings screen. Still open, both recorded in `CLAUDE.md`:
-backups, and a Settings UI for `day_overrides` (the table and engine support exist).
+Wired end to end: the engine, the API, the week view with drag / resize / lock / split / delete, the
+job panel, the absences screen (gaps and closed days), and Settings. `tsc`, `vitest`, `next lint` and
+`next build` are all green — **CLAUDE.md § Current Project Status has the version and the test count**,
+and it is the only place they are written down, so this file cannot drift from them.
+
+Still open, all recorded in `CLAUDE.md` § Open Decisions: backups (an Export button), one-level undo,
+and *añadir otra parte* on the job panel.

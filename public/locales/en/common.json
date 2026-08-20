@@ -1,8 +1,5 @@
 {
   "app": {
-    "name": "Workwise",
-    "title": "Workwise · Workshop calendar",
-    "description": "Work scheduling for the workshop",
     "logoAlt": "Workwise"
   },
   "languages": {
@@ -11,33 +8,20 @@
   },
   "common": {
     "loading": "Loading…",
-    "error": "Error",
-    "success": "Done",
-    "save": "Save",
     "saving": "Saving…",
     "saved": "Saved",
     "cancel": "Cancel",
-    "delete": "Delete",
     "deleting": "Deleting…",
-    "edit": "Edit",
-    "add": "Add",
     "close": "Close",
-    "confirm": "Confirm",
     "retry": "Try again",
     "dismiss": "Dismiss",
-    "back": "Back",
     "increase": "Increase",
     "decrease": "Decrease",
-    "optional": "optional",
-    "none": "None",
-    "more": "More",
-    "yes": "Yes",
-    "no": "No"
+    "optional": "optional"
   },
   "units": {
     "hours": "{{hours}} h",
     "hoursSuffix": "h",
-    "minutes": "{{minutes}} min",
     "timeRange": "{{start}}–{{end}}",
     "dayTime": "{{day}} · {{start}}–{{end}}",
     "dayTimeHours": "{{day}} · {{start}}–{{end}} · {{hours}} h",
@@ -45,8 +29,6 @@
     "listSeparator": " · ",
     "dayOption": "{{weekday}} {{day}} {{month}}",
     "dayOptionToday": "{{date}} · today",
-    "weeks_one": "{{count}} week",
-    "weeks_other": "{{count}} weeks",
     "blocks_one": "{{count}} segment",
     "blocks_other": "{{count}} segments"
   },
@@ -61,13 +43,11 @@
     "todayHint": "Go to this week",
     "newJob": "New job",
     "newJobHint": "Create a job and append it to the queue",
-    "language": "Language",
     "languageCurrent": "Language: {{language}}",
     "languageSwitch": "Switch to {{language}}",
     "menu": "More options",
     "menuSettings": "Settings",
-    "menuAbsences": "Absences",
-    "menuJobs": "Jobs"
+    "menuAbsences": "Absences"
   },
   "summary": {
     "label": "Workshop load",
@@ -85,7 +65,6 @@
     "frozen": "frozen",
     "buffer": "buffer",
     "closed": "closed",
-    "weekend": "weekend",
     "todayHint": "Today can still be re-planned in full. Lock the work you have already started.",
     "frozenHint": "The engine never writes in the past, but you can still edit it by hand.",
     "bufferHint": "Friday is the buffer: it only takes the overflow of work that grew.",
@@ -148,8 +127,6 @@
     "split": "Split",
     "delete": "Delete",
     "closeDay": "Stop the day here",
-    "open": "Open the job",
-    "actions": "Block actions",
     "resize": "Change the duration",
     "drag": "Drag to change its place in the queue",
     "label": "{{name}} · {{day}} · {{start}}–{{end}} · {{hours}} h",
@@ -177,7 +154,6 @@
     "color": "Colour",
     "blocks_one": "Blocks · {{hours}} h in {{count}} segment",
     "blocks_other": "Blocks · {{hours}} h in {{count}} segments",
-    "blockRow": "{{day}} · {{start}}–{{end}}",
     "noBlocks": "This job has no blocks yet.",
     "save": "Save",
     "delete": "Delete",
@@ -234,7 +210,6 @@
     "startTime": "Start time",
     "duration": "Duration",
     "reason": "Reason",
-    "reasonOptional": "Reason (optional)",
     "reasonPlaceholder": "Lathe breakdown",
     "deletedJobReason": "Job «{{name}}» deleted",
     "submit": "Save gap",
@@ -364,7 +339,6 @@
     "mergedOverlap_other": "It was merged with {{count}} blocks of the same job that were already there. No hours were lost.",
     "displacedBlocks_one": "\"{{names}}\" was moved aside to make room and the engine re-placed its hours. Move it again if that is not what you wanted.",
     "displacedBlocks_other": "{{count}} jobs were moved aside ({{names}}) to make room and the engine re-placed their hours. Move them again if that is not what you wanted.",
-    "nothingSaved": "Nothing was saved.",
     "resizeShrunk": "\"{{name}}\" is {{hours}} h here now, and the padlock is what holds that length. The spare hours go to the job's last block the engine still places, and whatever is behind it in the queue takes the room.",
     "resizeGrown": "\"{{name}}\" is {{hours}} h here now, and the padlock is what holds that length. Those hours come off the job's last block; if this was the last one, the job's total goes up.",
     "pressWhileBusy": "Hold on a moment: the previous change is still saving. The calendar accepts drags again as soon as it lands.",
@@ -385,56 +359,6 @@
     "cancel": "Cancel",
     "addToTotal": "Add the hours to the total",
     "addToTotalHint": "The job becomes that many hours bigger."
-  },
-  "weekdays": {
-    "short": {
-      "1": "Mon",
-      "2": "Tue",
-      "3": "Wed",
-      "4": "Thu",
-      "5": "Fri",
-      "6": "Sat",
-      "7": "Sun"
-    },
-    "long": {
-      "1": "Monday",
-      "2": "Tuesday",
-      "3": "Wednesday",
-      "4": "Thursday",
-      "5": "Friday",
-      "6": "Saturday",
-      "7": "Sunday"
-    }
-  },
-  "months": {
-    "short": {
-      "1": "Jan",
-      "2": "Feb",
-      "3": "Mar",
-      "4": "Apr",
-      "5": "May",
-      "6": "Jun",
-      "7": "Jul",
-      "8": "Aug",
-      "9": "Sept",
-      "10": "Oct",
-      "11": "Nov",
-      "12": "Dec"
-    },
-    "long": {
-      "1": "January",
-      "2": "February",
-      "3": "March",
-      "4": "April",
-      "5": "May",
-      "6": "June",
-      "7": "July",
-      "8": "August",
-      "9": "September",
-      "10": "October",
-      "11": "November",
-      "12": "December"
-    }
   },
   "errors": {
     "horizonExceeded": "The hours do not fit inside the planning horizon. Widen the horizon in Settings or reduce the hours.",
@@ -481,7 +405,6 @@
     "settingsInvalid": "That setting value is not valid.",
     "unexpected": "Something went wrong. Nothing was saved.",
     "loadFailed": "The workshop data could not be loaded.",
-    "saveFailed": "It could not be saved. Nothing was changed.",
     "networkFailed": "No connection to the server. Nothing was saved.",
     "notFound": "That no longer exists. Reload the calendar.",
     "title": "Could not be completed"
