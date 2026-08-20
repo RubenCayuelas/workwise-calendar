@@ -2749,7 +2749,7 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
 describe('rule — Block Resize (drag the bottom edge) is a transfer inside the job', () => {
   /*
    * THE ROW BEING SIZED ALWAYS CARRIES A PADLOCK, in every test here: the edge only sizes rows the
-   * engine does not lay out, and elsewhere the request is refused with `resize-needs-padlock`. The
+   * engine does not lay out, which is where a transfer's geometry SURVIVES. The
    * COUNTERPARTY is the opposite — always a row the engine still places.
    */
   const job = (): Block[] => [

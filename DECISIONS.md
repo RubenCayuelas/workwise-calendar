@@ -29,9 +29,13 @@ it breaks.
 >
 > Read *back to automatic* as **pressing the padlock**, whether the sentence is about a POSITION or a
 > LENGTH — the action itself (`PATCH {action:"release"}`) is deleted and now answers 400
-> `invalid-action`. A record that says a gesture was *offered on every row*, or that a length *stuck
-> without a padlock*, is describing code that is gone; § *The Padlock Holds the Length* says what
-> replaced it.
+> `invalid-action`. A record that says a length *stuck without a padlock* is describing code that is
+> gone; § *The Padlock Holds the Length* says what replaced it.
+>
+> **But NOT the bottom edge.** It IS offered on every row but a past one, again, since 2026-08-20 —
+> that gesture was withheld for two days on an inference nobody had agreed to, and the withholding is
+> what got undone. A record saying the edge is only on a padlocked row is the mistake, not the rule.
+> § *The Edge Never Needed The Padlock*.
 
 ---
 
@@ -703,8 +707,11 @@ those rows, and on the grid a past row has no bottom-edge strip either.
 
 ## Block Resize, and Shrinking That Asks
 
-> **NARROWED 2026-08-18 by § The Padlock Holds the Length below, and only in ONE place: the gesture is
-> now offered only on a row the engine does not lay out (409 `resize-needs-padlock` elsewhere).**
+> **NARROWED 2026-08-18 and UN-NARROWED 2026-08-20. The narrowing was a mistake and is gone**: the
+> edge is available on every row but a past one, and `resize-needs-padlock` no longer exists. What
+> changed for good is that a grow past everything the job's other rows hold now ASKS
+> (`grow-needs-choice`) instead of refusing, and that taking margin time padlocks the row.
+> Read § The Edge Never Needed The Padlock before this section.**
 > **What still stands, all of it:** resize as a TRANSFER inside the job with the job's last block as
 > counterparty; the freed hours never going to a row outside the movable pool; `isLast` as a dead-end
 > trigger; the three-way question and `choices` travelling in the refusal; and the drag being measured
@@ -832,6 +839,11 @@ the owner" about something they never saw — which is exactly how this went unn
 ---
 
 ## The Padlock Holds the Length
+
+> **READ § The Edge Never Needed The Padlock FIRST.** What the owner decided here — deleting
+> `manual_duration` — stands and was right. What this section then INFERRED, that the bottom edge
+> should only be offered on a row the engine does not lay out, was not their decision and was undone
+> on 2026-08-20. Every sentence below about the gesture being withheld is history.
 
 **Decided with the owner, 2026-08-18. This deletes *A Hand-Set Duration*, below.**
 

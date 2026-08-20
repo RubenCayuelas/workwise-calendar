@@ -546,38 +546,10 @@ the pool, because there a raw `duration` writes geometry that stays.
 **A LOCKED row the stretch rewrites is named** in `touchedLockedBlockIds` and the UI warns; "a locked
 block is never grown silently".
 
-**Margin time needs no extra padlock.** A resize reaching into a visual margin used to pin its row,
-because the engine's index space has no margin minutes; every row this gesture can touch already
-carries the padlock that let it be sized. `touchedLockedBlockIds` is still computed BEFORE the
-stretch's padlock is spread, so a resize never reports a padlock it has just applied.
+**Margin time PADLOCKS the row** — stated in full above. `touchedLockedBlockIds` is computed BEFORE
+the stretch's padlock is spread, so a resize never reports a padlock it has just applied.
 
 *(Why: DECISIONS.md § Block Resize, and Shrinking That Asks, and § The Padlock Holds the Length.)*
-
-### A Hand-Set Duration — REMOVED 2026-08-18
-> **A block is exactly as big as the room it has. There is no stored exception, and the padlock is
-> what fixes a length.**
-
-`manual_duration` said "the owner drew this length, keep it" and made a job's run END at that row. The
-owner worked out why it could not be a rule of its own: *«la duración de un bloque nunca es fija. Es
-fija cuando se aplica entre bloques de otras tareas porque eso es lo que dura… si lo reduce de
-miércoles crece en jueves y sitio se libera en miércoles y pasa allí quedando exactamente igual. Si el
-usuario quisiera hacer eso, significa que quiere acabar la jornada antes… tendrá que añadir un gap.»*
-
-**What went with the column**, each of which existed only to hold it up:
-- a hand-set length **ending its job's run** in `buildQueue`, `unitOf` and the grid's `buildRuns`;
-- **"no more of that job lands on that day"** (`closedDays`) and the **deferral** that let the jobs
-  behind take the hours it freed — the ONE documented break in strict order, which is now unbroken;
-- the stretch **absorbing rows already hand-set** (now: rows the engine does not lay out either);
-- a **cut releasing the mark**, and every other "lost when something else rewrites the length" rule;
-- ***back to automatic*** — `PATCH /api/blocks/:id {action:"release"}`, `releaseBlock`,
-  `notices.released`, the ruler glyph and its two buttons. There is no mark left to hand back;
-- `usesManualOnlyTime`, whose only reader was the resize's padlock-the-margin rule.
-
-**Where the intent lives now:** *Block Resize* (the padlock holds the length) and *Capping a Day* (a
-gap ends a day early, and only the owner makes one).
-
-*(Why, and what the migration does with the shop's `manual_duration = 1` rows: DECISIONS.md § The
-Padlock Holds the Length.)*
 
 ### Capping a Day — "we only do 2 h of this today"
 Three honest ways, all of which fall out of the rules above:
@@ -631,38 +603,10 @@ No impact on calendar layout or block positions. Metadata only.
 an Open Decision, and a floor on the write path would answer it by accident and leave the owner
 unable to delete the sliver it refuses to store.
 
-> **KNOWN DEFECT — the one-minute rank nudge crosses the lunch break and the day comes back off the
-> quarter hour.** Measured 2026-08-18, and it is a broken invariant rather than an open question, so
-> it is written here beside the rule it breaks rather than in *Open Decisions*.
->
-> A drop aimed at the upper third of a row that starts at 08:00 goes in BEFORE it, and `rankFor`
-> writes the rank one minute earlier — `startMinutes: 479`, inside the top visual margin, which is
-> below `MIN_MANUAL_ONLY_MINUTES` and so correctly does NOT padlock. But the provisional row is then
-> cut at the lunch break FROM THAT MINUTE (`resolveDrop` step 2, `segmentDroppedRow`): a 7 h run
-> becomes `07:59 +361` and `15:30 +59`, and because the next job's row ranks between them
-> `buildQueue` cannot join them again. One run arrives at the engine as **two items of 361 and 59
-> minutes** — quantities no gesture asked for — and `takeableFrom` then cuts the 361 into 346 + 15.
->
-> Reproduced over HTTP with no browser (`PATCH {action:"move", date, startMinutes}`), on a Wednesday
-> whose only obstacle is a padlocked Tuesday:
->
-> | rank | stored |
-> |---|---|
-> | `480` (08:00) | `Wed 08:00-14:00 6 h` + `Wed 15:30-16:30 1 h`, then the next job. Clean |
-> | `479` (07:59) | `Wed 08:00-13:46 5,77 h` + `Wed 15:30-15:45 0,25 h`, the next job, then `Thu 10:15-11:14 0,98 h` of the FIRST job again |
->
-> With a 6 h 15 m run the same rank stores **`Thu 10:15-10:29`, a 14-minute row** — the thing this
-> rule says the engine never stores. The nudge and the segmentation are both older than *Fill and
-> Overflow, Always*; what is new is that an off-quarter queue item now propagates into the stored
-> layout instead of being moved whole, and that the ghost promises a division the save contradicts
-> (measured: the ghost said *«6 h el Mié 19 · 1 h el Jue 20»*, the save stored 5,77 h and 1,23 h).
-> Hours are still conserved and nothing straddles a break.
->
-> The fix is a decision, not a patch: either the rank is clamped to the first minute of the periods
-> when the margin it asks for is below `MIN_MANUAL_ONLY_MINUTES` (the same reading
-> *A Minute With No Working Time* already gives the lunch band), or a rank drop is not segmented at
-> all — the reflow re-cuts it anyway. **Same cause as Open Decisions 6 and 7; answer the three at
-> once.**
+> **The one-minute rank nudge can put a day off the quarter hour**, and it is SET ASIDE — the owner
+> could not reproduce it and asked for it to be left (2026-08-20). Do not open a round on it
+> unsolicited; if anything similar surfaces, say that this was set aside. The measurements and the
+> two candidate fixes are in DECISIONS.md § The One-Minute Rank Nudge Crosses the Break.
 
 ### Blocks and the Lunch Break — And Gaps, the Same Way
 - `duration` always means **net working hours**, so every row is a solid rectangle on the clock and
@@ -1035,13 +979,10 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
 - **One mark, one undo**: pressing the padlock. It hands the row back whole, length included. (A
   second mark for a hand-set LENGTH, drawn as a ruler with *back to automatic* beside it, existed
   until 2026-08-18.)
-- **The bottom-edge strip is drawn on every row but a PAST one, and says which of the two it is.**
-  Live (`ns-resize`, the job-coloured pill) exactly where the server will size it — a padlocked row,
-  or one on a weekend. Inert (`.resizeInert`, `cursor: help`, a grey hairline pill) everywhere else,
-  where it names the padlock, the gap, another job behind this one and the job's own form, and its
-  refusal carries the *Cerrar el día aquí* action. **On a past row there is no edge at all** — the
-  body answers the press with `notices.pressOnPastDay`. Withholding the strip on an automatic row was
-  tried and reverted: the press fell through to the body and started a MOVE.
+- **The bottom-edge strip is LIVE on every row but a PAST one** (`ns-resize`, the job-coloured pill):
+  the server sizes them all. **On a past row there is no edge at all** — the body answers the press
+  with `notices.pressOnPastDay`. Withholding the strip anywhere was tried twice and reverted twice:
+  the press fell through to the body and started a MOVE.
 - **Past days**: desaturated, not a drop target, and with no gesture on their rows at all.
 - **Empty columns**: `libre` / `—` sit in the middle of the day's LONGEST WORKING STRETCH, drawn as a
   small dashed pill (`emptyLabelMinutes` in `geometry.ts`, with a test).
@@ -1144,7 +1085,7 @@ true`, `placedBlockIds` two long — and no branch fires, because the row is vis
 was released. Four of the six hours are five and a half hours below the pointer and nothing is said.
 It is defensible (the ghost drew both rectangles before the release, and `block` genuinely is at the
 released minute) and it is the one shape *Fill and Overflow, Always* introduced that gets no sentence.
-**Open Decision 15** — do not answer it by widening `filled` to count PIECES without asking.
+**Still open** — do not answer it by widening `filled` to count PIECES without asking.
 
 The same order — padlock, then move — is used by `notices.dropSettles` and `grid.dropRankHint`, so
 the three agree.
@@ -1509,151 +1450,80 @@ easy to revisit rather than buried in the code.
 
 ## Open Decisions
 
-**Still unanswered. Do not invent an answer — ask first.** Each is a question about what a GESTURE
-MEANS, not a broken invariant: hours are conserved, nothing straddles the break, nothing overlaps
-that did not already, and recomposing twice changes nothing in every one of them.
+**Three lists, and the difference between them is the whole point.** *ANSWERED, NOT BUILT* has the
+owner's decision already in it — build it, do not re-ask. *STILL OPEN* has no answer — ask before
+inventing one. *SET ASIDE* was looked at and deliberately dropped.
 
-The reproductions are in DECISIONS.md § *Reproductions behind the Open Decisions*.
+None of these is a broken invariant: hours are conserved, no stored row straddles a break, nothing
+overlaps that did not already, and recomposing twice changes nothing. Reproductions live in
+DECISIONS.md § *Reproductions behind the Open Decisions*.
 
-1. ~~**Taking a row out of the movable pool empties the rest of the day and parks the work a week
-   later.**~~ **ANSWERED 2026-08-17 — by the owner removing the rule underneath it.** The cause was
-   "the remainder is treated as a FIRST placement, so *Never split a job to make it fit* applies and
-   it moves whole". That rule is gone (*Fill and Overflow, Always*), so the answer is candidate (c) —
-   prefer the current day for the remainder even when it must split — and it arrives for all three
-   gestures the defect came from at once: growing a row into the margin, padlocking a row, and growing
-   a row up against a gap. Re-measured; see DECISIONS.md.
-2. **A 6-pixel drag on a lunch-split unit's bottom edge asks a question the owner did not.** STILL
-   OPEN, and re-measured 2026-08-18 on the new gesture: the edge sits at 14:00 while the value the
-   client edits is the STRETCH's 600 minutes, so `useBlockDrag`'s no-op guard can never suppress a
-   micro-drag on a multi-row unit and `resize 360` is still sent. What arrives back is no longer a
-   silent mark — that was `manual_duration` — it is **409 `shrink-needs-choice` with `freedMinutes:
-   240`**, a dialog for a drag that went nowhere. Candidates: compare like with like (the ROW's own
-   duration); suppress a request whose stretch total is unchanged; or keep it and warn in the ghost.
-   **Reproduced in a real browser, 2026-08-18**, on a padlocked `Mié 26 08:00 6 h` + `15:30 4 h` unit:
-   a 6 px drag on the 14:00 edge sent `{"action":"resize","durationMinutes":360}` — the row's own
-   current length, byte for byte — and opened *«¿Qué hacemos con esas 4 h?»*. 409, nothing written.
-3. ~~**A resize whose result does not fit the day leaves the dragged row untouched and invents a row
-   on another day, while the toast says it worked.**~~ **CLOSED 2026-08-18 BY REMOVAL.** The shape
-   needed a MOVABLE target: the transfer was applied, the reflow re-derived the row it had grown, and
-   the hour surfaced somewhere else. The edge no longer sizes such a row. Re-measured on the original
-   reproduction — gap Thu 18:30-19:30, `Barandilla 13 h`, the padlocked `15:30-18:30` row dragged to
-   19:30 — the row really becomes `15:30-19:30`, the hour comes off the job's Monday row (4 h → 3 h),
-   the total stays 780 min and no row is invented. What it leaves behind is decision 4, and only that.
-4. **A resize may grow a row over another job, or over a gap.** STILL OPEN, and **BROADER since
-   2026-08-18**: the edge now sizes only rows the engine does not lay out, so *every* resize is on the
-   side where nothing will separate an overlap afterwards — this is the one real hole the round leaves.
-   `resizeBlock` never looks at another project's rows and never at gaps; only the drop path resolves
-   overlaps. **Both halves re-measured over HTTP 2026-08-18, no margins needed any more**, each a 200
-   with the overlap stored: `Barandilla Lun 24 08:00 4 h [locked]` grown to 6 h is stored `08:00-14:00`
-   straight over `Porton Lun 24 12:00 2 h [locked]`; and `Reja Mar 25 15:30 3 h [locked]` grown to 4 h is
-   stored `15:30-19:30` straight over `gap Mar 25 18:30 1 h`. Candidates unchanged: refuse naming
-   the row or the gap; cut at the obstacle the way a drop does; or keep allowing it and draw the
-   overlap on purpose. **`findGapConflicts` and `otherJobOverlaps` already exist** — the drop path's
-   two halves — so whichever answer the owner picks is a call, not a new mechanism.
-5. ~~**A drop released in the lunch band stores one solid row straight through the break.**~~
-   **ANSWERED 2026-08-17 — and it was not a question about what a gesture means after all.** It was
-   listed here because the STORED shape looked like latitude *A Drop Is Stored In Segments* granted
-   on purpose. It is not: the data model states as an INVARIANT that no stored row straddles a
-   non-working interval, "and this holds for a HAND DROP too", so the two rules contradicted each
-   other and the invariant is the one that is load-bearing — rendering, the overlap maths and
-   auto-merge all rest on it. The rule now is *A Minute With No Working Time Means The Next Minute
-   That Has Some*: a release anywhere in the break starts at 15:30 and is cut like any other drop.
-   **One consequence is a real change and wants the owner's eye**: a Monday-Thursday drop aimed at
-   the break no longer padlocks, because at 15:30 there is nothing left for a padlock to protect.
-6. **A drop whose grab offset pushes the unit above the axis lands hours away from the pointer and
-   padlocks it on a Monday-Thursday day.** Candidates: do not count clamp-forced minutes as a
-   request; clamp to the first minute inside the PERIODS on an auto-fill day; or measure the grab
-   offset in NET minutes.
-7. **On a day that padlocks, the one-minute rank nudge becomes the stored time.** Same three
-   candidates as the sliver — answer both at once. **And on a day that does NOT padlock the same
-   nudge is now a broken invariant, not a question**: it puts the rank one minute inside the top
-   margin, the provisional row is cut at the lunch break from there, and the day comes back off the
-   quarter hour — see the KNOWN DEFECT box in *The Calendar Sits On The Quarter Hour*. Whichever
-   candidate answers 6 and 7 has to answer that too.
-8. **The scissors never answer for themselves.** Candidates: give them a `describeDrop`-style
-   outcome with the same branches; refuse a split whose fragment would settle back inside the source
-   row; or leave it. (Its GHOST does answer now — the fragment's second click previews the same
-   division a drag does, `placingGhost` — but nothing is said after the save.)
-9. ~~**A hand-set row that has LEFT the pool stops closing its job's day** — should padlocking a
-   hand-set row re-open the day its ruler had closed?~~ **CLOSED 2026-08-18 BY REMOVAL, not by an
-   answer.** Both halves of the question were properties of `manual_duration`: the mark, the day it
-   closed (`closedDays`) and the deferral behind it are all deleted, so there is no day for a padlock
-   to re-open and no asymmetry between the stored flag and the queue. Confirmed rather than assumed —
-   `closedDays`, `dayKey` and `handSetDate` do not exist in `compose` any more, and the 2000-seed
-   harness now asserts strict order on **every** seed instead of skipping the calendars that had a
-   hand-set item. If the owner ever wants a day closed to a job, that is a GAP.
-10. **A sub-quarter row deleted leaves `total_hours` off the quarter hour for ever.** Answer the
-    sliver and this goes away with it.
-11. **Does `buffer` belong on a padlocked Friday row?** `BlockRows.tagOf` labels every Friday row
-    `buffer`, including one the owner dropped there. The tag names the DAY's role, not the row's
-    provenance. Left as-is pending a second opinion.
-12. **The hover action bar still covers a tall block's NAME on a narrow column.** Fixed for short and
-    narrow blocks (the bar docks outside), but on a ~150 px weekday column a tall block still has its
-    top ~28 px covered. The drag is safe there; a CLICK still lands on a button. Moving the bar
-    outside on narrow columns too puts it over the neighbouring day.
+### ANSWERED, NOT BUILT — build these; the decision exists
 
-13. **A RUN LONGER THAN A DAY CANNOT BE DRAGGED ANYWHERE, and the refusal reads as a technical
-    error.** The drag unit is the whole run, so an 18 h run arrives at the server as ONE row of
-    1080 minutes; `assertFitsInDay` measures it against MIDNIGHT and answers 400 `out-of-range`,
-    which the owner sees as *«Esa hora no cabe en el día»* — a sentence about an hour, for a gesture
-    about a length. The ghost meanwhile says *«este tramo no termina hoy»*, which reads as a promise
-    that it WILL be placed and carry on.
-    **MOSTLY ANSWERED 2026-08-17, and by the candidate "cut the run across days on drop".** A drop
-    that is only a queue RANK has no footprint to fit, so `assertFitsInDay` is not asked of it and the
-    engine lays the run out across days (*Fill and Overflow, Always*). Measured: an 18 h run dragged
-    onto Monday-Thursday answers 200 and re-ranks — dropped behind a 2 h job it came out
-    `Corto 08:00-09:00`, `Nave 09:00-14:00 + 15:30-19:30 + …`. Two of the three things feeding on the
-    over-long number went with it: the PIN now reads the drop's start rather than its footprint, and
-    the CLAMP does not run on a rank at all.
-    **The GHOST's half is answered too (2026-08-17).** On a day the engine lays out it no longer says
-    *«este tramo no termina hoy»* at all: it draws the run's real division and names it — measured, an
-    18 h run dropped in front of a 10 h Tuesday previewed `10 h el Mar 18 · 8 h el Mié 19` over four
-    rectangles and stored exactly that. See *The Ghost of a Rank Is the Division*.
-    **What is left of the question**: the same drag onto a day that keeps the minute — the weekend, a
-    closed day, the past, a margin, or with the row padlocked — is still 400 `out-of-range`, and there
-    the row really would be stored in one day, so the refusal is right and only its SENTENCE is wrong
-    (it names an hour for a gesture about a length). And `dropEffectOf` still measures overlaps
-    against the uncut footprint, so a long run can announce a cut against rows its real first-day
-    footprint never touches.
-14. **A resize ghost draws its post-break tail on THIS day even when that slot is taken and the
-    engine will put the tail on another one.** Measured 2026-08-17: a 6 h Wednesday row grown to 8 h
-    with Wednesday afternoon already held by another job previewed `08:00–17:30` as
-    `08:00-14:00` + `15:30-17:30`, and stored `Wed 08:00-14:00` + `Thu 08:00-10:00`. The HOURS are
-    right and the invariants hold; the rectangle and the end time are not. With the slot free the
-    same gesture is exact, so this is only the occupied case. Candidates: draw the tail where the
-    reflow will really put it (needs the reflow simulated in the preview); or print no end time for a
-    resize whose tail crosses into occupied time, the way the ghost already refuses to invent one for
-    a run.
-    **Half of it is answered: the DROP side is built** (2026-08-17). A drop's ghost now draws the rows
-    the reflow will really store, on the columns they land on (`planDropSpill`, *The Ghost of a Rank Is
-    the Division*), which is the first candidate applied to the one gesture whose arithmetic the
-    preview could reach without simulating a whole pass. **The RESIZE still previews its tail on this
-    day**, and it is a different question — a resize's counterparty is the job's own last row, so what
-    the preview would have to simulate is the LIFO transfer and not just the fill.
-15. **A drop cut into pieces INSIDE ONE DAY says nothing.** Measured 2026-08-18: 6 h released at
-    Wednesday 08:00 in front of a padlocked `10:00-14:00` stored `08:00-10:00` + `15:30-19:30`,
-    `changed: true`, `placedBlockIds` two long — and no `describeDrop` branch fires, because `filled`
-    counts DAYS and the row is at the minute it was released. Candidates: count PIECES rather than
-    days and reuse `notices.dropFilled`'s sentence; give the same-day case its own wording («se parte
-    en dos: 2 h y 4 h»); or leave it, on the grounds that the ghost drew both rectangles before the
-    release and the row really is where it was put. This is the ONE shape *Fill and Overflow, Always*
-    made ordinary that the notice table does not cover, so it is a question about what the gesture
-    means, not a bug.
+- **A resize may grow a row over another job, or over a gap.** *(Decision 4, answered 2026-08-20.)*
+  `resizeBlock` looks at neither, so the growth is simply written over whatever is there; only the
+  drop path resolves overlaps. **The owner's answer: CUT AT THE OBSTACLE, the way a drop does** — grow
+  up to what is in the way, store what fits, and say what stopped it. With their refinement, which is
+  three cases and not one:
+  - both rows **padlocked** → cut at the obstacle;
+  - the row being grown is padlocked and the one below is **not** → **push the one below**;
+  - the row being grown is **not** padlocked and the one below is → the extra hours go **after** the
+    padlocked row, which is what the reflow already does with hours the job cannot fit here.
 
-**Decided but NOT BUILT** — do not treat these as done:
-- **One-level undo, Ctrl+Z** (decided 2026-08-14). Every mutation already runs in a single
-  transaction, so remembering the previous state is enough.
-- ***Añadir otra parte*** on the job panel (decided 2026-08-14): creates a second job entry with the
-  name and colour pre-filled. See DECISIONS.md § Two Parts of One Job.
+  `findGapConflicts` and `otherJobOverlaps` already exist — the drop path's two halves — so this is
+  wiring, not a new mechanism.
+- **One-level undo, Ctrl+Z** *(decided 2026-08-14)*. Every mutation runs in a single transaction, so
+  remembering the previous state is enough.
+- ***Añadir otra parte*** on the job panel *(decided 2026-08-14)*: a second job entry with the name and
+  colour pre-filled. DECISIONS.md § Two Parts of One Job.
 
-**Deferred by direction:**
-- **Backups**: an Export button in Settings. The DB is deliberately gitignored and there is no undo.
-- ~~**Settings UI for day overrides**~~ **BUILT 2026-08-19**, and not in Settings: closing a week is
-  something the owner does to the CALENDAR, so it lives on *The Absences Screen* (`Cerrar días`). Only
-  `capacity_hours` still has no screen, and that is now a decision rather than a gap — a short day is a
-  gap.
+### STILL OPEN — ask before inventing an answer
+
+- **The scissors never answer for themselves.** Their GHOST does (`placingGhost` previews the same
+  division a drag does), but nothing is said after the save. Candidates: a `describeDrop`-style
+  outcome; refuse a split whose fragment would settle back inside the source row; or leave it.
+- **A drop cut into pieces INSIDE ONE DAY says nothing.** `filled` counts DAYS, so 6 h released in
+  front of a padlocked row stores two rows on one day and no branch fires. Candidates: count PIECES;
+  give the same-day case its own wording; or leave it, since the ghost drew both rectangles first.
+  **Do not widen `filled` to count pieces without asking.**
+- **A resize ghost draws its post-break tail on THIS day even when the slot is taken.** The hours are
+  right, the rectangle is not. Only the occupied case; with the slot free the preview is exact. A
+  resize's counterparty is the job's own last row, so the preview would have to simulate the LIFO
+  transfer, not just the fill.
+- **Does `buffer` belong on a padlocked Friday row?** `BlockRows.tagOf` labels every Friday row
+  `buffer`, including one the owner dropped there. The tag names the DAY's role, not the row's
+  provenance. Left as-is pending a second opinion.
+- **The hover action bar still covers a tall block's NAME on a narrow column.** Fixed for short and
+  narrow blocks (the bar docks outside); on a ~150 px weekday column a tall block still has its top
+  ~28 px covered. The drag is safe there and a click still lands on a button.
+- **Two gaps may overlap each OTHER on the fixed side** — refused on create and on edit since
+  2026-08-19 (`gap-over-gap`), but a BLOCK resize can still be grown over a gap, which is Decision 4
+  above.
+
+### SET ASIDE — looked at, deliberately dropped
+
+- **The one-minute rank nudge, and the sub-quarter row it can produce.** A drop that goes in BEFORE a
+  row writes its rank one minute earlier; that minute was then treated as a time and the run cut at
+  the comida from it, so a day could come back off the quarter hour (`5,77 h`, and once a 14-minute
+  row). **The owner could not reproduce it and set it aside on 2026-08-20**: *«parece ser solo problema
+  teórico en código, ignorar por ahora pero si ocurre un problema similar mencionar este detalle»*.
+  So: do not spend a round on it unsolicited — but **if anything similar surfaces, say that this was
+  set aside**. The two candidate fixes and the measurements are in DECISIONS.md § The One-Minute Rank
+  Nudge Crosses the Break.
+- **A micro-drag on a bottom edge sends a request that changes nothing.** Measured in a browser
+  2026-08-20 on a padlocked lunch-split unit: from the 4 px drag threshold every small drag sends
+  `resize` with the row's EXISTING duration and gets 200 with the calendar unchanged. **No dialog ever
+  appeared** — the older note claiming one was wrong, and the owner was right that the 15-minute snap
+  keeps every value legal. What is left is a wasted round trip and a recompose; a one-line no-op guard
+  would close it.
+
+### Deferred by direction
+
+- **Backups**: an Export button in Settings. The DB is gitignored and there is no undo.
 - **Whether a closed day belongs in the summary strip's sentence**, and whether a gap unit should be
-  reachable from the job panel's list. Both left open by the owner on 2026-08-19.
+  reachable from the job panel's list. Both left open by the owner, 2026-08-19.
+- **`day_overrides.capacity_hours` has no screen**, and that is a decision rather than a gap: a short
+  day is a gap.
 
 ---
 
@@ -1717,6 +1587,16 @@ is in [DECISIONS.md](DECISIONS.md) § Release history.**
 - **Review `recompose-poc.js` first** for the per-day placement logic, but see the one behaviour
   above that must not be ported.
 - **Any change to a business rule updates this file**, and appends its reasoning to DECISIONS.md.
+- **Commits: Conventional Commits, SUBJECT ONLY** (decided by the owner, 2026-08-20).
+  `type(scope): subject`, imperative, ~72 characters, no body. The reasoning goes to DECISIONS.md,
+  which is what the body used to carry — and the owner's instruction was explicit: *«commits
+  descriptivos simples y con una convención usada de forma estandarizada»*, not the long messages
+  before it. Scope is the area, not the file: `resize`, `gaps`, `absences`, `engine`, `grid`,
+  `decisions`. Types in use: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
+  No self-attribution in a commit or a PR: no trailer, no mention of the tool.
+- **WHO DECIDED WHAT MATTERS.** Never write *«decided with the owner»* about something inferred from
+  what they said — that exact overstatement stood for two days about the resize precondition and cost
+  a round to undo. If it was an inference, say so, and name what they actually decided.
 - **All code, comments, variable names**: English. **UI strings**: only in
   `public/locales/{lang}/common.json`, with the es and en key sets identical.
 - **A comment carries what the code cannot, and nothing else.** The path names the module, the

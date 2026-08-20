@@ -818,7 +818,6 @@ export type EditErrorCode =
   | 'invalid-duration'
   | 'grow-needs-choice'
   | 'shrink-needs-choice'
-  | 'transfer-exceeds-job'
   | 'reduction-exceeds-job';
 
 export const EDIT_MESSAGE_KEYS: Record<EditErrorCode, string> = {
@@ -826,7 +825,6 @@ export const EDIT_MESSAGE_KEYS: Record<EditErrorCode, string> = {
   'invalid-duration': 'errors.invalidDuration',
   'grow-needs-choice': 'errors.growNeedsChoice',
   'shrink-needs-choice': 'errors.shrinkNeedsChoice',
-  'transfer-exceeds-job': 'errors.transferExceedsJob',
   'reduction-exceeds-job': 'errors.reductionExceedsJob',
 };
 

@@ -443,7 +443,6 @@
     "invalidDuration": "The duration must be greater than zero.",
     "growNeedsChoice": "You stretched «{{name}}» {{hours}} h beyond what the rest of the job can give. Add them to the job’s total?",
     "shrinkNeedsChoice": "The hours you are freeing have no block to go to: the others are locked, on the weekend or already past. Tell me what to do with them.",
-    "transferExceedsJob": "The job does not have that many hours in later blocks to give up.",
     "reductionExceedsJob": "You cannot remove more hours than the job has.",
     "gapOverGap": "That gap overlaps another one you already have on {{date}} from {{startTime}} to {{endTime}}{{reasonSuffix}}. Move or delete it before saving.",
     "gapOverLockedBlock": "That gap lands on \"{{projectName}}\", which is locked on {{date}} from {{startTime}} to {{endTime}}. Unlock or move it before saving.",

@@ -443,7 +443,6 @@
     "invalidDuration": "La duración tiene que ser mayor que cero.",
     "growNeedsChoice": "Has estirado «{{name}}» {{hours}} h más de lo que el resto del trabajo puede darte. ¿Se lo añado al total del trabajo?",
     "shrinkNeedsChoice": "Las horas que liberas no tienen a qué bloque ir: los demás están bloqueados, en fin de semana o ya pasados. Dime qué hacer con ellas.",
-    "transferExceedsJob": "El trabajo no tiene tantas horas en bloques posteriores para ceder.",
     "reductionExceedsJob": "No se pueden quitar más horas de las que tiene el trabajo.",
     "gapOverGap": "Ese hueco pisa otro que ya tienes el {{date}} de {{startTime}} a {{endTime}}{{reasonSuffix}}. Muévelo o bórralo antes de guardar.",
     "gapOverLockedBlock": "Ese hueco pisa «{{projectName}}», que está bloqueado el {{date}} de {{startTime}} a {{endTime}}. Desbloquéalo o muévelo antes de guardar.",
