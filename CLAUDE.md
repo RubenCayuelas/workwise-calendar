@@ -257,6 +257,10 @@ rather than buried in the code.
   - If it needs a paragraph it is reasoning, and it belongs in DECISIONS.md.
 - **Database**: `./data/calendar.db`, created on first run. Point `WORKWISE_DB_PATH` at a scratch file
   when driving the app — **never test against `data/`**.
+- **A change of MEANING in a stored column needs a one-shot data migration**, not a schema one:
+  `PRAGMA table_info` cannot see that a column's units changed. `runMigrations` applies them once each
+  and records the name in `data_migrations`; add to that list rather than inventing a mechanism. It
+  reads the CURRENT settings, so it must never re-cut rows the owner has since moved by hand.
 - **Next 16 is newer than the training data of whatever is reading this.** The version-matched docs ship
   inside the install at `node_modules/next/dist/docs/`. `next lint`, `serverRuntimeConfig`,
   `publicRuntimeConfig`, AMP and `experimental.ppr` are gone; `middleware` is now `proxy`; `params`,
