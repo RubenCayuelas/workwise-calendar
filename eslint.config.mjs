@@ -5,7 +5,18 @@ import nextCoreWebVitals from 'eslint-config-next/core-web-vitals';
 // including .claude/worktrees, which holds a checkout of another branch and would otherwise be
 // linted as if it were this one.
 const config = [
-  { ignores: ['.next/**', 'out/**', 'coverage/**', '.claude/**'] },
+  // `desktop/build` is the assembled payload and `desktop/dist` the installer: compiled output,
+  // linted as if it were ours because the CLI reads neither .gitignore nor git's exclude file.
+  {
+    ignores: [
+      '.next/**',
+      'out/**',
+      'coverage/**',
+      '.claude/**',
+      'desktop/build/**',
+      'desktop/dist/**',
+    ],
+  },
   ...nextCoreWebVitals,
   {
     rules: {

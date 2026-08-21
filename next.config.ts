@@ -9,6 +9,10 @@ const nextConfig: NextConfig = {
   // states its own contract in its header and is the authority on the business rules; a
   // framework editing it produces a dirty tree on every start and buries the rules it holds.
   agentRules: false,
+  // What the Windows application ships: a `.next/standalone` folder holding the server and only the
+  // dependencies it traces, `better-sqlite3` and its native binary among them. `next start` is
+  // unaffected; the desktop build would otherwise have nothing to package.
+  output: 'standalone',
 };
 
 export default nextConfig;

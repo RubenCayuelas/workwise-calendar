@@ -40,6 +40,11 @@ Thumbs.db
 # Docs
 documents/*
 
+# The desktop package: its own dependencies, the assembled payload and the installer
+/desktop/node_modules/
+/desktop/build/
+/desktop/dist/
+
 # Build artifacts
 *.tsbuildinfo
 
