@@ -35,6 +35,8 @@ export interface HistoryIntent {
   /** The row or job the gesture named, so the step's sentence can find the job it is about. */
   readonly blockId?: string;
   readonly projectId?: string;
+  /** For a creation, whose id does not exist yet when the intent is written. */
+  readonly name?: string;
 }
 
 export interface HistoryStep {
@@ -343,7 +345,7 @@ function labelArgs(
   before: CalendarState,
   after: CalendarState,
 ): Record<string, string> | null {
-  const name = jobName(intent, before) ?? jobName(intent, after);
+  const name = intent.name ?? jobName(intent, before) ?? jobName(intent, after);
   return name === undefined ? null : { name };
 }
 

@@ -16,7 +16,8 @@ import { segmentDroppedRow, type DropSegment } from '../dropSegments';
 import { conflict, notFound, ERROR_MESSAGE_KEYS } from '../errors';
 import { newId } from '../ids';
 import { dayEndMinutes } from '../manualWindow';
-import { getDayConfig, recompose, runTransaction } from '../scheduler';
+import { withHistory } from '../history';
+import { getDayConfig, recompose } from '../scheduler';
 import { assertFitsInDay, assertRowWithinDayEnd } from '../validation';
 import { listBlocks } from '../repositories/blocks';
 import {
@@ -66,7 +67,7 @@ export function readGaps(range: { from?: string; to?: string } = {}, db: Db = ge
 export function createGap(input: SaveGapInput, db: Db = getDb()): GapMutation {
   const today = input.today ?? todayLocal();
 
-  return runTransaction(db, () => {
+  return withHistory(db, { kind: 'gap.create' }, () => {
     const gaps = insertAbsence(input, today, db);
     const report = recompose(db, { today });
     return { gap: gaps[0], gaps, summary: report.summary };
@@ -135,7 +136,7 @@ export interface PatchGapInput {
 export function patchGap(gapId: string, input: PatchGapInput, db: Db = getDb()): GapMutation {
   const today = input.today ?? todayLocal();
 
-  return runTransaction(db, () => {
+  return withHistory(db, { kind: 'gap.update' }, () => {
     const current = findGap(gapId, db);
     if (current === undefined) {
       throw notFound('gap-not-found', ERROR_MESSAGE_KEYS.gapNotFound, { details: { gapId } });
@@ -226,7 +227,7 @@ export function deleteGap(
 ): { summary: ScheduleSummary } {
   const today = options.today ?? todayLocal();
 
-  return runTransaction(db, () => {
+  return withHistory(db, { kind: 'gap.delete' }, () => {
     const current = findGap(gapId, db);
     if (current === undefined) {
       throw notFound('gap-not-found', ERROR_MESSAGE_KEYS.gapNotFound, { details: { gapId } });
