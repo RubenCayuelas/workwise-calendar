@@ -16,6 +16,19 @@ queue order respecting capacity, padlocks and gaps, and the owner reorganises by
 Local-only notes and the wireframes live in `documents/`, which is gitignored on purpose: it holds
 whatever the owner does not want in the repository. Do not move it, tidy it or read from it unasked.
 
+## How the owner works
+
+Recorded because two rounds were spent learning it.
+
+They answer product questions well and push back usefully when a question is malformed. Several
+questions they were asked should never have been asked — the answer followed from how a calendar works,
+and being asked read as the app not knowing what one is. **Ask about genuine forks in intent; decide the
+rest and say what was decided.**
+
+Their model of the app is simple and has been stated more than once in the same words: **padlock =
+fixed, no padlock = free.** A change that adds a third state, or that makes a mark appear behind their
+back, will be reported as a defect.
+
 ## Architecture
 
 - Web app, self-hosted on the shop PC. Single user. **Desktop only, mouse driven** — no touch, no
@@ -63,7 +76,7 @@ Read the section first. These are the ones most often broken by a plausible-look
 | the engine, placement, overflow | SPEC § *Weekly Auto-Composition*, § *Fill and Overflow, Always*, § *The Movable Pool* |
 | anything that pins a row | SPEC § *The Padlock Is the Only Pin* |
 | a drag, a drop, the ghost | SPEC § *A Drop Is Stored In Segments*, § *Thirds*, § *A Drop Onto a Day the Engine Reflows Is Never Refused*, § *A Drop Always Answers For Itself* |
-| the bottom edge | SPEC § *Block Resize*, and § *The Padlock Holds the Length* in DECISIONS |
+| the bottom edge | SPEC § *Block Resize*, and § *Block Resize Is a Transfer, and Both Dead Ends Ask* in DECISIONS |
 | gaps, absences, closed days | SPEC § *Gap Management*, § *Blocks and the Lunch Break* |
 | the axis, the grid, a gesture's geometry | SPEC § *Calendar View*, § *Block Gestures*, § *One Axis Per Gesture* in DECISIONS |
 | Settings | SPEC § *Settings*, § *The Capacity Is Never Touched Alone* |
