@@ -219,7 +219,7 @@ describe('createTimeline', () => {
   it('keeps the working hour legible on a short window instead of fitting it', () => {
     const short = createTimeline(SHAPE, { fitHeight: 339 });
     expect(short.pixelsPerMinute * 60).toBe(MIN_PIXELS_PER_HOUR);
-    // 12 h of working time at the floor, plus the band: shop than the space there was,
+    // 12 h of working time at the floor, plus the band: taller than the space there was,
     // so the column scrolls rather than compressing an hour into nothing.
     expect(short.height).toBe(MIN_PIXELS_PER_HOUR * 12 + BREAK_BAND_HEIGHT);
     expect(short.height).toBeGreaterThan(339);
