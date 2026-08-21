@@ -1,0 +1,64 @@
+{
+  "name": "workwise-desktop",
+  "version": "0.19.1",
+  "description": "Workwise as a Windows application: an Electron window around the app's own server",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "preinstall": "node ../scripts/require-node-22.mjs",
+    "prepare-payload": "node prepare.mjs",
+    "start": "electron .",
+    "dist": "npm run prepare-payload && electron-builder --win --x64",
+    "verify": "node verify-package.mjs"
+  },
+  "devDependencies": {
+    "electron": "^43.4.1",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.workwise.calendar",
+    "productName": "Workwise",
+    "copyright": "Workwise",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.mjs",
+      "server.mjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/server",
+        "to": "server"
+      },
+      {
+        "from": "build/node.exe",
+        "to": "node.exe"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Workwise",
+      "deleteAppDataOnUninstall": false
+    }
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}
