@@ -53,6 +53,9 @@ export function openDatabase(dbPath: string): Db {
   // WAL keeps a long recomposition from blocking reads; a no-op in memory.
   db.pragma('journal_mode = WAL');
   runMigrations(db);
+  // Opening the file starts a new undo timeline: the owner asked for one that lasts a run of
+  // the app, not one that reaches back into a previous day's work.
+  db.exec('DELETE FROM history');
   return db;
 }
 

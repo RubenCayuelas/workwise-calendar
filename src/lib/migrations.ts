@@ -91,6 +91,24 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- The undo timeline: a line of whole-calendar STATES, one row per request that changed
+-- something. The lowest seq is the floor — restorable, not undoable — and every later row
+-- is the calendar AFTER the mutation its 'kind' names. 'undone = 1' marks the redo tail,
+-- so the cursor is the highest seq with undone = 0. 'state' is JSON: projects, blocks,
+-- gaps and day_overrides, ids and timestamps verbatim; never settings, which is why a
+-- settings save empties this table instead of appearing in it. Emptied when the database
+-- is opened, so a line lasts exactly one run of the app.
+-- 'label_args' holds what the step's sentence interpolates, and on a FLOOR written by a
+-- settings save it holds {"clearedBy":"settings"} instead: an empty undo with a reason.
+CREATE TABLE IF NOT EXISTS history (
+  seq        INTEGER PRIMARY KEY,
+  kind       TEXT,
+  label_args TEXT,
+  state      TEXT NOT NULL,
+  undone     INTEGER NOT NULL DEFAULT 0 CHECK (undone IN (0, 1)),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Whole-day exceptions: holidays, closed weeks, a one-off day with other hours.
 -- No Settings UI in v0.2, but the engine reads it, so holidays are a row away
 -- instead of a migration away. NULL capacity_hours means "use the global one".
