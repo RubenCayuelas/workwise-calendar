@@ -2883,6 +2883,109 @@ CLAUDE.md § Architecture are the record that travels.
 
 ---
 
+## Undo and Redo Are a Line of States
+
+The 2026-08-14 decision said *«one-level undo, Ctrl+Z. Every mutation runs in a single transaction, so
+remembering the previous state is enough.»* On 2026-08-21 the owner asked for the feature and widened
+it in the same sentence: *«permitir varios desacer y volver»* — several steps, and redo. The half of
+the old note that survived intact is the important half: **remembering the state is enough**, and it is
+what made the rest cheap.
+
+### Three shapes, and why the state won
+
+- **An inverse per gesture**, the command pattern of the textbooks, was rejected before it was
+  started. It cannot be exact here. The reflow rewrites, deletes and recreates rows on every pass —
+  CLAUDE.md already records that *«ids churn on a pass that moved nothing»* — so the inverse of «move»
+  is not «move back»: it is «move back and then let the engine decide again», which is a different
+  calendar. Thirteen operations would each need their own inverse and their own cases.
+- **A copy of the whole `.db` file per step** (`serialize()`, 72 KB) is less code and was rejected for
+  one reason: restoring it means replacing the handle, so it cannot happen inside the transaction that
+  is being undone. Atomicity is the only thing making any of this safe.
+- **A whole calendar STATE per step** won, and the numbers are why it is not extravagant: the shop's
+  real file holds **30 blocks, 9 projects, 2 gaps, 4 day overrides** — about 45 mutable rows, some 6 KB
+  of JSON. Fifty steps is a third of a megabyte.
+
+### The owner's two decisions, and the cost they named
+
+Asked what the line should cover, they chose **the calendar only**, with Settings outside it: a
+settings save empties the line. The alternative offered was one line over everything, which is more
+coherent — undoing a settings change would restore the rows that change had moved — and they took the
+narrower one knowing what it costs, since the sentence in the question said it: *«pierdes el deshacer
+justo cuando más asusta: después de estrechar el turno»*. Recorded as theirs, not inferred.
+
+Asked what `Ctrl+Z` should do with a panel open, they chose **inert, and say so** — *«si es más
+sencillo y puede romper menos hasta sin avisar, pero si apenas cuesta que avise que lo cierres»*. It
+cost one string, so it warns. That answer also deleted a whole class of problem: because the buttons
+and the keys share one predicate, nothing can be open when a restore runs, so no open panel, pending
+scissors fragment or held band can be left pointing at a row the restore deleted. The design had
+listed that as its tenth trap; the owner's answer removed it instead of solving it.
+
+### Why the line is a TABLE, and why it is emptied on OPEN
+
+They chose *«solo la sesión actual»* and asked whether an in-memory stack would be simpler. It looks
+simpler and is not, for a reason that is already in the code: **`previewAbsence` writes for real and
+rolls the transaction back** (`operations/absences.ts`, the `dryRun` that carries its result out
+through a throw). A step written inside that transaction is discarded with it and needs no special
+case; an array in memory would keep a phantom step, and every future rollback path would have to
+remember to remove one. One `CREATE TABLE` bought that, plus the ability to test the whole thing the
+way this repo tests everything else, with `openDatabase(':memory:')`.
+
+The emptying happens when the database is OPENED. The owner asked the obvious question — *«no sería
+mejor al cerrarla? o puede pasar algo y que no se borre?»* — and the second half of it is the answer: a
+close can be skipped by a power cut, a `kill` or a crash, and rows outliving their run would describe a
+calendar from a previous day. At best the drift guard throws the line away; at worst the calendar
+happens to match and an undo silently reverts yesterday's work. No run can BEGIN without opening the
+file, and `openDatabase` is the only way to a handle, so nothing can read a stale line before it is
+gone. It is the same argument the settings module already makes about its own two paths: the guarantee
+goes where it cannot be skipped.
+
+### The traps, all of them in the code before this round started
+
+Each of these would have produced a wrong restore, and each was found by reading rather than by
+failing:
+
+1. **`insertBlock` does not write `created_at`**, and the queue's tiebreak is `(date, start_time,
+   created_at, id)` — with a measured defect already recorded against that tiebreaker. Re-inserting
+   through the repositories would stamp every restored row `now` and silently reorder the calendar. The
+   restore therefore uses raw SQL naming every column.
+2. **The `updated_at` triggers fire `WHEN OLD.updated_at = NEW.updated_at`**, so an UPDATE restoring a
+   row to its own timestamp is rewritten to `now`. The restore is a DELETE and an INSERT, where an
+   `AFTER UPDATE` trigger cannot reach it.
+3. **`foreign_keys = ON` with `ON DELETE CASCADE` on `blocks.project_id`** forces the order: blocks
+   before projects going out, projects before blocks coming back.
+4. **`gaps.unit_id` defaults to the row's own id.** Restoring with fresh ids would split an absence in
+   two — the exact defect that destroyed four hours on 2026-08-19.
+5. **`settings` must never be emptied**, since it is only re-seeded when the file is opened. It is not
+   in a state at all, so the situation cannot arise.
+6. **`data_migrations` is not in a state either**, or an undo past one could re-arm it.
+
+### What earns a step, and the one thing that surprised the harness
+
+A write that changed nothing the owner can see records no step, so `Ctrl+Z` can never look broken. The
+comparison is the one the app already had — `RecomposeReport.changed`, over the rows the owner sees,
+ignoring timestamps and a BLOCK's id.
+
+That decision turned out to be load bearing twice, and the second time was a surprise. The property
+harness walks a thousand generated sessions back and forward, comparing raw rows at every stop; it
+failed at the far end, and the diff looked like two rows changing duration and start time. They were
+not: the rows were the same and the ARRAY ORDER had changed, because `ORDER BY id` sorts UUIDs and the
+last gesture of that session had recreated the same calendar with new ids. No visible change, so no
+step, so the redo walk ended at the last recorded state — which is right, and which is also exactly
+why the drift guard compares canonically and not exactly. Had it compared raw rows, that harmless id
+churn would have emptied the line every time it happened. The two endpoint assertions now compare what
+the owner sees; every stop in between is still compared row for row, timestamps included.
+
+### What it does not do
+
+It does not replace the padlock, which hands one ROW back to the engine and reaches a row weeks away
+without walking the line — three passages in CLAUDE.md that called the padlock *«the only undo there
+is»* are now narrowed rather than deleted, because they were true until this round. It does not run on
+the Settings screen. And it does not ask the frozen past for permission: an undo restores rows this
+calendar already held, so putting a deleted job's past rows back is reverting the record, not editing
+it.
+
+---
+
 ## Release history
 
 Each entry records what was built, what was measured, and what the measuring found. They are left as
@@ -3635,3 +3738,44 @@ scratch database and in a real browser at 1440×900; `data/calendar.db` untouche
 
 *Left open by the owner, deliberately:* whether a closed day belongs in the summary strip's sentence, and
 whether a gap unit should be reachable from the job panel's list.
+
+**v0.19 — built: undo and redo, many steps deep.** The 2026-08-14 note said one level; the owner asked for
+*«varios desacer y volver»* on 2026-08-21. The reasoning, the three shapes considered, their two decisions
+and the six traps are in § *Undo and Redo Are a Line of States*.
+
+- [x] `history`, a line of whole calendar STATES with a cursor: the lowest `seq` is a restorable floor, a new
+      write drops the redo tail, 50 steps then the oldest is forgotten
+- [x] `withHistory` wrapping `runTransaction` at its 13 mutating call sites, so the step is written inside the
+      transaction it describes — a refusal, a horizon rollback and `previewAbsence`'s deliberate rollback all
+      discard it with no special case
+- [x] the restore: raw SQL naming every column, DELETE-then-INSERT, ids and both timestamps verbatim, blocks
+      before projects and back in the mirror order, `assertProjectHours` as a net, and NO recompose
+- [x] emptied when the database is OPENED, not closed, because a close can be skipped
+- [x] a write that changed nothing the owner can see earns no step, which also stops the `SET ASIDE`
+      micro-resize costing one
+- [x] the owner's scope: the calendar, so a settings save EMPTIES the line — asked of the reflow as well as of
+      the fields — and the undo control's tooltip then says why it is off
+- [x] the owner's answer for an open panel: inert and it says so, which also removed the whole class of stale
+      client state, since the buttons and the keys share one predicate
+- [x] `Ctrl+Z`, `Ctrl+Y` and `Ctrl+Shift+Z` on `window` in the bubble phase; the decision itself is a pure
+      function beside the screen (`undoShortcut.ts`), which is the only way this repo can test a key
+- [x] two ghost icons before `Hoy` naming the next step; a toast naming what was undone; the week the restore
+      touched shown by `focusDate`; nothing-to-undo answered `changed: false`, never a 409
+- [x] a drift guard: what is on disk must be what the cursor says, or the line is emptied and nothing is
+      restored
+- [x] `POST /api/history/undo` and `/redo`; the state of the line rides on `GET /api/week`, which the grid
+      already refetches after every mutation
+- [x] a 1000-session property harness: every stop on the way back compared row for row, both endpoints
+      compared as the owner sees them, refusals asserted to write nothing and to leave no step
+
+Verified on 2026-08-21: `tsc --noEmit` clean, `vitest run` **1084 passing across 39 files** (+32, the five
+2000-seed harnesses untouched and green), `eslint .` clean, `next build` clean. Driven over real HTTP and in a
+real browser on a scratch database: `Ctrl+Z` inside a text field is still the browser's own and raises no
+notice; with a panel open and the focus on a button it is inert and says so; a 3 h job restored across the
+comida comes back as both of its rows; and after a settings save the control is off with its reason in the
+tooltip. `data/calendar.db` untouched.
+
+*Found while testing, and left as correct:* the raw rows after a full redo walk can differ from the raw rows
+at the end of the session, in nothing but block ids and their sort order, when the last gesture recreated the
+same calendar with new ids. No visible change means no step, which is the rule — and it is why the drift
+guard compares canonically rather than exactly.
