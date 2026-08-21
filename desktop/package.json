@@ -29,8 +29,8 @@
     ],
     "extraResources": [
       {
-        "from": "build/app",
-        "to": "app"
+        "from": "build/server",
+        "to": "server"
       },
       {
         "from": "build/node.exe",

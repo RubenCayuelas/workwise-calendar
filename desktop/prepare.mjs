@@ -38,17 +38,17 @@ async function fetchNodeExe() {
   return `downloaded ${NODE_VERSION} win-x64`;
 }
 
-fs.rmSync(path.join(build, 'app'), { recursive: true, force: true });
+fs.rmSync(path.join(build, 'server'), { recursive: true, force: true });
 fs.mkdirSync(build, { recursive: true });
 
-copyDir(path.join(root, '.next', 'standalone'), path.join(build, 'app'));
+copyDir(path.join(root, '.next', 'standalone'), path.join(build, 'server'));
 // `output: 'standalone'` deliberately omits both of these; without them the app loads with no CSS.
-copyDir(path.join(root, '.next', 'static'), path.join(build, 'app', '.next', 'static'));
-copyDir(path.join(root, 'public'), path.join(build, 'app', 'public'));
+copyDir(path.join(root, '.next', 'static'), path.join(build, 'server', '.next', 'static'));
+copyDir(path.join(root, 'public'), path.join(build, 'server', 'public'));
 
 // `next/image` is never used, and sharp is the largest thing in the bundle.
 for (const unused of ['sharp', '@img']) {
-  fs.rmSync(path.join(build, 'app', 'node_modules', unused), { recursive: true, force: true });
+  fs.rmSync(path.join(build, 'server', 'node_modules', unused), { recursive: true, force: true });
 }
 
 const node = await fetchNodeExe();
@@ -59,5 +59,5 @@ const size = (dir) =>
     .filter((entry) => entry.isFile())
     .reduce((total, entry) => total + fs.statSync(path.join(entry.parentPath ?? entry.path, entry.name)).size, 0);
 
-console.log(`  app payload: ${(size(path.join(build, 'app')) / 1_048_576).toFixed(1)} MB`);
+console.log(`  server payload: ${(size(path.join(build, 'server')) / 1_048_576).toFixed(1)} MB`);
 console.log(`  node.exe:    ${node}`);

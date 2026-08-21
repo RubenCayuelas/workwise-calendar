@@ -20,11 +20,15 @@ let server;
 /**
  * Packaged, the payload sits in `resources/`; from a checkout it sits in `desktop/build/`, so the
  * same shell runs both without a flag to remember.
+ *
+ * It is `server` and NOT `app`: electron-builder puts the application ITSELF in `resources/app`, so a
+ * payload aimed there collides with it — the packaged app started and then died on
+ * `Cannot find module 'next'`, because its `node_modules` had been overwritten.
  */
 function payload() {
   const root = app.isPackaged ? process.resourcesPath : path.join(here, 'build');
   return {
-    appDir: path.join(root, 'app'),
+    appDir: path.join(root, 'server'),
     nodeExe: process.platform === 'win32' ? path.join(root, 'node.exe') : process.execPath,
   };
 }

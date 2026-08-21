@@ -7,7 +7,7 @@ An Electron window around the app's own server. **The app is not rewritten**: no
 Workwise.exe  (Electron 43)
 │
 ├─ starts, on a free port, bound to 127.0.0.1 only
-│     resources/node.exe  →  resources/app/server.js     ← the app, unchanged
+│     resources/node.exe  →  resources/server/server.js  ← the app, unchanged
 │        └─ better-sqlite3 → %APPDATA%\Workwise\calendar.db
 │
 └─ shows one maximised window, no address bar, no menu
@@ -43,6 +43,11 @@ npm run dist                  # produces dist/Workwise Setup <version>.exe
 ```
 
 `npm start` in this folder runs the shell against `build/` without packaging, which is the fast loop.
+
+> The payload goes to `resources/server`, never `resources/app`: **electron-builder puts the
+> application itself in `resources/app`** (`platformPackager.js:218`). Aiming the payload there
+> overwrites its `node_modules`, and the installed app dies on `Cannot find module 'next'` — which is
+> exactly what the first build did.
 
 ## What the installer does
 
