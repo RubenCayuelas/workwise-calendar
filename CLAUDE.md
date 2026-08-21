@@ -1,225 +1,219 @@
-# Workwise Calendar - Project Context
+# Workwise Calendar
 
-**Workwise** is a simple work scheduling app for a small workshop.
+A work scheduling app for a small metalworking workshop. It answers one question: **how long is the
+shop booked, and which days are free?** Work sits on a week grid as blocks, the engine lays them out in
+queue order respecting capacity, padlocks and gaps, and the owner reorganises by dragging.
 
-> **This file is the WHAT: the rules an implementer must follow.**
-> [DECISIONS.md](docs/DECISIONS.md) is the WHY: how each rule was decided, the owner's own words, what
-> was tried and rejected, and what was measured to confirm it. Neither is a summary of the other.
->
-> **Any change to a business rule updates this file. The reasoning for the change is appended to
-> DECISIONS.md.** Do not put reasoning here; it is what made this file unreadable once already.
+## The four documents, and which one you want
 
-## Objective
+| | holds | when to open it |
+|---|---|---|
+| **CLAUDE.md** (this) | the working agreement: conventions, the data model, the invariants, and where to read | always loaded; start here |
+| **[docs/SPEC.md](docs/SPEC.md)** | every rule of behaviour — the engine, the gestures, the screen | **before changing any rule.** A bare `§` below names a section of it |
+| **[docs/DECISIONS.md](docs/DECISIONS.md)** | why each rule is what it is, what was tried and rejected, what was measured | before overruling a rule, and before answering an open question |
+| **[CHANGELOG.md](CHANGELOG.md)** | what changed in each version | when releasing, or to see what the app does now |
 
-Help the workshop owner see how long the workshop is booked and what dates are available for new jobs.
-Track work blocks sequentially across the week, automatically respecting capacity, locks, and gaps.
-Enable quick visual reorganization via drag & drop.
+Local-only notes and the wireframes live in `documents/`, which is gitignored on purpose: it holds
+whatever the owner does not want in the repository. Do not move it, tidy it or read from it unasked.
 
 ## Architecture
-- Web app, self-hosted locally (shop PC).
-- **It ships as a Windows application, not as a server the owner starts** (decided 2026-08-21, not
-  built). Electron around the Next standalone server: the app is not rewritten and `src/` and `app/`
-  are not touched. The plan, the measurements behind it and the one hard constraint — **Electron 36 or
-  lower**, because that is where `better-sqlite3`'s prebuilt Windows binaries stop — are in
-  `documents/desktop-packaging.md` (gitignored, local only).
-- Single user (just the shop owner for now).
-- **Desktop only, mouse driven.** No touch support and no narrow/mobile layout (decided 2026-08-11).
-- Stack: Next.js 16 + TypeScript + SQLite. Turbopack builds `dev` and `build`; React stays on 18.
-- Priority: **simplicity over optimization**.
-- Code in English, UI in Spanish (i18n-ready for future languages).
 
-## Internationalization (i18n) Strategy
-- **Primary language**: Spanish (es) — initial UI/UX in Spanish.
-- **Multi-language support**: The app must support language selection at any time.
-  All UI strings externalized to i18n JSON files (`public/locales/{lang}/common.json`).
-- **Code convention**: All comments, variable names, functions, internal docs in English.
-  Only UI-facing strings in translation files.
-- The es and en key sets are held **identical** by a test (`locales.test.ts`).
+- Web app, self-hosted on the shop PC. Single user. **Desktop only, mouse driven** — no touch, no
+  narrow layout (decided 2026-08-11).
+- **Next.js 16 + TypeScript + SQLite** (`better-sqlite3`). Turbopack builds `dev` and `build`; React
+  stays on 18.
+- **It ships as a Windows application**: an Electron 43 window around the app's own standalone server,
+  which runs on a **`node.exe` bundled in the package**. `src/` and `app/` know nothing about it — see
+  `desktop/README.md` for the three traps that cost a build each.
+- Priority: **simplicity over optimization**. No multi-user, no auth, no subscriptions.
+- Code in English, UI in Spanish, i18n-ready.
+
+## Commands
+
+| | |
+|---|---|
+| `npm run dev` | development server on :3000 |
+| `npm run build` / `npm start` | production build and server |
+| `npm test` | vitest — the engine, the repositories, the API client, components' pure logic |
+| `npm run type-check` | `tsc --noEmit` |
+| `npm run lint` | `eslint .` |
+
+**All four gates must pass before a commit**: `tsc`, `vitest`, `eslint`, `next build`. Node **22
+exactly** — `scripts/require-node-22.mjs` refuses anything else, because `better-sqlite3` publishes no
+prebuilt binary for other ABIs and npm would fall through to a compiler.
+
+## Branches, versions and releases
+
+- **Work on `develop`.** `main` only receives releases, through a pull request from `develop` or a
+  `hotfix/*` branch. `main` cannot be force-pushed or deleted.
+- Versions are `EPIC.FEATURE.FIX`. **You may move the middle number for a feature and the last for a
+  fix. Never the first** — that is the owner's call alone.
+- **A change that ships bumps the version and adds its CHANGELOG.md entry**, written in terms of what
+  is different to use, not how it was built. A change that touches only documentation or tooling still
+  earns an entry; keep it to a line.
+- **Never create a tag and never publish a release** without the owner asking for it and confirming.
+  Pushing a `v*` tag builds the installer and opens a draft release — that is theirs to trigger.
+
+## Before you change a rule
+
+Read the section first. These are the ones most often broken by a plausible-looking change:
+
+| touching | read |
+|---|---|
+| the engine, placement, overflow | SPEC § *Weekly Auto-Composition*, § *Fill and Overflow, Always*, § *The Movable Pool* |
+| anything that pins a row | SPEC § *The Padlock Is the Only Pin* |
+| a drag, a drop, the ghost | SPEC § *A Drop Is Stored In Segments*, § *Thirds*, § *A Drop Onto a Day the Engine Reflows Is Never Refused*, § *A Drop Always Answers For Itself* |
+| the bottom edge | SPEC § *Block Resize*, and § *The Padlock Holds the Length* in DECISIONS |
+| gaps, absences, closed days | SPEC § *Gap Management*, § *Blocks and the Lunch Break* |
+| the axis, the grid, a gesture's geometry | SPEC § *Calendar View*, § *Block Gestures*, § *One Axis Per Gesture* in DECISIONS |
+| Settings | SPEC § *Settings*, § *The Capacity Is Never Touched Alone* |
+| undo/redo | SPEC § *A Settings Save Empties the Line*, § *What Ctrl+Z Is Not* |
+| backups | SPEC § *Backups* |
+
+**Several rules were decided against an obvious-looking alternative that had already been tried and
+failed for a recorded reason.** DECISIONS.md is where that reason is. Overruling a rule without reading
+it is how a fixed bug comes back.
+
+## The invariants
+
+Break one of these and the shop's calendar is wrong, not just the feature. They are asserted, not
+hoped for.
+
+1. **`SUM(blocks.duration) == projects.total_hours`** for every project, asserted inside the
+   transaction of every write. There is nowhere to park hours that are not on the calendar, and no
+   "unscheduled" tray.
+2. **No stored row straddles a non-working interval** — blocks *and* gaps. Work across the lunch break
+   is two rows of one job.
+3. **No stored row ends outside its day** (`assertRowWithinDayEnd`).
+4. **`duration` is NET working minutes**, never clock minutes, for every row in the app.
+5. **Integer minutes everywhere inside the engine.** Decimal hours exist only at the database boundary
+   and in what the user reads.
+6. **Dates are local `YYYY-MM-DD` from `src/lib/dates.ts`.** Never derive a calendar day from a UTC
+   timestamp — SQLite's `CURRENT_TIMESTAMP` is UTC, so anything saved after 22:00 lands on the wrong
+   day.
+7. **The engine never writes to a date before today**, and no grid gesture reaches it either.
+8. **One mark and no more**: `locked` is the only thing that stops a row reflowing. Two other columns
+   existed for this and both were deleted as duplicates — `hand_placed` (2026-08-14) and
+   `manual_duration` (2026-08-18). Do not add a third.
+9. **One transaction per operation.** A refusal writes nothing and leaves the calendar untouched, never
+   half-recomposed.
+10. **Recomposing twice changes nothing.** The pass is idempotent.
+11. **Never open `data/calendar.db` from a test.** Opening MIGRATES it; `openDatabase` refuses it under
+    vitest, because the rule was broken once and a data migration ran over the shop's real calendar.
 
 ## Data Model
 
 - **Project** (id, name, description, color, total_hours, created_at, updated_at)
-  - A single **job/work order** ("Metal door structure", "Railing", "Staircase").
-  - `total_hours`: Estimated duration. Edited when work progresses or the estimate changes.
-  - `description`: Optional free text, editable in the job form.
-  - `color`: Visual identifier on the calendar.
-  - No status, no deadline, no client tracking (out of scope).
-  - **No order column.** Queue order is derived from calendar position — see *Queue Order*.
+  - One **job / work order**: "Railing", "Staircase", "Door".
+  - `total_hours`: the estimate. Edited as work progresses.
+  - No status, no deadline, no client tracking — out of scope.
+  - **No order column.** Queue order is derived from calendar position — SPEC § *Queue Order*.
 
 - **Block** (id, project_id, date, start_time, duration, locked, created_at, updated_at)
-  - A **time slot on the calendar** where part of a project sits.
-  - `date`: YYYY-MM-DD. `start_time`: HH:mm.
-  - `duration`: Hours as decimal. Always **net working hours**.
-  - `locked`: Boolean. The **only** exemption from auto-move, and the only thing that fixes a row's
-    POSITION. If true the engine never moves the block; the user still can, by hand. Set by the
-    padlock, and by a gesture that puts the row where the engine would never choose — a visual
-    margin, the Friday buffer, the weekend. See *The Padlock Is the Only Pin*. Cleared by the
-    padlock, and by nothing else.
-  - **One Project can have multiple Blocks** across different days.
-  - **A stored block never straddles a non-working interval** (lunch break, end of day). Work
-    crossing the lunch break is two blocks of the same job — see *Blocks and the Lunch Break*. This
-    holds for a HAND DROP too: the drop is cut at the break when it is saved. The end-of-day half is
-    enforced in one place — see *The End of the Day Is a Line No Write May Cross*.
-  - **A drop onto Monday-Thursday, inside the working periods, does not pin the block.** It is an
-    ordinary block: surrounding unlocked work reflows around it, and placement by hand changes the
-    *order*, not the block's mobility.
+  - A slice of a project sitting on the calendar. `date` is `YYYY-MM-DD`, `start_time` is `HH:mm`,
+    `duration` is decimal net working hours.
+  - `locked`: the padlock. The only exemption from auto-move, and the only thing that fixes a row's
+    position *and* its length. Set by the padlock and by a gesture that puts a row where the engine
+    would never choose — a visual margin, the Friday buffer, the weekend, a closed day. Cleared by the
+    padlock and nothing else.
+  - One project has many blocks, across days.
 
 - **Gap** (id, date, start_time, duration, reason, unit_id, created_at, updated_at)
-  - A **break/hole** in the schedule (admin, maintenance, machine breakdown).
-  - `reason`: Optional text. Can be empty.
-  - All gaps share one visual colour (configurable in Settings).
-  - **Gaps are time**: they consume the day's plannable hours exactly like locked work does, and are
-    fixed occupancy — never auto-recomposed.
-  - `duration` is **NET WORKING MINUTES, exactly like a block's** (changed 2026-08-19), and **a stored
-    gap row never straddles a non-working interval** either — so the invariant holds for EVERY row in
-    the app and `start_time + duration` is any row's clock extent — see *Blocks and the Lunch Break*.
-  - `unit_id`: **which rows are ONE ABSENCE.** The two halves around the lunch break share one and carry
-    one reason between them, and **ANY ROW OF A UNIT ADDRESSES THE UNIT** — a PATCH and a DELETE both
-    mean the whole absence, whichever row they name. It cannot be the reason text: `deleteProject`
-    writes the same sentence on every past row, so two absences that merely touch would fuse.
-  - **An absence is fully described by (date, start, NET duration)** — the same shape a block's resize
-    edits — which is what lets one form and two gestures all mean the same thing. A screen that hands
-    any of them ONE ROW'S duration is claiming the absence is that long; see *Gap Management*.
-  - **In engine terms a gap was always a padlocked task** — fixed occupancy, consumes plannable hours,
-    never recomposed — so it now has the two gestures a padlocked block has: see *Gap Management*.
+  - A hole in the schedule: maintenance, a breakdown, admin. `reason` is optional text.
+  - **Gaps are time**: they consume the day's plannable hours exactly as locked work does, and are
+    fixed occupancy — never recomposed. In engine terms a gap has always been a padlocked task, which
+    is why it has the same two gestures.
+  - `unit_id`: **which rows are ONE ABSENCE.** The halves around the lunch break share one and carry
+    one reason, and **any row of a unit addresses the unit** — a PATCH or a DELETE means the whole
+    absence, whichever row it names. It cannot be the reason text: `deleteProject` writes the same
+    sentence on every past row, so two absences that merely touch would fuse.
+  - **An absence is fully described by (date, start, NET duration)**, the same shape a resize edits.
+    A screen handed ONE ROW's duration is claiming the absence is that long — that destroyed 4 of 10
+    hours once.
 
-**ONE MARK AND NO MORE.** A row stops reflowing for exactly one reason, visible on it and undone by
-pressing it: the **padlock** (`locked`). It fixes the row ENTIRE — where it sits *and* how long it is,
-because the engine neither moves a locked row nor re-derives its length. Two other columns have
-existed and both were removed for the same reason, that they were a second way to say what the padlock
-already says: `hand_placed` (2026-08-14) and `manual_duration` (2026-08-18).
+- **day_overrides** (date, is_closed, capacity_hours, note) — whole-day exceptions, read through a
+  single `getDayConfig(date)`. `capacity_hours` deliberately has no screen: a short day is a gap.
 
-**Invariant**: `SUM(blocks.duration) == projects.total_hours` for every project, asserted inside the
-transaction of every write. There is nowhere to park hours that are not on the calendar
-(`date`/`start_time` are NOT NULL) and no "unscheduled" tray exists.
-
----
+- **history** — the undo line, whole calendar states with a cursor. Emptied when the database is
+  opened, so a step can never describe a previous day's calendar.
 
 ## Implementer Defaults
 
-Decided by the implementer because they have an obvious low-risk default. Flagged here so they are
-easy to revisit rather than buried in the code.
+Decided by the implementer because the low-risk answer was obvious. Here so they are easy to revisit
+rather than buried in the code.
 
-- **Styling**: plain CSS (CSS Modules) against the brand tokens. Tailwind is not installed.
-- **SQLite driver**: `better-sqlite3`. Synchronous, so no `promisify` plumbing, and it removes the
-  whole `sqlite3 → node-gyp → tar` vulnerability chain.
-- **Growing a job whose last block is outside the movable pool**: the engine appends to the last
-  block **it still lays out**. If the job has none, it creates one at the next available slot. "A
-  locked block is never grown silently" covers **every row outside the pool**. Taking hours AWAY is
-  not symmetrical and still reaches every row, unlocked rows first and a padlocked one only as a last
-  resort (reported in `touchedLockedBlockIds`). `lastAutomatic` asks `isMovable`, so every case is
-  covered. A SHRINK never hands its freed hours to a row outside the pool at all — it ASKS.
-- **Creating a gap on top of existing work**: recompose, pushing unlocked work forward in the same
-  transaction. If the space is held by a locked block, refuse the save naming the block.
-- **How far the day picker reaches**: 4 weeks back and the planning horizon forward, capped at 16
-  weeks. Bounds live in `src/components/ui/dateOptions.ts`, with a test.
-- **Whole-day exceptions**: `day_overrides(date, is_closed, capacity_hours, note)` ships in the
-  initial migration and the engine reads every day through a single `getDayConfig(date)`. `is_closed`
-  and `note` now have their screen — *The Absences Screen*, `Cerrar días` — and are NOT in Settings:
-  closing a week is something the owner does to the calendar, not a preference. `capacity_hours` still
-  has none, deliberately (*no half-day*).
-- **Linting is the ESLint CLI on a flat config** (`eslint.config.mjs`, `npm run lint` = `eslint .`).
-  `next lint` does not exist in Next 16 and `next build` no longer lints, so the gate is standalone.
-  Two consequences worth knowing before editing that file:
-  - **`eslint .` walks the whole tree and reads neither `.gitignore` nor `.git/info/exclude`**, so
-    every non-source directory is named in `ignores`. `.claude/worktrees` matters most: it holds a
-    checkout of ANOTHER branch and was being linted as if it were this one.
+- **Styling**: plain CSS Modules against the brand tokens. Tailwind is not installed. Never hardcode a
+  colour — always a token, so a dark theme stays cheap.
+- **SQLite driver**: `better-sqlite3`, synchronous, so no promise plumbing.
+- **Growing a job whose last block is outside the movable pool**: append to the last block the engine
+  still lays out; if there is none, create one at the next slot. Taking hours away is not symmetrical —
+  it reaches every row, unlocked first, a padlocked one last and reported.
+- **Creating a gap over existing work**: recompose and push unlocked work forward in the same
+  transaction; refuse naming the block if a padlock holds the space.
+- **How far the day picker reaches**: 4 weeks back, the planning horizon forward, capped at 16 weeks
+  (`src/components/ui/dateOptions.ts`, with a test).
+- **Linting is the ESLint CLI on a flat config.** `next lint` does not exist in Next 16 and `next build`
+  no longer lints, so the gate is standalone. Two things to know before editing `eslint.config.mjs`:
+  - **`eslint .` reads neither `.gitignore` nor `.git/info/exclude`**, so every non-source directory is
+    named in `ignores`. `.claude/worktrees` matters most — it holds a checkout of another branch and
+    was being linted as if it were this one — and so do `desktop/build` and `desktop/dist`.
   - **`react-hooks/refs` and `react-hooks/set-state-in-effect` are OFF.** They arrived with
-    `eslint-plugin-react-hooks` 7 (the version before had neither) and fire 25 times, every one on a
-    deliberate shape that already carries a comment saying why. Turning them on is a refactor of the
-    drag layer and the portal mount guard, not a lint fix — see *Open Decisions*.
-- **`agentRules: false`** in `next.config.ts`. Without it `next dev` appends a self-rewriting block to
-  **CLAUDE.md** on every start: a dirty tree on every run, and framework prose inside the file that
-  states its own contract in its header. The useful half of that block is kept below, in
-  *Notes for Development*.
-- **The calendar every suite is written against lives in `src/testing/fixtures.ts`** — the
-  wireframe's week, Monday 10 to Sunday 16 August 2026, plus the days either side the horizon tests
-  need. Nine test files had been declaring it themselves, and two had drifted: one called
-  `2026-08-20` THURSDAY while the rest call `2026-08-13` THU, so one word meant two days depending
-  on the file. Add a date here rather than locally.
-- **Test timeout**: 30 s (`vitest.config.mts`). The suite's property tests run thousands of generated
-  calendars each; the seed counts are the guard, so the timeout must not be what decides how many run.
+    `eslint-plugin-react-hooks` 7 and fire 25 times, every one on a deliberate shape that carries a
+    comment saying why. Turning them on is a refactor of the drag layer, not a lint fix — it is an open
+    question in DECISIONS.md.
+- **`agentRules: false`** in `next.config.ts`, or `next dev` appends a self-rewriting block to this
+  file on every start.
+- **`outputFileTracingExcludes`** keeps the file tracer out of `data/`, `desktop/` and `documents/`. It
+  resolved `path.join(process.cwd(), 'data', …)` in `getDbPath()` and packaged the shop's own database
+  into the installer.
+- **The calendar every suite is written against is `src/testing/fixtures.ts`** — the wireframe's week,
+  Monday 10 to Sunday 16 August 2026, plus the days either side the horizon tests need. Add a date
+  there, not locally: nine files had been declaring it and two had drifted, so one word meant two
+  different days depending on the file.
+- **Test timeout**: 30 s (`vitest.config.mts`). The property suites run thousands of generated
+  calendars; the seed counts are the guard, so the timeout must not decide how many run.
 
----
+## Conventions
 
-## Current Project Status
-
-**v0.19.** `tsc --noEmit` clean, `vitest run` **1127 passing across 41 files**, `eslint .` clean,
-`next build` clean.
-
-**UNDO AND REDO, MANY STEPS DEEP** (2026-08-21). `Ctrl+Z` and `Ctrl+Y` walk the calendar back and
-forward up to 50 writes, and two discreet icons in the header say what the next step is. A step is a
-whole STATE of the calendar rather than the inverse of a gesture — the reflow recreates rows on every
-pass, so what a move did is not derivable from the move — written inside the same transaction as the
-rows it describes, which is what makes a refusal discard it for free. **The line lasts one run of the
-app** and is emptied when the database is OPENED, because a close can be skipped and rows outliving
-their run would describe yesterday's calendar. **Two decisions are the owner's**: the scope is the
-calendar, so a settings save EMPTIES the line instead of joining it, and with a panel open the shortcut
-is inert and says so rather than risking a half-written form. **A write that changed nothing the owner
-can see earns no step**, which also stops the `SET ASIDE` micro-resize costing one.
-
-Everything in *Composition Engine Business Rules* and *UI/UX Behavior* above is implemented and was
-verified by driving the running app, except the items marked **Decided but NOT BUILT** in
-*Open Decisions*.
-
-**The full release history — what each round built, what it measured, and what the measuring found —
-is in [DECISIONS.md](docs/DECISIONS.md) § Release history.**
-
----
-
-## Notes for Development
-
-- **Read [DECISIONS.md](docs/DECISIONS.md) before changing a rule.** Several of these rules were decided
-  against an obvious-looking alternative that had already been tried and had failed for a recorded
-  reason.
-- **Any change to a business rule updates this file**, and appends its reasoning to DECISIONS.md.
 - **Commits: Conventional Commits, SUBJECT ONLY** (decided by the owner, 2026-08-20).
-  `type(scope): subject`, imperative, ~72 characters, no body. The reasoning goes to DECISIONS.md,
-  which is what the body used to carry — and the owner's instruction was explicit: *«commits
-  descriptivos simples y con una convención usada de forma estandarizada»*, not the long messages
-  before it. Scope is the area, not the file: `resize`, `gaps`, `absences`, `engine`, `grid`,
-  `decisions`. Types in use: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
-  No self-attribution in a commit or a PR: no trailer, no mention of the tool.
-- **WHO DECIDED WHAT MATTERS.** Never write *«decided with the owner»* about something inferred from
-  what they said — that exact overstatement stood for two days about the resize precondition and cost
-  a round to undo. If it was an inference, say so, and name what they actually decided.
-- **All code, comments, variable names**: English. **UI strings**: only in
-  `public/locales/{lang}/common.json`, with the es and en key sets identical. That includes TEST
-  DATA: jobs are `Railing`, `Staircase`, `Door`, `Shutter`, `Grille`, `Shed`, `Casing`, `Capping`,
-  and gap reasons are `Fair`, `Breakdown`, `Errands` and the rest — the English word for the thing,
-  because the test COMMENTS were already using it while the code said `escalera`.
-  **Four kinds of Spanish are correct and must survive a sweep**, all of them found by one that did
-  not spare them: an assertion of an `es` locale VALUE (`locales.test.ts`, `summary.test.ts`, the
-  `apiErrorMessage(..., 'es')` cases); a UI label the spec NAMES, so the doc describes the screen
-  that exists (`Ausencias`, `Cerrar días`, `Un hueco`, `desborde 2 h`); the owner's own words, quoted;
-  and a reason STORED in the shop's database, where `Feria` is the datum and `Fair` would be a lie.
-  A fifth trap has no Spanish in it at all: `taller` is the English comparative, and a map that
-  translates it turns *"made the grid taller than its box"* into nonsense.
+  `type(scope): subject`, imperative, ~72 characters, **no body** — the reasoning goes to DECISIONS.md.
+  Scope is the area, not the file: `resize`, `gaps`, `absences`, `engine`, `grid`, `desktop`, `backups`.
+  Types in use: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`.
+  **No self-attribution** in a commit or a pull request: no trailer, no mention of the tool.
+- **WHO DECIDED WHAT MATTERS.** Never write *"decided with the owner"* about something inferred from
+  what they said. That exact overstatement stood for two days about the resize precondition and cost a
+  round to undo. If it was an inference, say so, and name what they actually decided.
+- **All code, comments and identifiers in English. UI strings only in
+  `public/locales/{es,en}/common.json`**, with the two key sets held identical by a test. That includes
+  **test data**: jobs are `Railing`, `Staircase`, `Door`, `Shutter`, `Grille`, `Shed`, `Casing`,
+  `Capping`; gap reasons are `Fair`, `Breakdown`, `Errands` and the rest.
+  **Four kinds of Spanish are correct and must survive a sweep**, all four found by one that did not
+  spare them:
+  1. an assertion of an `es` locale VALUE (`locales.test.ts`, `summary.test.ts`, the
+     `apiErrorMessage(…, 'es')` cases);
+  2. a UI label the spec NAMES, so the document describes the screen that exists — `Ausencias`,
+     `Cerrar días`, `Un hueco`, `desborde 2 h`;
+  3. the owner's own words, quoted;
+  4. a reason STORED in the shop's database, where `Feria` is the datum and `Fair` would be a lie.
+
+  A fifth trap has no Spanish in it: **`taller` is the English comparative**, and a map that translates
+  it turns *"made the grid taller than its box"* into nonsense.
 - **A comment carries what the code cannot, and nothing else.** The path names the module, the
-  identifier names the thing, the type says its shape, this file holds the rules and DECISIONS.md
-  holds the why. A comment restating any of those is a copy that will drift out of step with them.
-  - **Delete**: a doc recoverable from the name or the type (*"the job's name"* over `name`); a file
-    header describing what the filename says; an essay justifying a constant; an obituary for deleted
-    code (git has it); owner quotes; boilerplate true of half the repo (*"pure, so it is testable"*).
-  - **Never write a `CLAUDE.md §` or `DECISIONS.md §` pointer.** That the rules and the reasoning live
-    in those two files is understood, and saying it on every symbol is the noise this rule exists to
-    stop. The owner asked for the pointers to go, twice.
+  identifier names the thing, the type says its shape, SPEC.md holds the rules and DECISIONS.md the why.
+  A comment restating any of those is a copy that will drift.
+  - **Delete**: a doc recoverable from the name or the type; a file header describing what the filename
+    says; an essay justifying a constant; an obituary for deleted code; owner quotes; boilerplate true
+    of half the repo.
+  - **Never write a `SPEC.md §` or `DECISIONS.md §` pointer in code.** That the rules and the reasoning
+    live in those files is understood; repeating it on every symbol is the noise this rule exists to
+    stop.
   - **What earns a comment**: a unit or origin the type cannot state (*"minutes from midnight"*, *"net
-    working minutes"*); a caller obligation; a trap or invariant the next reader would otherwise
-    break; a measured defect or a tried-and-failed alternative not already written down elsewhere.
-  - If it needs a paragraph it is reasoning, and it belongs in DECISIONS.md instead.
-  *(Applied 2026-08-18: 11,027 comment lines over 24,525 of code, then a second pass on the
-  survivors.)*
-- **Integer minutes** everywhere inside the engine; `duration` is net working minutes; no stored row
-  straddles a break or leaves its day.
-- **Database**: auto-created `./data/calendar.db` on first run (the directory must be created too).
-  Point `WORKWISE_DB_PATH` at a scratch file when driving the app — never test against `data/`. **Under
-  `vitest` that file is refused outright** (`openDatabase`), because opening it MIGRATES it: the rule was
-  broken once, on 2026-08-19, by a mistyped argument that let a trailing `db` parameter fall back to its
-  default, and a data migration ran over the shop's real calendar.
-- **Next 16 is newer than the training data of whatever is reading this.** The version-matched docs
-  ship inside the install, at `node_modules/next/dist/docs/` — read them rather than recalling Next 15
-  behaviour. `next lint`, `serverRuntimeConfig`, `publicRuntimeConfig`, AMP and `experimental.ppr` are
-  all gone; `middleware` is now `proxy`; `params`, `searchParams`, `cookies()` and `headers()` are
-  async only.
-- **Complexity**: prioritise simplicity. No multi-user, auth, subscriptions. Keep it lean.
+    working minutes"*); a caller obligation; a trap the next reader would otherwise walk into; a
+    measured defect or a tried-and-failed alternative not written down elsewhere.
+  - If it needs a paragraph it is reasoning, and it belongs in DECISIONS.md.
+- **Database**: `./data/calendar.db`, created on first run. Point `WORKWISE_DB_PATH` at a scratch file
+  when driving the app — **never test against `data/`**.
+- **Next 16 is newer than the training data of whatever is reading this.** The version-matched docs ship
+  inside the install at `node_modules/next/dist/docs/`. `next lint`, `serverRuntimeConfig`,
+  `publicRuntimeConfig`, AMP and `experimental.ppr` are gone; `middleware` is now `proxy`; `params`,
+  `searchParams`, `cookies()` and `headers()` are async only.
