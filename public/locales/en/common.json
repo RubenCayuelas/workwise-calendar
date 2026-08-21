@@ -368,7 +368,9 @@
     "newBlockHint": "They stay as a loose block you can place wherever you like.",
     "cancel": "Cancel",
     "addToTotal": "Add the hours to the total",
-    "addToTotalHint": "The job becomes that many hours bigger."
+    "addToTotalHint": "The job becomes that many hours bigger.",
+    "growTitle": "Add those {{hours}} h to the job?",
+    "growBody": "«{{name}}» has nowhere to take them from: its other blocks are locked, on the weekend, already past, or do not hold that much. Lengthening it here makes the job bigger."
   },
   "errors": {
     "horizonExceeded": "The hours do not fit inside the planning horizon. Widen the horizon in Settings or reduce the hours.",

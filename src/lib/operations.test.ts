@@ -661,7 +661,7 @@ describe('block gestures', () => {
     const last = puerta.blocks[puerta.blocks.length - 1];
     setBlockLock(last.id, true, { today: MON }, db);
 
-    const result = resizeBlock(last.id, { durationMinutes: 4 * 60, today: MON }, db);
+    const result = resizeBlock(last.id, { durationMinutes: 4 * 60, today: MON, freedHours: 'add-to-total' }, db);
 
     expect(result.summary.queuedMinutes).toBe(10 * 60);
     expect(listProjects(db)[0].totalMinutes).toBe(10 * 60);
@@ -749,7 +749,7 @@ describe('block gestures', () => {
 
     // 15:30 to 20:30: an hour past the last period, into the grey band no gesture could reach.
     setBlockLock(puerta.blocks[0].id, true, { today: MON }, db);
-    const result = resizeBlock(puerta.blocks[0].id, { durationMinutes: 5 * 60, today: MON }, db);
+    const result = resizeBlock(puerta.blocks[0].id, { durationMinutes: 5 * 60, today: MON, freedHours: 'add-to-total' }, db);
 
     expect(result.block?.locked).toBe(true);
     expect(calendar()).toEqual([`${MON} 08:00-14:00 Porton`, `${MON} 15:30-20:30 Puerta [locked]`]);
@@ -1205,7 +1205,7 @@ describe('the end of the day is a line no write may cross', () => {
     const before = calendar();
 
     const error = refusal(() =>
-      resizeBlock(listBlocks(db)[0].id, { durationMinutes: 12 * 60, today: THU }, db),
+      resizeBlock(listBlocks(db)[0].id, { durationMinutes: 12 * 60, today: THU, freedHours: 'add-to-total' }, db),
     );
 
     expect(error.status).toBe(409);
@@ -1221,7 +1221,7 @@ describe('the end of the day is a line no write may cross', () => {
     job('Uno', 6, BLUE, THU);
     setBlockLock(listBlocks(db)[0].id, true, { today: THU }, db);
 
-    resizeBlock(listBlocks(db)[0].id, { durationMinutes: 11 * 60, today: THU }, db);
+    resizeBlock(listBlocks(db)[0].id, { durationMinutes: 11 * 60, today: THU, freedHours: 'add-to-total' }, db);
 
     // Both rows carry the target's padlock: what holds a hand-made shape has to hold all of it.
     expect(calendar()).toEqual([`${THU} 08:00-14:00 Uno [locked]`, `${THU} 15:30-20:30 Uno [locked]`]);
@@ -1321,12 +1321,12 @@ describe('the end of the day is a line no write may cross', () => {
     expect(calendar()).toEqual([`${THU} 19:30-20:30 Uno [locked]`]);
 
     // The same length again: accepted, marks and all.
-    resizeBlock(listBlocks(db)[0].id, { durationMinutes: 60, today: THU }, db);
+    resizeBlock(listBlocks(db)[0].id, { durationMinutes: 60, today: THU, freedHours: 'add-to-total' }, db);
     expect(calendar()).toEqual([`${THU} 19:30-20:30 Uno [locked]`]);
 
     // Longer: refused, because that is new time outside every window.
     const error = refusal(() =>
-      resizeBlock(listBlocks(db)[0].id, { durationMinutes: 90, today: THU }, db),
+      resizeBlock(listBlocks(db)[0].id, { durationMinutes: 90, today: THU, freedHours: 'add-to-total' }, db),
     );
     expect(error.code).toBe('row-past-day-end');
     expect(calendar()).toEqual([`${THU} 19:30-20:30 Uno [locked]`]);
@@ -1461,7 +1461,11 @@ describe('the lunch break is not a slot', () => {
     );
     expect(calendar()).toEqual([`${THU} 14:00-16:00 Uno [locked]`]);
 
-    resizeBlock(listBlocks(db)[0].id, { durationMinutes: 3 * 60, today: THU }, db);
+    resizeBlock(
+      listBlocks(db)[0].id,
+      { durationMinutes: 3 * 60, today: THU, freedHours: 'add-to-total' },
+      db,
+    );
 
     expect(calendar()).toEqual([`${THU} 15:30-18:30 Uno [locked]`]);
     expect(listProjects(db)[0].totalMinutes).toBe(3 * 60);
@@ -1874,7 +1878,7 @@ describe('what a block mutation says about itself', () => {
     setBlockLock(puerta.blocks[0].id, true, { today: MON }, db);
 
     // 9 h from 08:00 is 08:00-14:00 plus 15:30-18:30: one stretch, two rows.
-    const result = resizeBlock(puerta.blocks[0].id, { durationMinutes: 9 * 60, today: MON }, db);
+    const result = resizeBlock(puerta.blocks[0].id, { durationMinutes: 9 * 60, today: MON, freedHours: 'add-to-total' }, db);
 
     expect(result.changed).toBe(true);
     expect(result.placedBlockIds).toHaveLength(2);
@@ -2066,7 +2070,7 @@ describe('a resize that rewrites a LOCKED row says so', () => {
     setBlockLock(afternoon.id, true, { today: THU }, db);
     setBlockLock(morning.id, true, { today: THU }, db);
 
-    const result = resizeBlock(morning.id, { durationMinutes: 11 * 60, today: THU }, db);
+    const result = resizeBlock(morning.id, { durationMinutes: 11 * 60, today: THU, freedHours: 'add-to-total' }, db);
 
     expect(result.touchedLockedBlockIds).toEqual([afternoon.id]);
     // Both rows padlocked, and both were before: the padlock is what let the edge size them.

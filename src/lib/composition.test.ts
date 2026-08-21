@@ -2829,9 +2829,14 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     expect(edit.totalMinutesDelta).toBe(0);
   });
 
-  it("raises the job's total when the LAST block grows, since there is nothing farther to draw from", () => {
+  it("raises the job's total when the LAST block grows, ONCE THE OWNER HAS SAID SO", () => {
+    // The answer is required since 2026-08-21: growing the last row used to rewrite the estimate
+    // with nothing asked, while shrinking it asked. Same dead end, so it now asks in both.
     const edit = expectEdited(
-      resizeBlock(lastPinned(), resizing({ blockId: 'viernes', durationMinutes: 300, today: MON })),
+      resizeBlock(
+        lastPinned(),
+        resizing({ blockId: 'viernes', durationMinutes: 300, today: MON, freedHours: 'add-to-total' }),
+      ),
     );
 
     expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-10:00`, `${FRI} 08:00-13:00 [locked]`]);
@@ -2839,8 +2844,8 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   });
 
   it('ASKS when the last block shrinks, instead of refusing, and names what it freed', () => {
-    // Growing the last row raises the estimate; shrinking it used to be a flat 409. There is nothing
-    // to hand the hours to, so the transform stops and asks — hours and answers in one round trip.
+    // The mirror of the grow above. There is nothing to hand the hours to, so the transform stops
+    // and asks — hours and answers in one round trip.
     const result = resizeBlock(lastPinned(), resizing({ blockId: 'viernes', durationMinutes: 60, today: MON }));
 
     expect(result.ok).toBe(false);
@@ -2954,6 +2959,52 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     );
     expect(edit.totalMinutesDelta).toBe(600 - jobMinutes(job()));
     expect(minutesByProject(edit.blocks).escalera).toBe(600);
+  });
+
+  it('ASKS before growing the job\'s LAST row, exactly as shrinking it asks', () => {
+    // The two directions were not symmetrical: shrinking the last row asked what to do with the
+    // freed hours, growing it silently made the estimate bigger. Reported by the owner, 2026-08-21.
+    const blocks = [block({ id: 'solo', project: 'escalera', date: MON, from: '08:00', hours: 3 })];
+
+    const result = resizeBlock(blocks, resizing({ blockId: 'solo', durationMinutes: 300, today: MON }));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('the growth must be put to the owner');
+    expect(result.error.code).toBe('grow-needs-choice');
+    expect(result.error.choices).toEqual(['add-to-total']);
+    // The hours the estimate would have to cover, which is the whole growth here: there is no other
+    // row to draw any of it from.
+    expect(result.error.freedMinutes).toBe(120);
+  });
+
+  it('grows the last row once the answer is in, and only then', () => {
+    const blocks = [block({ id: 'solo', project: 'escalera', date: MON, from: '08:00', hours: 3 })];
+
+    const edit = expectEdited(
+      resizeBlock(
+        blocks,
+        resizing({ blockId: 'solo', durationMinutes: 300, today: MON, freedHours: 'add-to-total' }),
+      ),
+    );
+
+    expect(edit.totalMinutesDelta).toBe(120);
+    expect(minutesByProject(edit.blocks).escalera).toBe(300);
+  });
+
+  it('still asks nothing when the growth is paid for by the job\'s other rows', () => {
+    // Unchanged, and the point of the change: only a DEAD END asks. A transfer inside the job is
+    // not one, so an ordinary grow must not have grown a dialog.
+    const blocks = [
+      block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
+      block({ id: 'martes', project: 'escalera', date: TUE, from: '08:00', hours: 3 }),
+    ];
+
+    const edit = expectEdited(
+      resizeBlock(blocks, resizing({ blockId: 'lunes', durationMinutes: 180, today: MON })),
+    );
+
+    expect(edit.totalMinutesDelta).toBe(0);
+    expect(minutesByProject(edit.blocks).escalera).toBe(300);
   });
 
   it('deletes a counterparty the transfer empties, cascading backwards', () => {

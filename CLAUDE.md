@@ -498,7 +498,7 @@ the whole span, whether every row would come back locked, and which days are fre
 |---|---|---|
 | Enlarge a block that is **not** the last | Subtract those hours from the job's later rows, cascading backwards (LIFO), deleting any that reach 0 | unchanged |
 | Enlarge past everything those rows hold | **ASKS**: 409 `grow-needs-choice`, one answer, `add-to-total` | **increases** by the shortfall |
-| Enlarge the **last** block (or the only block) | No farther block to draw from | **increases** |
+| Enlarge the **last** block (or the only block) | No farther block to draw from — **ASKS**, the same way | **increases** once answered |
 | Shrink a block that is **not** the last | Add those hours to the job's last block the engine still lays out | unchanged |
 | Shrink with **no block that can take the hours** | **ASKS**: `reduce-total` or `new-block` | depends on the answer |
 
@@ -514,10 +514,18 @@ adelantar trabajo»* — so it has to hold. Pressing the padlock undoes it. (Thi
 `usesManualOnlyTime`, was deleted with `manual_duration` on 2026-08-18 when nothing read it any more,
 and was restored with the gesture on 2026-08-20.)
 
-**Both dead ends ASK, and neither writes anything unanswered.** 409 with `details.freedMinutes` and
-`details.choices`; the answer comes back on the next request as `freedHours`, and cancelling is simply
-never sending it. `ResizeChoiceDialog` builds itself from the server's list, so the answers offered
-are always the ones that exist.
+**EVERY DEAD END ASKS, IN BOTH DIRECTIONS, and none writes anything unanswered.** 409 with
+`details.freedMinutes` and `details.choices`; the answer comes back on the next request as
+`freedHours`, and cancelling is simply never sending it. `ResizeChoiceDialog` builds itself from the
+server's list, so the answers offered are always the ones that exist — and it takes the DIRECTION too,
+because "what do we do with these hours?" and "shall the job get bigger?" are not the same sentence.
+
+**THE TWO DIRECTIONS ARE SYMMETRICAL, and were not until 2026-08-21.** Growing the job's LAST row
+rewrote `total_hours` with nothing asked, while shrinking that same row asked; the owner reported it as
+one thing behaving two ways. Worse, the grow that DID ask (`grow-needs-choice`, past everything the
+other rows hold) was never caught by the screen, so a question the server had asked arrived as a red
+error banner. Both halves are fixed: the last-row grow asks, and the client turns either code into the
+dialog.
 
 **A GAP's bottom edge is ABSOLUTE** — it just sets the absence's duration — because there is no job
 to transfer hours to. See *Gaps Are Dragged And Resized*.
@@ -559,9 +567,11 @@ a 400, never a silent re-ask. `ResizeChoiceDialog` renders it; `details` carries
 dialog formats them. **`freedHours` is the answer channel for BOTH directions** — the name predates the
 grow and is kept because it is the documented wire field.
 
-**The dead ends are three**: the stretch being sized contains the job's LAST row; every counterparty is
-outside the movable pool (locked, weekend, frozen past); or the growth is larger than everything the
-counterparties hold.
+**The dead ends are three, and each of them asks whichever way the edge was dragged**: the stretch
+being sized contains the job's LAST row; every counterparty is outside the movable pool (locked,
+weekend, frozen past); or the growth is larger than everything the counterparties hold. **A transfer
+that the job's other rows can pay for is NOT one of them** and must stay silent — a dialog on every
+ordinary drag would be the gesture asking permission to do its job.
 
 - **The drag crosses the lunch break, which costs nothing.** A row starting at 10:00 dragged to 17:30
   is **6 h** — `10:00-14:00` plus `15:30-17:30` — never 7.5 h. Releasing anywhere inside 14:00-15:30

@@ -368,7 +368,9 @@
     "newBlockHint": "Se quedan como un bloque suelto que puedes colocar donde quieras.",
     "cancel": "Cancelar",
     "addToTotal": "Añadir las horas al total",
-    "addToTotalHint": "El trabajo pasa a tener esas horas más."
+    "addToTotalHint": "El trabajo pasa a tener esas horas más.",
+    "growTitle": "¿Sumamos esas {{hours}} h al trabajo?",
+    "growBody": "«{{name}}» no tiene de dónde sacarlas: sus otros bloques están bloqueados, en fin de semana, ya pasados, o no dan para tanto. Alargarlo aquí hace el trabajo más grande."
   },
   "errors": {
     "horizonExceeded": "No caben todas las horas dentro del horizonte de planificación. Amplía el horizonte en Configuración o reduce las horas.",

@@ -2685,6 +2685,45 @@ now correctly ignored for being outside the git repository.
 
 ---
 
+## The Bottom Edge Asks In Both Directions
+
+**Reported by the owner, 2026-08-21**, about behaviour nobody had touched in this round: *«al hacer el
+último bloque de un trabajo pequeño te pregunta si cortar, quitar horas del total o cancelar pero al
+hacerlo más grande nada, pregunta también si sumarle horas al total o cancelar para que quede el mismo
+comportamiento en ambas direcciones»*.
+
+**They were right, and there were TWO halves to it.**
+
+- **The server never asked.** `delta > 0 && isLast` set `totalMinutesDelta = delta` and wrote, with the
+  comment *«Nothing farther to draw from, so the estimate grows»* — true, and exactly why it should
+  have been a question. The same dead end going the other way (`delta < 0`, no receiver) already
+  stopped and asked.
+- **And the grow that DID ask was swallowed by the client.** `grow-needs-choice` has existed since the
+  resize round for a growth past everything the counterparties hold, but `CalendarScreen` only ever
+  caught `shrink-needs-choice`, so that 409 fell through to the error banner. § *Block Resize* claimed
+  `ResizeChoiceDialog` was built from the server's list for both; it was reachable from one.
+
+**The fix reuses everything and invents nothing**: the same 409, the same `freedMinutes`/`choices`
+payload, the same `freedHours` answer channel, the same dialog. The only new thing is a `direction` on
+the dialog's request, because *«¿Qué hacemos con esas 2 h?»* is the wrong sentence for a grow — there
+the hours are not freed, they are unfunded, so it asks *«¿Sumamos esas 2 h al trabajo?»* instead.
+
+**What deliberately did NOT change**: an ordinary transfer stays silent. A grow the job's other rows
+can pay for is not a dead end, and a dialog on every drag of the edge would be the gesture asking
+permission to do the thing it exists for. Measured: growing a middle row 4 h → 5 h took the hour off
+the job's last row and left `total_hours` at 840 with nothing asked.
+
+**Nine tests had to be updated**, which is itself the finding: they grew a last or only row
+incidentally — while testing margins, the day-end refusal, or a row a settings change had stranded —
+and every one of them had been silently rewriting an estimate. That is how common the case is, and how
+often the old behaviour fired without anyone meaning it to.
+
+**Driven over HTTP**: a 3 h only-row grown to 5 h answered `grow-needs-choice` with
+`freedMinutes: 120` and `choices: ['add-to-total']`; the project's total stayed 180 until the answer
+was sent, then became 300.
+
+---
+
 ## Painting Makes a Trabajo As Well As a Hueco
 
 **Decided with the owner over 2026-08-20/21.** Their request, in their words: *«al hacer click y

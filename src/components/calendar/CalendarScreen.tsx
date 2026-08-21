@@ -211,6 +211,8 @@ export function CalendarScreen({
   const [resizeChoice, setResizeChoice] = useState<{
     target: BlockDragTarget;
     durationMinutes: number;
+    /** Which dead end asked: it decides the dialog's sentence. */
+    direction: 'grow' | 'shrink';
     freedMinutes: number;
     choices: FreedHoursChoice[];
   } | null>(null);
@@ -443,8 +445,10 @@ export function CalendarScreen({
    * The bottom edge. The consequence is NOT LOCAL — the hours move to or off the job's last
    * block the engine still lays out, which may not even be on screen — so the toast says so.
    *
-   * A SHRINK MAY ASK RATHER THAN SUCCEED (409 `shrink-needs-choice`): not a failure, so it must
-   * not reach the banner. Caught here, turned into `ResizeChoiceDialog`, re-sent verbatim.
+   * EITHER DIRECTION MAY ASK RATHER THAN SUCCEED — 409 `shrink-needs-choice` and
+   * `grow-needs-choice`. Neither is a failure, so neither may reach the banner: both are caught
+   * here, turned into `ResizeChoiceDialog` from the server's own `choices`, and re-sent verbatim.
+   * The GROW was missing until 2026-08-21, so a question the server had asked arrived as an error.
    */
   const onResizeBlock = useCallback(
     (target: BlockDragTarget, durationMinutes: number, freedHours?: FreedHoursChoice): void => {
@@ -452,10 +456,14 @@ export function CalendarScreen({
         try {
           return await apiResizeBlock(target.blockId, durationMinutes, { freedHours });
         } catch (error) {
-          if (isApiError(error) && error.code === 'shrink-needs-choice') {
+          if (
+            isApiError(error) &&
+            (error.code === 'shrink-needs-choice' || error.code === 'grow-needs-choice')
+          ) {
             setResizeChoice({
               target,
               durationMinutes,
+              direction: error.code === 'grow-needs-choice' ? 'grow' : 'shrink',
               freedMinutes: Number(error.details.freedMinutes ?? 0),
               choices: (error.details.choices as FreedHoursChoice[] | undefined) ?? [],
             });
@@ -901,6 +909,7 @@ export function CalendarScreen({
             ? null
             : {
                 name: resizeChoice.target.name,
+                direction: resizeChoice.direction,
                 freedMinutes: resizeChoice.freedMinutes,
                 choices: resizeChoice.choices,
               }

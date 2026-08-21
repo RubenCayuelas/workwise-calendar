@@ -1,7 +1,10 @@
 'use client';
 
 /**
- * 409 `shrink-needs-choice`, rendered from the server's own `choices` in one round trip.
+ * 409 `shrink-needs-choice` and `grow-needs-choice`, rendered from the server's own `choices` in one
+ * round trip. The two dead ends are symmetrical — the edge stops and asks in both directions — but
+ * they are not the same SENTENCE: a shrink has hours with nowhere to go, a grow needs hours it has
+ * nowhere to get.
  */
 
 import { useEffect, useRef } from 'react';
@@ -19,8 +22,10 @@ import styles from './ResizeChoiceDialog.module.css';
 export interface ResizeChoiceRequest {
   /** The job's name, for the sentence. */
   name: string;
-  /** The hours with no counterparty. */
+  /** The hours with no counterparty: freed by a shrink, or unfunded by a grow. */
   freedMinutes: number;
+  /** Which dead end this is. It decides the wording and nothing else. */
+  direction: 'grow' | 'shrink';
   /** Exactly the answers that exist. Never empty. */
   choices: readonly FreedHoursChoice[];
 }
@@ -73,7 +78,8 @@ export function ResizeChoiceDialog({
   if (!mounted || request === null) return null;
 
   const hours = format.hourNumber(request.freedMinutes);
-  const title = t('resizeChoice.title', { hours });
+  const grow = request.direction === 'grow';
+  const title = t(grow ? 'resizeChoice.growTitle' : 'resizeChoice.title', { hours });
 
   return createPortal(
     <div
@@ -84,7 +90,9 @@ export function ResizeChoiceDialog({
     >
       <div className={styles.dialog} role="dialog" aria-modal="true" aria-label={title}>
         <h2 className={styles.title}>{title}</h2>
-        <p className={styles.description}>{t('resizeChoice.body', { name: request.name })}</p>
+        <p className={styles.description}>
+          {t(grow ? 'resizeChoice.growBody' : 'resizeChoice.body', { name: request.name })}
+        </p>
 
         <div className={styles.choices}>
           {request.choices.map((choice) => (

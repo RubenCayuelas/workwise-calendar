@@ -996,7 +996,17 @@ export function resizeBlock(blocks: readonly Block[], resize: BlockResize): Edit
   let touchedLockedBlockIds: string[] = [];
 
   if (delta > 0 && isLast) {
-    // Nothing farther to draw from, so the estimate grows.
+    // Nothing farther to draw from, so the only answer left is that the job is bigger — AND IT IS
+    // ASKED, because the same dead end on the way down asks what to do with the freed hours. The
+    // two directions were not symmetrical until 2026-08-21: this one quietly rewrote the estimate.
+    if (resize.freedHours !== 'add-to-total') {
+      return failedEdit('grow-needs-choice', {
+        blockId: target.id,
+        projectId: target.projectId,
+        freedMinutes: delta,
+        choices: ['add-to-total'],
+      });
+    }
     totalMinutesDelta = delta;
   } else if (delta > 0) {
     // Counted BEFORE anything is taken: `takeMinutes` mutates as it goes, so asking it and then
