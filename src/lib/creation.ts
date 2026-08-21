@@ -13,11 +13,13 @@ import { addDays, compareDates, isWeekend } from './dates';
 import {
   changeProjectMinutes,
   compose,
+  findGapConflicts,
   horizonEndDate,
   summarizeSchedule,
   type ComposeInput,
   type PlacedBlock,
 } from './composition';
+import { paintedSegments } from './paintedJob';
 
 /** How many free days the preview offers as alternatives. A dropdown is one click away. */
 const MAX_FREE_DATES = 8;
@@ -33,7 +35,12 @@ const MAX_FREE_DATES = 8;
  */
 export type StartDateDay = 'auto' | 'buffer' | 'weekend' | 'past' | 'closed';
 
-export type CreationMode = 'queue' | 'forced' | 'born';
+/**
+ * `painted` is a band drawn on the grid: the hours start on an exact MINUTE of the chosen day rather
+ * than wherever the engine would put them on it, and the rows that land there are padlocked because
+ * nothing else would hold them to that minute.
+ */
+export type CreationMode = 'queue' | 'forced' | 'born' | 'painted';
 
 export interface StartDateDecision {
   startDate: string;
@@ -69,6 +76,8 @@ export interface StartDateQuestion {
   queueStartDate: string | null;
   /** The owner disagreed with the deferral and asked for that day anyway. */
   force?: boolean;
+  /** A band was painted on the grid: the chosen day carries a chosen MINUTE too. */
+  painted?: boolean;
 }
 
 /**
@@ -111,14 +120,23 @@ export function decideStartDate(question: StartDateQuestion): StartDateDecision 
   const chosenByHand = day === 'buffer' || day === 'weekend' || day === 'closed';
 
   const mode: CreationMode =
-    engineWouldNotPlace || floorBinding ? 'born' : question.force === true ? 'forced' : 'queue';
+    question.painted === true
+      ? 'painted'
+      : engineWouldNotPlace || floorBinding
+        ? 'born'
+        : question.force === true
+          ? 'forced'
+          : 'queue';
 
   return {
     startDate,
     day,
     beyondQueue,
     floorBinding,
-    autoLock: mode === 'born' && (floorBinding || day === 'past'),
+    // What it means is unchanged and it is asked of the TAIL: the rows the engine chose the day for
+    // are locked only where the queue would never have reached that day anyway. A painted HEAD is
+    // padlocked whatever this says — the minute the owner drew is what holds it.
+    autoLock: (mode === 'born' || mode === 'painted') && (floorBinding || day === 'past'),
     dayLock: chosenByHand,
     needsDayConfirmation: chosenByHand,
     mode,
@@ -143,6 +161,12 @@ export interface CreationRequest {
   /** The floor the owner chose. Required: a creation without one is the old path. */
   startDate: string;
   force?: boolean;
+  /**
+   * A BAND was painted on the grid: minutes from midnight, and the hours start exactly there. It
+   * turns the chosen day from a floor ("not before this") into a point ("here"), so it is never sent
+   * together with `force`, which only means something while a placement is deferred.
+   */
+  startMinutes?: number;
 }
 
 /** Work already sitting inside the span the job would occupy on the chosen day. */
@@ -222,15 +246,18 @@ export function planCreation(input: ComposeInput, request: CreationRequest): Cre
     isClosed: config.isClosed,
     queueStartDate,
     force: request.force,
+    painted: request.startMinutes !== undefined,
   });
 
   // 2. The rows to write.
   const draft =
-    decision.mode === 'queue'
-      ? appended
-      : decision.mode === 'forced'
-        ? { ok: true as const, blocks: [...input.blocks.map(cloneBlock), rankedRow(request, decision.startDate, minutes)] }
-        : bornDraft(input, request, decision, minutes);
+    decision.mode === 'painted'
+      ? paintedDraft(input, request, decision, minutes)
+      : decision.mode === 'queue'
+        ? appended
+        : decision.mode === 'forced'
+          ? { ok: true as const, blocks: [...input.blocks.map(cloneBlock), rankedRow(request, decision.startDate, minutes)] }
+          : bornDraft(input, request, decision, minutes);
   if (!draft.ok) return draft;
 
   // 3. Where they land. Reusing the queue layout when it IS the answer keeps the two
@@ -262,6 +289,8 @@ export function planCreation(input: ComposeInput, request: CreationRequest): Cre
     startsOn,
     endsOn,
     deferred,
+    // Forcing answers a DEFERRAL, and a painted band is never deferred: it is already on the minute
+    // it asked for, or it was refused.
     canForce: decision.mode === 'queue' && deferred,
     span,
     collisions: span === null ? [] : collisionsIn(input, span, request.projectId),
@@ -334,6 +363,92 @@ function bornDraft(
 }
 
 /**
+ * A BAND: the hours start on the minute it was painted on, cut at every break, padlocked, and
+ * whatever the day cannot hold carries on from the NEXT day the engine lays out.
+ *
+ * The head is refused rather than moved. A gap and a row outside the movable pool are the two things
+ * nothing will shift out of the way, so the band cannot have the minute it asked for and giving it
+ * another one silently would be a placement nobody chose — the same answer a gap gets, by the same
+ * `findGapConflicts`. Ordinary work is NOT a refusal: the reflow pushes that forward.
+ */
+function paintedDraft(
+  input: ComposeInput,
+  request: CreationRequest,
+  decision: StartDateDecision,
+  minutes: number,
+): DraftBlocks | CreationFailure {
+  const config = input.getDayConfig(decision.startDate);
+  const plan = paintedSegments(config.manualWindows, request.startMinutes ?? 0, minutes);
+
+  if (plan.segments.length === 0) {
+    return {
+      ok: false,
+      error: { code: 'painted-no-room', messageKey: 'errors.paintedNoRoom' },
+    };
+  }
+
+  const head: Block[] = plan.segments.map((segment) => ({
+    id: request.newBlockId(),
+    projectId: request.projectId,
+    date: decision.startDate,
+    startMinutes: segment.startMinutes,
+    durationMinutes: segment.durationMinutes,
+    // ALWAYS, whatever `autoLock` says: on a Monday-Thursday hole nothing else would hold the row
+    // to the minute the band was drawn on, and the next reflow would move it.
+    locked: true,
+    createdAt: request.now,
+    updatedAt: request.now,
+  }));
+
+  // Asked of every ROW, never of `start + duration`: a band across the comida spans a stretch where
+  // nothing can be, and the test would miss whatever its real second half lands on.
+  for (const row of head) {
+    for (const hole of input.gaps) {
+      if (hole.date !== row.date) continue;
+      if (
+        Math.min(row.startMinutes + row.durationMinutes, hole.startMinutes + hole.durationMinutes) >
+        Math.max(row.startMinutes, hole.startMinutes)
+      ) {
+        return { ok: false, error: { code: 'painted-over-gap', messageKey: 'errors.paintedOverGap' } };
+      }
+    }
+
+    const fixed = findGapConflicts(input.blocks, row, input.today)[0];
+    if (fixed !== undefined) {
+      return {
+        ok: false,
+        error: {
+          code: 'painted-over-fixed-block',
+          messageKey:
+            fixed.reason === 'locked'
+              ? 'errors.paintedOverLockedBlock'
+              : fixed.reason === 'weekend'
+                ? 'errors.paintedOverWeekendBlock'
+                : 'errors.paintedOverPastBlock',
+          projectId: fixed.projectId,
+        },
+      };
+    }
+  }
+
+  const rows = [...head];
+  if (plan.overflow > 0) {
+    const tail = engineRows(
+      input,
+      request,
+      decision,
+      plan.overflow,
+      rows,
+      nextWeekday(decision.startDate),
+    );
+    if (!tail.ok) return tail;
+    rows.push(...tail.rows);
+  }
+
+  return { ok: true, blocks: [...input.blocks.map(cloneBlock), ...rows] };
+}
+
+/**
  * `compose`, asked where the hours go if the calendar started on the chosen day: `today`
  * moved to that day and every existing row force-locked, so they are obstacles rather than
  * work to reflow. `extra` holds the rows already decided for a chosen weekend day, passed in
@@ -345,10 +460,18 @@ function engineRows(
   decision: StartDateDecision,
   minutes: number,
   extra: readonly Block[],
+  /**
+   * Where the continuation is RANKED. A painted band must pass the day AFTER its own: `rankedRow`
+   * writes `startMinutes: 0`, a rank before everything on that day, so anchoring a painted tail on
+   * the painted day laid its overflow in front of the band — padlocked, hours the owner never aimed
+   * at, and the ghost had drawn them on the next column.
+   */
+  anchor?: string,
 ): { ok: true; rows: Block[] } | CreationFailure {
   // A weekend day holds nothing the engine places, so the continuation is ranked on the first
   // weekday.
-  const anchorDate = isWeekend(decision.startDate) ? nextWeekday(decision.startDate) : decision.startDate;
+  const anchorDate =
+    anchor ?? (isWeekend(decision.startDate) ? nextWeekday(decision.startDate) : decision.startDate);
 
   // A chosen Friday is opened up whatever ELSE is true of it: without this the buffer rule
   // would refuse it and the hours would land on the following Monday, which nobody asked for.
@@ -356,7 +479,10 @@ function engineRows(
 
   const synthetic: ComposeInput = {
     ...input,
-    today: decision.startDate,
+    // Only a PAINTED tail moves this: the frozen past is what keeps it off the painted day
+    // entirely, so the band's own morning can never be filled behind it. A born job leaves it on
+    // the chosen day, where a chosen Saturday's tail is already ranked on the Monday after.
+    today: anchor ?? decision.startDate,
     blocks: [
       ...input.blocks.map((block) => ({ ...block, locked: true })),
       ...extra.map((block) => ({ ...block, locked: true })),
