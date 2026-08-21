@@ -17,13 +17,25 @@ import {
   undoLast,
   withHistory,
 } from './history';
+import { AppError } from './errors';
+import { assertProjectHours } from './scheduler';
 import { deleteBlock, insertBlock, listBlocks, updateBlock } from './repositories/blocks';
 import { deleteProject, insertProject, listProjects, updateProject } from './repositories/projects';
 import { insertGap, listGaps } from './repositories/gaps';
 import { upsertDayOverride } from './repositories/dayOverrides';
+import {
+  deleteBlock as deleteBlockRow,
+  moveBlock,
+  resizeBlock,
+  setBlockLock,
+  splitBlock,
+} from './operations/blocks';
+import { createProject, deleteProject as deleteProjectRow, patchProject } from './operations/projects';
+import { createGap, deleteGap } from './operations/gaps';
+import { reopenDays, saveAbsence } from './operations/absences';
 import { PROJECT_COLORS } from './projectColors';
 import { hhmmToMinutes } from './dates';
-import { MON, TUE } from '../testing/fixtures';
+import { FRI, LAST_FRI, MON, NEXT_MON, SAT, SUN, THU, TUE, WED } from '../testing/fixtures';
 
 const t = hhmmToMinutes;
 
@@ -314,7 +326,7 @@ describe('a settings save starts a new line', () => {
 describe('a closed day is calendar too', () => {
   it('comes back with its note', () => {
     withHistory(db, { kind: 'absence.closeDays' }, () => {
-      upsertDayOverride({ date: MON, isClosed: true, capacityHours: null, note: 'Feria' }, db);
+      upsertDayOverride({ date: MON, isClosed: true, capacityHours: null, note: 'Fair' }, db);
     });
 
     expect(undoLast(db).changed).toBe(true);
@@ -322,7 +334,7 @@ describe('a closed day is calendar too', () => {
 
     expect(redoNext(db).changed).toBe(true);
     expect(db.prepare('SELECT date, is_closed, note FROM day_overrides').all()).toEqual([
-      { date: MON, is_closed: 1, note: 'Feria' },
+      { date: MON, is_closed: 1, note: 'Fair' },
     ]);
   });
 });
@@ -363,5 +375,243 @@ describe('what the line never holds', () => {
     expect(listBlocks(second).map((block) => block.date)).toEqual([TUE]);
     second.close();
     fs.rmSync(directory, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The property: every generated session walks back to where it started
+// ---------------------------------------------------------------------------
+
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let x = Math.imul(state ^ (state >>> 15), 1 | state);
+    x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Every mutable row as SQLite holds it. This exact comparison is what the property is about. */
+function stateOf(handle: Db): unknown {
+  return [
+    handle.prepare('SELECT * FROM projects ORDER BY id').all(),
+    handle.prepare('SELECT * FROM blocks ORDER BY id').all(),
+    handle.prepare('SELECT * FROM gaps ORDER BY id').all(),
+    handle.prepare('SELECT * FROM day_overrides ORDER BY date').all(),
+  ];
+}
+
+/**
+ * The calendar as the OWNER sees it: no ids, no timestamps. The two ENDS of a walk are compared
+ * this way and the stops in between exactly, because a gesture whose reflow recreates the same
+ * rows with new ids changes nothing visible and so earns no step — after it the raw rows differ
+ * from the cursor's while the calendar does not.
+ */
+function visibleOf(handle: Db): string[] {
+  const names = new Map(listProjects(handle).map((project) => [project.id, project.name]));
+  return [
+    ...listProjects(handle).map(
+      (project) => `P|${project.name}|${project.color}|${project.totalMinutes}`,
+    ),
+    ...listBlocks(handle).map(
+      (block) =>
+        `B|${names.get(block.projectId) ?? '?'}|${block.date}|${block.startMinutes}|${block.durationMinutes}|${block.locked}`,
+    ),
+    ...listGaps(handle).map(
+      (gap) => `G|${gap.date}|${gap.startMinutes}|${gap.durationMinutes}|${gap.reason ?? ''}`,
+    ),
+    ...(
+      handle.prepare('SELECT date, is_closed, note FROM day_overrides').all() as {
+        date: string;
+        is_closed: number;
+        note: string | null;
+      }[]
+    ).map((row) => `D|${row.date}|${row.is_closed}|${row.note ?? ''}`),
+  ].sort();
+}
+
+/** Where the cursor sits; -1 on an empty line. */
+function cursorSeq(handle: Db): number {
+  const row = handle.prepare('SELECT MAX(seq) AS seq FROM history WHERE undone = 0').get() as {
+    seq: number | null;
+  };
+  return row.seq ?? -1;
+}
+
+const GENERATED_DAYS = [LAST_FRI, MON, TUE, WED, THU, FRI, SAT, SUN, NEXT_MON];
+const GENERATED_NAMES = ['Staircase', 'Shutter', 'Railing', 'Gate'];
+
+/**
+ * One gesture, chosen at random and aimed at whatever the calendar happens to hold. A refusal is
+ * a legitimate outcome and is swallowed here: that it wrote nothing is asserted by the caller.
+ *
+ * `updateSettings` is deliberately absent — it EMPTIES the line by design, which is a different
+ * property and has its own test above.
+ */
+function mutateAtRandom(handle: Db, random: () => number, step: number): void {
+  const pick = <T,>(values: readonly T[]): T => values[Math.floor(random() * values.length)];
+  const blocks = listBlocks(handle);
+  const gaps = listGaps(handle);
+  const projects = listProjects(handle);
+  const block = blocks.length === 0 ? undefined : pick(blocks);
+  const today = MON;
+
+  switch (Math.floor(random() * 11)) {
+    case 0:
+      createProject(
+        {
+          name: `${pick(GENERATED_NAMES)} ${step}`,
+          color: pick(PROJECT_COLORS),
+          totalMinutes: (1 + Math.floor(random() * 8)) * 60,
+          today,
+        },
+        handle,
+      );
+      return;
+    case 1:
+      if (block === undefined) return;
+      moveBlock(block.id, { date: pick(GENERATED_DAYS), startMinutes: t('08:00') + Math.floor(random() * 20) * 30, today }, handle);
+      return;
+    case 2:
+      if (block === undefined) return;
+      resizeBlock(block.id, { durationMinutes: (1 + Math.floor(random() * 8)) * 30, today }, handle);
+      return;
+    case 3:
+      if (block === undefined) return;
+      setBlockLock(block.id, !block.locked, { today }, handle);
+      return;
+    case 4:
+      if (block === undefined) return;
+      splitBlock(
+        block.id,
+        { durationMinutes: 30, date: pick(GENERATED_DAYS), startMinutes: t('10:00'), today },
+        handle,
+      );
+      return;
+    case 5:
+      if (block === undefined) return;
+      deleteBlockRow(block.id, { today }, handle);
+      return;
+    case 6:
+      if (projects.length === 0) return;
+      patchProject(pick(projects).id, { totalMinutes: (1 + Math.floor(random() * 10)) * 60, today }, handle);
+      return;
+    case 7:
+      if (projects.length === 0) return;
+      deleteProjectRow(pick(projects).id, { today }, handle);
+      return;
+    case 8:
+      createGap(
+        {
+          date: pick(GENERATED_DAYS),
+          startMinutes: t('08:00') + Math.floor(random() * 16) * 30,
+          durationMinutes: (1 + Math.floor(random() * 4)) * 30,
+          reason: 'Breakdown',
+          today,
+        },
+        handle,
+      );
+      return;
+    case 9:
+      if (gaps.length === 0) return;
+      deleteGap(pick(gaps).id, { today }, handle);
+      return;
+    default: {
+      const from = pick(GENERATED_DAYS);
+      if (random() < 0.5) saveAbsence({ kind: 'closed-days', from, reason: 'Fair', today }, handle);
+      else reopenDays({ from, today }, handle);
+    }
+  }
+}
+
+/** Seeds and steps kept where the whole file still runs in a second or so. */
+const SESSIONS = 1000;
+const STEPS_PER_SESSION = 8;
+
+describe('the line holds over generated sessions', () => {
+  it(`walks ${SESSIONS} of them back to where they started, and forward again`, () => {
+    for (let seed = 1; seed <= SESSIONS; seed += 1) {
+      const handle = openDatabase(':memory:');
+      try {
+        const random = seededRandom(seed);
+        const where = `seed ${seed}`;
+        // Keyed on the cursor the state belongs to, so every stop on the way back is checked
+        // and not only the two ends.
+        const states = new Map<number, unknown>([[0, stateOf(handle)]]);
+        const startVisible = visibleOf(handle);
+
+        for (let step = 0; step < STEPS_PER_SESSION; step += 1) {
+          const before = stateOf(handle);
+          const cursorBefore = cursorSeq(handle);
+          try {
+            mutateAtRandom(handle, random, step);
+          } catch (error) {
+            if (!(error instanceof AppError)) throw error;
+            // A refusal writes nothing — the rule the whole data layer is built on.
+            expect(stateOf(handle), `${where}: a refusal wrote something`).toEqual(before);
+            expect(cursorSeq(handle), `${where}: a refusal left a step`).toBe(cursorBefore);
+            continue;
+          }
+          const cursor = cursorSeq(handle);
+          if (cursor !== cursorBefore) states.set(cursor, stateOf(handle));
+          expect(() => assertProjectHours(handle), `${where}: hours not conserved`).not.toThrow();
+        }
+
+        const endVisible = visibleOf(handle);
+        const top = cursorSeq(handle);
+
+        let walked = 0;
+        while (undoLast(handle).changed) {
+          walked += 1;
+          const cursor = cursorSeq(handle);
+          expect(stateOf(handle), `${where}: undo to ${cursor} did not restore it`).toEqual(
+            states.get(cursor),
+          );
+          expect(() => assertProjectHours(handle), `${where}: undo broke the hours`).not.toThrow();
+        }
+        expect(visibleOf(handle), `${where}: the walk back missed the floor`).toEqual(startVisible);
+        expect(walked, `${where}: walked ${walked} steps back out of ${top}`).toBe(Math.max(top, 0));
+
+        while (redoNext(handle).changed) {
+          const cursor = cursorSeq(handle);
+          expect(stateOf(handle), `${where}: redo to ${cursor} did not restore it`).toEqual(
+            states.get(cursor),
+          );
+        }
+        expect(visibleOf(handle), `${where}: the walk forward missed the end`).toEqual(endVisible);
+      } finally {
+        handle.close();
+        closeDb();
+      }
+    }
+  });
+
+  it('generates the sessions these properties are about', () => {
+    let steps = 0;
+    let refusals = 0;
+    for (let seed = 1; seed <= SESSIONS; seed += 1) {
+      const handle = openDatabase(':memory:');
+      try {
+        const random = seededRandom(seed);
+        for (let step = 0; step < STEPS_PER_SESSION; step += 1) {
+          const cursorBefore = cursorSeq(handle);
+          try {
+            mutateAtRandom(handle, random, step);
+          } catch (error) {
+            if (!(error instanceof AppError)) throw error;
+            refusals += 1;
+            continue;
+          }
+          if (cursorSeq(handle) !== cursorBefore) steps += 1;
+        }
+      } finally {
+        handle.close();
+        closeDb();
+      }
+    }
+    // Guards on the generator: without both of these the property above proves nothing.
+    expect(steps).toBeGreaterThan(SESSIONS);
+    expect(refusals).toBeGreaterThan(20);
   });
 });
