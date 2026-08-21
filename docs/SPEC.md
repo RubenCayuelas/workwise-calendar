@@ -35,7 +35,9 @@ The workshop operates with a **split shift (jornada partida)** by default:
 - **planningHorizonWeeks**: Default 8. Auto-placement never creates blocks beyond this many weeks
   from today. If the hours do not fit within the horizon the whole operation rolls back in one
   transaction and shows a single message.
-- `gapColor`: Colour hex for all user-defined gaps.
+- `gapColor`: Colour hex for all user-defined gaps. **Stored canonical**: the route trims and the
+  validator upper-cases, so `"  #aabbcc  "` is saved `#AABBCC`. The form upper-cases as it is typed,
+  so nothing the owner picked is changed behind them.
 - **Backups**: `backupsEnabled` (default ON), `backupEveryDays` (default 7, range 1-90, whole days),
   `backupsKept` (default 3, range 1-30). See *Backups* below.
 
