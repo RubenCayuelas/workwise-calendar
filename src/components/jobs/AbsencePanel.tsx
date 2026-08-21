@@ -64,6 +64,7 @@ import { useFormat, type Formatter } from '../../lib/useFormat';
 
 /** An absence is drawn on the same quarter-hour grid the calendar snaps to, so the field is too. */
 const ABSENCE_HOUR_STEP = TIME_STEP_MINUTES / 60;
+import type { GridDraft } from '../calendar/draftBand';
 import { otherGapConflicts } from './placement';
 import {
   absenceFormMode,
@@ -104,6 +105,8 @@ export interface AbsencePanelProps {
    * REQUIRED: a default here is what let a painted band silently keep opening the range screen.
    */
   origin: AbsenceOrigin;
+  /** Only for a PAINTED band: keeps it drawn on the grid, following these fields. */
+  onDraft?: (draft: GridDraft | null) => void;
   /** Where a NEW absence starts. Defaults to today and the start of the morning period. */
   defaultDate?: string;
   /**
@@ -131,6 +134,7 @@ export function AbsencePanel({
   onDeleted,
   defaultKind = 'gap',
   origin,
+  onDraft,
   defaultDate,
   defaultReason,
   defaultStartMinutes,
@@ -219,6 +223,18 @@ export function AbsencePanel({
 
   const durationMinutes = hoursToMinutes(hours);
   const startMinutes = clockMinutes(startTime);
+
+  // Only a PAINTED band is held on the grid, and a gap's day is as literal as its minute, so the
+  // band never leaves the column it was drawn on.
+  useEffect(() => {
+    if (onDraft === undefined) return;
+    if (!open || startMinutes === undefined || durationMinutes <= 0 || !isValidDate(date)) {
+      onDraft(null);
+      return;
+    }
+    onDraft({ kind: 'gap', date, startMinutes, durationMinutes });
+  }, [onDraft, open, date, startMinutes, durationMinutes]);
+
   const rangeValid =
     isValidDate(date) && isValidDate(endDate) && compareDates(endDate, date) >= 0;
   const previewable =

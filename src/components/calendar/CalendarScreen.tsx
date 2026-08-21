@@ -55,6 +55,10 @@ import {
 import { usePaintAbsence } from './usePaintAbsence';
 import { PaintChooser } from './PaintChooser';
 import type { PaintPoint, PaintedSpan } from './paintSession';
+import { planDraftRows, type DraftRow, type GridDraft } from './draftBand';
+
+/** One array, so a render with no band held never invalidates the grid's memos. */
+const EMPTY_DRAFT: readonly DraftRow[] = [];
 import { useWeek } from './useWeek';
 import styles from './CalendarScreen.module.css';
 
@@ -88,6 +92,11 @@ export interface NewJobContext {
   painted?: { date: string; startMinutes: number };
   /** The band's own hours, pre-filled and editable. */
   defaultHours?: number;
+  /**
+   * Only when a painted band opened this form: report the day, start and hours on every change so
+   * the grid can keep the band drawn on them. `null` when there is nothing to draw.
+   */
+  onDraft?: (draft: GridDraft | null) => void;
 }
 
 export interface AbsenceFormContext {
@@ -119,6 +128,8 @@ export interface AbsenceFormContext {
   defaultDurationMinutes?: number;
   /** `settings.planningHorizonWeeks` — how far ahead the day picker reaches. */
   horizonWeeks: number;
+  /** Only for a PAINTED band: keeps it drawn on the grid while this form is open. */
+  onDraft?: (draft: GridDraft | null) => void;
 }
 
 export interface CalendarScreenProps {
@@ -175,6 +186,12 @@ export function CalendarScreen({
     startMinutes: number;
     durationMinutes: number;
   } | null>(null);
+  /**
+   * The band a PAINTED form is still holding, following its fields. It writes nothing and knows
+   * nothing about what is underneath it: only the form it came from can say what it is now, so the
+   * form pushes it up here on every change and clears it on close.
+   */
+  const [draft, setDraft] = useState<GridDraft | null>(null);
   const [splitSource, setSplitSource] = useState<WeekBlock | null>(null);
   const [placing, setPlacing] = useState<PlacingFragment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ block: WeekBlock; totalMinutes: number } | null>(null);
@@ -573,6 +590,12 @@ export function CalendarScreen({
   // it is, freezing the axis on the band would hold a stale scale across a window resize. The band
   // and the form are both held in MINUTES, so they redraw correctly at any scale.
   const gestureInAir = drag.kind !== null || paint.pressed;
+
+  /** The rectangles the held band draws, over every column its hours reach. */
+  const draftRows = useMemo(
+    () => (draft === null || view === null ? EMPTY_DRAFT : planDraftRows(view.days, draft).rows),
+    [draft, view],
+  );
   const heldTimeline = useRef<Timeline | null>(fittedTimeline);
   if (!gestureInAir) heldTimeline.current = fittedTimeline;
   const timeline = gestureInAir ? heldTimeline.current : fittedTimeline;
@@ -775,6 +798,7 @@ export function CalendarScreen({
                 busy={busy}
                 drag={drag}
                 paint={paint}
+                draftRows={draftRows}
                 placing={placing}
                 onPlace={onPlace}
                 onOpenJob={setOpenJobId}
@@ -918,6 +942,7 @@ export function CalendarScreen({
                 close: () => {
                   setNewJobOpen(false);
                   setPaintedJob(null);
+                  setDraft(null);
                 },
                 onChanged: week.reload,
                 today: view.today,
@@ -930,6 +955,7 @@ export function CalendarScreen({
                       painted: { date: paintedJob.date, startMinutes: paintedJob.startMinutes },
                       // The band's own hours, which the form's number may then override.
                       defaultHours: paintedJob.durationMinutes / 60,
+                      onDraft: setDraft,
                     }),
               })}
 
@@ -940,7 +966,11 @@ export function CalendarScreen({
                 closeDay: gapTarget.closeDay ?? null,
                 kind: gapTarget.kind ?? 'gap',
                 origin: gapTarget.origin,
-                close: () => setGapTarget(null),
+                close: () => {
+                  setGapTarget(null);
+                  setDraft(null);
+                },
+                ...(gapTarget.origin === 'paint' ? { onDraft: setDraft } : {}),
                 onChanged: week.reload,
                 today: view.today,
                 shape: view.shape,

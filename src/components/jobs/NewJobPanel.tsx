@@ -44,6 +44,7 @@ import {
   type StartDateSummary,
 } from './startDate';
 import { scheduleSummaryMessage } from './summary';
+import type { GridDraft } from '../calendar/draftBand';
 import type { JobsMutationHandler } from './events';
 import styles from './jobs.module.css';
 
@@ -76,6 +77,8 @@ export interface NewJobPanelProps {
    * carries on from the next day the engine uses.
    */
   painted?: { date: string; startMinutes: number };
+  /** Only with `painted`: keeps the band drawn on the grid, following these fields. */
+  onDraft?: (draft: GridDraft | null) => void;
   /** `settings.planningHorizonWeeks`: how far ahead the day picker reaches. */
   horizonWeeks?: number;
 }
@@ -90,6 +93,7 @@ export function NewJobPanel({
   defaultHours = DEFAULT_HOURS,
   defaultColor = PROJECT_COLORS[0],
   painted,
+  onDraft,
   horizonWeeks,
 }: NewJobPanelProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -152,6 +156,22 @@ export function NewJobPanel({
    */
   const paintedMinutes =
     painted !== undefined && startDate === painted.date ? painted.startMinutes : undefined;
+
+  // The grid cannot know what this form holds, so the form tells it — on every change, and `null`
+  // once the job is created, where the real rows take the band's place.
+  useEffect(() => {
+    if (onDraft === undefined) return;
+    if (paintedMinutes === undefined || done) {
+      onDraft(null);
+      return;
+    }
+    onDraft({
+      kind: 'job',
+      date: startDate,
+      startMinutes: paintedMinutes,
+      durationMinutes: hoursToMinutes(values.hours),
+    });
+  }, [onDraft, paintedMinutes, startDate, values.hours, done]);
 
   useEffect(() => {
     if (!previewable) {
