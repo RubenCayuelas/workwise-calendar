@@ -19,6 +19,11 @@ export const MARGIN_MAX_HOURS = 2;
 export const HORIZON_MIN_WEEKS = 1;
 export const HORIZON_MAX_WEEKS = 104;
 
+export const BACKUP_DAYS_MIN = 1;
+export const BACKUP_DAYS_MAX = 90;
+export const BACKUPS_KEPT_MIN = 1;
+export const BACKUPS_KEPT_MAX = 30;
+
 /** Half an hour: the smallest amount the shop plans in. */
 export const HOUR_STEP = 0.5;
 
@@ -292,6 +297,19 @@ export function draftIssues(draft: Settings): SettingsIssues {
   if (!Number.isFinite(draft.defaultDayCapacity) || draft.defaultDayCapacity <= 0) {
     issues.defaultDayCapacity = 'range';
   }
+  if (
+    !isInRange(draft.backupEveryDays, BACKUP_DAYS_MIN, BACKUP_DAYS_MAX) ||
+    !Number.isInteger(draft.backupEveryDays)
+  ) {
+    issues.backupEveryDays = 'range';
+  }
+  if (
+    !isInRange(draft.backupsKept, BACKUPS_KEPT_MIN, BACKUPS_KEPT_MAX) ||
+    !Number.isInteger(draft.backupsKept)
+  ) {
+    issues.backupsKept = 'range';
+  }
+
   if (!isValidColor(draft.gapColor)) issues.gapColor = 'color';
 
   return issues;

@@ -4,6 +4,7 @@ import path from 'path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { closeDb, getDb, getDbPath, openDatabase } from './db';
+import { DEFAULT_SETTINGS } from './settings';
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'workwise-db-'));
 
@@ -21,7 +22,11 @@ describe('getDb', () => {
     const db = getDb();
 
     expect(fs.existsSync(dbPath)).toBe(true);
-    expect(db.prepare('SELECT COUNT(*) AS n FROM settings').get()).toEqual({ n: 10 });
+    // Counted against the defaults rather than a literal: a key added to `Settings` and forgotten in
+    // `serializeSettings` is exactly what this catches, and the number needs no maintenance.
+    expect(db.prepare('SELECT COUNT(*) AS n FROM settings').get()).toEqual({
+      n: Object.keys(DEFAULT_SETTINGS).length,
+    });
   });
 
   it('opens and migrates exactly once, however many times it is called', () => {

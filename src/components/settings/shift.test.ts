@@ -1,12 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SETTINGS,
+  MAX_BACKUPS_KEPT,
+  MAX_BACKUP_DAYS,
+  MAX_HORIZON_WEEKS,
+  MAX_MARGIN_HOURS,
+  MIN_BACKUPS_KEPT,
+  MIN_BACKUP_DAYS,
+  MIN_HORIZON_WEEKS,
+  MIN_MARGIN_HOURS,
   dayShapeFromSettings,
   maxDayCapacityHours,
   workPeriodsOf,
 } from '../../lib/settings';
 import type { Settings } from '../../types';
 import {
+  BACKUPS_KEPT_MAX,
+  BACKUPS_KEPT_MIN,
+  BACKUP_DAYS_MAX,
+  BACKUP_DAYS_MIN,
+  HORIZON_MAX_WEEKS,
+  HORIZON_MIN_WEEKS,
+  MARGIN_MAX_HOURS,
+  MARGIN_MIN_HOURS,
   applySettingsPatch,
   autoFillStopMinutes,
   capCapacityHours,
@@ -241,5 +257,26 @@ describe('the mirror of src/lib/settings.ts', () => {
       startMinutes: shape.timelineStartMinutes,
       endMinutes: shape.timelineEndMinutes,
     });
+  });
+});
+
+describe('the ranges the form offers', () => {
+  // The steppers bound what the owner can type and the write path refuses what falls outside its own
+  // range, so two copies of every bound exist. Drift between them is either a control that will not
+  // reach a legal value, or one that offers a value the save then rejects.
+  it('are the ones the write path enforces', () => {
+    expect([HORIZON_MIN_WEEKS, HORIZON_MAX_WEEKS]).toEqual([MIN_HORIZON_WEEKS, MAX_HORIZON_WEEKS]);
+    expect([MARGIN_MIN_HOURS, MARGIN_MAX_HOURS]).toEqual([MIN_MARGIN_HOURS, MAX_MARGIN_HOURS]);
+    expect([BACKUP_DAYS_MIN, BACKUP_DAYS_MAX]).toEqual([MIN_BACKUP_DAYS, MAX_BACKUP_DAYS]);
+    expect([BACKUPS_KEPT_MIN, BACKUPS_KEPT_MAX]).toEqual([MIN_BACKUPS_KEPT, MAX_BACKUPS_KEPT]);
+  });
+
+  it('flags a draft outside them, so Save stays disabled', () => {
+    expect(draftIssues({ ...DEFAULT_SETTINGS, backupEveryDays: 0 }).backupEveryDays).toBe('range');
+    expect(draftIssues({ ...DEFAULT_SETTINGS, backupEveryDays: 91 }).backupEveryDays).toBe('range');
+    expect(draftIssues({ ...DEFAULT_SETTINGS, backupEveryDays: 7.5 }).backupEveryDays).toBe('range');
+    expect(draftIssues({ ...DEFAULT_SETTINGS, backupsKept: 0 }).backupsKept).toBe('range');
+    expect(draftIssues({ ...DEFAULT_SETTINGS, backupsKept: 31 }).backupsKept).toBe('range');
+    expect(draftIssues(DEFAULT_SETTINGS)).toEqual({});
   });
 });

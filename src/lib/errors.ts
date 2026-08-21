@@ -91,6 +91,9 @@ export function internal(code: string, messageKey: string, extra: ErrorExtra = {
  * locale files. The engine owns `EDIT_MESSAGE_KEYS` and `HORIZON_EXCEEDED_KEY`.
  */
 export const ERROR_MESSAGE_KEYS = {
+  backupNotFound: 'errors.backupNotFound',
+  backupNotADatabase: 'errors.backupNotADatabase',
+  backupNotWorkwise: 'errors.backupNotWorkwise',
   invalidPayload: 'errors.invalidPayload',
   invalidName: 'errors.invalidName',
   invalidDescription: 'errors.invalidDescription',

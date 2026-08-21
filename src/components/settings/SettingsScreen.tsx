@@ -30,6 +30,7 @@ import {
 import { hoursToMinutes } from '../../lib/dates';
 import { useFormat } from '../../lib/useFormat';
 import type { Settings } from '../../types';
+import { BackupsSection } from './BackupsSection';
 import { DayTimelinePreview } from './DayTimelinePreview';
 import { loadScheduledBlocks } from './scheduleData';
 import {
@@ -414,6 +415,9 @@ export function SettingsScreen(): React.JSX.Element {
         </Field>
       </Section>
 
+      {/* ---- backups: the preferences save with the rest, the buttons act on their own ---- */}
+      <BackupsSection draft={draft} patchDraft={patchDraft} errorFor={errorFor} />
+
       {/* ---- language: applied immediately, outside the Save button ---- */}
       <Section title={t('settings.languageSection')}>
         <Field label={t('settings.language')} inline hint={t('settings.languageHint')}>
@@ -429,7 +433,7 @@ export function SettingsScreen(): React.JSX.Element {
         </Field>
       </Section>
 
-      {/* The refusal belongs next to the button that caused it: this page is shop than the
+      {/* The refusal belongs next to the button that caused it: this page is taller than the
           window, so a banner at the top would land off screen. Also marked on its control. */}
       {saveError === undefined ? null : (
         <InlineBanner tone="error" title={t('errors.title')} onDismiss={() => setSaveError(undefined)}>

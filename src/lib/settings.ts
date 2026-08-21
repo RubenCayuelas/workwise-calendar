@@ -27,11 +27,19 @@ export const DEFAULT_SETTINGS: Settings = {
   visualMarginBottom: 1,
   planningHorizonWeeks: 8,
   gapColor: '#D3D1C7',
+  backupsEnabled: true,
+  backupEveryDays: 7,
+  backupsKept: 3,
 };
 
 /** Visual margins are 0-2 hours each: enough for an exceptional early start, not a second shift. */
 export const MIN_MARGIN_HOURS = 0;
 export const MAX_MARGIN_HOURS = 2;
+
+export const MIN_BACKUP_DAYS = 1;
+export const MAX_BACKUP_DAYS = 90;
+export const MIN_BACKUPS_KEPT = 1;
+export const MAX_BACKUPS_KEPT = 30;
 
 export const MIN_HORIZON_WEEKS = 1;
 export const MAX_HORIZON_WEEKS = 104;
@@ -95,6 +103,9 @@ export function serializeSettings(settings: Settings): Record<keyof Settings, st
     visualMarginBottom: String(settings.visualMarginBottom),
     planningHorizonWeeks: String(settings.planningHorizonWeeks),
     gapColor: settings.gapColor,
+    backupsEnabled: settings.backupsEnabled ? 'true' : 'false',
+    backupEveryDays: String(settings.backupEveryDays),
+    backupsKept: String(settings.backupsKept),
   };
 }
 
@@ -130,6 +141,17 @@ export function normalizeSettings(raw: Partial<Record<keyof Settings, string>>):
       MAX_HORIZON_WEEKS,
     ),
     gapColor: parseColor(raw.gapColor, DEFAULT_SETTINGS.gapColor),
+    backupsEnabled: parseBoolean(raw.backupsEnabled, DEFAULT_SETTINGS.backupsEnabled),
+    backupEveryDays: clamp(
+      Math.round(parseNumber(raw.backupEveryDays, DEFAULT_SETTINGS.backupEveryDays)),
+      MIN_BACKUP_DAYS,
+      MAX_BACKUP_DAYS,
+    ),
+    backupsKept: clamp(
+      Math.round(parseNumber(raw.backupsKept, DEFAULT_SETTINGS.backupsKept)),
+      MIN_BACKUPS_KEPT,
+      MAX_BACKUPS_KEPT,
+    ),
   };
 
   // A morning that ends before it starts would make the shift negative: restore
@@ -224,6 +246,16 @@ export function validateSettings(settings: Settings): Settings {
       'defaultDayCapacity',
       `The daily capacity of ${capacity} h is not a whole number of minutes`,
     );
+  }
+
+  const everyDays = requireNumberInRange(settings, 'backupEveryDays', MIN_BACKUP_DAYS, MAX_BACKUP_DAYS);
+  if (!Number.isInteger(everyDays)) {
+    throw new SettingsValidationError('backupEveryDays', 'The backup interval must be whole days');
+  }
+
+  const kept = requireNumberInRange(settings, 'backupsKept', MIN_BACKUPS_KEPT, MAX_BACKUPS_KEPT);
+  if (!Number.isInteger(kept)) {
+    throw new SettingsValidationError('backupsKept', 'The number of copies to keep must be whole');
   }
 
   if (!HEX_COLOR_PATTERN.test(settings.gapColor)) {
