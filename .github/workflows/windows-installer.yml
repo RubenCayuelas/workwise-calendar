@@ -1,0 +1,71 @@
+name: Windows installer
+
+# Nothing builds on an ordinary push. Pushing a tag `v0.20.0` produces the installer and a DRAFT
+# release for it, so the notes can be read before anyone can download them.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  installer:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned, not "lts": today's LTS is Node 24, and better-sqlite3 publishes no binary for its ABI,
+      # so npm would fall through to node-gyp and fail. `scripts/require-node-22.mjs` refuses it anyway;
+      # this is what keeps the refusal from ever firing here.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      # The tag is the single source of the version, so the installer can never claim a number the
+      # release does not, and package.json never has to be edited by hand.
+      - name: Take the version from the tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Building $VERSION from $GITHUB_REF_NAME"
+          npm pkg set version="$VERSION"
+          (cd desktop && npm pkg set version="$VERSION")
+
+      - name: Install
+        run: npm ci
+
+      - name: Build the app
+        run: npm run build
+
+      - name: Build the installer
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run dist
+
+      # Every check in here is a bug that shipped once: the payload in the wrong place, its
+      # dependencies dropped, and the shop's own database packaged into the installer.
+      - name: Refuse to publish a broken package
+        working-directory: desktop
+        run: node verify-package.mjs
+
+      # Kept even when the release step fails, so a build is never wasted.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workwise-windows-installer
+          path: desktop/dist/*.exe
+          if-no-files-found: error
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          name: Workwise ${{ github.ref_name }}
+          files: desktop/dist/*.exe

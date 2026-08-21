@@ -65,6 +65,25 @@ goes to `resources/server`. Aiming it at `app` overwrote the app's own files.
 Neither failure says anything useful at the time. `main.mjs` therefore checks the five pieces of the
 payload before opening a window and names the ones that are missing, with the path it looked in.
 
+## Releasing
+
+Push a tag and CI does the rest:
+
+```
+git tag v0.20.0
+git push origin v0.20.0
+```
+
+`.github/workflows/windows-installer.yml` builds on a clean `windows-latest` with Node 22 pinned, takes
+the version **from the tag** so the installer can never claim a number the release does not, verifies
+the package, and leaves a **draft** release with GitHub's generated notes and the `.exe` attached. Read
+the notes, then publish. Nothing happens on an ordinary push.
+
+`npm run verify` runs the same check locally against `dist/*-unpacked`.
+
+> A `.exe` downloaded from the release carries the mark Windows puts on files from the internet, so
+> SmartScreen warns. Copying it to a USB stick and installing from there does not.
+
 ## What the installer does
 
 One-click, **per user**: installs into `%LOCALAPPDATA%`, never asks for administrator, and adds a
