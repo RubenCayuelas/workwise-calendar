@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { IconDownload, IconUpload } from '@tabler/icons-react';
-import { Button, Checkbox, ConfirmDialog, Field, InlineBanner, NumberStepper, useToast } from '../ui';
+import { Button, Checkbox, ConfirmDialog, Field, InlineBanner, NumberStepper } from '../ui';
 import { useLanguage } from '../I18nProvider';
 import {
   apiErrorMessage,
@@ -37,6 +37,9 @@ interface BackupsSectionProps {
   errorFor: (field: keyof Settings) => string | undefined;
 }
 
+/** Survives the reload a restore triggers, so its confirmation is not lost with the page. */
+const RESTORED_KEY = 'workwise.backupRestored';
+
 /** What the confirmation is about: one of the kept copies, or a file the owner just chose. */
 type PendingRestore = { kind: 'stored'; backup: StoredBackup } | { kind: 'file'; file: File };
 
@@ -48,13 +51,13 @@ export function BackupsSection({
   const { t } = useTranslation();
   const { language } = useLanguage();
   const format = useFormat();
-  const toast = useToast();
 
   const [directory, setDirectory] = useState('');
   const [backups, setBackups] = useState<StoredBackup[]>([]);
   const [pending, setPending] = useState<PendingRestore | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(undefined);
+  const [outcome, setOutcome] = useState<string | undefined>(undefined);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
@@ -73,6 +76,14 @@ export function BackupsSection({
     return () => controller.abort();
   }, [refresh]);
 
+  // The other half of the restore: read once, so it does not reappear on the next visit.
+  useEffect(() => {
+    const restored = window.sessionStorage.getItem(RESTORED_KEY);
+    if (restored === null) return;
+    window.sessionStorage.removeItem(RESTORED_KEY);
+    setOutcome(t('notices.backupRestored', { name: restored }));
+  }, [t]);
+
   const save = useCallback(async () => {
     setFailure(undefined);
     const suggested = `workwise-${instantToLocalStamp(new Date())}.db`;
@@ -87,13 +98,19 @@ export function BackupsSection({
         await writable.write(bytes);
         await writable.close();
       }
-      toast.success(t('notices.backupSaved'));
+      // Which of the two happened matters: the fallback puts the file in the browser's download
+      // folder, NOT where the owner pointed, and saying "saved" would be a half-truth.
+      setOutcome(
+        handle === undefined
+          ? t('settings.backupDownloaded', { file: suggested })
+          : t('settings.backupSaved', { file: suggested }),
+      );
     } catch (error) {
       // Closing the native dialog is a decision, not a failure.
       if (isAbortError(error) || isCancelledPicker(error)) return;
       setFailure(error);
     }
-  }, [t, toast]);
+  }, [t]);
 
   const restore = useCallback(
     async (request: PendingRestore) => {
@@ -105,7 +122,9 @@ export function BackupsSection({
             ? await restoreBackupByName(request.backup.name)
             : await restoreBackupFile(request.file);
         setPending(undefined);
-        toast.success(t('notices.backupRestored', { name: result.previousSavedAs }));
+        // Handed across the reload: a toast raised here would be destroyed by it, which is the same
+        // silence the save had.
+        window.sessionStorage.setItem(RESTORED_KEY, result.previousSavedAs);
         // The whole calendar changed underneath every screen, so nothing in memory is still true.
         window.location.reload();
       } catch (error) {
@@ -115,7 +134,7 @@ export function BackupsSection({
         setBusy(false);
       }
     },
-    [t, toast],
+    [],
   );
 
   return (
@@ -192,6 +211,12 @@ export function BackupsSection({
             </ul>
           )}
         </div>
+
+        {outcome === undefined ? null : (
+          <InlineBanner tone="success" onDismiss={() => setOutcome(undefined)}>
+            {outcome}
+          </InlineBanner>
+        )}
 
         {failure === undefined ? null : (
           <InlineBanner
@@ -272,13 +297,14 @@ interface FileHandle {
 }
 
 async function openSaveDialog(suggestedName: string): Promise<FileHandle | undefined> {
-  const picker = (
-    window as unknown as {
-      showSaveFilePicker?: (options: unknown) => Promise<FileHandle>;
-    }
-  ).showSaveFilePicker;
-  if (typeof picker !== 'function') return undefined;
-  return picker({
+  // CALLED AS A METHOD, never through a local copy: a WebIDL function invoked without its receiver
+  // throws "Illegal invocation" in Chrome. It is also absent unless the page is a secure context, so
+  // reaching the app by IP rather than by localhost lands on the download instead.
+  const host = window as unknown as {
+    showSaveFilePicker?: (options: unknown) => Promise<FileHandle>;
+  };
+  if (typeof host.showSaveFilePicker !== 'function') return undefined;
+  return host.showSaveFilePicker({
     suggestedName,
     types: [{ description: 'Workwise', accept: { 'application/vnd.sqlite3': ['.db'] } }],
   });
@@ -290,7 +316,8 @@ function downloadInstead(bytes: Blob, fileName: string): void {
   anchor.href = url;
   anchor.download = fileName;
   anchor.click();
-  URL.revokeObjectURL(url);
+  // Revoked on a later tick: doing it in this one can cut the download off before it starts.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 /** `showSaveFilePicker` rejects with an AbortError when the owner closes the dialog. */

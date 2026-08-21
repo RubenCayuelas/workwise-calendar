@@ -1652,6 +1652,13 @@ gesture.
 - **Silent when it works, loud when it does not.** The automatic copy says nothing on success or when
   it was not due; a failure raises the error banner, because a backup that quietly never happens is
   worse than none.
+- **A HAND action says what really happened, in place and until dismissed.** Not a toast: a 4-second
+  corner message is the wrong feedback for the action that protects the data, and after a restore the
+  page reload destroys it outright (which is why the confirmation crosses the reload in
+  `sessionStorage`). Saving distinguishes its two outcomes, because they are different facts — the
+  native dialog put the file where the owner chose, while the fallback put it in the browser's
+  downloads folder. `showSaveFilePicker` exists only in a SECURE CONTEXT, so reaching the app by IP
+  rather than by `localhost` always takes the fallback, and the message says so.
 
 ### Settings
 Work periods, auto-fill capacity, visual margins, planning horizon, gap colour, language.

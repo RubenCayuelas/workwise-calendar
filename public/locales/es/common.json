@@ -335,7 +335,9 @@
     "backupsRestoreTitle": "¿Restaurar esta copia?",
     "backupsRestoreBody": "El calendario de ahora se reemplaza por el de la copia del {{date}} a las {{time}}. Antes se guarda una copia del actual, así que se puede volver atrás.",
     "backupsRestoreFileBody": "El calendario de ahora se reemplaza por el del archivo «{{file}}». Antes se guarda una copia del actual, así que se puede volver atrás.",
-    "backupsRestoreConfirm": "Restaurar"
+    "backupsRestoreConfirm": "Restaurar",
+    "backupSaved": "Copia guardada como «{{file}}» en la ubicación indicada.",
+    "backupDownloaded": "Copia descargada como «{{file}}» en la carpeta de descargas del navegador. Para poder indicar la ubicación, abre la aplicación en «localhost»."
   },
   "colors": {
     "1": "Azul",
@@ -375,7 +377,6 @@
     "gapResized": "La ausencia dura ahora {{hours}} h. Lo que estuviera en esas horas se aparta; si quieres cambiar el día o el motivo, pulsa el hueco.",
     "deletedJobPast_one": "Se ha eliminado el trabajo. La hora que ya estaba trabajada se queda en el calendario como hueco, para que el día no cambie de forma.",
     "deletedJobPast_other": "Se ha eliminado el trabajo. Las {{count}} partes que ya estaban trabajadas se quedan en el calendario como huecos, para que esos días no cambien de forma.",
-    "backupSaved": "Copia guardada.",
     "backupRestored": "Calendario restaurado. El anterior se ha guardado como «{{name}}» en la carpeta de copias."
   },
   "undo": {

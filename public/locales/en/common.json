@@ -335,7 +335,9 @@
     "backupsRestoreTitle": "Restore this copy?",
     "backupsRestoreBody": "The calendar as it is now is replaced by the copy from {{date}} at {{time}}. A copy of the current one is taken first, so this can be undone.",
     "backupsRestoreFileBody": "The calendar as it is now is replaced by the one in “{{file}}”. A copy of the current one is taken first, so this can be undone.",
-    "backupsRestoreConfirm": "Restore"
+    "backupsRestoreConfirm": "Restore",
+    "backupSaved": "Copy saved as “{{file}}” in the chosen location.",
+    "backupDownloaded": "Copy downloaded as “{{file}}” to the browser’s downloads folder. Open the app on “localhost” to be able to choose a location."
   },
   "colors": {
     "1": "Blue",
@@ -375,7 +377,6 @@
     "gapResized": "The absence is {{hours}} h long now. Whatever was in those hours is pushed aside; to change its day or its reason, click the gap.",
     "deletedJobPast_one": "The job was deleted. The hour already worked stays on the calendar as a gap, so the day keeps its shape.",
     "deletedJobPast_other": "The job was deleted. The {{count}} parts already worked stay on the calendar as gaps, so those days keep their shape.",
-    "backupSaved": "Copy saved.",
     "backupRestored": "Calendar restored. The previous one was saved as “{{name}}” in the backups folder."
   },
   "undo": {

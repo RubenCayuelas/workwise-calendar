@@ -170,6 +170,14 @@
 .backupActions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--ww-space-3);
   margin-top: var(--ww-space-2);
+}
+
+/* `Button`'s label carries `text-overflow: ellipsis`, so a button allowed to shrink in a flex row
+   loses the end of its own name — and these two are long in Spanish. Wrapping is the right give. */
+.backupActions > *,
+.backupRow > button {
+  flex: none;
 }
