@@ -53,8 +53,11 @@ npm run dist                  # produces dist/Workwise Setup <version>.exe
 
 **It silently drops any directory named `node_modules`** from `extraResources`. Measured: with that
 name it does not arrive, renamed it arrives, and an explicit `**/node_modules/**` filter cannot
-override it. So `prepare.mjs` renames it to `deps` and `server.mjs` sets `NODE_PATH` — CJS `require`
-reads that, which is how `server.js` finds `next` and `better-sqlite3` again.
+override it. So `prepare.mjs` copies it straight to `deps` and `server.mjs` sets
+`NODE_PATH` — CJS `require` reads that, which is how `server.js` finds `next` and `better-sqlite3`
+again. **Copied to the final name rather than renamed afterwards**: renaming a directory on Windows
+moments after writing thousands of files into it fails with `EPERM`, the handles not being released
+yet.
 
 **`resources/app` is where it puts the application itself** (`platformPackager.js:218`), so the payload
 goes to `resources/server`. Aiming it at `app` overwrote the app's own files.

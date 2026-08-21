@@ -22,9 +22,9 @@ const NODE_VERSION = process.version;
 /** Anything but `node_modules`, which the packager drops. Read by `server.mjs` as NODE_PATH. */
 export const DEPS_DIR = 'deps';
 
-function copyDir(from, to) {
+function copyDir(from, to, filter) {
   if (!fs.existsSync(from)) throw new Error(`Missing ${from} — run \`npm run build\` in the repo root first`);
-  fs.cpSync(from, to, { recursive: true });
+  fs.cpSync(from, to, { recursive: true, ...(filter === undefined ? {} : { filter }) });
 }
 
 async function fetchNodeExe() {
@@ -44,20 +44,27 @@ async function fetchNodeExe() {
 fs.rmSync(path.join(build, 'server'), { recursive: true, force: true });
 fs.mkdirSync(build, { recursive: true });
 
-copyDir(path.join(root, '.next', 'standalone'), path.join(build, 'server'));
-// `output: 'standalone'` deliberately omits both of these; without them the app loads with no CSS.
-copyDir(path.join(root, '.next', 'static'), path.join(build, 'server', '.next', 'static'));
-copyDir(path.join(root, 'public'), path.join(build, 'server', 'public'));
-
-// `next/image` is never used, and sharp is the largest thing in the bundle.
-for (const unused of ['sharp', '@img']) {
-  fs.rmSync(path.join(build, 'server', 'node_modules', unused), { recursive: true, force: true });
-}
+const standalone = path.join(root, '.next', 'standalone');
+const server = path.join(build, 'server');
+const modules = path.join(standalone, 'node_modules');
 
 // electron-builder refuses to copy any directory named `node_modules` into extraResources — measured:
 // with the name it is dropped silently, renamed it copies, and an explicit `**/node_modules/**` filter
 // cannot override it. The server finds them again through NODE_PATH, set in `server.mjs`.
-fs.renameSync(path.join(build, 'server', 'node_modules'), path.join(build, 'server', DEPS_DIR));
+//
+// Copied straight to the final name rather than renamed afterwards: renaming a directory on Windows
+// moments after writing thousands of files into it fails with EPERM, because the handles are not
+// released yet. Avoiding the operation beats retrying it.
+copyDir(standalone, server, (from) => from !== modules);
+copyDir(modules, path.join(server, DEPS_DIR), (from) => {
+  // `next/image` is never used, and sharp is the largest thing in the payload.
+  const name = path.relative(modules, from);
+  return name !== 'sharp' && name !== '@img';
+});
+
+// `output: 'standalone'` deliberately omits both of these; without them the app loads with no CSS.
+copyDir(path.join(root, '.next', 'static'), path.join(server, '.next', 'static'));
+copyDir(path.join(root, 'public'), path.join(server, 'public'));
 
 const node = await fetchNodeExe();
 
