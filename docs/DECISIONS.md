@@ -1,6 +1,6 @@
 # Workwise Calendar — Decision Record
 
-**This file is the WHY. [CLAUDE.md](CLAUDE.md) is the WHAT.**
+**This file is the WHY. [CLAUDE.md](../CLAUDE.md) is the WHAT.**
 
 CLAUDE.md states the rules an implementer must follow. This file records how each of them was
 decided and what was measured to confirm it: the owner's own words, the defect that forced the
@@ -3041,6 +3041,96 @@ and the list were read out of a real browser's DOM.
 
 `tsc --noEmit` clean, `vitest run` **1127 passing across 41 files** (+39), `eslint .` clean,
 `next build` clean, `data/calendar.db` untouched.
+
+---
+
+## Open Decisions
+
+**Three lists, and the difference between them is the whole point.** *ANSWERED, NOT BUILT* has the
+owner's decision already in it — build it, do not re-ask. *STILL OPEN* has no answer — ask before
+inventing one. *SET ASIDE* was looked at and deliberately dropped.
+
+None of these is a broken invariant: hours are conserved, no stored row straddles a break, nothing
+overlaps that did not already, and recomposing twice changes nothing. Reproductions live in
+DECISIONS.md § *Reproductions behind the Open Decisions*.
+
+### ANSWERED, NOT BUILT — build these; the decision exists
+
+- **A resize may grow a row over another job, or over a gap.** *(Decision 4, answered 2026-08-20.)*
+  `resizeBlock` looks at neither, so the growth is simply written over whatever is there; only the
+  drop path resolves overlaps. **The owner's answer: CUT AT THE OBSTACLE, the way a drop does** — grow
+  up to what is in the way, store what fits, and say what stopped it. With their refinement, which is
+  three cases and not one:
+  - both rows **padlocked** → cut at the obstacle;
+  - the row being grown is padlocked and the one below is **not** → **push the one below**;
+  - the row being grown is **not** padlocked and the one below is → the extra hours go **after** the
+    padlocked row, which is what the reflow already does with hours the job cannot fit here.
+
+  `findGapConflicts` and `otherJobOverlaps` already exist — the drop path's two halves — so this is
+  wiring, not a new mechanism.
+- ***Añadir otra parte*** on the job panel *(decided 2026-08-14)*: a second job entry with the name and
+  colour pre-filled. DECISIONS.md § Two Parts of One Job.
+
+### STILL OPEN — ask before inventing an answer
+
+- **25 `react-hooks` 7 findings, silenced rather than fixed** *(2026-08-20, with the Next 16 upgrade)*.
+  `react-hooks/refs` (13) and `react-hooks/set-state-in-effect` (12). Every one is a shape chosen on
+  purpose: `useMounted`'s `setMounted(true)` in an effect, which exists so a portal is not created
+  during hydration; `useWeekSlide` deriving the slide direction from two refs DURING render, so the
+  week animation costs one render and not two; and `live.current = options` in `useBlockDrag`, which
+  exists because without it the window listeners captured stale callbacks and dropped onto a stale
+  week. The rules are right in general and wrong about these three, and the fix is a refactor of the
+  drag layer — the most measured code in the app. **Ask before starting it.**
+
+- **The scissors never answer for themselves.** Their GHOST does (`placingGhost` previews the same
+  division a drag does), but nothing is said after the save. Candidates: a `describeDrop`-style
+  outcome; refuse a split whose fragment would settle back inside the source row; or leave it.
+- **A drop cut into pieces INSIDE ONE DAY says nothing.** `filled` counts DAYS, so 6 h released in
+  front of a padlocked row stores two rows on one day and no branch fires. Candidates: count PIECES;
+  give the same-day case its own wording; or leave it, since the ghost drew both rectangles first.
+  **Do not widen `filled` to count pieces without asking.**
+- **A resize ghost draws its post-break tail on THIS day even when the slot is taken.** The hours are
+  right, the rectangle is not. Only the occupied case; with the slot free the preview is exact. A
+  resize's counterparty is the job's own last row, so the preview would have to simulate the LIFO
+  transfer, not just the fill.
+- **Does `buffer` belong on a padlocked Friday row?** `BlockRows.tagOf` labels every Friday row
+  `buffer`, including one the owner dropped there. The tag names the DAY's role, not the row's
+  provenance. Left as-is pending a second opinion.
+- **The hover action bar still covers a tall block's NAME on a narrow column.** Fixed for short and
+  narrow blocks (the bar docks outside); on a ~150 px weekday column a tall block still has its top
+  ~28 px covered. The drag is safe there and a click still lands on a button.
+- **Two gaps may overlap each OTHER on the fixed side** — refused on create and on edit since
+  2026-08-19 (`gap-over-gap`), but a BLOCK resize can still be grown over a gap, which is Decision 4
+  above.
+
+### SET ASIDE — looked at, deliberately dropped
+
+- **The one-minute rank nudge, and the sub-quarter row it can produce.** A drop that goes in BEFORE a
+  row writes its rank one minute earlier; that minute was then treated as a time and the run cut at
+  the lunch break from it, so a day could come back off the quarter hour (`5,77 h`, and once a 14-minute
+  row). **The owner could not reproduce it and set it aside on 2026-08-20**: *«parece ser solo problema
+  teórico en código, ignorar por ahora pero si ocurre un problema similar mencionar este detalle»*.
+  So: do not spend a round on it unsolicited — but **if anything similar surfaces, say that this was
+  set aside**. The two candidate fixes and the measurements are in DECISIONS.md § The One-Minute Rank
+  Nudge Crosses the Break.
+- **A micro-drag on a bottom edge sends a request that changes nothing.** Measured in a browser
+  2026-08-20 on a padlocked lunch-split unit: from the 4 px drag threshold every small drag sends
+  `resize` with the row's EXISTING duration and gets 200 with the calendar unchanged. **No dialog ever
+  appeared** — the older note claiming one was wrong, and the owner was right that the 15-minute snap
+  keeps every value legal. What is left is a wasted round trip and a recompose; a one-line no-op guard
+  would close it.
+
+### Deferred by direction
+
+- **The Windows executable**, above. Wanted, planned, and behind a few features the owner wants first.
+  The milestone to build before anything cosmetic is the one that can only be tested on Windows:
+  `ELECTRON_RUN_AS_NODE` plus the standalone server plus an Electron-ABI `better-sqlite3`.
+- **Whether a closed day belongs in the summary strip's sentence**, and whether a gap unit should be
+  reachable from the job panel's list. Both left open by the owner, 2026-08-19.
+- **`day_overrides.capacity_hours` has no screen**, and that is a decision rather than a gap: a short
+  day is a gap.
+
+---
 
 ---
 
