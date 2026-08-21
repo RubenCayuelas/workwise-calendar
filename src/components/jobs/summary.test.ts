@@ -11,9 +11,7 @@ import en from '../../../public/locales/en/common.json';
 import { formatHourNumber, formatLongDate, formatMediumDate } from '../../lib/format';
 import type { ScheduleSummary } from '../../lib/composition';
 import { capacityNoticeMessage, scheduleSummaryMessage, type SummaryFormatter } from './summary';
-
-const THURSDAY = '2026-08-20';
-const FRIDAY = '2026-08-14';
+import { FRI, NEXT_THU } from '../../testing/fixtures';
 
 /** The real bundles, interpolated the way i18next does. */
 function translator(bundle: Record<string, unknown>) {
@@ -41,9 +39,9 @@ const languages = [
 
 function summary(overrides: Partial<ScheduleSummary> = {}): ScheduleSummary {
   return {
-    lastOccupiedDate: THURSDAY,
+    lastOccupiedDate: NEXT_THU,
     queuedMinutes: 66 * 60,
-    bufferDate: FRIDAY,
+    bufferDate: FRI,
     bufferClear: true,
     ...overrides,
   };
@@ -55,7 +53,7 @@ describe('scheduleSummaryMessage', () => {
     expect(text).toBe('Taller ocupado hasta el jueves 20 de agosto · 66 h en cola · viernes libre');
   });
 
-  it('names the buffer date once the colchón carries work', () => {
+  it('names the buffer date once the buffer carries work', () => {
     const text = scheduleSummaryMessage(
       summary({ bufferClear: false }),
       translator(es as Record<string, unknown>),
@@ -80,11 +78,11 @@ describe('scheduleSummaryMessage', () => {
     for (const bufferClear of [false] as const) {
       it(`never repeats the weekday around the buffer date (${language})`, () => {
         const text = scheduleSummaryMessage(
-          summary({ bufferClear, lastOccupiedDate: THURSDAY }),
+          summary({ bufferClear, lastOccupiedDate: NEXT_THU }),
           translator(bundle),
           formatter(language),
         );
-        const weekday = formatLongDate(FRIDAY, language).split(',')[0].split(' ')[0].toLowerCase();
+        const weekday = formatLongDate(FRI, language).split(',')[0].split(' ')[0].toLowerCase();
         const occurrences = text.toLowerCase().split(weekday).length - 1;
         expect(occurrences, `"${weekday}" appears ${occurrences} times in: ${text}`).toBe(1);
       });
@@ -95,7 +93,7 @@ describe('scheduleSummaryMessage', () => {
           translator(bundle),
           formatter(language),
         );
-        const weekday = formatLongDate(FRIDAY, language).split(',')[0].split(' ')[0].toLowerCase();
+        const weekday = formatLongDate(FRI, language).split(',')[0].split(' ')[0].toLowerCase();
         expect(text.toLowerCase().split(weekday).length - 1, text).toBe(1);
       });
     }

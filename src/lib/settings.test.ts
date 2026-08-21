@@ -31,7 +31,7 @@ describe('the schema', () => {
   });
 
   it('cascades blocks when their project is deleted', () => {
-    db.prepare("INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Barandilla', '#185FA5', 4)").run();
+    db.prepare("INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Railing', '#185FA5', 4)").run();
     db.prepare(
       "INSERT INTO blocks (id, project_id, date, start_time, duration) VALUES ('b1', 'p1', '2026-08-11', '08:00', 4)",
     ).run();
@@ -42,16 +42,16 @@ describe('the schema', () => {
   });
 
   it('touches updated_at on UPDATE, which a column default never does', () => {
-    db.prepare("INSERT INTO projects (id, name, color, total_hours, created_at, updated_at) VALUES ('p1', 'Portón', '#D85A30', 6, '2020-01-01 00:00:00', '2020-01-01 00:00:00')").run();
+    db.prepare("INSERT INTO projects (id, name, color, total_hours, created_at, updated_at) VALUES ('p1', 'Shutter', '#D85A30', 6, '2020-01-01 00:00:00', '2020-01-01 00:00:00')").run();
 
-    db.prepare("UPDATE projects SET name = 'Portón corredera' WHERE id = 'p1'").run();
+    db.prepare("UPDATE projects SET name = 'Wide shutter' WHERE id = 'p1'").run();
 
     const row = db.prepare("SELECT updated_at FROM projects WHERE id = 'p1'").get() as { updated_at: string };
     expect(row.updated_at).not.toBe('2020-01-01 00:00:00');
   });
 
   it('refuses a block with no duration and a locked flag that is not 0 or 1', () => {
-    db.prepare("INSERT INTO projects (id, name, color) VALUES ('p1', 'Escalera', '#1D9E75')").run();
+    db.prepare("INSERT INTO projects (id, name, color) VALUES ('p1', 'Staircase', '#1D9E75')").run();
     expect(() =>
       db.prepare("INSERT INTO blocks (id, project_id, date, start_time, duration) VALUES ('b1', 'p1', '2026-08-11', '08:00', 0)").run(),
     ).toThrow();

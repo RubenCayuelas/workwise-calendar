@@ -41,7 +41,7 @@ export function takeableFrom(available: number, remaining: number, lastResort: b
 
 /**
  * The free runs of a day from `fromMinutes` onward — the periods with `occupied` taken out, one
- * entry per period so no stretch ever spans a break: a stretch across the comida is ONE stretch to
+ * entry per period so no stretch ever spans a break: a stretch across the lunch break is ONE stretch to
  * the arithmetic and TWO rows on the clock, so a piece of it could be a legal 20 minutes and store
  * a 10-minute row (harness seed 275). Measured over the PERIODS, never the manual windows, because
  * auto-fill does not enter a margin.

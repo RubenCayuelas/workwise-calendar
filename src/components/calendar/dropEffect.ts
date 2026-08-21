@@ -145,7 +145,7 @@ export function dropPredecessor(
 }
 
 /**
- * The week's movable rows in queue order. The Friday colchón is IN it — an engine-placed Friday row
+ * The week's movable rows in queue order. The Friday buffer is IN it — an engine-placed Friday row
  * is still reclaimable — even though Friday is what decides whether a drop ONTO it pins.
  */
 export function buildDropQueue(

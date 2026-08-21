@@ -34,20 +34,11 @@ import {
   type ManualPlacementSuccess,
   type PlacedBlock,
 } from './composition';
+import { FRI, LAST_FRI, MON, NEXT_MON, SAT, SUN, THU, TUE, WED } from '../testing/fixtures';
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
-
-const LAST_FRI = '2026-08-07';
-const MON = '2026-08-10';
-const TUE = '2026-08-11';
-const WED = '2026-08-12';
-const THU = '2026-08-13';
-const FRI = '2026-08-14';
-const SAT = '2026-08-15';
-const SUN = '2026-08-16';
-const NEXT_MON = '2026-08-17';
 
 /** A day with BOTH views derived as `dayShapeFromSettings` derives them, so they cannot disagree. */
 function withWindows(spec: Omit<DayShape, 'manualWindows'>): DayShape {
@@ -375,9 +366,9 @@ describe('rule 1 — the queue order is the calendar order', () => {
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ project: 'barandilla', date: MON, from: '08:00', hours: 2 }),
-        block({ project: 'escalera', date: MON, from: '10:00', hours: 2 }),
-        block({ project: 'porton', date: TUE, from: '08:00', hours: 2 }),
+        block({ project: 'railing', date: MON, from: '08:00', hours: 2 }),
+        block({ project: 'staircase', date: MON, from: '10:00', hours: 2 }),
+        block({ project: 'shutter', date: TUE, from: '08:00', hours: 2 }),
         // A brand-new job: the caller writes it after the last block on the calendar.
         block({ project: 'nuevo', date: TUE, from: '10:00', hours: 3 }),
       ],
@@ -385,9 +376,9 @@ describe('rule 1 — the queue order is the calendar order', () => {
     });
 
     expect(buildQueue(composeInput).map((item) => item.projectId)).toEqual([
-      'barandilla',
-      'escalera',
-      'porton',
+      'railing',
+      'staircase',
+      'shutter',
       'nuevo',
     ]);
     expect(buildQueue(composeInput).map((item) => item.durationMinutes)).toEqual([120, 120, 120, 180]);
@@ -398,13 +389,13 @@ describe('rule 1 — the queue order is the calendar order', () => {
     const grouped = input({
       today: MON,
       blocks: [
-        block({ id: 'morning', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
-        block({ id: 'rest', project: 'escalera', date: MON, from: '10:00', hours: 2 }),
+        block({ id: 'morning', project: 'staircase', date: MON, from: '08:00', hours: 2 }),
+        block({ id: 'rest', project: 'staircase', date: MON, from: '10:00', hours: 2 }),
       ],
     });
     expect(buildQueue(grouped)).toEqual([
       {
-        projectId: 'escalera',
+        projectId: 'staircase',
         blockIds: ['morning', 'rest'],
         durationMinutes: 240,
         isNew: false,
@@ -416,12 +407,12 @@ describe('rule 1 — the queue order is the calendar order', () => {
     const separated = input({
       today: MON,
       blocks: [
-        block({ project: 'escalera', date: MON, from: '08:00', hours: 2 }),
-        block({ project: 'porton', date: MON, from: '10:00', hours: 1 }),
-        block({ project: 'escalera', date: MON, from: '11:00', hours: 2 }),
+        block({ project: 'staircase', date: MON, from: '08:00', hours: 2 }),
+        block({ project: 'shutter', date: MON, from: '10:00', hours: 1 }),
+        block({ project: 'staircase', date: MON, from: '11:00', hours: 2 }),
       ],
     });
-    expect(buildQueue(separated).map((item) => item.projectId)).toEqual(['escalera', 'porton', 'escalera']);
+    expect(buildQueue(separated).map((item) => item.projectId)).toEqual(['staircase', 'shutter', 'staircase']);
     expect(buildQueue(separated).map((item) => item.durationMinutes)).toEqual([120, 60, 120]);
   });
 
@@ -432,17 +423,17 @@ describe('rule 1 — the queue order is the calendar order', () => {
       today: MON,
       blocks: [
         block({ id: 'younger', project: 'nuevo', date: MON, from: '08:00', hours: 1, createdAt: '2026-08-09 12:00:00' }),
-        block({ id: 'older', project: 'escalera', date: MON, from: '08:00', hours: 1, createdAt: '2026-08-01 12:00:00' }),
-        block({ id: 'aaa', project: 'porton', date: MON, from: '09:00', hours: 1, createdAt: '2026-08-01 12:00:00' }),
-        block({ id: 'zzz', project: 'puerta', date: MON, from: '09:00', hours: 1, createdAt: '2026-08-01 12:00:00' }),
+        block({ id: 'older', project: 'staircase', date: MON, from: '08:00', hours: 1, createdAt: '2026-08-01 12:00:00' }),
+        block({ id: 'aaa', project: 'shutter', date: MON, from: '09:00', hours: 1, createdAt: '2026-08-01 12:00:00' }),
+        block({ id: 'zzz', project: 'door', date: MON, from: '09:00', hours: 1, createdAt: '2026-08-01 12:00:00' }),
       ],
     });
 
     expect(buildQueue(composeInput).map((item) => item.projectId)).toEqual([
-      'escalera',
+      'staircase',
       'nuevo',
-      'porton',
-      'puerta',
+      'shutter',
+      'door',
     ]);
   });
 
@@ -480,28 +471,28 @@ describe('rule 1 — the queue order is the calendar order', () => {
 
 describe('rule 2 — the movable pool', () => {
   it('moves an unlocked weekday block dated today or later, Friday included', () => {
-    expect(isMovable(block({ project: 'escalera', date: MON, from: '08:00', hours: 2 }), MON)).toBe(true);
-    expect(isMovable(block({ project: 'escalera', date: THU, from: '08:00', hours: 2 }), MON)).toBe(true);
-    expect(isMovable(block({ project: 'escalera', date: FRI, from: '08:00', hours: 2 }), MON)).toBe(true);
+    expect(isMovable(block({ project: 'staircase', date: MON, from: '08:00', hours: 2 }), MON)).toBe(true);
+    expect(isMovable(block({ project: 'staircase', date: THU, from: '08:00', hours: 2 }), MON)).toBe(true);
+    expect(isMovable(block({ project: 'staircase', date: FRI, from: '08:00', hours: 2 }), MON)).toBe(true);
   });
 
   it('excludes a locked block', () => {
-    expect(isMovable(block({ project: 'escalera', date: TUE, from: '08:00', hours: 2, locked: true }), MON)).toBe(false);
+    expect(isMovable(block({ project: 'staircase', date: TUE, from: '08:00', hours: 2, locked: true }), MON)).toBe(false);
   });
 
   it('excludes a block dated before today', () => {
-    expect(isMovable(block({ project: 'escalera', date: MON, from: '08:00', hours: 2 }), TUE)).toBe(false);
-    expect(isMovable(block({ project: 'escalera', date: LAST_FRI, from: '08:00', hours: 2 }), MON)).toBe(false);
+    expect(isMovable(block({ project: 'staircase', date: MON, from: '08:00', hours: 2 }), TUE)).toBe(false);
+    expect(isMovable(block({ project: 'staircase', date: LAST_FRI, from: '08:00', hours: 2 }), MON)).toBe(false);
   });
 
   it('excludes Saturday and Sunday', () => {
-    expect(isMovable(block({ project: 'escalera', date: SAT, from: '09:00', hours: 2 }), MON)).toBe(false);
-    expect(isMovable(block({ project: 'escalera', date: SUN, from: '09:00', hours: 2 }), MON)).toBe(false);
+    expect(isMovable(block({ project: 'staircase', date: SAT, from: '09:00', hours: 2 }), MON)).toBe(false);
+    expect(isMovable(block({ project: 'staircase', date: SUN, from: '09:00', hours: 2 }), MON)).toBe(false);
   });
 
   it('excludes a padlocked Friday row — the mark a drop onto the buffer leaves', () => {
     expect(
-      isMovable(block({ project: 'escalera', date: FRI, from: '09:00', hours: 2, locked: true }), MON),
+      isMovable(block({ project: 'staircase', date: FRI, from: '09:00', hours: 2, locked: true }), MON),
     ).toBe(false);
   });
 
@@ -510,17 +501,17 @@ describe('rule 2 — the movable pool', () => {
       today: TUE,
       blocks: [
         block({ project: 'historial', date: LAST_FRI, from: '08:00', hours: 4 }),
-        block({ project: 'barandilla', date: TUE, from: '10:00', hours: 4, locked: true }),
+        block({ project: 'railing', date: TUE, from: '10:00', hours: 4, locked: true }),
         block({ project: 'urgencia', date: SAT, from: '09:00', hours: 3 }),
-        block({ project: 'escalera', date: TUE, from: '16:00', hours: 2 }),
+        block({ project: 'staircase', date: TUE, from: '16:00', hours: 2 }),
       ],
     });
 
     // The head of the queue fits the hole in front of the locked block, so it uses it.
     expect(rows(compose(composeInput))).toEqual([
       `${LAST_FRI} 08:00-12:00 historial`,
-      `${TUE} 08:00-10:00 escalera`,
-      `${TUE} 10:00-14:00 barandilla [locked]`,
+      `${TUE} 08:00-10:00 staircase`,
+      `${TUE} 10:00-14:00 railing [locked]`,
       `${SAT} 09:00-12:00 urgencia`,
     ]);
   });
@@ -536,10 +527,10 @@ describe('rule 3 — Monday to Thursday auto-fill', () => {
       today: MON,
       blocks: [
         block({ project: 'primera', date: MON, from: '08:00', hours: 2 }),
-        block({ project: 'barandilla', date: MON, from: '10:00', hours: 2, locked: true }),
-        block({ project: 'escalera', date: MON, from: '13:00', hours: 3 }),
+        block({ project: 'railing', date: MON, from: '10:00', hours: 2, locked: true }),
+        block({ project: 'staircase', date: MON, from: '13:00', hours: 3 }),
       ],
-      gaps: [gap({ date: MON, from: '12:00', hours: 1, reason: 'Avería torno' })],
+      gaps: [gap({ date: MON, from: '12:00', hours: 1, reason: 'Lathe breakdown' })],
     });
 
     // 10 h of shift, 2 h locked and 1 h of gap taken out: 7 h left to plan.
@@ -548,10 +539,10 @@ describe('rule 3 — Monday to Thursday auto-fill', () => {
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
       `${MON} 08:00-10:00 primera`,
-      `${MON} 10:00-12:00 barandilla [locked]`,
+      `${MON} 10:00-12:00 railing [locked]`,
       // Not a wall: the flexible work resumes after the lock and the gap, across lunch.
-      `${MON} 13:00-14:00 escalera`,
-      `${MON} 15:30-17:30 escalera`,
+      `${MON} 13:00-14:00 staircase`,
+      `${MON} 15:30-17:30 staircase`,
     ]);
     expectMinutesConserved(composeInput, result);
   });
@@ -567,7 +558,7 @@ describe('rule 4 — plannable hours are a union of intervals', () => {
 
     const withObstacles = input({
       today: MON,
-      blocks: [block({ project: 'barandilla', date: MON, from: '08:00', hours: 3, locked: true })],
+      blocks: [block({ project: 'railing', date: MON, from: '08:00', hours: 3, locked: true })],
       gaps: [gap({ date: MON, from: '15:30', hours: 2 })],
     });
     expect(plannableMinutes(withObstacles, MON)).toBe(600 - 180 - 120);
@@ -576,8 +567,8 @@ describe('rule 4 — plannable hours are a union of intervals', () => {
   it('counts an overlapping gap and locked block once, not twice', () => {
     const overlapping = input({
       today: MON,
-      blocks: [block({ project: 'barandilla', date: MON, from: '08:00', hours: 3, locked: true })],
-      gaps: [gap({ date: MON, from: '10:00', hours: 2, reason: 'Revisión' })],
+      blocks: [block({ project: 'railing', date: MON, from: '08:00', hours: 3, locked: true })],
+      gaps: [gap({ date: MON, from: '10:00', hours: 2, reason: 'Service' })],
     });
 
     // The union is 08:00-12:00 — 4 h, not the 5 h a naive sum would report.
@@ -587,7 +578,7 @@ describe('rule 4 — plannable hours are a union of intervals', () => {
   it('ignores the part of an obstacle that falls outside the working periods', () => {
     const acrossLunch = input({
       today: MON,
-      gaps: [gap({ date: MON, from: '13:00', hours: 3, reason: 'Gestoría' })],
+      gaps: [gap({ date: MON, from: '13:00', hours: 3, reason: 'Paperwork' })],
     });
     // 13:00-14:00 and 15:30-16:00 are working time; the lunch break in between is not.
     expect(plannableMinutes(acrossLunch, MON)).toBe(600 - 60 - 30);
@@ -604,7 +595,7 @@ describe('rule 4 — plannable hours are a union of intervals', () => {
     const shortAndBlocked = input({
       today: MON,
       shape: withCapacity(4),
-      blocks: [block({ project: 'barandilla', date: MON, from: '08:00', hours: 5, locked: true })],
+      blocks: [block({ project: 'railing', date: MON, from: '08:00', hours: 5, locked: true })],
     });
     expect(plannableMinutes(shortAndBlocked, MON)).toBe(240);
 
@@ -613,7 +604,7 @@ describe('rule 4 — plannable hours are a union of intervals', () => {
       today: MON,
       shape: withCapacity(4),
       blocks: [
-        block({ project: 'barandilla', date: MON, from: '08:00', hours: 6, locked: true }),
+        block({ project: 'railing', date: MON, from: '08:00', hours: 6, locked: true }),
         block({ project: 'cita', date: MON, from: '15:30', hours: 2, locked: true }),
       ],
     });
@@ -631,7 +622,7 @@ describe('rule 4 — plannable hours are a union of intervals', () => {
     // ONE occupancy set clipped to the periods, so 08:00-16:00 costs 6 h + 30 min, not 8 h.
     const straddling = input({
       today: MON,
-      blocks: [block({ project: 'barandilla', date: MON, from: '08:00', hours: 8, locked: true })],
+      blocks: [block({ project: 'railing', date: MON, from: '08:00', hours: 8, locked: true })],
     });
     expect(plannableMinutes(straddling, MON)).toBe(600 - 360 - 30);
   });
@@ -667,53 +658,53 @@ describe('rule 5 — Friday is a buffer, not a workday', () => {
       today: MON,
       shape: withCapacity(4),
       // The same 20 h, but grown on a job already scheduled — which the operation has to say out
-      // loud, because growth is the ONLY thing the colchón absorbs.
-      blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 20 })],
-      grownProjectIds: ['escalera'],
+      // loud, because growth is the ONLY thing the buffer absorbs.
+      blocks: [block({ project: 'staircase', date: MON, from: '08:00', hours: 20 })],
+      grownProjectIds: ['staircase'],
     });
 
     expect(rows(compose(composeInput))).toEqual([
-      `${MON} 08:00-12:00 escalera`,
-      `${TUE} 08:00-12:00 escalera`,
-      `${WED} 08:00-12:00 escalera`,
-      `${THU} 08:00-12:00 escalera`,
-      `${FRI} 08:00-12:00 escalera`,
+      `${MON} 08:00-12:00 staircase`,
+      `${TUE} 08:00-12:00 staircase`,
+      `${WED} 08:00-12:00 staircase`,
+      `${THU} 08:00-12:00 staircase`,
+      `${FRI} 08:00-12:00 staircase`,
     ]);
   });
 
   it('pulls Friday work back when Monday to Thursday frees up, so the buffer self-cleans', () => {
     const composeInput = input({
       today: MON,
-      blocks: [block({ project: 'porton', date: FRI, from: '08:00', hours: 4 })],
+      blocks: [block({ project: 'shutter', date: FRI, from: '08:00', hours: 4 })],
     });
 
-    expect(rows(compose(composeInput))).toEqual([`${MON} 08:00-12:00 porton`]);
+    expect(rows(compose(composeInput))).toEqual([`${MON} 08:00-12:00 shutter`]);
   });
 
   it('leaves Friday work alone when it is locked — the way to keep something there on purpose', () => {
     const composeInput = input({
       today: MON,
-      blocks: [block({ project: 'porton', date: FRI, from: '08:00', hours: 4, locked: true })],
+      blocks: [block({ project: 'shutter', date: FRI, from: '08:00', hours: 4, locked: true })],
     });
 
-    expect(rows(compose(composeInput))).toEqual([`${FRI} 08:00-12:00 porton [locked]`]);
+    expect(rows(compose(composeInput))).toEqual([`${FRI} 08:00-12:00 shutter [locked]`]);
   });
 
   it('carries what Friday cannot hold into next Monday, skipping the weekend', () => {
     const composeInput = input({
       today: MON,
       shape: withCapacity(4),
-      blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 24 })],
-      grownProjectIds: ['escalera'],
+      blocks: [block({ project: 'staircase', date: MON, from: '08:00', hours: 24 })],
+      grownProjectIds: ['staircase'],
     });
 
     expect(rows(compose(composeInput))).toEqual([
-      `${MON} 08:00-12:00 escalera`,
-      `${TUE} 08:00-12:00 escalera`,
-      `${WED} 08:00-12:00 escalera`,
-      `${THU} 08:00-12:00 escalera`,
-      `${FRI} 08:00-12:00 escalera`,
-      `${NEXT_MON} 08:00-12:00 escalera`,
+      `${MON} 08:00-12:00 staircase`,
+      `${TUE} 08:00-12:00 staircase`,
+      `${WED} 08:00-12:00 staircase`,
+      `${THU} 08:00-12:00 staircase`,
+      `${FRI} 08:00-12:00 staircase`,
+      `${NEXT_MON} 08:00-12:00 staircase`,
     ]);
   });
 });
@@ -723,18 +714,18 @@ describe('rule 5 — Friday is a buffer, not a workday', () => {
 // ---------------------------------------------------------------------------
 //
 // Friday is in the movable pool, so the reflow reaches Monday first and pulls a hand-dropped row
-// straight back off the colchón unless something on the row says a human put it there.
+// straight back off the buffer unless something on the row says a human put it there.
 
 describe('rule 5 — the engine only recovers from Friday what it put there itself', () => {
   it('leaves a padlocked Friday row exactly where it was dropped, week empty in front of it', () => {
     const composeInput = input({
       today: MON,
-      blocks: [block({ id: 'a-mano', project: 'porton', date: FRI, from: '10:00', hours: 4, locked: true })],
+      blocks: [block({ id: 'a-mano', project: 'shutter', date: FRI, from: '10:00', hours: 4, locked: true })],
     });
 
     const result = compose(composeInput);
     // It keeps the SLOT and not merely the day: on the buffer a drop padlocks the row.
-    expect(rows(result)).toEqual([`${FRI} 10:00-14:00 porton [locked]`]);
+    expect(rows(result)).toEqual([`${FRI} 10:00-14:00 shutter [locked]`]);
     expect(lockedIds(expectOk(result).blocks)).toEqual(['a-mano']);
     expectSettled(composeInput, result);
   });
@@ -743,37 +734,37 @@ describe('rule 5 — the engine only recovers from Friday what it put there itse
     // The asymmetry, stated as itself: the same row without the padlock comes home.
     const composeInput = input({
       today: MON,
-      blocks: [block({ project: 'porton', date: FRI, from: '10:00', hours: 4 })],
+      blocks: [block({ project: 'shutter', date: FRI, from: '10:00', hours: 4 })],
     });
 
-    expect(rows(compose(composeInput))).toEqual([`${MON} 08:00-12:00 porton`]);
+    expect(rows(compose(composeInput))).toEqual([`${MON} 08:00-12:00 shutter`]);
   });
 
   it('keeps it out of the movable pool, so the rest of the week flows around it', () => {
     expect(
-      isMovable(block({ project: 'porton', date: FRI, from: '10:00', hours: 4, locked: true }), MON),
+      isMovable(block({ project: 'shutter', date: FRI, from: '10:00', hours: 4, locked: true }), MON),
     ).toBe(false);
 
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'a-mano', project: 'porton', date: FRI, from: '10:00', hours: 4, locked: true }),
-        block({ id: 'nueva', project: 'escalera', date: NEXT_MON, from: '08:00', hours: 4 }),
+        block({ id: 'a-mano', project: 'shutter', date: FRI, from: '10:00', hours: 4, locked: true }),
+        block({ id: 'nueva', project: 'staircase', date: NEXT_MON, from: '08:00', hours: 4 }),
       ],
-      newProjectIds: ['escalera'],
+      newProjectIds: ['staircase'],
     });
 
     // An obstacle rather than a queue item, so it does not drag the cursor to Friday.
     expect(buildQueue(composeInput).map((item) => item.blockIds)).toEqual([['nueva']]);
     const result = compose(composeInput);
-    expect(rows(result)).toEqual([`${MON} 08:00-12:00 escalera`, `${FRI} 10:00-14:00 porton [locked]`]);
+    expect(rows(result)).toEqual([`${MON} 08:00-12:00 staircase`, `${FRI} 10:00-14:00 shutter [locked]`]);
     expectSettled(composeInput, result);
   });
 
   it('costs Friday the hours it holds, like any other obstacle', () => {
     const composeInput = input({
       today: MON,
-      blocks: [block({ project: 'porton', date: FRI, from: '10:00', hours: 4, locked: true })],
+      blocks: [block({ project: 'shutter', date: FRI, from: '10:00', hours: 4, locked: true })],
     });
 
     expect(plannableMinutes(composeInput, FRI)).toBe(6 * 60);
@@ -783,13 +774,13 @@ describe('rule 5 — the engine only recovers from Friday what it put there itse
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'automatico', project: 'porton', date: THU, from: '08:00', hours: 6 }),
-        block({ id: 'a-mano', project: 'porton', date: FRI, from: '10:00', hours: 4, locked: true }),
+        block({ id: 'automatico', project: 'shutter', date: THU, from: '08:00', hours: 6 }),
+        block({ id: 'a-mano', project: 'shutter', date: FRI, from: '10:00', hours: 4, locked: true }),
       ],
     });
 
     const result = compose(composeInput);
-    expect(rows(result)).toEqual([`${MON} 08:00-14:00 porton`, `${FRI} 10:00-14:00 porton [locked]`]);
+    expect(rows(result)).toEqual([`${MON} 08:00-14:00 shutter`, `${FRI} 10:00-14:00 shutter [locked]`]);
     expectSettled(composeInput, result);
   });
 
@@ -820,7 +811,7 @@ describe('rule 6 — the weekend is outside the engine', () => {
     const composeInput = input({
       today: MON,
       shape: withCapacity(4),
-      blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 24 })],
+      blocks: [block({ project: 'staircase', date: MON, from: '08:00', hours: 24 })],
     });
 
     const weekend = expectOk(compose(composeInput)).blocks.filter(
@@ -834,12 +825,12 @@ describe('rule 6 — the weekend is outside the engine', () => {
       today: MON,
       blocks: [
         block({ project: 'urgencia', date: SAT, from: '10:00', hours: 4 }),
-        block({ project: 'escalera', date: MON, from: '08:00', hours: 2 }),
+        block({ project: 'staircase', date: MON, from: '08:00', hours: 2 }),
       ],
     });
 
     expect(rows(compose(composeInput))).toEqual([
-      `${MON} 08:00-10:00 escalera`,
+      `${MON} 08:00-10:00 staircase`,
       `${SAT} 10:00-14:00 urgencia`,
     ]);
   });
@@ -937,18 +928,18 @@ describe('rule 8 — a job fills what the day has left and the rest overflows', 
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ project: 'escalera', date: MON, from: '08:00', hours: 8 }),
-        block({ project: 'porton', date: MON, from: '18:00', hours: 3 }),
+        block({ project: 'staircase', date: MON, from: '08:00', hours: 8 }),
+        block({ project: 'shutter', date: MON, from: '18:00', hours: 3 }),
       ],
     });
 
     // Monday has 2 h left after the staircase: the door takes them and finishes on Tuesday.
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${MON} 08:00-14:00 escalera`,
-      `${MON} 15:30-17:30 escalera`,
-      `${MON} 17:30-19:30 porton`,
-      `${TUE} 08:00-09:00 porton`,
+      `${MON} 08:00-14:00 staircase`,
+      `${MON} 15:30-17:30 staircase`,
+      `${MON} 17:30-19:30 shutter`,
+      `${TUE} 08:00-09:00 shutter`,
     ]);
     expectMinutesConserved(composeInput, result);
     expectSettled(composeInput, result);
@@ -957,14 +948,14 @@ describe('rule 8 — a job fills what the day has left and the rest overflows', 
   it('splits a job longer than a full day, and reuses ids for the segments it can', () => {
     const composeInput = input({
       today: MON,
-      blocks: [block({ id: 'original', project: 'escalera', date: MON, from: '08:00', hours: 14 })],
+      blocks: [block({ id: 'original', project: 'staircase', date: MON, from: '08:00', hours: 14 })],
     });
 
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${MON} 08:00-14:00 escalera`,
-      `${MON} 15:30-19:30 escalera`,
-      `${TUE} 08:00-12:00 escalera`,
+      `${MON} 08:00-14:00 staircase`,
+      `${MON} 15:30-19:30 staircase`,
+      `${TUE} 08:00-12:00 staircase`,
     ]);
     // The first segment keeps the row it came from; the rest are inserts.
     expect(expectOk(result).blocks.map((placed) => placed.id)).toEqual(['original', null, null]);
@@ -977,16 +968,16 @@ describe('rule 8 — a job fills what the day has left and the rest overflows', 
       today: MON,
       blocks: [
         block({ project: 'cita', date: MON, from: '08:00', hours: 4, locked: true }),
-        block({ project: 'escalera', date: MON, from: '12:00', hours: 14 }),
+        block({ project: 'staircase', date: MON, from: '12:00', hours: 14 }),
       ],
     });
 
     expect(rows(compose(composeInput))).toEqual([
       `${MON} 08:00-12:00 cita [locked]`,
-      `${MON} 12:00-14:00 escalera`,
-      `${MON} 15:30-19:30 escalera`,
-      `${TUE} 08:00-14:00 escalera`,
-      `${TUE} 15:30-17:30 escalera`,
+      `${MON} 12:00-14:00 staircase`,
+      `${MON} 15:30-19:30 staircase`,
+      `${TUE} 08:00-14:00 staircase`,
+      `${TUE} 15:30-17:30 staircase`,
     ]);
   });
 
@@ -995,15 +986,15 @@ describe('rule 8 — a job fills what the day has left and the rest overflows', 
     // time is 4 h on Monday and 1 h on Tuesday.
     const composeInput = input({
       today: MON,
-      blocks: [block({ project: 'escalera', date: MON, from: '15:30', hours: 5 })],
-      gaps: [gap({ date: MON, from: '08:00', hours: 6, reason: 'Avería torno' })],
+      blocks: [block({ project: 'staircase', date: MON, from: '15:30', hours: 5 })],
+      gaps: [gap({ date: MON, from: '08:00', hours: 6, reason: 'Lathe breakdown' })],
     });
 
     expect(plannableMinutes(composeInput, MON)).toBe(240);
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${MON} 15:30-19:30 escalera`,
-      `${TUE} 08:00-09:00 escalera`,
+      `${MON} 15:30-19:30 staircase`,
+      `${TUE} 08:00-09:00 staircase`,
     ]);
     expectMinutesConserved(composeInput, result);
     expectSettled(composeInput, result);
@@ -1013,18 +1004,18 @@ describe('rule 8 — a job fills what the day has left and the rest overflows', 
     // Four days cut to two plannable hours each: a 7 h job comes out in four drawable pieces.
     const composeInput = input({
       today: MON,
-      blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 7 })],
+      blocks: [block({ project: 'staircase', date: MON, from: '08:00', hours: 7 })],
       gaps: [MON, TUE, WED, THU].map((date) =>
-        gap({ date, from: '10:00', hours: 9.5, reason: 'Feria' }),
+        gap({ date, from: '10:00', hours: 9.5, reason: 'Fair' }),
       ),
     });
 
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${MON} 08:00-10:00 escalera`,
-      `${TUE} 08:00-10:00 escalera`,
-      `${WED} 08:00-10:00 escalera`,
-      `${THU} 08:00-09:00 escalera`,
+      `${MON} 08:00-10:00 staircase`,
+      `${TUE} 08:00-10:00 staircase`,
+      `${WED} 08:00-10:00 staircase`,
+      `${THU} 08:00-09:00 staircase`,
     ]);
     expectMinutesConserved(composeInput, result);
     expectSettled(composeInput, result);
@@ -1040,11 +1031,11 @@ describe('rule 8 — a job fills what the day has left and the rest overflows', 
 
 describe('rule 8 — a displaced tail fills forward like anything else', () => {
   const cutOnThursday = (): Block[] => [
-    // Barandilla 12 h: Thursday full, the rest already on next Monday.
-    block({ id: 'bar-am', project: 'barandilla', date: THU, from: '08:00', hours: 6 }),
-    block({ id: 'bar-pm', project: 'barandilla', date: THU, from: '15:30', hours: 4 }),
-    block({ id: 'bar-lunes', project: 'barandilla', date: NEXT_MON, from: '08:00', hours: 2 }),
-    // Marquesina, just dropped at Thursday 10:00 — inside Barandilla's morning row.
+    // Railing 12 h: Thursday full, the rest already on next Monday.
+    block({ id: 'bar-am', project: 'railing', date: THU, from: '08:00', hours: 6 }),
+    block({ id: 'bar-pm', project: 'railing', date: THU, from: '15:30', hours: 4 }),
+    block({ id: 'bar-lunes', project: 'railing', date: NEXT_MON, from: '08:00', hours: 2 }),
+    // Marquesina, just dropped at Thursday 10:00 — inside Railing's morning row.
     block({ id: 'marquesina', project: 'marquesina', date: THU, from: '10:00', hours: 2 }),
   ];
 
@@ -1054,18 +1045,18 @@ describe('rule 8 — a displaced tail fills forward like anything else', () => {
 
     const placement = compose({ ...composeInput, blocks: resolved.blocks });
     expect(rows(placement)).toEqual([
-      `${THU} 08:00-10:00 barandilla`,
+      `${THU} 08:00-10:00 railing`,
       `${THU} 10:00-12:00 marquesina`,
       // The tail used to jump WHOLE to next Monday, leaving 12:00-19:30 empty.
-      `${THU} 12:00-14:00 barandilla`,
-      `${THU} 15:30-19:30 barandilla`,
-      `${NEXT_MON} 08:00-12:00 barandilla`,
+      `${THU} 12:00-14:00 railing`,
+      `${THU} 15:30-19:30 railing`,
+      `${NEXT_MON} 08:00-12:00 railing`,
     ]);
     expectMinutesConserved({ ...composeInput, blocks: resolved.blocks }, placement);
     expectSettled({ ...composeInput, blocks: resolved.blocks }, placement);
   });
 
-  it('still skips the Friday colchon: a displaced tail is not growth', () => {
+  it('still skips the Friday buffer: a displaced tail is not growth', () => {
     const composeInput = input({ today: THU, blocks: cutOnThursday() });
     const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('marquesina')));
 
@@ -1080,18 +1071,18 @@ describe('rule 8 — a displaced tail fills forward like anything else', () => {
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'a-mano', project: 'escalera', date: MON, from: '08:00', hours: 4, locked: true }),
-        block({ id: 'resto', project: 'escalera', date: MON, from: '15:30', hours: 8 }),
+        block({ id: 'a-mano', project: 'staircase', date: MON, from: '08:00', hours: 4, locked: true }),
+        block({ id: 'resto', project: 'staircase', date: MON, from: '15:30', hours: 8 }),
       ],
-      gaps: [gap({ date: TUE, from: '08:00', hours: 6, reason: 'Avería torno' })],
+      gaps: [gap({ date: TUE, from: '08:00', hours: 6, reason: 'Lathe breakdown' })],
     });
 
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${MON} 08:00-12:00 escalera [locked]`,
-      `${MON} 12:00-14:00 escalera`,
-      `${MON} 15:30-19:30 escalera`,
-      `${TUE} 15:30-17:30 escalera`,
+      `${MON} 08:00-12:00 staircase [locked]`,
+      `${MON} 12:00-14:00 staircase`,
+      `${MON} 15:30-19:30 staircase`,
+      `${TUE} 15:30-17:30 staircase`,
     ]);
     expectMinutesConserved(composeInput, result);
     expectSettled(composeInput, result);
@@ -1102,14 +1093,14 @@ describe('rule 8 — a displaced tail fills forward like anything else', () => {
     // the same answer its own tail would have got.
     const composeInput = input({
       today: MON,
-      blocks: [block({ id: 'sola', project: 'escalera', date: MON, from: '15:30', hours: 5 })],
-      gaps: [gap({ date: MON, from: '08:00', hours: 6, reason: 'Avería torno' })],
+      blocks: [block({ id: 'sola', project: 'staircase', date: MON, from: '15:30', hours: 5 })],
+      gaps: [gap({ date: MON, from: '08:00', hours: 6, reason: 'Lathe breakdown' })],
     });
 
     expect(buildQueue(composeInput)).toHaveLength(1);
     expect(rows(compose(composeInput))).toEqual([
-      `${MON} 15:30-19:30 escalera`,
-      `${TUE} 08:00-09:00 escalera`,
+      `${MON} 15:30-19:30 staircase`,
+      `${TUE} 08:00-09:00 staircase`,
     ]);
   });
 
@@ -1118,16 +1109,16 @@ describe('rule 8 — a displaced tail fills forward like anything else', () => {
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'primera', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
-        block({ id: 'otra', project: 'porton', date: MON, from: '10:00', hours: 1 }),
-        block({ id: 'cola', project: 'escalera', date: MON, from: '11:00', hours: 2 }),
+        block({ id: 'primera', project: 'staircase', date: MON, from: '08:00', hours: 2 }),
+        block({ id: 'otra', project: 'shutter', date: MON, from: '10:00', hours: 1 }),
+        block({ id: 'cola', project: 'staircase', date: MON, from: '11:00', hours: 2 }),
       ],
     });
 
     expect(buildQueue(composeInput).map((item) => item.projectId)).toEqual([
-      'escalera',
-      'porton',
-      'escalera',
+      'staircase',
+      'shutter',
+      'staircase',
     ]);
     expect(Object.keys(buildQueue(composeInput)[0]).includes('continuation')).toBe(false);
   });
@@ -1147,9 +1138,9 @@ describe('rule 9 — strict order end to end', () => {
     const composeInput = input({
       today: TUE,
       blocks: [
-        block({ project: 'barandilla', date: TUE, from: '08:00', hours: 5, locked: true }),
-        block({ project: 'escalera', date: TUE, from: '13:00', hours: 6 }),
-        block({ project: 'porton', date: TUE, from: '19:00', hours: 2 }),
+        block({ project: 'railing', date: TUE, from: '08:00', hours: 5, locked: true }),
+        block({ project: 'staircase', date: TUE, from: '13:00', hours: 6 }),
+        block({ project: 'shutter', date: TUE, from: '19:00', hours: 2 }),
       ],
     });
 
@@ -1157,18 +1148,18 @@ describe('rule 9 — strict order end to end', () => {
 
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${TUE} 08:00-13:00 barandilla [locked]`,
-      `${TUE} 13:00-14:00 escalera`,
-      `${TUE} 15:30-19:30 escalera`,
-      `${WED} 08:00-09:00 escalera`,
-      `${WED} 09:00-11:00 porton`,
+      `${TUE} 08:00-13:00 railing [locked]`,
+      `${TUE} 13:00-14:00 staircase`,
+      `${TUE} 15:30-19:30 staircase`,
+      `${WED} 08:00-09:00 staircase`,
+      `${WED} 09:00-11:00 shutter`,
     ]);
     // The door never got in front of the staircase, on either day.
     expect(
       rows(result)
-        .filter((row) => !row.includes('barandilla'))
+        .filter((row) => !row.includes('railing'))
         .map((row) => row.split(' ')[2]),
-    ).toEqual(['escalera', 'escalera', 'escalera', 'porton']);
+    ).toEqual(['staircase', 'staircase', 'staircase', 'shutter']);
     expectMinutesConserved(composeInput, result);
     expectSettled(composeInput, result);
   });
@@ -1210,14 +1201,14 @@ describe('rule 10 — the past is frozen', () => {
       blocks: [
         // A Monday cut short by a breakdown: the empty morning must stay empty.
         block({ id: 'ayer', project: 'historial', date: MON, from: '15:30', hours: 2 }),
-        block({ project: 'escalera', date: WED, from: '10:00', hours: 3 }),
+        block({ project: 'staircase', date: WED, from: '10:00', hours: 3 }),
       ],
     });
 
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
       `${MON} 15:30-17:30 historial`,
-      `${WED} 08:00-11:00 escalera`,
+      `${WED} 08:00-11:00 staircase`,
     ]);
     expect(expectOk(result).blocks.filter((placed) => placed.date < WED)).toEqual([
       {
@@ -1234,15 +1225,15 @@ describe('rule 10 — the past is frozen', () => {
   it('replans today, unless the block that has already been started is locked', () => {
     const replanned = input({
       today: WED,
-      blocks: [block({ project: 'escalera', date: WED, from: '17:00', hours: 2 })],
+      blocks: [block({ project: 'staircase', date: WED, from: '17:00', hours: 2 })],
     });
-    expect(rows(compose(replanned))).toEqual([`${WED} 08:00-10:00 escalera`]);
+    expect(rows(compose(replanned))).toEqual([`${WED} 08:00-10:00 staircase`]);
 
     const started = input({
       today: WED,
-      blocks: [block({ project: 'escalera', date: WED, from: '17:00', hours: 2, locked: true })],
+      blocks: [block({ project: 'staircase', date: WED, from: '17:00', hours: 2, locked: true })],
     });
-    expect(rows(compose(started))).toEqual([`${WED} 17:00-19:00 escalera [locked]`]);
+    expect(rows(compose(started))).toEqual([`${WED} 17:00-19:00 staircase [locked]`]);
   });
 });
 
@@ -1256,19 +1247,19 @@ describe('rule 11 — a segment never straddles a non-working interval', () => {
       today: MON,
       blocks: [
         block({ project: 'cita', date: MON, from: '08:00', hours: 5, locked: true }),
-        block({ project: 'escalera', date: MON, from: '13:00', hours: 3 }),
+        block({ project: 'staircase', date: MON, from: '13:00', hours: 3 }),
       ],
     });
 
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
       `${MON} 08:00-13:00 cita [locked]`,
-      `${MON} 13:00-14:00 escalera`,
-      `${MON} 15:30-17:30 escalera`,
+      `${MON} 13:00-14:00 staircase`,
+      `${MON} 15:30-17:30 staircase`,
     ]);
 
     // Two blocks of one job, and the durations are net working hours: no lunch in either.
-    const segments = expectOk(result).blocks.filter((placed) => placed.projectId === 'escalera');
+    const segments = expectOk(result).blocks.filter((placed) => placed.projectId === 'staircase');
     expect(segments).toHaveLength(2);
     expect(segments.map((placed) => placed.durationMinutes)).toEqual([60, 120]);
     for (const placed of expectOk(result).blocks) expectInsideOneWorkingPeriod(placed);
@@ -1284,13 +1275,13 @@ describe('rule 12 — auto-merge', () => {
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'first', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
-        block({ id: 'second', project: 'escalera', date: MON, from: '10:00', hours: 2 }),
+        block({ id: 'first', project: 'staircase', date: MON, from: '08:00', hours: 2 }),
+        block({ id: 'second', project: 'staircase', date: MON, from: '10:00', hours: 2 }),
       ],
     });
 
     const result = compose(composeInput);
-    expect(rows(result)).toEqual([`${MON} 08:00-12:00 escalera`]);
+    expect(rows(result)).toEqual([`${MON} 08:00-12:00 staircase`]);
     expect(expectOk(result).blocks[0].id).toBe('first');
     expect(expectOk(result).deletedBlockIds).toEqual(['second']);
     expectMinutesConserved(composeInput, result);
@@ -1301,36 +1292,36 @@ describe('rule 12 — auto-merge', () => {
       today: MON,
       blocks: [
         block({ project: 'cita', date: MON, from: '08:00', hours: 5, locked: true }),
-        block({ project: 'escalera', date: MON, from: '13:00', hours: 3 }),
+        block({ project: 'staircase', date: MON, from: '13:00', hours: 3 }),
       ],
     });
 
-    expect(rows(compose(composeInput)).filter((row) => row.includes('escalera'))).toHaveLength(2);
+    expect(rows(compose(composeInput)).filter((row) => row.includes('staircase'))).toHaveLength(2);
   });
 
   it('never merges across jobs, nor a locked block into an unlocked one', () => {
     const twoJobs = input({
       today: MON,
       blocks: [
-        block({ project: 'escalera', date: MON, from: '08:00', hours: 2 }),
-        block({ project: 'porton', date: MON, from: '10:00', hours: 2 }),
+        block({ project: 'staircase', date: MON, from: '08:00', hours: 2 }),
+        block({ project: 'shutter', date: MON, from: '10:00', hours: 2 }),
       ],
     });
     expect(rows(compose(twoJobs))).toEqual([
-      `${MON} 08:00-10:00 escalera`,
-      `${MON} 10:00-12:00 porton`,
+      `${MON} 08:00-10:00 staircase`,
+      `${MON} 10:00-12:00 shutter`,
     ]);
 
     const halfLocked = input({
       today: MON,
       blocks: [
-        block({ project: 'escalera', date: MON, from: '08:00', hours: 2, locked: true }),
-        block({ project: 'escalera', date: MON, from: '11:00', hours: 2 }),
+        block({ project: 'staircase', date: MON, from: '08:00', hours: 2, locked: true }),
+        block({ project: 'staircase', date: MON, from: '11:00', hours: 2 }),
       ],
     });
     expect(rows(compose(halfLocked))).toEqual([
-      `${MON} 08:00-10:00 escalera [locked]`,
-      `${MON} 10:00-12:00 escalera`,
+      `${MON} 08:00-10:00 staircase [locked]`,
+      `${MON} 10:00-12:00 staircase`,
     ]);
   });
 });
@@ -1344,21 +1335,21 @@ describe('rule 12 — auto-merge when two runs of one job meet after the reflow'
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'viernes', project: 'escalera', date: FRI, from: '08:00', hours: 2 }),
+        block({ id: 'viernes', project: 'staircase', date: FRI, from: '08:00', hours: 2 }),
         // A fixed block ranking between the two halves is skipped without breaking the run, so the
         // halves are ONE item. The alternative drifts — see "recomposing twice".
         block({ project: 'urgencia', date: SAT, from: '09:00', hours: 2 }),
-        block({ id: 'siguiente', project: 'escalera', date: NEXT_MON, from: '08:00', hours: 2 }),
+        block({ id: 'siguiente', project: 'staircase', date: NEXT_MON, from: '08:00', hours: 2 }),
       ],
     });
 
-    expect(buildQueue(composeInput).map((item) => item.projectId)).toEqual(['escalera']);
+    expect(buildQueue(composeInput).map((item) => item.projectId)).toEqual(['staircase']);
     expect(buildQueue(composeInput)[0].blockIds).toEqual(['viernes', 'siguiente']);
 
     // Both halves come back to Monday, and two touching rows of one job in one period are one row.
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${MON} 08:00-12:00 escalera`,
+      `${MON} 08:00-12:00 staircase`,
       `${SAT} 09:00-11:00 urgencia`,
     ]);
     expect(expectOk(result).blocks[0].id).toBe('viernes');
@@ -1370,14 +1361,14 @@ describe('rule 12 — auto-merge when two runs of one job meet after the reflow'
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ project: 'escalera', date: MON, from: '08:00', hours: 1 }),
+        block({ project: 'staircase', date: MON, from: '08:00', hours: 1 }),
         block({ project: 'cita', date: FRI, from: '10:00', hours: 2, locked: true }),
-        block({ project: 'escalera', date: NEXT_MON, from: '08:00', hours: 2 }),
+        block({ project: 'staircase', date: NEXT_MON, from: '08:00', hours: 2 }),
       ],
     });
 
     expect(rows(compose(composeInput))).toEqual([
-      `${MON} 08:00-11:00 escalera`,
+      `${MON} 08:00-11:00 staircase`,
       `${FRI} 10:00-12:00 cita [locked]`,
     ]);
   });
@@ -1418,10 +1409,10 @@ describe('rule 12 — auto-merge when two runs of one job meet after the reflow'
     const composeInput = input({
       today: MON,
       shape: noLunch,
-      blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 8 })],
+      blocks: [block({ project: 'staircase', date: MON, from: '08:00', hours: 8 })],
     });
 
-    expect(rows(compose(composeInput))).toEqual([`${MON} 08:00-16:00 escalera`]);
+    expect(rows(compose(composeInput))).toEqual([`${MON} 08:00-16:00 staircase`]);
   });
 });
 
@@ -1438,8 +1429,8 @@ describe('rule 13 — the planning horizon', () => {
       horizonWeeks: 1,
       // 24 h against 5 fillable days of 4 h: 4 h have nowhere to go. The job grew,
       // so Friday counts as one of the five.
-      blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 24 })],
-      grownProjectIds: ['escalera'],
+      blocks: [block({ project: 'staircase', date: MON, from: '08:00', hours: 24 })],
+      grownProjectIds: ['staircase'],
     });
 
     const result = compose(composeInput);
@@ -1447,7 +1438,7 @@ describe('rule 13 — the planning horizon', () => {
     if (result.ok) throw new Error('the horizon must be enforced');
 
     expect(result.error.code).toBe('horizon-exceeded');
-    expect(result.error.projectId).toBe('escalera');
+    expect(result.error.projectId).toBe('staircase');
     expect(result.error.unplacedMinutes).toBe(240);
     expect(result.error.horizonEndDate).toBe(SUN);
     // An i18n key, never a sentence: the UI owns the wording.
@@ -1461,17 +1452,17 @@ describe('rule 13 — the planning horizon', () => {
       today: MON,
       shape: withCapacity(4),
       horizonWeeks: 2,
-      blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 24 })],
-      grownProjectIds: ['escalera'],
+      blocks: [block({ project: 'staircase', date: MON, from: '08:00', hours: 24 })],
+      grownProjectIds: ['staircase'],
     });
 
     expect(rows(compose(composeInput))).toEqual([
-      `${MON} 08:00-12:00 escalera`,
-      `${TUE} 08:00-12:00 escalera`,
-      `${WED} 08:00-12:00 escalera`,
-      `${THU} 08:00-12:00 escalera`,
-      `${FRI} 08:00-12:00 escalera`,
-      `${NEXT_MON} 08:00-12:00 escalera`,
+      `${MON} 08:00-12:00 staircase`,
+      `${TUE} 08:00-12:00 staircase`,
+      `${WED} 08:00-12:00 staircase`,
+      `${THU} 08:00-12:00 staircase`,
+      `${FRI} 08:00-12:00 staircase`,
+      `${NEXT_MON} 08:00-12:00 staircase`,
     ]);
   });
 });
@@ -1484,17 +1475,17 @@ describe('rule 14 — day overrides', () => {
   it('gives a closed day no plannable time and steps over it', () => {
     const composeInput = input({
       today: MON,
-      overrides: [closedDay(WED, 'Puente de agosto')],
-      blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 24 })],
+      overrides: [closedDay(WED, 'August long weekend')],
+      blocks: [block({ project: 'staircase', date: MON, from: '08:00', hours: 24 })],
     });
 
     expect(plannableMinutes(composeInput, WED)).toBe(0);
     expect(rows(compose(composeInput))).toEqual([
-      `${MON} 08:00-14:00 escalera`,
-      `${MON} 15:30-19:30 escalera`,
-      `${TUE} 08:00-14:00 escalera`,
-      `${TUE} 15:30-19:30 escalera`,
-      `${THU} 08:00-12:00 escalera`,
+      `${MON} 08:00-14:00 staircase`,
+      `${MON} 15:30-19:30 staircase`,
+      `${TUE} 08:00-14:00 staircase`,
+      `${TUE} 15:30-19:30 staircase`,
+      `${THU} 08:00-12:00 staircase`,
     ]);
   });
 
@@ -1502,10 +1493,10 @@ describe('rule 14 — day overrides', () => {
     const composeInput = input({
       today: MON,
       overrides: [closedDay(WED)],
-      blocks: [block({ project: 'porton', date: WED, from: '08:00', hours: 4 })],
+      blocks: [block({ project: 'shutter', date: WED, from: '08:00', hours: 4 })],
     });
 
-    expect(rows(compose(composeInput))).toEqual([`${MON} 08:00-12:00 porton`]);
+    expect(rows(compose(composeInput))).toEqual([`${MON} 08:00-12:00 shutter`]);
   });
 
   it('lets a day override replace the global capacity, and its overflow still skips the buffer', () => {
@@ -1513,23 +1504,23 @@ describe('rule 14 — day overrides', () => {
       today: THU,
       overrides: [dayCapacity(THU, 4)],
       blocks: [
-        block({ project: 'escalera', date: THU, from: '08:00', hours: 4 }),
-        block({ project: 'porton', date: THU, from: '13:00', hours: 2 }),
+        block({ project: 'staircase', date: THU, from: '08:00', hours: 4 }),
+        block({ project: 'shutter', date: THU, from: '13:00', hours: 2 }),
       ],
     });
 
     expect(plannableMinutes(composeInput, THU)).toBe(240);
       // Without the override both jobs sit on Thursday. Shortening a day is not GROWTH, and the
-      // colchón is for growth alone, so the door skips Friday and waits for Monday.
+      // buffer is for growth alone, so the door skips Friday and waits for Monday.
     expect(rows(compose(composeInput))).toEqual([
-      `${THU} 08:00-12:00 escalera`,
-      `${NEXT_MON} 08:00-10:00 porton`,
+      `${THU} 08:00-12:00 staircase`,
+      `${NEXT_MON} 08:00-10:00 shutter`,
     ]);
 
     // Say the door is what grew, and the buffer is exactly what absorbs it.
-    expect(rows(compose({ ...composeInput, grownProjectIds: ['porton'] }))).toEqual([
-      `${THU} 08:00-12:00 escalera`,
-      `${FRI} 08:00-10:00 porton`,
+    expect(rows(compose({ ...composeInput, grownProjectIds: ['shutter'] }))).toEqual([
+      `${THU} 08:00-12:00 staircase`,
+      `${FRI} 08:00-10:00 shutter`,
     ]);
   });
 });
@@ -1541,18 +1532,18 @@ describe('rule 14 — day overrides', () => {
 describe('rule 15 — the hours invariant', () => {
   it('gives every job back exactly the minutes it came in with', () => {
     // What each job's projects.total_hours says, in minutes.
-    const totals = { escalera: 11 * 60, barandilla: 4 * 60, porton: 10 * 60, historial: 6 * 60 };
+    const totals = { staircase: 11 * 60, railing: 4 * 60, shutter: 10 * 60, historial: 6 * 60 };
 
     const composeInput = input({
       today: TUE,
       blocks: [
         block({ project: 'historial', date: LAST_FRI, from: '08:00', hours: 6 }),
-        block({ project: 'barandilla', date: TUE, from: '08:00', hours: 4, locked: true }),
-        block({ project: 'escalera', date: TUE, from: '13:00', hours: 3 }),
-        block({ project: 'escalera', date: WED, from: '08:00', hours: 8 }),
-        block({ project: 'porton', date: WED, from: '17:00', hours: 10 }),
+        block({ project: 'railing', date: TUE, from: '08:00', hours: 4, locked: true }),
+        block({ project: 'staircase', date: TUE, from: '13:00', hours: 3 }),
+        block({ project: 'staircase', date: WED, from: '08:00', hours: 8 }),
+        block({ project: 'shutter', date: WED, from: '17:00', hours: 10 }),
       ],
-      gaps: [gap({ date: TUE, from: '12:00', hours: 1, reason: 'Avería torno' })],
+      gaps: [gap({ date: TUE, from: '12:00', hours: 1, reason: 'Lathe breakdown' })],
     });
 
     expect(minutesByProject(composeInput.blocks)).toEqual(totals);
@@ -1647,9 +1638,9 @@ describe('prototype scenario 3 — one job split by hand around another', () => 
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ project: 'escalera', date: MON, from: '08:00', hours: 2, locked: true }),
-        block({ project: 'porton', date: MON, from: '10:00', hours: 3, locked: true }),
-        block({ project: 'escalera', date: MON, from: '13:00', hours: 1, locked: true }),
+        block({ project: 'staircase', date: MON, from: '08:00', hours: 2, locked: true }),
+        block({ project: 'shutter', date: MON, from: '10:00', hours: 3, locked: true }),
+        block({ project: 'staircase', date: MON, from: '13:00', hours: 1, locked: true }),
         block({ project: 'nueva', date: MON, from: '15:30', hours: 2 }),
       ],
     });
@@ -1660,9 +1651,9 @@ describe('prototype scenario 3 — one job split by hand around another', () => 
 
     // The two halves stay two rows: they do not touch, so auto-merge has nothing to do.
     expect(rows(compose(composeInput))).toEqual([
-      `${MON} 08:00-10:00 escalera [locked]`,
-      `${MON} 10:00-13:00 porton [locked]`,
-      `${MON} 13:00-14:00 escalera [locked]`,
+      `${MON} 08:00-10:00 staircase [locked]`,
+      `${MON} 10:00-13:00 shutter [locked]`,
+      `${MON} 13:00-14:00 staircase [locked]`,
       `${MON} 15:30-17:30 nueva`,
     ]);
   });
@@ -1678,11 +1669,11 @@ describe('the engine is a pure function over a snapshot', () => {
       today: MON,
       blocks: [
         block({ project: 'primera', date: MON, from: '08:00', hours: 2 }),
-        block({ project: 'barandilla', date: MON, from: '10:00', hours: 2, locked: true }),
-        block({ project: 'escalera', date: MON, from: '13:00', hours: 3 }),
-        block({ project: 'porton', date: TUE, from: '08:00', hours: 12 }),
+        block({ project: 'railing', date: MON, from: '10:00', hours: 2, locked: true }),
+        block({ project: 'staircase', date: MON, from: '13:00', hours: 3 }),
+        block({ project: 'shutter', date: TUE, from: '08:00', hours: 12 }),
       ],
-      gaps: [gap({ date: MON, from: '12:00', hours: 1, reason: 'Avería torno' })],
+      gaps: [gap({ date: MON, from: '12:00', hours: 1, reason: 'Lathe breakdown' })],
     });
 
   it('returns the same placement for the same input, and leaves the input untouched', () => {
@@ -1698,7 +1689,7 @@ describe('the engine is a pure function over a snapshot', () => {
     const settled = input({
       today: MON,
       blocks: reload(first),
-      gaps: [gap({ date: MON, from: '12:00', hours: 1, reason: 'Avería torno' })],
+      gaps: [gap({ date: MON, from: '12:00', hours: 1, reason: 'Lathe breakdown' })],
     });
 
     const second = compose(settled);
@@ -1720,7 +1711,7 @@ describe('rules 5 + 9 — the Friday buffer under strict order', () => {
       today: MON,
       shape: withCapacity(4),
       blocks: [
-        block({ project: 'escalera', date: MON, from: '08:00', hours: 16 }),
+        block({ project: 'staircase', date: MON, from: '08:00', hours: 16 }),
         block({ project: 'nuevo', date: MON, from: '13:00', hours: 2 }),
       ],
       newProjectIds: ['nuevo'],
@@ -1728,10 +1719,10 @@ describe('rules 5 + 9 — the Friday buffer under strict order', () => {
 
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${MON} 08:00-12:00 escalera`,
-      `${TUE} 08:00-12:00 escalera`,
-      `${WED} 08:00-12:00 escalera`,
-      `${THU} 08:00-12:00 escalera`,
+      `${MON} 08:00-12:00 staircase`,
+      `${TUE} 08:00-12:00 staircase`,
+      `${WED} 08:00-12:00 staircase`,
+      `${THU} 08:00-12:00 staircase`,
       `${NEXT_MON} 08:00-10:00 nuevo`,
     ]);
     expectMinutesConserved(composeInput, result);
@@ -1742,19 +1733,19 @@ describe('rules 5 + 9 — the Friday buffer under strict order', () => {
       today: MON,
       shape: withCapacity(4),
       blocks: [
-        block({ project: 'escalera', date: MON, from: '08:00', hours: 20 }),
+        block({ project: 'staircase', date: MON, from: '08:00', hours: 20 }),
         block({ project: 'nuevo', date: MON, from: '13:00', hours: 2 }),
       ],
       newProjectIds: ['nuevo'],
-      grownProjectIds: ['escalera'],
+      grownProjectIds: ['staircase'],
     });
 
     expect(rows(compose(composeInput))).toEqual([
-      `${MON} 08:00-12:00 escalera`,
-      `${TUE} 08:00-12:00 escalera`,
-      `${WED} 08:00-12:00 escalera`,
-      `${THU} 08:00-12:00 escalera`,
-      `${FRI} 08:00-12:00 escalera`,
+      `${MON} 08:00-12:00 staircase`,
+      `${TUE} 08:00-12:00 staircase`,
+      `${WED} 08:00-12:00 staircase`,
+      `${THU} 08:00-12:00 staircase`,
+      `${FRI} 08:00-12:00 staircase`,
       `${NEXT_MON} 08:00-10:00 nuevo`,
     ]);
   });
@@ -1797,10 +1788,10 @@ describe('rules 5 + 3 — a locked block on the Friday buffer', () => {
       blocks: [
         // 46 h: 40 h fill Mon-Thu, and the 6 h that are left have to fit around
         // an appointment locked into the middle of Friday morning.
-        block({ project: 'escalera', date: MON, from: '08:00', hours: 46 }),
+        block({ project: 'staircase', date: MON, from: '08:00', hours: 46 }),
         block({ project: 'cita', date: FRI, from: '09:00', hours: 4, locked: true }),
       ],
-      grownProjectIds: ['escalera'],
+      grownProjectIds: ['staircase'],
     });
 
   it('flows the overflow around it, using the hour in front of it and resuming after it', () => {
@@ -1809,19 +1800,19 @@ describe('rules 5 + 3 — a locked block on the Friday buffer', () => {
 
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${MON} 08:00-14:00 escalera`,
-      `${MON} 15:30-19:30 escalera`,
-      `${TUE} 08:00-14:00 escalera`,
-      `${TUE} 15:30-19:30 escalera`,
-      `${WED} 08:00-14:00 escalera`,
-      `${WED} 15:30-19:30 escalera`,
-      `${THU} 08:00-14:00 escalera`,
-      `${THU} 15:30-19:30 escalera`,
+      `${MON} 08:00-14:00 staircase`,
+      `${MON} 15:30-19:30 staircase`,
+      `${TUE} 08:00-14:00 staircase`,
+      `${TUE} 15:30-19:30 staircase`,
+      `${WED} 08:00-14:00 staircase`,
+      `${WED} 15:30-19:30 staircase`,
+      `${THU} 08:00-14:00 staircase`,
+      `${THU} 15:30-19:30 staircase`,
       // Longer than any day, so it fills the hour in front of the lock instead of leaving it.
-      `${FRI} 08:00-09:00 escalera`,
+      `${FRI} 08:00-09:00 staircase`,
       `${FRI} 09:00-13:00 cita [locked]`,
-      `${FRI} 13:00-14:00 escalera`,
-      `${FRI} 15:30-19:30 escalera`,
+      `${FRI} 13:00-14:00 staircase`,
+      `${FRI} 15:30-19:30 staircase`,
     ]);
     expectMinutesConserved(composeInput, result);
     for (const placed of expectOk(result).blocks) expectInsideOneWorkingPeriod(placed);
@@ -1843,10 +1834,10 @@ describe('rules 4 + 7 + 8 — a gap overlapping a locked block', () => {
       today: MON,
       blocks: [
         block({ project: 'cita', date: MON, from: '10:00', hours: 3, locked: true }),
-        block({ project: 'escalera', date: MON, from: '13:00', hours: 5 }),
+        block({ project: 'staircase', date: MON, from: '13:00', hours: 5 }),
       ],
       // Overlaps the last hour of the locked block and runs on through lunch.
-      gaps: [gap({ date: MON, from: '12:00', hours: 3, reason: 'Gestoría' })],
+      gaps: [gap({ date: MON, from: '12:00', hours: 3, reason: 'Paperwork' })],
     });
 
     // Union: 10:00-14:00 of working time (the 14:00-15:00 tail is lunch).
@@ -1856,9 +1847,9 @@ describe('rules 4 + 7 + 8 — a gap overlapping a locked block', () => {
     // Monday's holes are 08:00-10:00 and 15:30-19:30; neither holds 5 h. The job takes the first two
     // hours and three of the afternoon's four, and the last hour is behind the cursor for ever.
     expect(rows(result)).toEqual([
-      `${MON} 08:00-10:00 escalera`,
+      `${MON} 08:00-10:00 staircase`,
       `${MON} 10:00-13:00 cita [locked]`,
-      `${MON} 15:30-18:30 escalera`,
+      `${MON} 15:30-18:30 staircase`,
     ]);
     expectMinutesConserved(composeInput, result);
     expectSettled(composeInput, result);
@@ -1869,18 +1860,18 @@ describe('rules 8 + 6 — a job longer than a day that runs into next week', () 
   it('fills Thursday and the Friday buffer, steps over the weekend and finishes on Monday', () => {
     const composeInput = input({
       today: THU,
-      blocks: [block({ project: 'escalera', date: THU, from: '08:00', hours: 30 })],
-      grownProjectIds: ['escalera'],
+      blocks: [block({ project: 'staircase', date: THU, from: '08:00', hours: 30 })],
+      grownProjectIds: ['staircase'],
     });
 
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${THU} 08:00-14:00 escalera`,
-      `${THU} 15:30-19:30 escalera`,
-      `${FRI} 08:00-14:00 escalera`,
-      `${FRI} 15:30-19:30 escalera`,
-      `${NEXT_MON} 08:00-14:00 escalera`,
-      `${NEXT_MON} 15:30-19:30 escalera`,
+      `${THU} 08:00-14:00 staircase`,
+      `${THU} 15:30-19:30 staircase`,
+      `${FRI} 08:00-14:00 staircase`,
+      `${FRI} 15:30-19:30 staircase`,
+      `${NEXT_MON} 08:00-14:00 staircase`,
+      `${NEXT_MON} 15:30-19:30 staircase`,
     ]);
     expectMinutesConserved(composeInput, result);
     expect(expectOk(result).blocks.some((placed) => placed.date === SAT || placed.date === SUN)).toBe(false);
@@ -1894,15 +1885,15 @@ describe('rule 4 + the visual margins — a block a human dropped outside the pe
       today: MON,
       blocks: [
         block({ project: 'urgente', date: MON, from: '07:00', hours: 1, locked: true }),
-        block({ project: 'escalera', date: MON, from: '08:00', hours: 10 }),
+        block({ project: 'staircase', date: MON, from: '08:00', hours: 10 }),
       ],
     });
 
     expect(plannableMinutes(composeInput, MON)).toBe(600);
     expect(rows(compose(composeInput))).toEqual([
       `${MON} 07:00-08:00 urgente [locked]`,
-      `${MON} 08:00-14:00 escalera`,
-      `${MON} 15:30-19:30 escalera`,
+      `${MON} 08:00-14:00 staircase`,
+      `${MON} 15:30-19:30 staircase`,
     ]);
   });
 });
@@ -1912,14 +1903,14 @@ describe('rule 12 + rule 15 — auto-merge across days', () => {
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
-        block({ id: 'martes', project: 'escalera', date: TUE, from: '08:00', hours: 2 }),
-        block({ id: 'miercoles', project: 'escalera', date: WED, from: '08:00', hours: 2 }),
+        block({ id: 'lunes', project: 'staircase', date: MON, from: '08:00', hours: 2 }),
+        block({ id: 'martes', project: 'staircase', date: TUE, from: '08:00', hours: 2 }),
+        block({ id: 'miercoles', project: 'staircase', date: WED, from: '08:00', hours: 2 }),
       ],
     });
 
     const result = compose(composeInput);
-    expect(rows(result)).toEqual([`${MON} 08:00-14:00 escalera`]);
+    expect(rows(result)).toEqual([`${MON} 08:00-14:00 staircase`]);
     expect(expectOk(result).blocks.map((placed) => placed.id)).toEqual(['lunes']);
     expect(expectOk(result).deletedBlockIds).toEqual(['martes', 'miercoles']);
     expectMinutesConserved(composeInput, result);
@@ -1955,16 +1946,16 @@ describe('rule 8 — "longer than a day" is measured against the room that actua
     const composeInput = input({
       today: MON,
       horizonWeeks: 1,
-      blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 6 })],
-      gaps: [MON, TUE, WED, THU, FRI].map((date) => gap({ date, from: '12:00', hours: 5, reason: 'Feria' })),
+      blocks: [block({ project: 'staircase', date: MON, from: '08:00', hours: 6 })],
+      gaps: [MON, TUE, WED, THU, FRI].map((date) => gap({ date, from: '12:00', hours: 5, reason: 'Fair' })),
     });
 
     expect(plannableMinutes(composeInput, MON)).toBe(390);
 
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${MON} 08:00-12:00 escalera`,
-      `${MON} 17:00-19:00 escalera`,
+      `${MON} 08:00-12:00 staircase`,
+      `${MON} 17:00-19:00 staircase`,
     ]);
     expectMinutesConserved(composeInput, result);
     for (const placed of expectOk(result).blocks) expectInsideOneWorkingPeriod(placed);
@@ -2083,9 +2074,9 @@ describe('a locked block can never make placement fail', () => {
       today: MON,
       blocks: [
         block({ project: 'cita', date: MON, from: '08:00', hours: 6, locked: true }),
-        block({ project: 'escalera', date: MON, from: '17:00', hours: 2 }),
+        block({ project: 'staircase', date: MON, from: '17:00', hours: 2 }),
       ],
-      gaps: [gap({ date: MON, from: '15:30', hours: 4, reason: 'Inventario' })],
+      gaps: [gap({ date: MON, from: '15:30', hours: 4, reason: 'Stocktake' })],
     });
 
     expect(plannableMinutes(composeInput, MON)).toBe(0);
@@ -2094,7 +2085,7 @@ describe('a locked block can never make placement fail', () => {
     expect(result.ok).toBe(true);
     expect(rows(result)).toEqual([
       `${MON} 08:00-14:00 cita [locked]`,
-      `${TUE} 08:00-10:00 escalera`,
+      `${TUE} 08:00-10:00 staircase`,
     ]);
   });
 });
@@ -2105,14 +2096,14 @@ describe('every input row is accounted for exactly once', () => {
       today: TUE,
       blocks: [
         block({ id: 'pasado', project: 'historial', date: LAST_FRI, from: '08:00', hours: 4 }),
-        block({ id: 'fijo', project: 'barandilla', date: TUE, from: '10:00', hours: 3, locked: true }),
+        block({ id: 'fijo', project: 'railing', date: TUE, from: '10:00', hours: 3, locked: true }),
         block({ id: 'finde', project: 'urgencia', date: SAT, from: '09:00', hours: 3 }),
-        block({ id: 'e1', project: 'escalera', date: TUE, from: '13:00', hours: 2 }),
-        block({ id: 'e2', project: 'escalera', date: WED, from: '08:00', hours: 9 }),
-        block({ id: 'p1', project: 'porton', date: WED, from: '17:00', hours: 4 }),
+        block({ id: 'e1', project: 'staircase', date: TUE, from: '13:00', hours: 2 }),
+        block({ id: 'e2', project: 'staircase', date: WED, from: '08:00', hours: 9 }),
+        block({ id: 'p1', project: 'shutter', date: WED, from: '17:00', hours: 4 }),
         block({ id: 'nuevo', project: 'nuevo', date: THU, from: '08:00', hours: 3 }),
       ],
-      gaps: [gap({ date: WED, from: '12:00', hours: 2, reason: 'Revisión' })],
+      gaps: [gap({ date: WED, from: '12:00', hours: 2, reason: 'Service' })],
       newProjectIds: ['nuevo'],
     });
 
@@ -2160,9 +2151,9 @@ describe('recomposing twice is not a second reflow', () => {
       today: MON,
       shape: withCapacity(4),
       blocks: [
-        block({ id: 'lunes', project: 'barandilla', date: MON, from: '12:00', hours: 3 }),
+        block({ id: 'lunes', project: 'railing', date: MON, from: '12:00', hours: 3 }),
         block({ id: 'cita', project: 'revision', date: WED, from: '08:30', hours: 2.5, locked: true }),
-        block({ id: 'viernes', project: 'barandilla', date: FRI, from: '16:30', hours: 3.5 }),
+        block({ id: 'viernes', project: 'railing', date: FRI, from: '16:30', hours: 3.5 }),
       ],
     });
 
@@ -2170,8 +2161,8 @@ describe('recomposing twice is not a second reflow', () => {
 
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${MON} 08:00-12:00 barandilla`,
-      `${TUE} 08:00-10:30 barandilla`,
+      `${MON} 08:00-12:00 railing`,
+      `${TUE} 08:00-10:30 railing`,
       `${WED} 08:30-11:00 revision [locked]`,
     ]);
     expectSettled(composeInput, result);
@@ -2184,17 +2175,17 @@ describe('recomposing twice is not a second reflow', () => {
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'antes', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
+        block({ id: 'antes', project: 'staircase', date: MON, from: '08:00', hours: 2 }),
         block({ id: 'cita', project: 'revision', date: MON, from: '10:00', hours: 1, locked: true }),
-        block({ id: 'despues', project: 'escalera', date: MON, from: '11:00', hours: 2 }),
+        block({ id: 'despues', project: 'staircase', date: MON, from: '11:00', hours: 2 }),
       ],
     });
 
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${MON} 08:00-10:00 escalera`,
+      `${MON} 08:00-10:00 staircase`,
       `${MON} 10:00-11:00 revision [locked]`,
-      `${MON} 11:00-13:00 escalera`,
+      `${MON} 11:00-13:00 staircase`,
     ]);
     expectSettled(composeInput, result);
 
@@ -2202,15 +2193,15 @@ describe('recomposing twice is not a second reflow', () => {
     const pinned = input({
       today: MON,
       blocks: [
-        block({ id: 'antes', project: 'escalera', date: MON, from: '08:00', hours: 2, locked: true }),
+        block({ id: 'antes', project: 'staircase', date: MON, from: '08:00', hours: 2, locked: true }),
         block({ id: 'cita', project: 'revision', date: MON, from: '10:00', hours: 1, locked: true }),
-        block({ id: 'despues', project: 'escalera', date: MON, from: '11:00', hours: 2 }),
+        block({ id: 'despues', project: 'staircase', date: MON, from: '11:00', hours: 2 }),
       ],
     });
     expect(rows(compose(pinned))).toEqual([
-      `${MON} 08:00-10:00 escalera [locked]`,
+      `${MON} 08:00-10:00 staircase [locked]`,
       `${MON} 10:00-11:00 revision [locked]`,
-      `${MON} 11:00-13:00 escalera`,
+      `${MON} 11:00-13:00 staircase`,
     ]);
   });
 
@@ -2221,12 +2212,12 @@ describe('recomposing twice is not a second reflow', () => {
       blocks: [
         block({ project: 'historial', date: LAST_FRI, from: '08:00', hours: 4 }),
         block({ project: 'cita', date: TUE, from: '10:00', hours: 2, locked: true }),
-        block({ project: 'escalera', date: TUE, from: '13:00', hours: 7 }),
+        block({ project: 'staircase', date: TUE, from: '13:00', hours: 7 }),
         block({ project: 'urgencia', date: SAT, from: '09:00', hours: 3 }),
-        block({ project: 'porton', date: WED, from: '17:00', hours: 5 }),
-        block({ project: 'escalera', date: THU, from: '08:00', hours: 2 }),
+        block({ project: 'shutter', date: WED, from: '17:00', hours: 5 }),
+        block({ project: 'staircase', date: THU, from: '08:00', hours: 2 }),
       ],
-      gaps: [gap({ date: WED, from: '12:00', hours: 2, reason: 'Revisión' })],
+      gaps: [gap({ date: WED, from: '12:00', hours: 2, reason: 'Service' })],
     });
 
     const result = compose(composeInput);
@@ -2248,7 +2239,7 @@ describe('rule 5 — the buffer belongs to growth, and only to growth', () => {
       today: MON,
       shape: withCapacity(4),
       blocks: [
-        block({ project: 'escalera', date: MON, from: '08:00', hours: 16 }),
+        block({ project: 'staircase', date: MON, from: '08:00', hours: 16 }),
         block({ project: 'nuevo', date: MON, from: '13:00', hours: 2 }),
       ],
       newProjectIds: ['nuevo'],
@@ -2256,10 +2247,10 @@ describe('rule 5 — the buffer belongs to growth, and only to growth', () => {
 
     const created = compose(creating);
     expect(rows(created)).toEqual([
-      `${MON} 08:00-12:00 escalera`,
-      `${TUE} 08:00-12:00 escalera`,
-      `${WED} 08:00-12:00 escalera`,
-      `${THU} 08:00-12:00 escalera`,
+      `${MON} 08:00-12:00 staircase`,
+      `${TUE} 08:00-12:00 staircase`,
+      `${WED} 08:00-12:00 staircase`,
+      `${THU} 08:00-12:00 staircase`,
       `${NEXT_MON} 08:00-10:00 nuevo`,
     ]);
     // The next save — a rename, a deleted gap, anything at all.
@@ -2297,17 +2288,17 @@ describe('rule 5 — the buffer belongs to growth, and only to growth', () => {
     const grew = input({
       today: MON,
       shape: withCapacity(4),
-      blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 20 })],
-      grownProjectIds: ['escalera'],
+      blocks: [block({ project: 'staircase', date: MON, from: '08:00', hours: 20 })],
+      grownProjectIds: ['staircase'],
     });
 
     const absorbed = compose(grew);
     expect(rows(absorbed)).toEqual([
-      `${MON} 08:00-12:00 escalera`,
-      `${TUE} 08:00-12:00 escalera`,
-      `${WED} 08:00-12:00 escalera`,
-      `${THU} 08:00-12:00 escalera`,
-      `${FRI} 08:00-12:00 escalera`,
+      `${MON} 08:00-12:00 staircase`,
+      `${TUE} 08:00-12:00 staircase`,
+      `${WED} 08:00-12:00 staircase`,
+      `${THU} 08:00-12:00 staircase`,
+      `${FRI} 08:00-12:00 staircase`,
     ]);
     // No later save may push those hours off the buffer and into next week...
     expectSettled(grew, absorbed);
@@ -2318,10 +2309,10 @@ describe('rule 5 — the buffer belongs to growth, and only to growth', () => {
       blocks: reload(absorbed),
     });
     expect(rows(compose(roomier))).toEqual([
-      `${MON} 08:00-14:00 escalera`,
-      `${MON} 15:30-19:30 escalera`,
-      `${TUE} 08:00-14:00 escalera`,
-      `${TUE} 15:30-19:30 escalera`,
+      `${MON} 08:00-14:00 staircase`,
+      `${MON} 15:30-19:30 staircase`,
+      `${TUE} 08:00-14:00 staircase`,
+      `${TUE} 15:30-19:30 staircase`,
     ]);
   });
 
@@ -2330,9 +2321,9 @@ describe('rule 5 — the buffer belongs to growth, and only to growth', () => {
       today: MON,
       shape: withCapacity(4),
       blocks: [
-        block({ project: 'escalera', date: MON, from: '08:00', hours: 16 }),
+        block({ project: 'staircase', date: MON, from: '08:00', hours: 16 }),
         block({ project: 'creciente', date: MON, from: '13:00', hours: 3 }),
-        block({ project: 'porton', date: MON, from: '14:00', hours: 2 }),
+        block({ project: 'shutter', date: MON, from: '14:00', hours: 2 }),
       ],
       grownProjectIds: ['creciente'],
     });
@@ -2340,12 +2331,12 @@ describe('rule 5 — the buffer belongs to growth, and only to growth', () => {
     // The grown job takes the buffer; the door is ordinary work, so it waits for next Monday even
     // though Friday still has an hour free.
     expect(rows(compose(composeInput))).toEqual([
-      `${MON} 08:00-12:00 escalera`,
-      `${TUE} 08:00-12:00 escalera`,
-      `${WED} 08:00-12:00 escalera`,
-      `${THU} 08:00-12:00 escalera`,
+      `${MON} 08:00-12:00 staircase`,
+      `${TUE} 08:00-12:00 staircase`,
+      `${WED} 08:00-12:00 staircase`,
+      `${THU} 08:00-12:00 staircase`,
       `${FRI} 08:00-11:00 creciente`,
-      `${NEXT_MON} 08:00-10:00 porton`,
+      `${NEXT_MON} 08:00-10:00 shutter`,
     ]);
   });
 });
@@ -2360,16 +2351,16 @@ describe('rules 8 + 14 — a job longer than a day stepping over a closed day', 
       today: MON,
       shape: withCapacity(6),
       overrides: [closedDay(WED, 'Festivo local')],
-      blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 20 })],
-      grownProjectIds: ['escalera'],
+      blocks: [block({ project: 'staircase', date: MON, from: '08:00', hours: 20 })],
+      grownProjectIds: ['staircase'],
     });
 
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${MON} 08:00-14:00 escalera`,
-      `${TUE} 08:00-14:00 escalera`,
-      `${THU} 08:00-14:00 escalera`,
-      `${FRI} 08:00-10:00 escalera`,
+      `${MON} 08:00-14:00 staircase`,
+      `${TUE} 08:00-14:00 staircase`,
+      `${THU} 08:00-14:00 staircase`,
+      `${FRI} 08:00-10:00 staircase`,
     ]);
     expectMinutesConserved(composeInput, result);
     expectSettled(composeInput, result);
@@ -2382,7 +2373,7 @@ describe('rules 2 + 10 — today is a Saturday', () => {
       today: SAT,
       blocks: [
         block({ project: 'urgencia', date: SAT, from: '09:00', hours: 3 }),
-        block({ project: 'escalera', date: NEXT_MON, from: '17:00', hours: 4 }),
+        block({ project: 'staircase', date: NEXT_MON, from: '17:00', hours: 4 }),
       ],
     });
 
@@ -2390,7 +2381,7 @@ describe('rules 2 + 10 — today is a Saturday', () => {
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
       `${SAT} 09:00-12:00 urgencia`,
-      `${NEXT_MON} 08:00-12:00 escalera`,
+      `${NEXT_MON} 08:00-12:00 staircase`,
     ]);
     expectSettled(composeInput, result);
   });
@@ -2411,14 +2402,14 @@ describe('rules 4 + 3 — a shift with the afternoon switched off', () => {
     const composeInput = input({
       today: MON,
       shape: morningOnly,
-      blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 10 })],
+      blocks: [block({ project: 'staircase', date: MON, from: '08:00', hours: 10 })],
     });
 
     expect(plannableMinutes(composeInput, MON)).toBe(360);
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${MON} 08:00-14:00 escalera`,
-      `${TUE} 08:00-12:00 escalera`,
+      `${MON} 08:00-14:00 staircase`,
+      `${TUE} 08:00-12:00 staircase`,
     ]);
     for (const placed of expectOk(result).blocks) expectInsideOneWorkingPeriod(placed, morningOnly);
     expectSettled(composeInput, result);
@@ -2451,14 +2442,14 @@ describe('rule 14 — a day override that closes auto-fill without closing the d
       overrides: [dayCapacity(MON, 0)],
       blocks: [
         block({ project: 'cita', date: MON, from: '10:00', hours: 2, locked: true }),
-        block({ project: 'escalera', date: MON, from: '13:00', hours: 3 }),
+        block({ project: 'staircase', date: MON, from: '13:00', hours: 3 }),
       ],
     });
 
     expect(plannableMinutes(composeInput, MON)).toBe(0);
     expect(rows(compose(composeInput))).toEqual([
       `${MON} 10:00-12:00 cita [locked]`,
-      `${TUE} 08:00-11:00 escalera`,
+      `${TUE} 08:00-11:00 staircase`,
     ]);
   });
 });
@@ -2471,9 +2462,9 @@ describe('rule 13 — the horizon has a floor', () => {
     const composeInput = input({
       today: MON,
       horizonWeeks: 0,
-      blocks: [block({ project: 'escalera', date: MON, from: '08:00', hours: 3 })],
+      blocks: [block({ project: 'staircase', date: MON, from: '08:00', hours: 3 })],
     });
-    expect(rows(compose(composeInput))).toEqual([`${MON} 08:00-11:00 escalera`]);
+    expect(rows(compose(composeInput))).toEqual([`${MON} 08:00-11:00 staircase`]);
   });
 });
 
@@ -2483,16 +2474,16 @@ describe('rule 13 — the horizon has a floor', () => {
 
 describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
   const job = (): Block[] => [
-    block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
-    block({ id: 'miercoles', project: 'escalera', date: WED, from: '08:00', hours: 1 }),
-    block({ id: 'viernes', project: 'escalera', date: FRI, from: '08:00', hours: 3 }),
+    block({ id: 'lunes', project: 'staircase', date: MON, from: '08:00', hours: 2 }),
+    block({ id: 'miercoles', project: 'staircase', date: WED, from: '08:00', hours: 1 }),
+    block({ id: 'viernes', project: 'staircase', date: FRI, from: '08:00', hours: 3 }),
   ];
 
   it("appends added hours to the job's last block", () => {
     // Mon 2 h + Wed 1 h + Fri 3 h, adding 2 h makes Fri 5 h.
     const edit = expectEdited(
       changeProjectMinutes(job(), {
-        projectId: 'escalera',
+        projectId: 'staircase',
         deltaMinutes: 120,
         today: MON,
         newBlockId: 'creado',
@@ -2500,7 +2491,7 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
       }),
     );
 
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([
+    expect(jobRows(edit.blocks, 'staircase')).toEqual([
       `${MON} 08:00-10:00`,
       `${WED} 08:00-09:00`,
       `${FRI} 08:00-13:00`,
@@ -2512,7 +2503,7 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
   it('decrements from the last block, deleting each one that reaches zero', () => {
     const edit = expectEdited(
       changeProjectMinutes(job(), {
-        projectId: 'escalera',
+        projectId: 'staircase',
         deltaMinutes: -240,
         today: MON,
         newBlockId: 'creado',
@@ -2521,7 +2512,7 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
     );
 
     // 3 h off Friday empties it, and the last hour comes off Wednesday.
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-10:00`]);
+    expect(jobRows(edit.blocks, 'staircase')).toEqual([`${MON} 08:00-10:00`]);
     expect(edit.deletedBlockIds.sort()).toEqual(['miercoles', 'viernes']);
     expect(edit.totalMinutesDelta).toBe(-240);
   });
@@ -2529,13 +2520,13 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
   it('grows the last UNLOCKED block, never a locked one', () => {
     // A locked block is never grown or shrunk silently.
     const blocks = [
-      block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
-      block({ id: 'cita', project: 'escalera', date: FRI, from: '08:00', hours: 3, locked: true }),
+      block({ id: 'lunes', project: 'staircase', date: MON, from: '08:00', hours: 2 }),
+      block({ id: 'cita', project: 'staircase', date: FRI, from: '08:00', hours: 3, locked: true }),
     ];
 
     const edit = expectEdited(
       changeProjectMinutes(blocks, {
-        projectId: 'escalera',
+        projectId: 'staircase',
         deltaMinutes: 120,
         today: MON,
         newBlockId: 'creado',
@@ -2543,16 +2534,16 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
       }),
     );
 
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-12:00`, `${FRI} 08:00-11:00 [locked]`]);
+    expect(jobRows(edit.blocks, 'staircase')).toEqual([`${MON} 08:00-12:00`, `${FRI} 08:00-11:00 [locked]`]);
     expect(edit.touchedLockedBlockIds).toEqual([]);
   });
 
   it('creates a row ranked after the job when every block of it is locked', () => {
-    const blocks = [block({ id: 'cita', project: 'escalera', date: MON, from: '08:00', hours: 2, locked: true })];
+    const blocks = [block({ id: 'cita', project: 'staircase', date: MON, from: '08:00', hours: 2, locked: true })];
 
     const edit = expectEdited(
       changeProjectMinutes(blocks, {
-        projectId: 'escalera',
+        projectId: 'staircase',
         deltaMinutes: 90,
         today: MON,
         newBlockId: 'creado',
@@ -2570,8 +2561,8 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
     // And the engine places it like any other row.
     const composeInput = input({ today: MON, blocks: edit.blocks });
     expect(rows(compose(composeInput))).toEqual([
-      `${MON} 08:00-10:00 escalera [locked]`,
-      `${MON} 10:00-11:30 escalera`,
+      `${MON} 08:00-10:00 staircase [locked]`,
+      `${MON} 10:00-11:30 staircase`,
     ]);
   });
 
@@ -2579,12 +2570,12 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
     // The same reasoning as for a lock, and it matters more here: hours written onto a row the reflow
     // cannot touch land straight on the clock, where nothing segments them afterwards.
     const pinned = [
-      block({ id: 'colchon', project: 'porton', date: FRI, from: '10:00', hours: 2, locked: true }),
+      block({ id: 'buffer', project: 'shutter', date: FRI, from: '10:00', hours: 2, locked: true }),
     ];
 
     const edit = expectEdited(
       changeProjectMinutes(pinned, {
-        projectId: 'porton',
+        projectId: 'shutter',
         deltaMinutes: 4 * 60,
         today: MON,
         newBlockId: 'nueva',
@@ -2592,12 +2583,12 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
       }),
     );
 
-    expect(edit.blocks.find((row) => row.id === 'colchon')?.durationMinutes).toBe(120);
+    expect(edit.blocks.find((row) => row.id === 'buffer')?.durationMinutes).toBe(120);
     expect(edit.blocks.find((row) => row.id === 'nueva')?.durationMinutes).toBe(240);
     // ...and the engine places those hours from the front of the week, leaving the pinned row alone.
     expect(rows(compose(input({ today: MON, blocks: edit.blocks })))).toEqual([
-      `${MON} 08:00-12:00 porton`,
-      `${FRI} 10:00-12:00 porton [locked]`,
+      `${MON} 08:00-12:00 shutter`,
+      `${FRI} 10:00-12:00 shutter [locked]`,
     ]);
   });
 
@@ -2605,13 +2596,13 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
     // The other direction: shrinking frees space rather than claiming it, so LIFO may reach a
     // padlocked row — but only after the rows the engine still owns, and never silently.
     const pinned = () => [
-      block({ id: 'automatico', project: 'porton', date: MON, from: '08:00', hours: 2 }),
-      block({ id: 'colchon', project: 'porton', date: FRI, from: '10:00', hours: 2, locked: true }),
+      block({ id: 'automatico', project: 'shutter', date: MON, from: '08:00', hours: 2 }),
+      block({ id: 'buffer', project: 'shutter', date: FRI, from: '10:00', hours: 2, locked: true }),
     ];
 
     const first = expectEdited(
       changeProjectMinutes(pinned(), {
-        projectId: 'porton',
+        projectId: 'shutter',
         deltaMinutes: -60,
         today: MON,
         newBlockId: 'nueva',
@@ -2620,12 +2611,12 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
     );
 
     expect(first.blocks.find((row) => row.id === 'automatico')?.durationMinutes).toBe(60);
-    expect(first.blocks.find((row) => row.id === 'colchon')?.durationMinutes).toBe(120);
+    expect(first.blocks.find((row) => row.id === 'buffer')?.durationMinutes).toBe(120);
     expect(first.touchedLockedBlockIds).toEqual([]);
 
     const rest = expectEdited(
       changeProjectMinutes(pinned(), {
-        projectId: 'porton',
+        projectId: 'shutter',
         deltaMinutes: -3 * 60,
         today: MON,
         newBlockId: 'nueva',
@@ -2634,8 +2625,8 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
     );
 
     expect(rest.blocks.find((row) => row.id === 'automatico')).toBeUndefined();
-    expect(rest.blocks.find((row) => row.id === 'colchon')?.durationMinutes).toBe(60);
-    expect(rest.touchedLockedBlockIds).toEqual(['colchon']);
+    expect(rest.blocks.find((row) => row.id === 'buffer')?.durationMinutes).toBe(60);
+    expect(rest.touchedLockedBlockIds).toEqual(['buffer']);
   });
 
   it('never grows a row in the FROZEN PAST: the added hours get a row the engine can place', () => {
@@ -2643,11 +2634,11 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
     // 2 h to 6 h, stored `Tue 12:00 + 360 min` through the break, and at 13 h `12:00-25:00`. No
     // gesture is needed to reach it — a row on today becomes a past row overnight. `lastAutomatic`
     // tested the stored marks while its own rule is "every row outside the movable pool".
-    const yesterday = [block({ id: 'ayer', project: 'escalera', date: TUE, from: '12:00', hours: 2 })];
+    const yesterday = [block({ id: 'ayer', project: 'staircase', date: TUE, from: '12:00', hours: 2 })];
 
     const edit = expectEdited(
       changeProjectMinutes(yesterday, {
-        projectId: 'escalera',
+        projectId: 'staircase',
         deltaMinutes: 4 * 60,
         today: WED,
         newBlockId: 'nueva',
@@ -2661,7 +2652,7 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
     // ...which the engine then places on the calendar it still owns.
     const composeInput = input({ today: WED, blocks: edit.blocks });
     const result = compose(composeInput);
-    expect(rows(result)).toEqual([`${TUE} 12:00-14:00 escalera`, `${WED} 08:00-12:00 escalera`]);
+    expect(rows(result)).toEqual([`${TUE} 12:00-14:00 staircase`, `${WED} 08:00-12:00 staircase`]);
     expectMinutesConserved(composeInput, result);
     for (const placed of expectOk(result).blocks) expectInsideOneWorkingPeriod(placed);
   });
@@ -2669,11 +2660,11 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
   it('never grows a WEEKEND row either — the pool is the rule, not the mark', () => {
     // The weekend was masked only in practice: every hand drop onto Sat/Sun leaves a padlock, so a
     // row that never went through that gesture — an imported or hand-edited one — was grown too.
-    const saturday = [block({ id: 'sabado', project: 'porton', date: SAT, from: '12:00', hours: 2 })];
+    const saturday = [block({ id: 'sabado', project: 'shutter', date: SAT, from: '12:00', hours: 2 })];
 
     const edit = expectEdited(
       changeProjectMinutes(saturday, {
-        projectId: 'porton',
+        projectId: 'shutter',
         deltaMinutes: 4 * 60,
         today: MON,
         newBlockId: 'nueva',
@@ -2684,8 +2675,8 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
     expect(edit.blocks.find((row) => row.id === 'sabado')?.durationMinutes).toBe(120);
     expect(edit.blocks.find((row) => row.id === 'nueva')?.durationMinutes).toBe(240);
     expect(rows(compose(input({ today: MON, blocks: edit.blocks })))).toEqual([
-      `${MON} 08:00-12:00 porton`,
-      `${SAT} 12:00-14:00 porton`,
+      `${MON} 08:00-12:00 shutter`,
+      `${SAT} 12:00-14:00 shutter`,
     ]);
   });
 
@@ -2693,13 +2684,13 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
     // The asymmetry: LIFO has to reach the job's hours wherever they are, and taking hours away can
     // never produce a row that runs over the day's other work or past its end.
     const yesterday = [
-      block({ id: 'ayer', project: 'escalera', date: TUE, from: '12:00', hours: 2 }),
-      block({ id: 'sabado', project: 'escalera', date: SAT, from: '12:00', hours: 1 }),
+      block({ id: 'ayer', project: 'staircase', date: TUE, from: '12:00', hours: 2 }),
+      block({ id: 'sabado', project: 'staircase', date: SAT, from: '12:00', hours: 1 }),
     ];
 
     const edit = expectEdited(
       changeProjectMinutes(yesterday, {
-        projectId: 'escalera',
+        projectId: 'staircase',
         deltaMinutes: -150,
         today: WED,
         newBlockId: 'nueva',
@@ -2715,7 +2706,7 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
 
   it('reports a reduction bigger than the job instead of inventing negative hours', () => {
     const result = changeProjectMinutes(job(), {
-      projectId: 'escalera',
+      projectId: 'staircase',
       deltaMinutes: -600,
       today: MON,
       newBlockId: 'creado',
@@ -2729,11 +2720,11 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
   });
 
   it('touches a locked row only when the job has nothing else left, and says so', () => {
-    const blocks = [block({ id: 'cita', project: 'escalera', date: MON, from: '08:00', hours: 3, locked: true })];
+    const blocks = [block({ id: 'cita', project: 'staircase', date: MON, from: '08:00', hours: 3, locked: true })];
 
     const edit = expectEdited(
       changeProjectMinutes(blocks, {
-        projectId: 'escalera',
+        projectId: 'staircase',
         deltaMinutes: -60,
         today: MON,
         newBlockId: 'creado',
@@ -2741,7 +2732,7 @@ describe('rule — Job Editing: Adding/Removing Hours (LIFO)', () => {
       }),
     );
 
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-10:00 [locked]`]);
+    expect(jobRows(edit.blocks, 'staircase')).toEqual([`${MON} 08:00-10:00 [locked]`]);
     expect(edit.touchedLockedBlockIds).toEqual(['cita']);
   });
 });
@@ -2753,14 +2744,14 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
    * COUNTERPARTY is the opposite — always a row the engine still places.
    */
   const job = (): Block[] => [
-    block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 2, locked: true }),
-    block({ id: 'viernes', project: 'escalera', date: FRI, from: '08:00', hours: 3 }),
+    block({ id: 'lunes', project: 'staircase', date: MON, from: '08:00', hours: 2, locked: true }),
+    block({ id: 'viernes', project: 'staircase', date: FRI, from: '08:00', hours: 3 }),
   ];
 
   /** The same job with the padlock on its LAST row, for the cases with nothing behind it. */
   const lastPinned = (): Block[] => [
-    block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
-    block({ id: 'viernes', project: 'escalera', date: FRI, from: '08:00', hours: 3, locked: true }),
+    block({ id: 'lunes', project: 'staircase', date: MON, from: '08:00', hours: 2 }),
+    block({ id: 'viernes', project: 'staircase', date: FRI, from: '08:00', hours: 3, locked: true }),
   ];
 
   it('is a transfer on EVERY row, and taking margin time padlocks the one it grows', () => {
@@ -2769,16 +2760,16 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     // is why growing INTO A MARGIN applies one: auto-fill never enters a margin, so without it the
     // next pass pulls the row back and the gesture undoes itself.
     const automatic = [
-      block({ id: 'mie', project: 'escalera', date: WED, from: '08:00', hours: 6 }),
-      block({ id: 'jue', project: 'escalera', date: THU, from: '08:00', hours: 8 }),
+      block({ id: 'mie', project: 'staircase', date: WED, from: '08:00', hours: 6 }),
+      block({ id: 'jue', project: 'staircase', date: THU, from: '08:00', hours: 8 }),
     ];
 
-    // 8 h from 08:00 crosses the comida, so it is stored as two rows, and the 2 h come off Thursday.
+    // 8 h from 08:00 crosses the lunch break, so it is stored as two rows, and the 2 h come off Thursday.
     const edit = expectEdited(
       resizeBlock(automatic, resizing({ blockId: 'mie', durationMinutes: 8 * 60, today: WED })),
     );
     expect(edit.totalMinutesDelta).toBe(0);
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([
+    expect(jobRows(edit.blocks, 'staircase')).toEqual([
       `${WED} 08:00-14:00`,
       `${WED} 15:30-17:30`,
       `${THU} 08:00-14:00`,
@@ -2792,40 +2783,40 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     );
     expect(intoMargin.totalMinutesDelta).toBe(0);
     expect(
-      intoMargin.blocks.filter((row) => row.date === WED && row.projectId === 'escalera').map((row) => row.locked),
+      intoMargin.blocks.filter((row) => row.date === WED && row.projectId === 'staircase').map((row) => row.locked),
     ).toEqual([true, true]);
   });
 
   it('refuses it on a Friday and inside a margin too — the pool is the whole question', () => {
-    // Every row the engine moves: the colchón is in the pool, and a margin row is only ever there
+    // Every row the engine moves: the buffer is in the pool, and a margin row is only ever there
     // WITH a padlock, which is what makes it sizable.
     const friday = [
-      block({ id: 'colchon', project: 'escalera', date: FRI, from: '08:00', hours: 3 }),
-      block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
+      block({ id: 'buffer', project: 'staircase', date: FRI, from: '08:00', hours: 3 }),
+      block({ id: 'lunes', project: 'staircase', date: MON, from: '08:00', hours: 2 }),
     ];
-    expect(resizeBlock(friday, resizing({ blockId: 'colchon', durationMinutes: 120, today: MON })).ok).toBe(false);
+    expect(resizeBlock(friday, resizing({ blockId: 'buffer', durationMinutes: 120, today: MON })).ok).toBe(false);
 
     // A weekend row is outside the pool by DATE, so it needs no padlock; its counterparty is the
     // job's row after it.
     const weekend = [
-      block({ id: 'sabado', project: 'escalera', date: SAT, from: '09:00', hours: 2 }),
-      block({ id: 'lunes', project: 'escalera', date: NEXT_MON, from: '08:00', hours: 3 }),
+      block({ id: 'sabado', project: 'staircase', date: SAT, from: '09:00', hours: 2 }),
+      block({ id: 'lunes', project: 'staircase', date: NEXT_MON, from: '08:00', hours: 3 }),
     ];
     const edit = expectEdited(resizeBlock(weekend, resizing({ blockId: 'sabado', durationMinutes: 60, today: MON })));
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([`${SAT} 09:00-10:00`, `${NEXT_MON} 08:00-12:00`]);
+    expect(jobRows(edit.blocks, 'staircase')).toEqual([`${SAT} 09:00-10:00`, `${NEXT_MON} 08:00-12:00`]);
   });
 
   it('takes the hours off the last block when a block that is not the last grows', () => {
     const edit = expectEdited(resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 240, today: MON })));
 
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-12:00 [locked]`, `${FRI} 08:00-09:00`]);
+    expect(jobRows(edit.blocks, 'staircase')).toEqual([`${MON} 08:00-12:00 [locked]`, `${FRI} 08:00-09:00`]);
     expect(edit.totalMinutesDelta).toBe(0);
   });
 
   it('gives the hours to the last block when a block that is not the last shrinks', () => {
     const edit = expectEdited(resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 60, today: MON })));
 
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-09:00 [locked]`, `${FRI} 08:00-12:00`]);
+    expect(jobRows(edit.blocks, 'staircase')).toEqual([`${MON} 08:00-09:00 [locked]`, `${FRI} 08:00-12:00`]);
     expect(edit.totalMinutesDelta).toBe(0);
   });
 
@@ -2839,7 +2830,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
       ),
     );
 
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-10:00`, `${FRI} 08:00-13:00 [locked]`]);
+    expect(jobRows(edit.blocks, 'staircase')).toEqual([`${MON} 08:00-10:00`, `${FRI} 08:00-13:00 [locked]`]);
     expect(edit.totalMinutesDelta).toBe(120);
   });
 
@@ -2864,7 +2855,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
       ),
     );
 
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-10:00`, `${FRI} 08:00-09:00 [locked]`]);
+    expect(jobRows(edit.blocks, 'staircase')).toEqual([`${MON} 08:00-10:00`, `${FRI} 08:00-09:00 [locked]`]);
     expect(edit.totalMinutesDelta).toBe(-120);
   });
 
@@ -2878,7 +2869,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
 
     // The job keeps its 5 h, the standalone 2 h ranked after its last row for `compose` to place.
     expect(edit.totalMinutesDelta).toBe(0);
-    expect(minutesByProject(edit.blocks)).toEqual({ escalera: 300 });
+    expect(minutesByProject(edit.blocks)).toEqual({ staircase: 300 });
     expect(edit.blocks).toHaveLength(3);
   });
 
@@ -2886,7 +2877,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     // A quarter of an hour is the smallest row the calendar can draw, so a 10-minute block is not one
     // of the ways out — and the caller is told rather than left to work it out.
     const blocks = [
-      block({ id: 'solo', project: 'escalera', date: MON, from: '08:00', hours: 2, locked: true }),
+      block({ id: 'solo', project: 'staircase', date: MON, from: '08:00', hours: 2, locked: true }),
     ];
     const result = resizeBlock(blocks, resizing({ blockId: 'solo', durationMinutes: 110, today: MON }));
 
@@ -2904,14 +2895,14 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   it('cascades backwards past a locked row to find the receiver', () => {
     // A padlocked row is never grown silently, so the cascading hours stop at the row before it.
     const blocks = [
-      block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 3, locked: true }),
-      block({ id: 'martes', project: 'escalera', date: TUE, from: '08:00', hours: 1 }),
-      block({ id: 'jueves', project: 'escalera', date: THU, from: '08:00', hours: 2, locked: true }),
+      block({ id: 'lunes', project: 'staircase', date: MON, from: '08:00', hours: 3, locked: true }),
+      block({ id: 'martes', project: 'staircase', date: TUE, from: '08:00', hours: 1 }),
+      block({ id: 'jueves', project: 'staircase', date: THU, from: '08:00', hours: 2, locked: true }),
     ];
 
     const edit = expectEdited(resizeBlock(blocks, resizing({ blockId: 'lunes', durationMinutes: 60, today: MON })));
 
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([
+    expect(jobRows(edit.blocks, 'staircase')).toEqual([
       `${MON} 08:00-09:00 [locked]`,
       `${TUE} 08:00-11:00`,
       `${THU} 08:00-10:00 [locked]`,
@@ -2924,8 +2915,8 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     // The hours would land on a row nothing will ever re-lay out, where a raw duration stays on the
     // clock for ever, so the dead end is the same one and the owner is asked instead.
     const blocks = [
-      block({ id: 'mar', project: 'escalera', date: TUE, from: '08:00', hours: 3, locked: true }),
-      block({ id: 'sabado', project: 'escalera', date: SAT, from: '12:00', hours: 2 }),
+      block({ id: 'mar', project: 'staircase', date: TUE, from: '08:00', hours: 3, locked: true }),
+      block({ id: 'sabado', project: 'staircase', date: SAT, from: '12:00', hours: 2 }),
     ];
 
     const result = resizeBlock(blocks, resizing({ blockId: 'mar', durationMinutes: 60, today: TUE }));
@@ -2939,7 +2930,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   /** Every hour the job has, so a growth past all of them can be stated as one number. */
   function jobMinutes(blocks: readonly Block[]): number {
     return blocks
-      .filter((row) => row.projectId === 'escalera')
+      .filter((row) => row.projectId === 'staircase')
       .reduce((total, row) => total + row.durationMinutes, 0);
   }
 
@@ -2958,13 +2949,13 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
       resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 600, today: MON, freedHours: 'add-to-total' })),
     );
     expect(edit.totalMinutesDelta).toBe(600 - jobMinutes(job()));
-    expect(minutesByProject(edit.blocks).escalera).toBe(600);
+    expect(minutesByProject(edit.blocks).staircase).toBe(600);
   });
 
   it('ASKS before growing the job\'s LAST row, exactly as shrinking it asks', () => {
     // The two directions were not symmetrical: shrinking the last row asked what to do with the
     // freed hours, growing it silently made the estimate bigger. Reported by the owner, 2026-08-21.
-    const blocks = [block({ id: 'solo', project: 'escalera', date: MON, from: '08:00', hours: 3 })];
+    const blocks = [block({ id: 'solo', project: 'staircase', date: MON, from: '08:00', hours: 3 })];
 
     const result = resizeBlock(blocks, resizing({ blockId: 'solo', durationMinutes: 300, today: MON }));
 
@@ -2978,7 +2969,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
   });
 
   it('grows the last row once the answer is in, and only then', () => {
-    const blocks = [block({ id: 'solo', project: 'escalera', date: MON, from: '08:00', hours: 3 })];
+    const blocks = [block({ id: 'solo', project: 'staircase', date: MON, from: '08:00', hours: 3 })];
 
     const edit = expectEdited(
       resizeBlock(
@@ -2988,15 +2979,15 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     );
 
     expect(edit.totalMinutesDelta).toBe(120);
-    expect(minutesByProject(edit.blocks).escalera).toBe(300);
+    expect(minutesByProject(edit.blocks).staircase).toBe(300);
   });
 
   it('still asks nothing when the growth is paid for by the job\'s other rows', () => {
     // Unchanged, and the point of the change: only a DEAD END asks. A transfer inside the job is
     // not one, so an ordinary grow must not have grown a dialog.
     const blocks = [
-      block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
-      block({ id: 'martes', project: 'escalera', date: TUE, from: '08:00', hours: 3 }),
+      block({ id: 'lunes', project: 'staircase', date: MON, from: '08:00', hours: 2 }),
+      block({ id: 'martes', project: 'staircase', date: TUE, from: '08:00', hours: 3 }),
     ];
 
     const edit = expectEdited(
@@ -3004,19 +2995,19 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     );
 
     expect(edit.totalMinutesDelta).toBe(0);
-    expect(minutesByProject(edit.blocks).escalera).toBe(300);
+    expect(minutesByProject(edit.blocks).staircase).toBe(300);
   });
 
   it('deletes a counterparty the transfer empties, cascading backwards', () => {
     const blocks = [
-      block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 2, locked: true }),
-      block({ id: 'martes', project: 'escalera', date: TUE, from: '08:00', hours: 1 }),
-      block({ id: 'viernes', project: 'escalera', date: FRI, from: '08:00', hours: 1 }),
+      block({ id: 'lunes', project: 'staircase', date: MON, from: '08:00', hours: 2, locked: true }),
+      block({ id: 'martes', project: 'staircase', date: TUE, from: '08:00', hours: 1 }),
+      block({ id: 'viernes', project: 'staircase', date: FRI, from: '08:00', hours: 1 }),
     ];
 
     const edit = expectEdited(resizeBlock(blocks, resizing({ blockId: 'lunes', durationMinutes: 240, today: MON })));
 
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([`${MON} 08:00-12:00 [locked]`]);
+    expect(jobRows(edit.blocks, 'staircase')).toEqual([`${MON} 08:00-12:00 [locked]`]);
     expect(edit.deletedBlockIds.sort()).toEqual(['martes', 'viernes']);
     expect(edit.totalMinutesDelta).toBe(0);
   });
@@ -3025,8 +3016,8 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     // The operation refuses it first with `past-block-frozen`; the pure engine's own answer is the
     // transfer, since a past row is outside the pool. The past is a policy of the write path.
     const blocks = [
-      block({ id: 'ayer', project: 'escalera', date: MON, from: '08:00', hours: 2 }),
-      block({ id: 'jueves', project: 'escalera', date: THU, from: '08:00', hours: 4 }),
+      block({ id: 'ayer', project: 'staircase', date: MON, from: '08:00', hours: 2 }),
+      block({ id: 'jueves', project: 'staircase', date: THU, from: '08:00', hours: 4 }),
     ];
 
     const edit = expectEdited(resizeBlock(blocks, resizing({ blockId: 'ayer', durationMinutes: 180, today: TUE })));
@@ -3035,8 +3026,8 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     const composeInput = input({ today: TUE, blocks: edit.blocks });
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${MON} 08:00-11:00 escalera`,
-      `${TUE} 08:00-11:00 escalera`,
+      `${MON} 08:00-11:00 staircase`,
+      `${TUE} 08:00-11:00 staircase`,
     ]);
     expectMinutesConserved(composeInput, result);
   });
@@ -3045,14 +3036,14 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     // The same predicate as LIFO's: a transfer that ADDS hours to a row the reflow cannot touch writes
     // them straight onto the clock. The last row is on Saturday, so only the pool tells them apart.
     const blocks = [
-      block({ id: 'mar', project: 'escalera', date: TUE, from: '08:00', hours: 3, locked: true }),
-      block({ id: 'jue', project: 'escalera', date: THU, from: '08:00', hours: 2 }),
-      block({ id: 'sabado', project: 'escalera', date: SAT, from: '12:00', hours: 2 }),
+      block({ id: 'mar', project: 'staircase', date: TUE, from: '08:00', hours: 3, locked: true }),
+      block({ id: 'jue', project: 'staircase', date: THU, from: '08:00', hours: 2 }),
+      block({ id: 'sabado', project: 'staircase', date: SAT, from: '12:00', hours: 2 }),
     ];
 
     const edit = expectEdited(resizeBlock(blocks, resizing({ blockId: 'mar', durationMinutes: 60, today: TUE })));
 
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([
+    expect(jobRows(edit.blocks, 'staircase')).toEqual([
       `${TUE} 08:00-09:00 [locked]`,
       `${THU} 08:00-12:00`,
       `${SAT} 12:00-14:00`,
@@ -3075,7 +3066,7 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
     const unchanged = expectEdited(
       resizeBlock(job(), resizing({ blockId: 'lunes', durationMinutes: 120, today: MON })),
     );
-    expect(jobRows(unchanged.blocks, 'escalera')).toEqual(jobRows(job(), 'escalera'));
+    expect(jobRows(unchanged.blocks, 'staircase')).toEqual(jobRows(job(), 'staircase'));
     expect(unchanged.totalMinutesDelta).toBe(0);
 
     // A refusal writes nothing: growing the last row past what the job has cannot be paid for.
@@ -3092,12 +3083,12 @@ describe('rule — Block Resize (drag the bottom edge) is a transfer inside the 
 // the owner drew simply stays. No support rules are needed for that.
 
 describe('the padlock holds a resized length, and needs no second mark to do it', () => {
-  /** Barandilla 14 h from Wednesday, Porton 8 h behind it. */
+  /** Railing 14 h from Wednesday, Shutter 8 h behind it. */
   const worked = (): Block[] => [
-    block({ id: 'bar-am', project: 'barandilla', date: WED, from: '08:00', hours: 6 }),
-    block({ id: 'bar-pm', project: 'barandilla', date: WED, from: '15:30', hours: 4 }),
-    block({ id: 'bar-jue', project: 'barandilla', date: THU, from: '08:00', hours: 4 }),
-    block({ id: 'porton', project: 'porton', date: THU, from: '12:00', hours: 8 }),
+    block({ id: 'bar-am', project: 'railing', date: WED, from: '08:00', hours: 6 }),
+    block({ id: 'bar-pm', project: 'railing', date: WED, from: '15:30', hours: 4 }),
+    block({ id: 'bar-jue', project: 'railing', date: THU, from: '08:00', hours: 4 }),
+    block({ id: 'shutter', project: 'shutter', date: THU, from: '12:00', hours: 8 }),
   ];
 
   /** The same calendar with the Wednesday morning row padlocked — the sizable one. */
@@ -3105,12 +3096,12 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
     worked().map((row) => (row.id === 'bar-am' ? { ...row, locked: true } : row));
 
   const AUTOMATIC = [
-    `${WED} 08:00-14:00 barandilla`,
-    `${WED} 15:30-19:30 barandilla`,
-    `${THU} 08:00-12:00 barandilla`,
-    `${THU} 12:00-14:00 porton`,
-    `${THU} 15:30-19:30 porton`,
-    `${NEXT_MON} 08:00-10:00 porton`,
+    `${WED} 08:00-14:00 railing`,
+    `${WED} 15:30-19:30 railing`,
+    `${THU} 08:00-12:00 railing`,
+    `${THU} 12:00-14:00 shutter`,
+    `${THU} 15:30-19:30 shutter`,
+    `${NEXT_MON} 08:00-10:00 shutter`,
   ];
 
   it('lays the calendar out the same way whether a row is padlocked or not', () => {
@@ -3120,7 +3111,7 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
 
     const pinned = input({ today: WED, blocks: pinnedMorning() });
     expect(rows(compose(pinned))).toEqual([
-      `${WED} 08:00-14:00 barandilla [locked]`,
+      `${WED} 08:00-14:00 railing [locked]`,
       ...AUTOMATIC.slice(1),
     ]);
     expectSettled(pinned, compose(pinned));
@@ -3132,7 +3123,7 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
     );
 
     // The ordinary transfer: the 4 h come off Wednesday onto the job's last row the engine places.
-    expect(jobRows(edit.blocks, 'barandilla')).toEqual([
+    expect(jobRows(edit.blocks, 'railing')).toEqual([
       `${WED} 08:00-10:00 [locked]`,
       `${WED} 15:30-19:30`,
       `${THU} 08:00-16:00`,
@@ -3144,16 +3135,16 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
 
     // Wednesday's freed hours go to whatever the queue has next, by ordinary forward fill.
     expect(rows(result)).toEqual([
-      `${WED} 08:00-10:00 barandilla [locked]`,
+      `${WED} 08:00-10:00 railing [locked]`,
       // The job's OWN remaining hours take the room the shrink freed, which is the point rather than
       // a defect: what ends a day early is a gap, and only the owner makes one.
-      `${WED} 10:00-14:00 barandilla`,
-      `${WED} 15:30-19:30 barandilla`,
-      `${THU} 08:00-12:00 barandilla`,
-      // Strict order, unbroken: Porton still follows Barandilla everywhere.
-      `${THU} 12:00-14:00 porton`,
-      `${THU} 15:30-19:30 porton`,
-      `${NEXT_MON} 08:00-10:00 porton`,
+      `${WED} 10:00-14:00 railing`,
+      `${WED} 15:30-19:30 railing`,
+      `${THU} 08:00-12:00 railing`,
+      // Strict order, unbroken: Shutter still follows Railing everywhere.
+      `${THU} 12:00-14:00 shutter`,
+      `${THU} 15:30-19:30 shutter`,
+      `${NEXT_MON} 08:00-10:00 shutter`,
     ]);
     expectMinutesConserved(composeInput, result);
     expectSettled(composeInput, result);
@@ -3177,7 +3168,7 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
       expectOk(twice)
         .blocks.filter((placed) => placed.locked)
         .map(describeBlock),
-    ).toEqual([`${WED} 08:00-10:00 barandilla [locked]`]);
+    ).toEqual([`${WED} 08:00-10:00 railing [locked]`]);
   });
 
   it('survives an unrelated save: another job created, and a job deleted', () => {
@@ -3188,23 +3179,23 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
     // A brand-new job appended at the end of the queue.
     const withNewJob = input({
       today: WED,
-      blocks: [...edit.blocks, block({ id: 'nuevo', project: 'remate', date: NEXT_MON, from: '10:00', hours: 2 })],
-      newProjectIds: ['remate'],
+      blocks: [...edit.blocks, block({ id: 'nuevo', project: 'capping', date: NEXT_MON, from: '10:00', hours: 2 })],
+      newProjectIds: ['capping'],
     });
-    expect(rows(compose(withNewJob))).toContain(`${WED} 08:00-10:00 barandilla [locked]`);
+    expect(rows(compose(withNewJob))).toContain(`${WED} 08:00-10:00 railing [locked]`);
 
-    // Deleting Porton frees Thursday. The padlocked 2 h stay 2 h, and the job's own remaining hours DO
+    // Deleting Shutter frees Thursday. The padlocked 2 h stay 2 h, and the job's own remaining hours DO
     // flow back into the hours the shrink freed.
     const withoutPorton = input({
       today: WED,
-      blocks: edit.blocks.filter((row) => row.projectId !== 'porton'),
+      blocks: edit.blocks.filter((row) => row.projectId !== 'shutter'),
     });
     const result = compose(withoutPorton);
     expect(rows(result)).toEqual([
-      `${WED} 08:00-10:00 barandilla [locked]`,
-      `${WED} 10:00-14:00 barandilla`,
-      `${WED} 15:30-19:30 barandilla`,
-      `${THU} 08:00-12:00 barandilla`,
+      `${WED} 08:00-10:00 railing [locked]`,
+      `${WED} 10:00-14:00 railing`,
+      `${WED} 15:30-19:30 railing`,
+      `${THU} 08:00-12:00 railing`,
     ]);
     expectSettled(withoutPorton, result);
   });
@@ -3225,9 +3216,9 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
     const beside = input({
       today: WED,
       blocks: [
-        block({ id: 'fijo', project: 'escalera', date: WED, from: '08:00', hours: 2, locked: true }),
-        block({ id: 'resto', project: 'escalera', date: WED, from: '10:00', hours: 3 }),
-        block({ id: 'mas', project: 'escalera', date: THU, from: '08:00', hours: 1 }),
+        block({ id: 'fijo', project: 'staircase', date: WED, from: '08:00', hours: 2, locked: true }),
+        block({ id: 'resto', project: 'staircase', date: WED, from: '10:00', hours: 3 }),
+        block({ id: 'mas', project: 'staircase', date: THU, from: '08:00', hours: 1 }),
       ],
     });
     expect(buildQueue(beside).map((item) => item.blockIds)).toEqual([['resto', 'mas']]);
@@ -3239,15 +3230,15 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
     const composeInput = input({
       today: WED,
       blocks: [
-        block({ id: 'am', project: 'escalera', date: WED, from: '08:00', hours: 6, locked: true }),
-        block({ id: 'pm', project: 'escalera', date: WED, from: '15:30', hours: 1, locked: true }),
+        block({ id: 'am', project: 'staircase', date: WED, from: '08:00', hours: 6, locked: true }),
+        block({ id: 'pm', project: 'staircase', date: WED, from: '15:30', hours: 1, locked: true }),
       ],
     });
     const result = compose(composeInput);
 
     expect(rows(result)).toEqual([
-      `${WED} 08:00-14:00 escalera [locked]`,
-      `${WED} 15:30-16:30 escalera [locked]`,
+      `${WED} 08:00-14:00 staircase [locked]`,
+      `${WED} 15:30-16:30 staircase [locked]`,
     ]);
     expectSettled(composeInput, result);
   });
@@ -3258,20 +3249,20 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
       blocks: [
         // Yesterday: frozen, so it is an obstacle rather than a queue item.
         block({ id: 'ayer', project: 'historial', date: WED, from: '08:00', hours: 3 }),
-        block({ id: 'fijo', project: 'escalera', date: THU, from: '08:00', hours: 2, locked: true }),
-        block({ id: 'resto', project: 'escalera', date: THU, from: '10:00', hours: 8 }),
+        block({ id: 'fijo', project: 'staircase', date: THU, from: '08:00', hours: 2, locked: true }),
+        block({ id: 'resto', project: 'staircase', date: THU, from: '10:00', hours: 8 }),
         // A Saturday row a human put there. Never auto-placed, never auto-recovered.
-        block({ id: 'sabado', project: 'porton', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'sabado', project: 'shutter', date: SAT, from: '09:00', hours: 2 }),
       ],
     });
     const result = compose(composeInput);
 
     expect(rows(result)).toEqual([
       `${WED} 08:00-11:00 historial`,
-      `${THU} 08:00-10:00 escalera [locked]`,
-      `${THU} 10:00-14:00 escalera`,
-      `${THU} 15:30-19:30 escalera`,
-      `${SAT} 09:00-11:00 porton`,
+      `${THU} 08:00-10:00 staircase [locked]`,
+      `${THU} 10:00-14:00 staircase`,
+      `${THU} 15:30-19:30 staircase`,
+      `${SAT} 09:00-11:00 shutter`,
     ]);
     expectMinutesConserved(composeInput, result);
     expectSettled(composeInput, result);
@@ -3281,17 +3272,17 @@ describe('the padlock holds a resized length, and needs no second mark to do it'
     const composeInput = input({
       today: THU,
       blocks: [
-        block({ id: 'fijo', project: 'escalera', date: THU, from: '08:00', hours: 2, locked: true }),
-        block({ id: 'resto', project: 'escalera', date: THU, from: '10:00', hours: 12 }),
+        block({ id: 'fijo', project: 'staircase', date: THU, from: '08:00', hours: 2, locked: true }),
+        block({ id: 'resto', project: 'staircase', date: THU, from: '10:00', hours: 12 }),
       ],
-      grownProjectIds: ['escalera'],
+      grownProjectIds: ['staircase'],
     });
 
     expect(rows(compose(composeInput))).toEqual([
-      `${THU} 08:00-10:00 escalera [locked]`,
-      `${THU} 10:00-14:00 escalera`,
-      `${THU} 15:30-19:30 escalera`,
-      `${FRI} 08:00-12:00 escalera`,
+      `${THU} 08:00-10:00 staircase [locked]`,
+      `${THU} 10:00-14:00 staircase`,
+      `${THU} 15:30-19:30 staircase`,
+      `${FRI} 08:00-12:00 staircase`,
     ]);
   });
 });
@@ -3308,16 +3299,16 @@ describe('a resize crosses the lunch break', () => {
   /** A padlocked 10:00 morning row — the only kind the edge sizes — with a Thursday row to pay the
    * transfer and another job in front of it. */
   const job = (): Block[] => [
-    block({ id: 'antes', project: 'porton', date: WED, from: '08:00', hours: 2 }),
-    block({ id: 'mie', project: 'barandilla', date: WED, from: '10:00', hours: 4, locked: true }),
-    block({ id: 'jue', project: 'barandilla', date: THU, from: '08:00', hours: 4 }),
+    block({ id: 'antes', project: 'shutter', date: WED, from: '08:00', hours: 2 }),
+    block({ id: 'mie', project: 'railing', date: WED, from: '10:00', hours: 4, locked: true }),
+    block({ id: 'jue', project: 'railing', date: THU, from: '08:00', hours: 4 }),
   ];
 
   it("the owner's worked example: 10:00 to 17:30 is 6 h, in two rows", () => {
     const edit = expectEdited(resizeBlock(job(), resizing({ blockId: 'mie', durationMinutes: 6 * 60, today: WED })));
 
     // Two rows of one job, the lunch break contributing nothing — and NOT 7.5 h.
-    expect(jobRows(edit.blocks, 'barandilla')).toEqual([
+    expect(jobRows(edit.blocks, 'railing')).toEqual([
       `${WED} 10:00-14:00 [locked]`,
       `${WED} 15:30-17:30 [locked]`,
       `${THU} 08:00-10:00`,
@@ -3330,11 +3321,11 @@ describe('a resize crosses the lunch break', () => {
     const composeInput = input({ today: WED, blocks: edit.blocks });
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${WED} 08:00-10:00 porton`,
-      `${WED} 10:00-14:00 barandilla [locked]`,
-      `${WED} 15:30-17:30 barandilla [locked]`,
+      `${WED} 08:00-10:00 shutter`,
+      `${WED} 10:00-14:00 railing [locked]`,
+      `${WED} 15:30-17:30 railing [locked]`,
       // The 2 h left take what Wednesday still has: the padlocked stretch holds only its own hours.
-      `${WED} 17:30-19:30 barandilla`,
+      `${WED} 17:30-19:30 railing`,
     ]);
     expectMinutesConserved(composeInput, result);
     expectSettled(composeInput, result);
@@ -3361,7 +3352,7 @@ describe('a resize crosses the lunch break', () => {
       resizeBlock(stretched.blocks, resizing({ blockId: 'mie', durationMinutes: 2 * 60, today: WED })),
     );
 
-    expect(jobRows(shrunk.blocks, 'barandilla')).toEqual([
+    expect(jobRows(shrunk.blocks, 'railing')).toEqual([
       `${WED} 10:00-12:00 [locked]`,
       `${THU} 08:00-14:00`,
     ]);
@@ -3373,25 +3364,25 @@ describe('a resize crosses the lunch break', () => {
     // Dragged past the break onto its own afternoon half: the new segments land exactly where that row
     // sits, so the stretch takes it over — nothing is stacked at 15:30 and no id is minted.
     const unit = [
-      block({ id: 'am', project: 'barandilla', date: WED, from: '08:00', hours: 6, locked: true }),
-      block({ id: 'pm', project: 'barandilla', date: WED, from: '15:30', hours: 4, locked: true }),
-      block({ id: 'jue', project: 'barandilla', date: THU, from: '08:00', hours: 4 }),
+      block({ id: 'am', project: 'railing', date: WED, from: '08:00', hours: 6, locked: true }),
+      block({ id: 'pm', project: 'railing', date: WED, from: '15:30', hours: 4, locked: true }),
+      block({ id: 'jue', project: 'railing', date: THU, from: '08:00', hours: 4 }),
     ];
 
     const edit = expectEdited(resizeBlock(unit, resizing({ blockId: 'am', durationMinutes: 8 * 60, today: WED })));
 
     // The stretch went from 10 h to 8 h, so the 2 h it gave up landed on Thursday.
-    expect(jobRows(edit.blocks, 'barandilla')).toEqual([
+    expect(jobRows(edit.blocks, 'railing')).toEqual([
       `${WED} 08:00-14:00 [locked]`,
       `${WED} 15:30-17:30 [locked]`,
       `${THU} 08:00-14:00`,
     ]);
     expect(edit.deletedBlockIds).toEqual([]);
     expect(rows(compose(input({ today: WED, blocks: edit.blocks })))).toEqual([
-      `${WED} 08:00-14:00 barandilla [locked]`,
-      `${WED} 15:30-17:30 barandilla [locked]`,
-      `${WED} 17:30-19:30 barandilla`,
-      `${THU} 08:00-12:00 barandilla`,
+      `${WED} 08:00-14:00 railing [locked]`,
+      `${WED} 15:30-17:30 railing [locked]`,
+      `${WED} 17:30-19:30 railing`,
+      `${THU} 08:00-12:00 railing`,
     ]);
   });
 
@@ -3399,24 +3390,24 @@ describe('a resize crosses the lunch break', () => {
     // The afternoon row here is the ENGINE's, so shrinking the padlocked morning row does not take it
     // in: absorbing it would read "this row is shorter" as "this job is smaller".
     const oneDay = [
-      block({ id: 'am', project: 'barandilla', date: WED, from: '08:00', hours: 6, locked: true }),
-      block({ id: 'pm', project: 'barandilla', date: WED, from: '15:30', hours: 2 }),
-      block({ id: 'jue', project: 'barandilla', date: THU, from: '08:00', hours: 1 }),
+      block({ id: 'am', project: 'railing', date: WED, from: '08:00', hours: 6, locked: true }),
+      block({ id: 'pm', project: 'railing', date: WED, from: '15:30', hours: 2 }),
+      block({ id: 'jue', project: 'railing', date: THU, from: '08:00', hours: 1 }),
     ];
 
     const edit = expectEdited(resizeBlock(oneDay, resizing({ blockId: 'am', durationMinutes: 120, today: WED })));
 
-    expect(jobRows(edit.blocks, 'barandilla')).toEqual([
+    expect(jobRows(edit.blocks, 'railing')).toEqual([
       `${WED} 08:00-10:00 [locked]`,
       `${WED} 15:30-17:30`,
       `${THU} 08:00-13:00`,
     ]);
     // The 7 h the engine still owns are ONE queue item, so they fill Wednesday round the padlock.
-    expect(minutesByProject(edit.blocks)).toEqual({ barandilla: 540 });
+    expect(minutesByProject(edit.blocks)).toEqual({ railing: 540 });
     expect(rows(compose(input({ today: WED, blocks: edit.blocks })))).toEqual([
-      `${WED} 08:00-10:00 barandilla [locked]`,
-      `${WED} 10:00-14:00 barandilla`,
-      `${WED} 15:30-18:30 barandilla`,
+      `${WED} 08:00-10:00 railing [locked]`,
+      `${WED} 10:00-14:00 railing`,
+      `${WED} 15:30-18:30 railing`,
     ]);
   });
 
@@ -3424,14 +3415,14 @@ describe('a resize crosses the lunch break', () => {
     // The margins are hand time and the engine's index space has no minutes of them. No extra padlock
     // is needed: the row already carries the one that lets it be sized at all.
     const blocks = [
-      block({ id: 'tarde', project: 'barandilla', date: WED, from: '15:30', hours: 4, locked: true }),
-      block({ id: 'jue', project: 'barandilla', date: THU, from: '08:00', hours: 4 }),
+      block({ id: 'tarde', project: 'railing', date: WED, from: '15:30', hours: 4, locked: true }),
+      block({ id: 'jue', project: 'railing', date: THU, from: '08:00', hours: 4 }),
     ];
 
     const edit = expectEdited(resizeBlock(blocks, resizing({ blockId: 'tarde', durationMinutes: 5 * 60, today: WED })));
 
     expect(lockedIds(edit.blocks)).toEqual(['tarde']);
-    expect(jobRows(edit.blocks, 'barandilla')).toEqual([
+    expect(jobRows(edit.blocks, 'railing')).toEqual([
       `${WED} 15:30-20:30 [locked]`,
       `${THU} 08:00-11:00`,
     ]);
@@ -3440,8 +3431,8 @@ describe('a resize crosses the lunch break', () => {
     const composeInput = input({ today: WED, blocks: edit.blocks });
     const result = compose(composeInput);
     expect(rows(result)).toEqual([
-      `${WED} 08:00-11:00 barandilla`,
-      `${WED} 15:30-20:30 barandilla [locked]`,
+      `${WED} 08:00-11:00 railing`,
+      `${WED} 15:30-20:30 railing [locked]`,
     ]);
     expectSettled(composeInput, result);
   });
@@ -3451,7 +3442,7 @@ describe('a resize crosses the lunch break', () => {
     // no amount of pressure can make it book margin time. 40 h across a 10 h-a-day week.
     const composeInput = input({
       today: MON,
-      blocks: [block({ project: 'barandilla', date: MON, from: '08:00', hours: 40 })],
+      blocks: [block({ project: 'railing', date: MON, from: '08:00', hours: 40 })],
     });
     const result = compose(composeInput);
 
@@ -3599,21 +3590,21 @@ describe('manual placement — another job is cut and its tail pushed past the d
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'a', project: 'barandilla', date: SAT, from: '09:00', hours: 2 }),
-        block({ id: 'b', project: 'porton', date: SAT, from: '10:00', hours: 1 }),
+        block({ id: 'a', project: 'railing', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'b', project: 'shutter', date: SAT, from: '10:00', hours: 1 }),
       ],
     });
 
     const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
 
     expect(calendarRows(resolved.blocks)).toEqual([
-      `${SAT} 09:00-10:00 barandilla`,
-      `${SAT} 10:00-11:00 porton`,
-      `${SAT} 11:00-12:00 barandilla`,
+      `${SAT} 09:00-10:00 railing`,
+      `${SAT} 10:00-11:00 shutter`,
+      `${SAT} 11:00-12:00 railing`,
     ]);
     // The drop may be undone by another drop, so the job must not lose hours in the meantime.
     expect(minutesByProject(resolved.blocks)).toEqual(minutesByProject(composeInput.blocks));
-    expect(resolved.displacedProjectIds).toEqual(['barandilla']);
+    expect(resolved.displacedProjectIds).toEqual(['railing']);
     expect(resolved.mergedBlockIds).toEqual([]);
   });
 
@@ -3621,27 +3612,27 @@ describe('manual placement — another job is cut and its tail pushed past the d
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'a', project: 'barandilla', date: SAT, from: '09:00', hours: 2 }),
-        block({ id: 'b', project: 'porton', date: SAT, from: '09:00', hours: 1 }),
+        block({ id: 'a', project: 'railing', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'b', project: 'shutter', date: SAT, from: '09:00', hours: 1 }),
       ],
     });
 
     const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
 
     expect(calendarRows(resolved.blocks)).toEqual([
-      `${SAT} 09:00-10:00 porton`,
-      `${SAT} 10:00-12:00 barandilla`,
+      `${SAT} 09:00-10:00 shutter`,
+      `${SAT} 10:00-12:00 railing`,
     ]);
     // Nothing in front of the drop, so there is no head to keep and the row is rewritten.
-    expect(resolved.blocks.find((row) => row.projectId === 'barandilla')?.id).toBe('a');
+    expect(resolved.blocks.find((row) => row.projectId === 'railing')?.id).toBe('a');
   });
 
   it('splits the tail at the lunch break, because a row is a solid rectangle', () => {
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'a', project: 'barandilla', date: SAT, from: '11:00', hours: 3 }),
-        block({ id: 'b', project: 'porton', date: SAT, from: '12:00', hours: 1 }),
+        block({ id: 'a', project: 'railing', date: SAT, from: '11:00', hours: 3 }),
+        block({ id: 'b', project: 'shutter', date: SAT, from: '12:00', hours: 1 }),
       ],
     });
 
@@ -3649,12 +3640,12 @@ describe('manual placement — another job is cut and its tail pushed past the d
 
     // 1 h in front, the drop, then the 2 h left cut at the break: exactly what auto-fill would do.
     expect(calendarRows(resolved.blocks)).toEqual([
-      `${SAT} 11:00-12:00 barandilla`,
-      `${SAT} 12:00-13:00 porton`,
-      `${SAT} 13:00-14:00 barandilla`,
-      `${SAT} 15:30-16:30 barandilla`,
+      `${SAT} 11:00-12:00 railing`,
+      `${SAT} 12:00-13:00 shutter`,
+      `${SAT} 13:00-14:00 railing`,
+      `${SAT} 15:30-16:30 railing`,
     ]);
-    expect(minutesByProject(resolved.blocks)).toEqual({ barandilla: 3 * 60, porton: 60 });
+    expect(minutesByProject(resolved.blocks)).toEqual({ railing: 3 * 60, shutter: 60 });
   });
 
   it('carries a Saturday tail that does not fit onto SUNDAY, never onto Monday', () => {
@@ -3662,18 +3653,18 @@ describe('manual placement — another job is cut and its tail pushed past the d
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'a', project: 'barandilla', date: SAT, from: '18:30', hours: 1 }),
-        block({ id: 'b', project: 'porton', date: SAT, from: '18:30', hours: 1 }),
+        block({ id: 'a', project: 'railing', date: SAT, from: '18:30', hours: 1 }),
+        block({ id: 'b', project: 'shutter', date: SAT, from: '18:30', hours: 1 }),
       ],
     });
 
     const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
 
     expect(calendarRows(resolved.blocks)).toEqual([
-      `${SAT} 18:30-19:30 porton`,
-      `${SUN} 08:00-09:00 barandilla`,
+      `${SAT} 18:30-19:30 shutter`,
+      `${SUN} 08:00-09:00 railing`,
     ]);
-    expect(minutesByProject(resolved.blocks)).toEqual({ barandilla: 60, porton: 60 });
+    expect(minutesByProject(resolved.blocks)).toEqual({ railing: 60, shutter: 60 });
   });
 
   it('chains a tail off the end of a frozen day into the movable pool, where the reflow takes it', () => {
@@ -3703,18 +3694,18 @@ describe('manual placement — another job is cut and its tail pushed past the d
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'a', project: 'barandilla', date: SAT, from: '09:00', hours: 2 }),
-        block({ id: 'b', project: 'porton', date: SAT, from: '10:00', hours: 1 }),
+        block({ id: 'a', project: 'railing', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'b', project: 'shutter', date: SAT, from: '10:00', hours: 1 }),
       ],
-      gaps: [gap({ date: SAT, from: '11:00', hours: 1, reason: 'Avería' })],
+      gaps: [gap({ date: SAT, from: '11:00', hours: 1, reason: 'Breakdown' })],
     });
 
     const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
 
     expect(calendarRows(resolved.blocks)).toEqual([
-      `${SAT} 09:00-10:00 barandilla`,
-      `${SAT} 10:00-11:00 porton`,
-      `${SAT} 12:00-13:00 barandilla`,
+      `${SAT} 09:00-10:00 railing`,
+      `${SAT} 10:00-11:00 shutter`,
+      `${SAT} 12:00-13:00 railing`,
     ]);
   });
 
@@ -3722,23 +3713,23 @@ describe('manual placement — another job is cut and its tail pushed past the d
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'a', project: 'barandilla', date: SAT, from: '09:00', hours: 2 }),
-        block({ id: 'c', project: 'escalera', date: SAT, from: '11:00', hours: 2 }),
-        block({ id: 'b', project: 'porton', date: SAT, from: '10:00', hours: 2 }),
+        block({ id: 'a', project: 'railing', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'c', project: 'staircase', date: SAT, from: '11:00', hours: 2 }),
+        block({ id: 'b', project: 'shutter', date: SAT, from: '10:00', hours: 2 }),
       ],
     });
 
     const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
 
     expect(calendarRows(resolved.blocks)).toEqual([
-      `${SAT} 09:00-10:00 barandilla`,
-      `${SAT} 10:00-12:00 porton`,
-      `${SAT} 12:00-13:00 barandilla`,
-      `${SAT} 13:00-14:00 escalera`,
-      `${SAT} 15:30-16:30 escalera`,
+      `${SAT} 09:00-10:00 railing`,
+      `${SAT} 10:00-12:00 shutter`,
+      `${SAT} 12:00-13:00 railing`,
+      `${SAT} 13:00-14:00 staircase`,
+      `${SAT} 15:30-16:30 staircase`,
     ]);
     expect(minutesByProject(resolved.blocks)).toEqual(minutesByProject(composeInput.blocks));
-    expect([...resolved.displacedProjectIds].sort()).toEqual(['barandilla', 'escalera']);
+    expect([...resolved.displacedProjectIds].sort()).toEqual(['railing', 'staircase']);
   });
 });
 
@@ -3748,7 +3739,7 @@ describe('manual placement — a locked row is never overlapped', () => {
       today: MON,
       blocks: [
         block({ id: 'cita', project: 'revision', date: SAT, from: '09:00', hours: 2, locked: true }),
-        block({ id: 'b', project: 'porton', date: SAT, from: '10:00', hours: 1 }),
+        block({ id: 'b', project: 'shutter', date: SAT, from: '10:00', hours: 1 }),
       ],
     });
 
@@ -3802,7 +3793,7 @@ describe('manual placement — a locked row is never overlapped', () => {
       today: MON,
       blocks: [
         block({ id: 'cita', project: 'revision', date: SAT, from: '09:00', hours: 2, locked: true }),
-        block({ id: 'b', project: 'porton', date: SAT, from: '11:00', hours: 1 }),
+        block({ id: 'b', project: 'shutter', date: SAT, from: '11:00', hours: 1 }),
       ],
     });
 
@@ -3813,17 +3804,17 @@ describe('manual placement — a locked row is never overlapped', () => {
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'a', project: 'barandilla', date: SAT, from: '09:00', hours: 2 }),
-        block({ id: 'b', project: 'porton', date: SAT, from: '10:00', hours: 1, locked: true }),
+        block({ id: 'a', project: 'railing', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'b', project: 'shutter', date: SAT, from: '10:00', hours: 1, locked: true }),
       ],
     });
 
     const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
 
     expect(calendarRows(resolved.blocks)).toEqual([
-      `${SAT} 09:00-10:00 barandilla`,
-      `${SAT} 10:00-11:00 porton [locked]`,
-      `${SAT} 11:00-12:00 barandilla`,
+      `${SAT} 09:00-10:00 railing`,
+      `${SAT} 10:00-11:00 shutter [locked]`,
+      `${SAT} 11:00-12:00 railing`,
     ]);
   });
 
@@ -3853,10 +3844,10 @@ describe('manual placement — a locked row is never overlapped', () => {
       today: MON,
       horizonWeeks: 1,
       blocks: [
-        block({ id: 'a', project: 'barandilla', date: SAT, from: '18:30', hours: 1 }),
-        block({ id: 'b', project: 'porton', date: SAT, from: '18:30', hours: 1 }),
-        block({ id: 'domingo-am', project: 'escalera', date: SUN, from: '08:00', hours: 6 }),
-        block({ id: 'domingo-pm', project: 'escalera', date: SUN, from: '15:30', hours: 4 }),
+        block({ id: 'a', project: 'railing', date: SAT, from: '18:30', hours: 1 }),
+        block({ id: 'b', project: 'shutter', date: SAT, from: '18:30', hours: 1 }),
+        block({ id: 'domingo-am', project: 'staircase', date: SUN, from: '08:00', hours: 6 }),
+        block({ id: 'domingo-pm', project: 'staircase', date: SUN, from: '15:30', hours: 4 }),
       ],
     });
 
@@ -3866,7 +3857,7 @@ describe('manual placement — a locked row is never overlapped', () => {
     if (result.ok) throw new Error('the displaced hours must not vanish');
     expect(result.error.code).toBe('displaced-hours-unplaceable');
     expect(result.error.messageKey).toBe('errors.displacedHoursUnplaceable');
-    expect(result.error.projectId).toBe('barandilla');
+    expect(result.error.projectId).toBe('railing');
   });
 
   it('reports an unknown row rather than resolving nothing quietly', () => {
@@ -3888,7 +3879,7 @@ describe('manual placement — a drop the engine still owns is never refused', (
   it('knows which days it lays out: Mon-Thu and the buffer, from today on', () => {
     const config = createDayConfigResolver(SHAPE, [closedDay(WED)]);
     expect(dayReflows(config(TUE), TUE, MON)).toBe(true);
-    // Friday IS in the movable pool — that is how the colchón self-cleans.
+    // Friday IS in the movable pool — that is how the buffer self-cleans.
     expect(dayReflows(config(FRI), FRI, MON)).toBe(true);
     expect(dayReflows(config(SAT), SAT, MON)).toBe(false);
     expect(dayReflows(config(SUN), SUN, MON)).toBe(false);
@@ -3901,13 +3892,13 @@ describe('manual placement — a drop the engine still owns is never refused', (
     // there. Keeping the day and giving up the exact minute is the only answer that honours it.
     const composeInput = input({
       today: MON,
-      gaps: [gap({ date: FRI, from: '10:00', hours: 1, reason: 'Avería' })],
-      blocks: [block({ id: 'soltado', project: 'porton', date: FRI, from: '10:00', hours: 2, locked: true })],
+      gaps: [gap({ date: FRI, from: '10:00', hours: 1, reason: 'Breakdown' })],
+      blocks: [block({ id: 'soltado', project: 'shutter', date: FRI, from: '10:00', hours: 2, locked: true })],
     });
 
     const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('soltado')));
 
-    expect(calendarRows(resolved.blocks)).toEqual([`${FRI} 11:00-13:00 porton [locked]`]);
+    expect(calendarRows(resolved.blocks)).toEqual([`${FRI} 11:00-13:00 shutter [locked]`]);
     expect(resolved.blocks[0].locked).toBe(true);
     expect(minutesByProject(resolved.blocks)).toEqual(minutesByProject(composeInput.blocks));
   });
@@ -3918,7 +3909,7 @@ describe('manual placement — a drop the engine still owns is never refused', (
       today: MON,
       blocks: [
         block({ id: 'cita', project: 'revision', date: FRI, from: '09:00', hours: 2, locked: true }),
-        block({ id: 'soltado', project: 'porton', date: FRI, from: '09:00', hours: 6, locked: true }),
+        block({ id: 'soltado', project: 'shutter', date: FRI, from: '09:00', hours: 6, locked: true }),
       ],
     });
 
@@ -3926,8 +3917,8 @@ describe('manual placement — a drop the engine still owns is never refused', (
 
     expect(calendarRows(resolved.blocks)).toEqual([
       `${FRI} 09:00-11:00 revision [locked]`,
-      `${FRI} 11:00-14:00 porton [locked]`,
-      `${FRI} 15:30-18:30 porton [locked]`,
+      `${FRI} 11:00-14:00 shutter [locked]`,
+      `${FRI} 15:30-18:30 shutter [locked]`,
     ]);
     expect(minutesByProject(resolved.blocks)).toEqual(minutesByProject(composeInput.blocks));
   });
@@ -3937,8 +3928,8 @@ describe('manual placement — a drop the engine still owns is never refused', (
     // answer is a refusal the owner can act on, not a silent unlocking.
     const composeInput = input({
       today: MON,
-      gaps: [gap({ date: FRI, from: '09:00', hours: 11, reason: 'Puente' })],
-      blocks: [block({ id: 'soltado', project: 'porton', date: FRI, from: '10:00', hours: 2, locked: true })],
+      gaps: [gap({ date: FRI, from: '09:00', hours: 11, reason: 'Long weekend' })],
+      blocks: [block({ id: 'soltado', project: 'shutter', date: FRI, from: '10:00', hours: 2, locked: true })],
     });
 
     const result = resolveManualPlacement(composeInput, dropOf('soltado'));
@@ -3946,7 +3937,7 @@ describe('manual placement — a drop the engine still owns is never refused', (
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('a padlocked drop over a gap must be refused');
     expect(result.error.code).toBe('overlaps-gap');
-    expect(result.error.reason).toBe('Puente');
+    expect(result.error.reason).toBe('Long weekend');
   });
 
   it('never slides a row past the end of the day to get clear', () => {
@@ -3954,8 +3945,8 @@ describe('manual placement — a drop the engine still owns is never refused', (
     // gap is 19:00, where a 2 h row would reach 21:00. So there is no slot.
     const composeInput = input({
       today: MON,
-      gaps: [gap({ date: FRI, from: '18:00', hours: 1, reason: 'Limpieza' })],
-      blocks: [block({ id: 'soltado', project: 'porton', date: FRI, from: '18:00', hours: 2, locked: true })],
+      gaps: [gap({ date: FRI, from: '18:00', hours: 1, reason: 'Cleaning' })],
+      blocks: [block({ id: 'soltado', project: 'shutter', date: FRI, from: '18:00', hours: 2, locked: true })],
     });
 
     const result = resolveManualPlacement(composeInput, dropOf('soltado'));
@@ -3968,8 +3959,8 @@ describe('manual placement — a drop the engine still owns is never refused', (
   it('still refuses the same drop on the WEEKEND, where the minute is the whole promise', () => {
     const composeInput = input({
       today: MON,
-      gaps: [gap({ date: SAT, from: '10:00', hours: 1, reason: 'Avería' })],
-      blocks: [block({ id: 'soltado', project: 'porton', date: SAT, from: '10:00', hours: 2 })],
+      gaps: [gap({ date: SAT, from: '10:00', hours: 1, reason: 'Breakdown' })],
+      blocks: [block({ id: 'soltado', project: 'shutter', date: SAT, from: '10:00', hours: 2 })],
     });
 
     const result = resolveManualPlacement(composeInput, dropOf('soltado'));
@@ -3977,7 +3968,7 @@ describe('manual placement — a drop the engine still owns is never refused', (
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('a drop onto a gap on the weekend must be refused');
     expect(result.error.code).toBe('overlaps-gap');
-    expect(result.error.reason).toBe('Avería');
+    expect(result.error.reason).toBe('Breakdown');
   });
 
   it('slides a locked row being DRAGGED too, on a day that reflows', () => {
@@ -3985,21 +3976,21 @@ describe('manual placement — a drop the engine still owns is never refused', (
     // the engine lays out it gets the same answer as a drop onto the buffer, which IS a padlocked drop.
     const composeInput = input({
       today: MON,
-      gaps: [gap({ date: FRI, from: '10:00', hours: 1, reason: 'Avería' })],
-      blocks: [block({ id: 'soltado', project: 'porton', date: FRI, from: '10:00', hours: 2, locked: true })],
+      gaps: [gap({ date: FRI, from: '10:00', hours: 1, reason: 'Breakdown' })],
+      blocks: [block({ id: 'soltado', project: 'shutter', date: FRI, from: '10:00', hours: 2, locked: true })],
     });
 
     const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('soltado')));
 
-    expect(calendarRows(resolved.blocks)).toEqual([`${FRI} 11:00-13:00 porton [locked]`]);
+    expect(calendarRows(resolved.blocks)).toEqual([`${FRI} 11:00-13:00 shutter [locked]`]);
   });
 
   it('refuses that same drag where the day is NOT the engine\'s: the weekend', () => {
     // No slide there: the minute is the whole promise, and nothing will ever separate the rows.
     const composeInput = input({
       today: MON,
-      gaps: [gap({ date: SAT, from: '10:00', hours: 1, reason: 'Avería' })],
-      blocks: [block({ id: 'soltado', project: 'porton', date: SAT, from: '10:00', hours: 2, locked: true })],
+      gaps: [gap({ date: SAT, from: '10:00', hours: 1, reason: 'Breakdown' })],
+      blocks: [block({ id: 'soltado', project: 'shutter', date: SAT, from: '10:00', hours: 2, locked: true })],
     });
 
     const result = resolveManualPlacement(composeInput, dropOf('soltado'));
@@ -4016,9 +4007,9 @@ describe('manual placement — what it hands to the engine is already settled', 
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'lunes', project: 'escalera', date: MON, from: '08:00', hours: 4 }),
-        block({ id: 'a', project: 'barandilla', date: SAT, from: '09:00', hours: 2 }),
-        block({ id: 'b', project: 'porton', date: SAT, from: '10:00', hours: 1 }),
+        block({ id: 'lunes', project: 'staircase', date: MON, from: '08:00', hours: 4 }),
+        block({ id: 'a', project: 'railing', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'b', project: 'shutter', date: SAT, from: '10:00', hours: 1 }),
       ],
     });
 
@@ -4026,10 +4017,10 @@ describe('manual placement — what it hands to the engine is already settled', 
     const placement = compose({ ...composeInput, blocks: resolved.blocks });
 
     expect(rows(placement)).toEqual([
-      `${MON} 08:00-12:00 escalera`,
-      `${SAT} 09:00-10:00 barandilla`,
-      `${SAT} 10:00-11:00 porton`,
-      `${SAT} 11:00-12:00 barandilla`,
+      `${MON} 08:00-12:00 staircase`,
+      `${SAT} 09:00-10:00 railing`,
+      `${SAT} 10:00-11:00 shutter`,
+      `${SAT} 11:00-12:00 railing`,
     ]);
     expectMinutesConserved({ ...composeInput, blocks: resolved.blocks }, placement);
     expectSettled({ ...composeInput, blocks: resolved.blocks }, placement);
@@ -4040,48 +4031,48 @@ describe('manual placement — what it hands to the engine is already settled', 
 // A drop onto a row the reflow WILL settle
 // ---------------------------------------------------------------------------
 //
-// Dropping Porton at Wednesday 10:00, inside Barandilla's 08:00-14:00 row, used to land it at 15:30
-// and push Barandilla to Thursday, because nothing cut the row and the queue read `A, B`. The cut
+// Dropping Shutter at Wednesday 10:00, inside Railing's 08:00-14:00 row, used to land it at 15:30
+// and push Railing to Thursday, because nothing cut the row and the queue read `A, B`. The cut
 // makes it read `A, B, A`, and the forward fill does the rest: no hours are placed here, only ranked.
 
 describe('a drop onto a movable row is cut too, so the queue reads A, B, A', () => {
   const dropped = (): Block[] => [
-    block({ id: 'bar', project: 'barandilla', date: WED, from: '08:00', hours: 6 }),
-    // Porton, just dropped at 10:00 — inside Barandilla's row.
-    block({ id: 'porton', project: 'porton', date: WED, from: '10:00', hours: 2 }),
+    block({ id: 'bar', project: 'railing', date: WED, from: '08:00', hours: 6 }),
+    // Shutter, just dropped at 10:00 — inside Railing's row.
+    block({ id: 'shutter', project: 'shutter', date: WED, from: '10:00', hours: 2 }),
   ];
 
   it('cuts the row at the drop and the engine draws A, B, A', () => {
     const composeInput = input({ today: WED, blocks: dropped() });
 
-    // Without the cut the queue reads `barandilla, porton` and Porton lands after the whole 6 h block.
+    // Without the cut the queue reads `railing, shutter` and Shutter lands after the whole 6 h block.
     expect(rows(compose(composeInput))).toEqual([
-      `${WED} 08:00-14:00 barandilla`,
-      `${WED} 15:30-17:30 porton`,
+      `${WED} 08:00-14:00 railing`,
+      `${WED} 15:30-17:30 shutter`,
     ]);
 
-    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('porton')));
-    expect(resolved.displacedProjectIds).toEqual(['barandilla']);
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('shutter')));
+    expect(resolved.displacedProjectIds).toEqual(['railing']);
     expect(resolved.mergedBlockIds).toEqual([]);
-    expect(resolved.placedBlockId).toBe('porton');
+    expect(resolved.placedBlockId).toBe('shutter');
 
     const placement = compose({ ...composeInput, blocks: resolved.blocks });
     expect(rows(placement)).toEqual([
-      `${WED} 08:00-10:00 barandilla`,
-      `${WED} 10:00-12:00 porton`,
-      `${WED} 12:00-14:00 barandilla`,
-      `${WED} 15:30-17:30 barandilla`,
+      `${WED} 08:00-10:00 railing`,
+      `${WED} 10:00-12:00 shutter`,
+      `${WED} 12:00-14:00 railing`,
+      `${WED} 15:30-17:30 railing`,
     ]);
-    // Barandilla keeps every one of its 6 h; the cut moved hours, it did not spend them.
+    // Railing keeps every one of its 6 h; the cut moved hours, it did not spend them.
     expectMinutesConserved({ ...composeInput, blocks: resolved.blocks }, placement);
     expectSettled({ ...composeInput, blocks: resolved.blocks }, placement);
   });
 
   it('resolving the same drop again does nothing — there is no overlap left', () => {
     const composeInput = input({ today: WED, blocks: dropped() });
-    const once = expectPlaced(resolveManualPlacement(composeInput, dropOf('porton')));
+    const once = expectPlaced(resolveManualPlacement(composeInput, dropOf('shutter')));
     const twice = expectPlaced(
-      resolveManualPlacement({ ...composeInput, blocks: once.blocks }, dropOf('porton')),
+      resolveManualPlacement({ ...composeInput, blocks: once.blocks }, dropOf('shutter')),
     );
 
     expect(twice.displacedProjectIds).toEqual([]);
@@ -4092,28 +4083,28 @@ describe('a drop onto a movable row is cut too, so the queue reads A, B, A', () 
     const composeInput = input({
       today: WED,
       blocks: [
-        block({ id: 'porton', project: 'porton', date: WED, from: '08:00', hours: 2 }),
-        block({ id: 'bar', project: 'barandilla', date: WED, from: '08:30', hours: 4 }),
+        block({ id: 'shutter', project: 'shutter', date: WED, from: '08:00', hours: 2 }),
+        block({ id: 'bar', project: 'railing', date: WED, from: '08:30', hours: 4 }),
       ],
     });
 
-    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('porton')));
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('shutter')));
     expect(resolved.displacedProjectIds).toEqual([]);
     expect(calendarRows(resolved.blocks)).toEqual(calendarRows(composeInput.blocks));
   });
 
   it('goes BEFORE a row it landed exactly on the start of, and cuts nothing', () => {
     // Landing on a start means "put me before this one". The rank TIES there and a tie goes to
-    // `created_at`, so the drop lost to the older row: Barandilla is deliberately the older.
+    // `created_at`, so the drop lost to the older row: Railing is deliberately the older.
     const composeInput = input({
       today: WED,
       blocks: [
-        block({ id: 'bar', project: 'barandilla', date: WED, from: '08:00', hours: 4 }),
-        block({ id: 'porton', project: 'porton', date: WED, from: '08:00', hours: 2 }),
+        block({ id: 'bar', project: 'railing', date: WED, from: '08:00', hours: 4 }),
+        block({ id: 'shutter', project: 'shutter', date: WED, from: '08:00', hours: 2 }),
       ],
     });
 
-    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('porton')));
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('shutter')));
     // Nothing was cut and nobody's hours moved: the row underneath simply follows.
     expect(resolved.displacedProjectIds).toEqual([]);
     expect(resolved.mergedBlockIds).toEqual([]);
@@ -4121,8 +4112,8 @@ describe('a drop onto a movable row is cut too, so the queue reads A, B, A', () 
 
     const placement = compose({ ...composeInput, blocks: resolved.blocks });
     expect(rows(placement)).toEqual([
-      `${WED} 08:00-10:00 porton`,
-      `${WED} 10:00-14:00 barandilla`,
+      `${WED} 08:00-10:00 shutter`,
+      `${WED} 10:00-14:00 railing`,
     ]);
     expectMinutesConserved({ ...composeInput, blocks: resolved.blocks }, placement);
     expectSettled({ ...composeInput, blocks: resolved.blocks }, placement);
@@ -4133,19 +4124,19 @@ describe('a drop onto a movable row is cut too, so the queue reads A, B, A', () 
     const composeInput = input({
       today: WED,
       blocks: [
-        block({ id: 'bar', project: 'barandilla', date: WED, from: '08:00', hours: 6, locked: true }),
-        block({ id: 'porton', project: 'porton', date: WED, from: '10:00', hours: 2 }),
+        block({ id: 'bar', project: 'railing', date: WED, from: '08:00', hours: 6, locked: true }),
+        block({ id: 'shutter', project: 'shutter', date: WED, from: '10:00', hours: 2 }),
       ],
     });
 
-    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('porton')));
+    const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('shutter')));
     expect(resolved.displacedProjectIds).toEqual([]);
     expect(calendarRows(resolved.blocks)).toEqual(calendarRows(composeInput.blocks));
 
     const placement = compose({ ...composeInput, blocks: resolved.blocks });
     expect(rows(placement)).toEqual([
-      `${WED} 08:00-14:00 barandilla [locked]`,
-      `${WED} 15:30-17:30 porton`,
+      `${WED} 08:00-14:00 railing [locked]`,
+      `${WED} 15:30-17:30 shutter`,
     ]);
   });
 
@@ -4154,8 +4145,8 @@ describe('a drop onto a movable row is cut too, so the queue reads A, B, A', () 
     const composeInput = input({
       today: WED,
       blocks: [
-        block({ id: 'primero', project: 'escalera', date: WED, from: '08:00', hours: 4 }),
-        block({ id: 'segundo', project: 'escalera', date: WED, from: '10:00', hours: 2 }),
+        block({ id: 'primero', project: 'staircase', date: WED, from: '08:00', hours: 4 }),
+        block({ id: 'segundo', project: 'staircase', date: WED, from: '10:00', hours: 2 }),
       ],
     });
 
@@ -4163,7 +4154,7 @@ describe('a drop onto a movable row is cut too, so the queue reads A, B, A', () 
     expect(resolved.mergedBlockIds).toEqual([]);
     expect(resolved.displacedProjectIds).toEqual([]);
     expect(rows(compose({ ...composeInput, blocks: resolved.blocks }))).toEqual([
-      `${WED} 08:00-14:00 escalera`,
+      `${WED} 08:00-14:00 staircase`,
     ]);
   });
 
@@ -4210,11 +4201,11 @@ describe('a dropped row never straddles the lunch break', () => {
 
     const onThursday = input({
       today: MON,
-      blocks: [block({ id: 'soltado', project: 'porton', date: THU, from: '13:00', hours: 3 })],
+      blocks: [block({ id: 'soltado', project: 'shutter', date: THU, from: '13:00', hours: 3 })],
     });
     expect(calendarRows(expectPlaced(resolveManualPlacement(onThursday, dropOf('soltado'))).blocks)).toEqual([
-      `${THU} 13:00-14:00 porton`,
-      `${THU} 15:30-17:30 porton`,
+      `${THU} 13:00-14:00 shutter`,
+      `${THU} 15:30-17:30 shutter`,
     ]);
   });
 
@@ -4283,20 +4274,20 @@ describe('a dropped row never straddles the lunch break', () => {
     const composeInput = input({
       today: MON,
       blocks: [
-        block({ id: 'a', project: 'barandilla', date: SAT, from: '09:00', hours: 2 }),
-        block({ id: 'b', project: 'porton', date: SAT, from: '10:00', hours: 5 }),
+        block({ id: 'a', project: 'railing', date: SAT, from: '09:00', hours: 2 }),
+        block({ id: 'b', project: 'shutter', date: SAT, from: '10:00', hours: 5 }),
       ],
     });
 
     const resolved = expectPlaced(resolveManualPlacement(composeInput, dropOf('b')));
 
     expect(calendarRows(resolved.blocks)).toEqual([
-      `${SAT} 09:00-10:00 barandilla`,
-      `${SAT} 10:00-14:00 porton`,
-      `${SAT} 15:30-16:30 porton`,
-      `${SAT} 16:30-17:30 barandilla`,
+      `${SAT} 09:00-10:00 railing`,
+      `${SAT} 10:00-14:00 shutter`,
+      `${SAT} 15:30-16:30 shutter`,
+      `${SAT} 16:30-17:30 railing`,
     ]);
-    expect(minutesByProject(resolved.blocks)).toEqual({ barandilla: 2 * 60, porton: 5 * 60 });
+    expect(minutesByProject(resolved.blocks)).toEqual({ railing: 2 * 60, shutter: 5 * 60 });
   });
 });
 
@@ -4309,8 +4300,8 @@ describe('the summary strip is arithmetic, not wording', () => {
     const summary = summarizeSchedule(
       [
         block({ project: 'historial', date: LAST_FRI, from: '08:00', hours: 6 }),
-        block({ project: 'escalera', date: TUE, from: '08:00', hours: 6 }),
-        block({ project: 'porton', date: THU, from: '08:00', hours: 4 }),
+        block({ project: 'staircase', date: TUE, from: '08:00', hours: 6 }),
+        block({ project: 'shutter', date: THU, from: '08:00', hours: 4 }),
       ],
       MON,
     );
@@ -4323,7 +4314,7 @@ describe('the summary strip is arithmetic, not wording', () => {
   });
 
   it('sees the buffer as taken as soon as anything sits on it', () => {
-    const summary = summarizeSchedule([block({ project: 'porton', date: FRI, from: '08:00', hours: 2 })], MON);
+    const summary = summarizeSchedule([block({ project: 'shutter', date: FRI, from: '08:00', hours: 2 })], MON);
     expect(summary.bufferClear).toBe(false);
     expect(summary.lastOccupiedDate).toBe(FRI);
   });
@@ -4364,7 +4355,7 @@ function seededRandom(seed: number): () => number {
 }
 
 const GENERATED_DAYS = [LAST_FRI, MON, TUE, WED, THU, FRI, SAT, SUN, NEXT_MON, '2026-08-18', '2026-08-19'];
-const GENERATED_PROJECTS = ['escalera', 'porton', 'barandilla', 'nuevo'];
+const GENERATED_PROJECTS = ['staircase', 'shutter', 'railing', 'nuevo'];
 
 const MORNING_ONLY: DayShape = withWindows({
   periods: [{ startMinutes: t('08:00'), endMinutes: t('14:00') }],
@@ -5075,13 +5066,13 @@ describe('shrinking a row holds over the same generated calendars', () => {
 describe('creating a job with no blocks yet', () => {
   it('appends the hours after the last block on the calendar', () => {
     const existing = [
-      block({ id: 'otro', project: 'porton', date: TUE, from: '08:00', hours: 2 }),
-      block({ id: 'ultimo', project: 'barandilla', date: WED, from: '09:00', hours: 3 }),
+      block({ id: 'otro', project: 'shutter', date: TUE, from: '08:00', hours: 2 }),
+      block({ id: 'ultimo', project: 'railing', date: WED, from: '09:00', hours: 3 }),
     ];
 
     const edit = expectEdited(
       changeProjectMinutes(existing, {
-        projectId: 'escalera',
+        projectId: 'staircase',
         deltaMinutes: 240,
         today: MON,
         newBlockId: 'nueva',
@@ -5090,22 +5081,22 @@ describe('creating a job with no blocks yet', () => {
     );
 
     // Creation order sets the initial queue position: after everything already there.
-    expect(jobRows(edit.blocks, 'escalera')).toEqual([`${WED} 12:00-16:00`]);
+    expect(jobRows(edit.blocks, 'staircase')).toEqual([`${WED} 12:00-16:00`]);
     expect(edit.totalMinutesDelta).toBe(240);
 
-    const composeInput = input({ today: MON, blocks: edit.blocks, newProjectIds: ['escalera'] });
+    const composeInput = input({ today: MON, blocks: edit.blocks, newProjectIds: ['staircase'] });
     expect(rows(compose(composeInput))).toEqual([
-      `${MON} 08:00-10:00 porton`,
-      `${MON} 10:00-13:00 barandilla`,
-      `${MON} 13:00-14:00 escalera`,
-      `${MON} 15:30-18:30 escalera`,
+      `${MON} 08:00-10:00 shutter`,
+      `${MON} 10:00-13:00 railing`,
+      `${MON} 13:00-14:00 staircase`,
+      `${MON} 15:30-18:30 staircase`,
     ]);
   });
 
   it('starts at today when the calendar is empty, and never on a weekend', () => {
     const fromNothing = expectEdited(
       changeProjectMinutes([], {
-        projectId: 'escalera',
+        projectId: 'staircase',
         deltaMinutes: 120,
         today: MON,
         newBlockId: 'nueva',
@@ -5118,7 +5109,7 @@ describe('creating a job with no blocks yet', () => {
     // A created row must land in the movable pool, or the engine could never place it.
     const onSaturday = expectEdited(
       changeProjectMinutes([], {
-        projectId: 'escalera',
+        projectId: 'staircase',
         deltaMinutes: 120,
         today: SAT,
         newBlockId: 'nueva',

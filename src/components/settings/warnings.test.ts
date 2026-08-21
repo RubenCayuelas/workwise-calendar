@@ -18,7 +18,7 @@ function scheduled(
   date: string,
   startMinutes: number,
   durationMinutes: number,
-  projectName = 'Escalera',
+  projectName = 'Staircase',
 ): ScheduledBlock {
   const block: Block = {
     id,
@@ -117,8 +117,8 @@ describe('assessRisk', () => {
 });
 
 describe('findAffectedBlocks', () => {
-  const afternoonWork = scheduled('a', '2026-08-12', 930, 120, 'Portón'); // 15:30-17:30
-  const morningWork = scheduled('b', '2026-08-12', 480, 360, 'Puerta'); // 08:00-14:00
+  const afternoonWork = scheduled('a', '2026-08-12', 930, 120, 'Shutter'); // 15:30-17:30
+  const morningWork = scheduled('b', '2026-08-12', 480, 360, 'Door'); // 08:00-14:00
 
   it('names the afternoon blocks when the afternoon is switched off', () => {
     const affected = findAffectedBlocks(
@@ -128,7 +128,7 @@ describe('findAffectedBlocks', () => {
     );
     expect(affected.map((entry) => entry.block.id)).toEqual(['a']);
     expect(affected[0].reason).toBe('outside-periods');
-    expect(affected[0].projectName).toBe('Portón');
+    expect(affected[0].projectName).toBe('Shutter');
   });
 
   it('leaves the morning alone when only the afternoon goes', () => {
@@ -154,8 +154,8 @@ describe('findAffectedBlocks', () => {
   });
 
   it('includes the past and the weekend, which the engine will never fix', () => {
-    const saturday = scheduled('d', '2026-08-15', 930, 60, 'Barandilla');
-    const past = scheduled('e', '2026-08-03', 1050, 60, 'Puerta');
+    const saturday = scheduled('d', '2026-08-15', 930, 60, 'Railing');
+    const past = scheduled('e', '2026-08-03', 1050, 60, 'Door');
     const affected = findAffectedBlocks(
       settings(),
       settings({ period2Enabled: false }),

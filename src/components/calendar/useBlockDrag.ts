@@ -662,7 +662,7 @@ export function previewMove(
   // THIRDS ARE FOR A RANK, SO AN ABSENCE DOES NOT GET THEM. Over another row a block's aim collapses
   // to that row's start, middle or end, because a block's drop is a queue rank and those three mean
   // before / cut / after. A gap is stored on the minute it was released, so the same collapse would
-  // let it land only on three minutes of any row taller than half an hour — measured: an absence
+  // let it land only on three minutes of any row shop than half an hour — measured: an absence
   // aimed at 10:00, 12:00 and 13:00 over one 08:00-14:00 row all resolved to the same slot.
   // The rows of the run itself are not obstacles to it: they are what is being moved.
   const snapped = snapTo(exact);

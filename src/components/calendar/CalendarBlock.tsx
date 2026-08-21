@@ -121,7 +121,7 @@ export function CalendarBlock({
   );
 
   /*
-   * The seam said in words: the label's ellipsis is quiet by design, and a `desborde 2 h`
+   * The seam said in words: the label's ellipsis is quiet by design, and a `overflow 2 h`
    * row has no room for it at all, so the fact must not live only there.
    */
   const seamHints = [

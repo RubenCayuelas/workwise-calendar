@@ -68,7 +68,7 @@ export interface CloseDayPlan {
   endMinutes: number;
   /**
    * NET working minutes of the gap, which is what a gap's duration means. `endMinutes − startMinutes`
-   * would charge the day for the comida: closing at 13:00 on the documented shift is 5 h, not 6.5.
+   * would charge the day for the lunch break: closing at 13:00 on the documented shift is 5 h, not 6.5.
    */
   durationMinutes: number;
   /**

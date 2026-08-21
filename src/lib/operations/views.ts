@@ -28,7 +28,7 @@ export interface WeekDay {
   date: string;
   /** ISO weekday, 1 = Monday .. 7 = Sunday. */
   weekday: number;
-  /** `auto` Mon-Thu, `buffer` Friday (the colchón), `manual` Sat/Sun. */
+  /** `auto` Mon-Thu, `buffer` Friday (the buffer), `manual` Sat/Sun. */
   role: DayRole;
   /** A holiday or closed week from `day_overrides`. */
   isClosed: boolean;

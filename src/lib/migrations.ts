@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS blocks (
 
 -- A hole in the schedule (maintenance, breakdown, admin). Gaps are time: they
 -- consume the day's plannable hours exactly like locked work does. 'duration' is
--- NET working minutes on disk too, so a gap across the comida is two rows sharing
+-- NET working minutes on disk too, so a gap across the lunch break is two rows sharing
 -- one unit_id and no stored row of either table straddles a non-working interval.
 -- unit_id is what says the two halves are ONE gap; NULL means the row is its own
 -- unit, which is how a row written before the column reads. Two gaps that merely
@@ -233,7 +233,7 @@ interface StoredGapRow {
  * CROSSES A BREAK BETWEEN TWO WINDOWS, cutting it at that break, and leaves every other row exactly as
  * it found it: the shop's four `08:00 +11,5 h` "Feria" rows become `08:00 +6 h` and `15:30 +4 h`, both
  * keeping the reason, while `06:00 +3 h` keeps its three hours and `14:15 +0,5 h` — a gap wholly inside
- * the comida, where a gap can no longer be recorded — keeps its half hour where it is.
+ * the lunch break, where a gap can no longer be recorded — keeps its half hour where it is.
  *
  * It clips nothing, deletes nothing and anchors nothing, because those all lose what the owner
  * RECORDED, and a row a shift no longer covers has the same standing as a block a settings change

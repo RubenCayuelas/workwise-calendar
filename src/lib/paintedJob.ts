@@ -21,7 +21,7 @@ export interface PaintedPlan {
 }
 
 /**
- * `startMinutes` is read through `firstWorkingMinute`, so a release inside the comida means the
+ * `startMinutes` is read through `firstWorkingMinute`, so a release inside the lunch break means the
  * afternoon and the returned start may differ from the one asked for — every caller reads it back.
  *
  * Measured over the MANUAL WINDOWS: the margins are workable time the owner chose, and a padlocked

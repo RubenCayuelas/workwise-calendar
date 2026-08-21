@@ -27,7 +27,7 @@ export type StartDateNote =
   | 'past'
   /** Saturday or Sunday — outside the engine, so the drop is the owner's word. */
   | 'weekend'
-  /** Friday: the colchón, which the engine keeps for the growth of placed work. */
+  /** Friday: the buffer, which the engine keeps for the growth of placed work. */
   | 'buffer'
   /** A holiday or a closed week: the day has no hours at all. */
   | 'closed'

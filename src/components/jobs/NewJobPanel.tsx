@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * `+ Nuevo trabajo`: the job panel's four fields plus an OPTIONAL START DATE, whose placement
+ * `+ Nuevo job`: the job panel's four fields plus an OPTIONAL START DATE, whose placement
  * is previewed before saving.
  */
 

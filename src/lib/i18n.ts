@@ -69,7 +69,7 @@ if (!i18next.isInitialized) {
     supportedLngs: [...SUPPORTED_LANGUAGES],
     ns: [DEFAULT_NAMESPACE],
     defaultNS: DEFAULT_NAMESPACE,
-    // React escapes for us; escaping again turns «Puerta» into entities.
+    // React escapes for us; escaping again turns «Door» into entities.
     interpolation: { escapeValue: false },
     // Resources are bundled, so nothing is ever loading.
     react: { useSuspense: false },

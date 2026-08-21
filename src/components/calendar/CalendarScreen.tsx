@@ -143,9 +143,9 @@ export interface AbsenceFormContext {
 export interface CalendarScreenProps {
   /** Clicking a block opens this. Without it, a block click does nothing. */
   renderJobPanel?: (context: JobPanelContext) => ReactNode;
-  /** `+ Nuevo trabajo`. Without it, the button is disabled. */
+  /** `+ Nuevo job`. Without it, the button is disabled. */
   renderNewJob?: (context: NewJobContext) => ReactNode;
-  /** `Ausencias`, clicking a gap, and the paint gesture. Without it, gaps are read-only labels. */
+  /** `Absences`, clicking a gap, and the paint gesture. Without it, gaps are read-only labels. */
   renderAbsenceForm?: (context: AbsenceFormContext) => ReactNode;
   settingsHref?: string;
 }
@@ -381,7 +381,7 @@ export function CalendarScreen({
    * where the queue put it and no settle animation to run — the ghost already drew the rows it will
    * be stored as, at the minute it was released. The ONE thing the owner cannot see coming is the
    * start moving: a release with no working time under it is stored at the next minute that has
-   * some, so a gap aimed at the comida comes back at 15:30 and says so.
+   * some, so a gap aimed at the lunch break comes back at 15:30 and says so.
    */
   const onMoveGap = useCallback(
     (target: GapDragTarget, drop: { date: string; startMinutes: number }): void => {
@@ -492,7 +492,7 @@ export function CalendarScreen({
   /**
    * An absence's bottom edge, and the gesture is ABSOLUTE: it just sets the duration. There is no
    * counterparty to hand hours to, so nothing is ever asked and `shrink-needs-choice` cannot reach
-   * here. The hours are net working minutes and cross the comida, so the far half is created or
+   * here. The hours are net working minutes and cross the lunch break, so the far half is created or
    * deleted by the same request — which the ghost drew before the release.
    */
   const onResizeGap = useCallback(

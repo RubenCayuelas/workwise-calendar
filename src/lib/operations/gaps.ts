@@ -34,7 +34,7 @@ import type { Gap } from '../../types';
 export interface GapMutation {
   /** The row the request is about: the first of them, and the one a PATCH updated in place. */
   gap: Gap;
-  /** Every row the save wrote, in clock order. Two of them for a gap cut at the comida. */
+  /** Every row the save wrote, in clock order. Two of them for a gap cut at the lunch break. */
   gaps: Gap[];
   summary: ScheduleSummary;
 }
@@ -57,10 +57,10 @@ export function readGaps(range: { from?: string; to?: string } = {}, db: Db = ge
 
 /**
  * No intent is passed to `recompose`, so displaced work goes to the next auto-fill day,
- * not the Friday colchón.
+ * not the Friday buffer.
  *
  * The hours are stored as one row per manual window they reach, sharing the reason: 8 h from 10:00 is
- * `10:00 +4 h` and `15:30 +4 h`. A start inside the comida becomes the first minute that can hold
+ * `10:00 +4 h` and `15:30 +4 h`. A start inside the lunch break becomes the first minute that can hold
  * work, so THE STORED START MAY DIFFER FROM THE ONE ASKED FOR and callers read it back.
  */
 export function createGap(input: SaveGapInput, db: Db = getDb()): GapMutation {
@@ -85,7 +85,7 @@ export function insertAbsence(input: SaveGapInput, today: string, db: Db): Gap[]
     db,
   );
 
-  // One unit id across every segment: the halves around the comida are ONE absence, and the grid
+  // One unit id across every segment: the halves around the lunch break are ONE absence, and the grid
   // must not have to guess that from two identical reason strings.
   const unitId = newId();
   return rows.map((row) =>
@@ -123,14 +123,14 @@ export interface PatchGapInput {
 }
 
 /**
- * A PATCH ADDRESSES THE WHOLE UNIT, whichever of its rows is named: the two halves around the comida
+ * A PATCH ADDRESSES THE WHOLE UNIT, whichever of its rows is named: the two halves around the lunch break
  * are one absence with one reason, so editing either of them edits the absence. The geometry defaults
  * to the unit's own — its first row's date and start, and the SUM of its net durations — and the rows
  * it becomes are reconciled against the rows it has: the earliest ids are kept and re-pointed, a
  * segment with no row left to take it is inserted, and a row no segment reaches is DELETED.
  *
  * Reconciling is the whole point. Inserting the segments and leaving the old rows alone wrote a
- * duplicate far half on every edit that crossed the comida, unboundedly and with a 200.
+ * duplicate far half on every edit that crossed the lunch break, unboundedly and with a 200.
  */
 export function patchGap(gapId: string, input: PatchGapInput, db: Db = getDb()): GapMutation {
   const today = input.today ?? todayLocal();
@@ -192,7 +192,7 @@ export function patchGap(gapId: string, input: PatchGapInput, db: Db = getDb()):
         {
           date: candidate.date,
           reason: reason ?? null,
-          // The segmented row, never the coordinates asked for: a start inside the comida moves.
+          // The segmented row, never the coordinates asked for: a start inside the lunch break moves.
           startMinutes: row.startMinutes,
           durationMinutes: row.durationMinutes,
         },
@@ -204,7 +204,7 @@ export function patchGap(gapId: string, input: PatchGapInput, db: Db = getDb()):
       return written;
     });
 
-    // A row no segment reached is gone, not orphaned: shrinking back below the comida used to leave
+    // A row no segment reached is gone, not orphaned: shrinking back below the lunch break used to leave
     // the afternoon half on disk, so a 1 h absence read as 3 h.
     for (const stale of rowsOfUnit.slice(segments.length)) {
       deleteGapRow(stale.id, db);
@@ -216,7 +216,7 @@ export function patchGap(gapId: string, input: PatchGapInput, db: Db = getDb()):
 }
 
 /**
- * Deletes the whole UNIT, whichever of its rows is named: an absence that crosses the comida is one
+ * Deletes the whole UNIT, whichever of its rows is named: an absence that crosses the lunch break is one
  * thing on screen, so it must not take two deletions to remove.
  */
 export function deleteGap(
@@ -276,7 +276,7 @@ const CONFLICT_KEYS: Record<GapConflict['reason'], string> = {
 /**
  * The rows the gap will be stored as, once every refusal has passed. The order matters: the request is
  * cut into rows FIRST, and the day's end and the fixed work are then asked of those rows. Measured
- * against `start + duration` instead, an 8 h gap from 10:00 tests 10:00-18:00 — minutes of the comida
+ * against `start + duration` instead, an 8 h gap from 10:00 tests 10:00-18:00 — minutes of the lunch break
  * that hold nothing, and not the 18:00-19:30 its real second half lands on.
  *
  * The ACTIONABLE conflict is reported first when several are present: a padlock can be undone, the

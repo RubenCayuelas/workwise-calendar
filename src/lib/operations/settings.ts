@@ -31,7 +31,7 @@ export interface UpdateSettingsResult extends SettingsView {
 
 /**
  * No intent is passed to `recompose`, so displaced hours go to the next auto-fill day
- * rather than onto the Friday colchón. NARROWING the horizon can fail with
+ * rather than onto the Friday buffer. NARROWING the horizon can fail with
  * `horizon-exceeded`, which rolls the save back.
  */
 export function updateSettings(

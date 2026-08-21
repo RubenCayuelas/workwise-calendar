@@ -164,7 +164,7 @@ describe('describeDrop', () => {
     ).toEqual({ kind: 'filled', date: '2026-08-12' });
   });
 
-  it('counts a stretch cut at the comida as ONE day, not as an overflow', () => {
+  it('counts a stretch cut at the lunch break as ONE day, not as an overflow', () => {
     // Two rows, one day: nothing carried anywhere, so the calendar is the answer.
     expect(
       describeDrop(

@@ -76,15 +76,15 @@ afterEach(() => {
 describe('requests', () => {
   it('always sends minutes, never hours, so 2.5 h cannot drift', async () => {
     const { calls } = stubFetch({ body: { project: {}, blocks: [], summary: {}, touchedLockedBlockIds: [] } });
-    await createProject({ name: 'Puerta', color: '#185FA5', totalMinutes: 150 });
-    expect(calls[0].body).toEqual({ name: 'Puerta', color: '#185FA5', totalMinutes: 150 });
+    await createProject({ name: 'Door', color: '#185FA5', totalMinutes: 150 });
+    expect(calls[0].body).toEqual({ name: 'Door', color: '#185FA5', totalMinutes: 150 });
     expect(JSON.stringify(calls[0].body)).not.toContain('totalHours');
   });
 
   it('omits the keys a caller left undefined, so a PATCH never blanks a stored value', async () => {
     const { calls } = stubFetch({ body: {} });
-    await updateProject('p1', { name: 'Barandilla', description: undefined, color: undefined });
-    expect(calls[0].body).toEqual({ name: 'Barandilla' });
+    await updateProject('p1', { name: 'Railing', description: undefined, color: undefined });
+    expect(calls[0].body).toEqual({ name: 'Railing' });
   });
 
   it('keeps an explicit null, which is how a description is cleared', async () => {
@@ -142,23 +142,23 @@ describe('requests', () => {
     // A drag and a form save send the same three fields; only `action` lets the server freeze the
     // two gestures in the past while the form still reaches it.
     const { calls } = stubFetch({ body: {} });
-    await moveGap('averia', { date: '2026-08-12', startMinutes: 600 });
-    await resizeGap('averia', 240);
+    await moveGap('breakdown', { date: '2026-08-12', startMinutes: 600 });
+    await resizeGap('breakdown', 240);
     expect(calls[0].body).toEqual({ date: '2026-08-12', startMinutes: 600, action: 'move' });
     expect(calls[1].body).toEqual({ durationMinutes: 240, action: 'resize' });
-    expect(calls[0].url).toBe('/api/gaps/averia');
+    expect(calls[0].url).toBe('/api/gaps/breakdown');
   });
 
   it('sends an absence range as one request, and previews it at its own path', async () => {
     const { calls } = stubFetch({ body: {} });
-    await saveAbsence({ kind: 'closed-days', from: '2026-09-01', to: '2026-09-04', reason: 'Feria' });
+    await saveAbsence({ kind: 'closed-days', from: '2026-09-01', to: '2026-09-04', reason: 'Fair' });
     await previewAbsence({ kind: 'gap', from: '2026-09-01', startMinutes: 780, durationMinutes: 180 });
     expect(calls[0].url).toBe('/api/absences');
     expect(calls[0].body).toEqual({
       kind: 'closed-days',
       from: '2026-09-01',
       to: '2026-09-04',
-      reason: 'Feria',
+      reason: 'Fair',
     });
     expect(calls[1].url).toBe('/api/absences/preview');
     // `to` omitted is a range of one day, and the undefined key must not be sent as null.
@@ -194,7 +194,7 @@ describe('failures', () => {
         error: {
           code: 'gap-over-fixed-block',
           messageKey: 'errors.gapOverLockedBlock',
-          details: { projectName: 'Barandilla', date: '2026-08-11', startTime: '08:00', endTime: '12:00' },
+          details: { projectName: 'Railing', date: '2026-08-11', startTime: '08:00', endTime: '12:00' },
         },
       },
     });
@@ -206,7 +206,7 @@ describe('failures', () => {
     expect(isApiError(error)).toBe(true);
     expect((error as ApiError).code).toBe('gap-over-fixed-block');
     expect((error as ApiError).status).toBe(409);
-    expect((error as ApiError).details.projectName).toBe('Barandilla');
+    expect((error as ApiError).details.projectName).toBe('Railing');
   });
 
   it('names the offending input on a 400 so the form can highlight it', async () => {
@@ -270,11 +270,11 @@ describe('error messages', () => {
       code: 'gap-over-fixed-block',
       status: 409,
       messageKey: 'errors.gapOverLockedBlock',
-      details: { projectName: 'Barandilla', date: '2026-08-11', startTime: '08:00', endTime: '12:00' },
+      details: { projectName: 'Railing', date: '2026-08-11', startTime: '08:00', endTime: '12:00' },
     });
 
     expect(apiErrorMessage(error, translate, 'es')).toBe(
-      'Ese hueco pisa «Barandilla», que está bloqueado el martes 11 de agosto de 08:00 a 12:00. Desbloquéalo o muévelo antes de guardar.',
+      'Ese hueco pisa «Railing», que está bloqueado el martes 11 de agosto de 08:00 a 12:00. Desbloquéalo o muévelo antes de guardar.',
     );
   });
 
@@ -283,7 +283,7 @@ describe('error messages', () => {
       code: 'gap-over-fixed-block',
       status: 409,
       messageKey: 'errors.gapOverWeekendBlock',
-      details: { projectName: 'Portón', date: '2026-08-15', startTime: '09:00', endTime: '11:00' },
+      details: { projectName: 'Shutter', date: '2026-08-15', startTime: '09:00', endTime: '11:00' },
     });
     expect(apiErrorMessage(error, translate, 'en')).not.toContain('{{');
   });

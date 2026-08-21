@@ -3,7 +3,7 @@
  * with tests. Everything else is a controlled form over `src/lib/api-client.ts`.
  *
  * The dates are the wireframe's own week: 2026-08-10 is the Monday of ISO week 33,
- * 2026-08-14 the Friday colchón, 2026-08-17 next week's Monday.
+ * 2026-08-14 the Friday buffer, 2026-08-17 next week's Monday.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -15,16 +15,12 @@ import {
   sumMinutes,
 } from './placement';
 import type { Block } from '../../types';
-
-const MONDAY = '2026-08-10';
-const TUESDAY = '2026-08-11';
-const FRIDAY = '2026-08-14';
-const NEXT_MONDAY = '2026-08-17';
+import { FRI, MON, NEXT_MON, TUE } from '../../testing/fixtures';
 
 function block(overrides: Partial<Block> & { id: string }): Block {
   return {
     projectId: 'job-1',
-    date: MONDAY,
+    date: MON,
     startMinutes: 8 * 60,
     durationMinutes: 120,
     locked: false,
@@ -45,15 +41,15 @@ describe('sumMinutes', () => {
 describe('describePlacement', () => {
   it('reports a created job as new rows, with its total', () => {
     const after = [
-      block({ id: 'a', date: MONDAY, durationMinutes: 360 }),
-      block({ id: 'b', date: TUESDAY, durationMinutes: 120 }),
+      block({ id: 'a', date: MON, durationMinutes: 360 }),
+      block({ id: 'b', date: TUE, durationMinutes: 120 }),
     ];
 
-    const outcome = describePlacement([], after, MONDAY);
+    const outcome = describePlacement([], after, MON);
 
     expect(outcome.minutesDelta).toBe(480);
     expect(outcome.changes.map((change) => change.kind)).toEqual(['new', 'new']);
-    expect(outcome.furthestDate).toBe(TUESDAY);
+    expect(outcome.furthestDate).toBe(TUE);
     expect(outcome.hasChanges).toBe(true);
   });
 
@@ -66,11 +62,11 @@ describe('describePlacement', () => {
     const after = [
       block({ id: 'a', durationMinutes: 180 }),
       block({ id: 'b', durationMinutes: 60 }),
-      block({ id: 'c', date: TUESDAY }),
+      block({ id: 'c', date: TUE }),
     ];
 
     const kinds = new Map(
-      describePlacement(before, after, MONDAY).changes.map((change) => [change.block.id, change.kind]),
+      describePlacement(before, after, MON).changes.map((change) => [change.block.id, change.kind]),
     );
 
     expect(kinds.get('a')).toBe('grown');
@@ -79,9 +75,9 @@ describe('describePlacement', () => {
   });
 
   it('says nothing changed when only the job metadata was edited', () => {
-    const rows = [block({ id: 'a' }), block({ id: 'b', date: TUESDAY })];
+    const rows = [block({ id: 'a' }), block({ id: 'b', date: TUE })];
 
-    const outcome = describePlacement(rows, rows.map((row) => ({ ...row })), MONDAY);
+    const outcome = describePlacement(rows, rows.map((row) => ({ ...row })), MON);
 
     expect(outcome.changes).toEqual([]);
     expect(outcome.removedBlockIds).toEqual([]);
@@ -89,11 +85,11 @@ describe('describePlacement', () => {
     expect(outcome.minutesDelta).toBe(0);
   });
 
-  it('flags the Friday colchón when the extra hours land there', () => {
+  it('flags the Friday buffer when the extra hours land there', () => {
     const before = [block({ id: 'a' })];
-    const after = [block({ id: 'a' }), block({ id: 'b', date: FRIDAY, durationMinutes: 120 })];
+    const after = [block({ id: 'a' }), block({ id: 'b', date: FRI, durationMinutes: 120 })];
 
-    const outcome = describePlacement(before, after, MONDAY);
+    const outcome = describePlacement(before, after, MON);
 
     expect(outcome.usedBuffer).toBe(true);
     expect(outcome.spilledToLaterWeek).toBe(false);
@@ -101,10 +97,10 @@ describe('describePlacement', () => {
   });
 
   it('does not call the buffer used when a Friday row only got shorter', () => {
-    const before = [block({ id: 'a', date: FRIDAY, durationMinutes: 240 })];
-    const after = [block({ id: 'a', date: FRIDAY, durationMinutes: 120 })];
+    const before = [block({ id: 'a', date: FRI, durationMinutes: 240 })];
+    const after = [block({ id: 'a', date: FRI, durationMinutes: 120 })];
 
-    const outcome = describePlacement(before, after, MONDAY);
+    const outcome = describePlacement(before, after, MON);
 
     expect(outcome.usedBuffer).toBe(false);
     expect(outcome.minutesDelta).toBe(-120);
@@ -112,9 +108,9 @@ describe('describePlacement', () => {
 
   it('flags a later week, which is the placement the week on screen cannot show', () => {
     const before = [block({ id: 'a' })];
-    const after = [block({ id: 'a' }), block({ id: 'b', date: NEXT_MONDAY, durationMinutes: 360 })];
+    const after = [block({ id: 'a' }), block({ id: 'b', date: NEXT_MON, durationMinutes: 360 })];
 
-    const outcome = describePlacement(before, after, MONDAY);
+    const outcome = describePlacement(before, after, MON);
 
     expect(outcome.spilledToLaterWeek).toBe(true);
     expect(outcome.changes.find((change) => change.block.id === 'b')?.isLaterWeek).toBe(true);
@@ -123,10 +119,10 @@ describe('describePlacement', () => {
   });
 
   it('reports rows that no longer exist — LIFO removal and auto-merge both do this', () => {
-    const before = [block({ id: 'a' }), block({ id: 'b', date: TUESDAY })];
+    const before = [block({ id: 'a' }), block({ id: 'b', date: TUE })];
     const after = [block({ id: 'a', durationMinutes: 240 })];
 
-    const outcome = describePlacement(before, after, MONDAY);
+    const outcome = describePlacement(before, after, MON);
 
     expect(outcome.removedBlockIds).toEqual(['b']);
     expect(outcome.hasChanges).toBe(true);
@@ -134,12 +130,12 @@ describe('describePlacement', () => {
 
   it('orders the changes the way the calendar reads', () => {
     const after = [
-      block({ id: 'late', date: TUESDAY, startMinutes: 15 * 60 + 30 }),
-      block({ id: 'early', date: MONDAY, startMinutes: 8 * 60 }),
-      block({ id: 'mid', date: TUESDAY, startMinutes: 8 * 60 }),
+      block({ id: 'late', date: TUE, startMinutes: 15 * 60 + 30 }),
+      block({ id: 'early', date: MON, startMinutes: 8 * 60 }),
+      block({ id: 'mid', date: TUE, startMinutes: 8 * 60 }),
     ];
 
-    expect(describePlacement([], after, MONDAY).changes.map((change) => change.block.id)).toEqual([
+    expect(describePlacement([], after, MON).changes.map((change) => change.block.id)).toEqual([
       'early',
       'mid',
       'late',
@@ -149,30 +145,30 @@ describe('describePlacement', () => {
 
 describe('placementHighlights', () => {
   it('prefers the rows the hours arrived in over the rows that merely moved', () => {
-    const before = [block({ id: 'a' }), block({ id: 'b', date: TUESDAY })];
+    const before = [block({ id: 'a' }), block({ id: 'b', date: TUE })];
     const after = [
-      block({ id: 'a', date: TUESDAY, startMinutes: 12 * 60 }),
-      block({ id: 'b', date: TUESDAY, durationMinutes: 240 }),
+      block({ id: 'a', date: TUE, startMinutes: 12 * 60 }),
+      block({ id: 'b', date: TUE, durationMinutes: 240 }),
     ];
 
-    const highlights = placementHighlights(describePlacement(before, after, MONDAY));
+    const highlights = placementHighlights(describePlacement(before, after, MON));
 
     expect(highlights.map((change) => change.block.id)).toEqual(['b']);
   });
 
   it('falls back to the moved rows when nothing was added', () => {
     const before = [block({ id: 'a' })];
-    const after = [block({ id: 'a', date: TUESDAY })];
+    const after = [block({ id: 'a', date: TUE })];
 
-    expect(placementHighlights(describePlacement(before, after, MONDAY))).toHaveLength(1);
+    expect(placementHighlights(describePlacement(before, after, MON))).toHaveLength(1);
   });
 
   it('caps the list so a long job cannot flood the panel', () => {
     const after = Array.from({ length: 10 }, (_unused, index) =>
-      block({ id: `b${index}`, date: MONDAY, startMinutes: 8 * 60 + index }),
+      block({ id: `b${index}`, date: MON, startMinutes: 8 * 60 + index }),
     );
 
-    expect(placementHighlights(describePlacement([], after, MONDAY))).toHaveLength(6);
+    expect(placementHighlights(describePlacement([], after, MON))).toHaveLength(6);
   });
 });
 
@@ -180,8 +176,8 @@ describe('readGapConflicts', () => {
   const conflict = {
     blockId: 'block-1',
     projectId: 'job-1',
-    projectName: 'Barandilla',
-    date: TUESDAY,
+    projectName: 'Railing',
+    date: TUE,
     startMinutes: 480,
     durationMinutes: 240,
     reason: 'locked',
@@ -206,7 +202,7 @@ describe('readGapConflicts', () => {
 
   it('leaves the project name empty rather than inventing one', () => {
     const { projectName, ...withoutName } = conflict;
-    expect(projectName).toBe('Barandilla');
+    expect(projectName).toBe('Railing');
     expect(readGapConflicts({ conflicts: [withoutName] })[0].projectName).toBe('');
   });
 });
@@ -215,8 +211,8 @@ describe('otherGapConflicts', () => {
   const locked = {
     blockId: 'block-locked',
     projectId: 'job-1',
-    projectName: 'Barandilla',
-    date: TUESDAY,
+    projectName: 'Railing',
+    date: TUE,
     startMinutes: 480,
     durationMinutes: 240,
     reason: 'locked',
@@ -224,8 +220,8 @@ describe('otherGapConflicts', () => {
   const past = {
     blockId: 'block-past',
     projectId: 'job-2',
-    projectName: 'Puerta',
-    date: TUESDAY,
+    projectName: 'Door',
+    date: TUE,
     startMinutes: 930,
     durationMinutes: 120,
     reason: 'past',
@@ -235,8 +231,8 @@ describe('otherGapConflicts', () => {
     // `assertGapFits` reports the LOCKED conflict in the message even though the past
     // one comes first in the array, so position is not what identifies it.
     const details = {
-      projectName: 'Barandilla',
-      date: TUESDAY,
+      projectName: 'Railing',
+      date: TUE,
       startTime: '08:00',
       endTime: '12:00',
       reason: 'locked',

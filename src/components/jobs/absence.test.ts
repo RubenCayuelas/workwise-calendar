@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { absenceFormMode, summarizeAbsence } from './absence';
 import type { AbsencePreview } from '../../lib/api-client';
-
-const MON = '2026-08-10';
-const TUE = '2026-08-11';
-const WED = '2026-08-12';
+import { MON, TUE, WED } from '../../testing/fixtures';
 
 function preview(overrides: Partial<AbsencePreview> = {}): AbsencePreview {
   return {
@@ -35,7 +32,7 @@ describe('what a bulk absence is going to cost', () => {
     const summary = summarizeAbsence(
       preview({
         dates: [TUE],
-        displaced: [{ projectId: 'p1', name: 'Nave', minutes: 600, landsOn: WED }],
+        displaced: [{ projectId: 'p1', name: 'Shed', minutes: 600, landsOn: WED }],
         lastOccupiedBefore: TUE,
         lastOccupiedAfter: WED,
       }),
@@ -87,7 +84,7 @@ describe('what a bulk absence is going to cost', () => {
   it('does not claim the calendar reaches further when it does not', () => {
     const summary = summarizeAbsence(
       preview({
-        displaced: [{ projectId: 'p1', name: 'Nave', minutes: 120, landsOn: TUE }],
+        displaced: [{ projectId: 'p1', name: 'Shed', minutes: 120, landsOn: TUE }],
         lastOccupiedBefore: WED,
         lastOccupiedAfter: WED,
       }),
@@ -100,7 +97,7 @@ describe('what a bulk absence is going to cost', () => {
 
 describe('which shape of the absences form a gesture opens', () => {
   it('opens the RANGE screen only where a range makes sense', () => {
-    // `Ausencias` from the menu, and pressing a closed column, are the two ways a whole week of
+    // `Absences` from the menu, and pressing a closed column, are the two ways a whole week of
     // absence is asked for.
     expect(absenceFormMode('menu')).toBe('range');
     expect(absenceFormMode('closed-column')).toBe('range');

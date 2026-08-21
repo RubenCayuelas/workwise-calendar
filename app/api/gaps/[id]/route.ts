@@ -5,7 +5,7 @@
  * DELETE -> { deleted: true, summary }
  *
  * IT ADDRESSES THE WHOLE ABSENCE, whichever of its rows the id names: the two halves around the
- * comida are one gap with one reason, the duration defaults to their SUM and the rows the edit
+ * lunch break are one gap with one reason, the duration defaults to their SUM and the rows the edit
  * becomes are reconciled against the rows it has.
  *
  * A PATCH is checked as a WHOLE: omitted fields keep their stored values and the resulting

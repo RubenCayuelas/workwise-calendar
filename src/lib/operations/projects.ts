@@ -272,7 +272,7 @@ export interface PatchProjectInput {
 }
 
 /**
- * Raising the hours is the one thing that may use the Friday colchón, which is why
+ * Raising the hours is the one thing that may use the Friday buffer, which is why
  * `grownProjectIds` is passed only when the delta is positive.
  */
 export function patchProject(projectId: string, input: PatchProjectInput, db: Db = getDb()): ProjectMutation {
@@ -359,7 +359,7 @@ export interface ProjectDeletion {
  * afterwards there is nowhere to look the name up.
  *
  * No intent is passed to `recompose`: freeing space is not growth, so work is pulled back
- * into Mon-Thu, including off Friday, and nothing new is pushed onto the colchón.
+ * into Mon-Thu, including off Friday, and nothing new is pushed onto the buffer.
  */
 export function deleteProject(
   projectId: string,
@@ -376,7 +376,7 @@ export function deleteProject(
 
     const reason = deletedJobGapReason(project.name, options.language);
     const preservedGapIds: string[] = [];
-    // ONE unit per past DAY: the two halves the comida cut are one stretch of work and become one
+    // ONE unit per past DAY: the two halves the lunch break cut are one stretch of work and become one
     // absence. Without this every half is its own unit, and the sentence they share cannot say
     // otherwise — the same reason is written on every row here.
     const unitByDate = new Map<string, string>();

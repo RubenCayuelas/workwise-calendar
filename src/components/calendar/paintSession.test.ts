@@ -9,8 +9,7 @@ import { hhmmToMinutes as t } from '../../lib/dates';
 import { manualWindowsOf } from '../../lib/manualWindow';
 import { DRAG_THRESHOLD_PX } from './geometry';
 import { paintStep, type PaintEffect, type PaintState } from './paintSession';
-
-const WED = '2026-08-12';
+import { WED } from '../../testing/fixtures';
 
 const WINDOWS = manualWindowsOf(
   [
@@ -92,7 +91,7 @@ describe('the paint gesture state machine', () => {
     });
   });
 
-  it('crosses the comida for free: the band is NET working minutes', () => {
+  it('crosses the lunch break for free: the band is NET working minutes', () => {
     const { state } = moveTo(press().state, '17:30');
 
     // 10:00-14:00 plus 15:30-17:30, never 7.5 h.

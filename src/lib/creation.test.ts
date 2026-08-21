@@ -5,21 +5,9 @@ import { manualWindowsOf } from './manualWindow';
 import { compose, createDayConfigResolver, type ComposeInput, type ComposeResult } from './composition';
 import { decideStartDate, planCreation, type CreationPlan, type CreationResult } from './creation';
 import type { Block, DayOverride, DayShape, Gap } from '../types';
+import { FAR_MON, FRI, LAST_WED, MON, NEXT_MON, NEXT_THU, NEXT_TUE, NEXT_WED, SAT, SUN, THU, TUE, WED } from '../testing/fixtures';
 
-const LAST_WED = '2026-08-05';
-const MON = '2026-08-10';
-const TUE = '2026-08-11';
 /** The week under test is the wireframe's, and today is the Wednesday inside it. */
-const WED = '2026-08-12';
-const THU = '2026-08-13';
-const FRI = '2026-08-14';
-const SAT = '2026-08-15';
-const SUN = '2026-08-16';
-const NEXT_MON = '2026-08-17';
-const NEXT_TUE = '2026-08-18';
-const NEXT_WED = '2026-08-19';
-const NEXT_THU = '2026-08-20';
-const FAR_MON = '2026-09-07';
 
 const PERIODS = [
   { startMinutes: t('08:00'), endMinutes: t('14:00') },
@@ -345,7 +333,7 @@ describe('a date the queue already runs past', () => {
     const result = plan(calendar, { startDate: WED, hours: 20 });
     const collisions = expectOk(result).collisions;
 
-    // Forced, the job would take Wednesday and Thursday, pushing Barandilla forward.
+    // Forced, the job would take Wednesday and Thursday, pushing Railing forward.
     expect(expectOk(result).span).toEqual({ startDate: WED, endDate: THU });
     expect(collisions.map((item) => `${item.date} ${item.projectId} ${item.minutes}`)).toEqual([
       `${WED} bar 600`,
@@ -396,7 +384,7 @@ describe('a date beyond everything planned', () => {
     expect(minutesOf(result, 'new')).toBe(14 * 60);
   });
 
-  it('skips the Friday colchón on the way forward, like any new job', () => {
+  it('skips the Friday buffer on the way forward, like any new job', () => {
     const result = plan(calendar, { startDate: NEXT_WED, hours: 24 });
 
     expect(rows(result)).toEqual([
@@ -504,7 +492,7 @@ describe('a band painted at an exact minute', () => {
     expect(expectOk(result).placed.every((row) => row.locked)).toBe(true);
   });
 
-  it('is cut at the comida, so no stored row straddles it', () => {
+  it('is cut at the lunch break, so no stored row straddles it', () => {
     const result = paint(input({}), { startDate: NEXT_TUE, from: '13:00', hours: 3 });
 
     expect(rows(result)).toEqual([
@@ -519,7 +507,7 @@ describe('a band painted at an exact minute', () => {
     expect(rows(result)).toEqual([`${NEXT_TUE} 19:00-20:30 [locked]`]);
   });
 
-  it('reads a release inside the comida as the afternoon', () => {
+  it('reads a release inside the lunch break as the afternoon', () => {
     const result = paint(input({}), { startDate: NEXT_TUE, from: '14:30', hours: 2 });
 
     expect(rows(result)).toEqual([`${NEXT_TUE} 15:30-17:30 [locked]`]);

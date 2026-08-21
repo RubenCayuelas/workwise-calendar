@@ -114,7 +114,7 @@ export function resolveDropDay(input: {
     input.rolls === false
       ? // Nowhere else to go, so only the start is settled — and by the same rule `dropLanding`
         // applies first: a release with no working time under it means the next minute that has
-        // some, so anywhere in the comida is 15:30.
+        // some, so anywhere in the lunch break is 15:30.
         { date: input.date, startMinutes: firstWorkingMinute(day.manualWindows, input.startMinutes) }
       : dropLanding({
           date: input.date,

@@ -15,7 +15,7 @@ export type PaintRefusal = 'past' | 'closed' | 'busy';
 export interface PaintedSpan {
   date: string;
   startMinutes: number;
-  /** NET working minutes over the day's manual windows, so the comida costs nothing. */
+  /** NET working minutes over the day's manual windows, so the lunch break costs nothing. */
   durationMinutes: number;
 }
 
@@ -26,7 +26,7 @@ export interface PaintPoint {
 
 /**
  * `choosing` is the phase the release lands in: the listeners are gone but the band is still drawn,
- * because the owner has not yet said whether it is a hueco or a trabajo.
+ * because the owner has not yet said whether it is a gap or a job.
  */
 export type PaintPhase = 'idle' | 'pressed' | 'painting' | 'choosing';
 
@@ -92,7 +92,7 @@ export function paintedSpan(
   const from = Math.min(a, b);
   const durationMinutes = netMinutesBetween(windows, from, Math.max(a, b));
   if (durationMinutes < SNAP_MINUTES) return null;
-  // The band's own start is the first minute that can hold work: painting from inside the comida
+  // The band's own start is the first minute that can hold work: painting from inside the lunch break
   // means the afternoon, exactly as a drop aimed there does.
   return { startMinutes: firstWorkingMinute(windows, from), durationMinutes };
 }

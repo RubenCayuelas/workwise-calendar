@@ -400,7 +400,7 @@ function paintedDraft(
     updatedAt: request.now,
   }));
 
-  // Asked of every ROW, never of `start + duration`: a band across the comida spans a stretch where
+  // Asked of every ROW, never of `start + duration`: a band across the lunch break spans a stretch where
   // nothing can be, and the test would miss whatever its real second half lands on.
   for (const row of head) {
     for (const hole of input.gaps) {
@@ -493,7 +493,7 @@ function engineRows(
       // The buffer accepts what the owner asked it to. The weekend is never opened up.
       return date === decision.startDate && opensBuffer ? { ...config, role: 'auto' } : config;
     },
-    // The CONTINUATION follows the normal rules: a new job's tail skips the Friday colchón.
+    // The CONTINUATION follows the normal rules: a new job's tail skips the Friday buffer.
     newProjectIds: [request.projectId],
     grownProjectIds: undefined,
   };

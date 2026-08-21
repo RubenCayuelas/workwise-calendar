@@ -9,12 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CreationPreview } from '../../lib/api-client';
 import { confirmKindFor, summarizeStartDate } from './startDate';
-
-const WED = '2026-08-12';
-const THU = '2026-08-13';
-const FRI = '2026-08-14';
-const SAT = '2026-08-15';
-const NEXT_MON = '2026-08-17';
+import { FRI, NEXT_MON, SAT, THU, WED } from '../../testing/fixtures';
 
 /** A preview that lands exactly where it was asked to, with nothing in the way. */
 function preview(overrides: Partial<CreationPreview> = {}): CreationPreview {
@@ -67,7 +62,7 @@ describe('summarizing a start-date preview', () => {
   it('names the jobs in the way and adds up their hours', () => {
     const summary = summarizeStartDate(
       preview({
-        collisions: [collision(WED, 'Puerta', 600), collision(THU, 'Puerta', 360)],
+        collisions: [collision(WED, 'Door', 600), collision(THU, 'Door', 360)],
         span: { startDate: WED, endDate: THU },
       }),
     );
@@ -75,8 +70,8 @@ describe('summarizing a start-date preview', () => {
     expect(summary.collisionJobs).toBe(1);
     expect(summary.collisionMinutes).toBe(960);
     expect(summary.collisions.map((item) => item.key)).toEqual([
-      `${WED}|p-Puerta`,
-      `${THU}|p-Puerta`,
+      `${WED}|p-Door`,
+      `${THU}|p-Door`,
     ]);
     expect(summary.notes).not.toContain('clear');
     expect(summary.tone).toBe('warning');
@@ -84,7 +79,7 @@ describe('summarizing a start-date preview', () => {
 
   it('warns that a locked block in the way is not moved', () => {
     const summary = summarizeStartDate(
-      preview({ collisions: [collision(WED, 'Puerta', 120, true)] }),
+      preview({ collisions: [collision(WED, 'Door', 120, true)] }),
     );
 
     expect(summary.notes).toContain('lockedStands');
@@ -94,7 +89,7 @@ describe('summarizing a start-date preview', () => {
     expect(summarizeStartDate(preview()).notes).not.toContain('freeDays');
     expect(summarizeStartDate(preview({ deferred: true })).notes).toContain('freeDays');
     expect(
-      summarizeStartDate(preview({ collisions: [collision(WED, 'Puerta', 60)] })).notes,
+      summarizeStartDate(preview({ collisions: [collision(WED, 'Door', 60)] })).notes,
     ).toContain('freeDays');
     expect(summarizeStartDate(preview({ deferred: true, freeDates: [] })).notes).not.toContain(
       'freeDays',
