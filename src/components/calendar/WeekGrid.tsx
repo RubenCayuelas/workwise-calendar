@@ -632,11 +632,6 @@ interface DayColumnProps {
   ghost: GhostPlan | null;
   drag: DragController;
   paint: PaintController;
-  /**
-   * The band a PAINTED form is still holding, following its fields. Drawn like the live band and in
-   * the same slot, so a week change never slides it — and over several columns, because the form's
-   * hours may be far more than the day it was drawn on can hold.
-   */
   draftRows: readonly DraftRow[];
   placing: PlacingFragment | null;
   /** The slot the pointer is over while placing a fragment. */

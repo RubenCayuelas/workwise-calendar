@@ -3,7 +3,9 @@
 Work scheduling for a small metalworking workshop: how long the shop is booked, what dates are
 free, and drag-and-drop to reshuffle. Self-hosted on the shop PC, single user, no auth.
 
-`CLAUDE.md` is the authoritative spec — the business rules there win over anything written here.
+`CLAUDE.md` is the working agreement for anyone — human or agent — touching this repository, and
+`docs/SPEC.md` is the authoritative specification: the business rules there win over anything
+written here.
 
 ## Setup
 
@@ -60,8 +62,7 @@ Point `WORKWISE_DB_PATH` at another file to run against a throwaway database.
 
 Wired end to end: the engine, the API, the week view with drag / resize / lock / split / delete, the
 job panel, the absences screen (gaps and closed days), and Settings. `tsc`, `vitest`, `eslint` and
-`next build` are all green — **CLAUDE.md § Current Project Status has the version and the test count**,
-and it is the only place they are written down, so this file cannot drift from them.
+`next build` are all green. **[CHANGELOG.md](CHANGELOG.md) has the version and what each one changed**,
+so this file cannot drift from it.
 
-Still open, all recorded in `CLAUDE.md` § Open Decisions: backups (an Export button), one-level undo,
-and *añadir otra parte* on the job panel.
+What is still open is recorded in [docs/DECISIONS.md](docs/DECISIONS.md) § Open Decisions.
