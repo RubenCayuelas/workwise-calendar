@@ -58,6 +58,7 @@ import {
 import { EDGE_ZONE_PX, type EdgeHold, type EdgeSide } from './edgePaging';
 import type { BlockDragTarget, DragController, GapDragTarget } from './useBlockDrag';
 import type { PaintController } from './usePaintAbsence';
+import type { DraftRow } from './draftBand';
 import styles from './WeekGrid.module.css';
 
 /** A fragment waiting for the click that says where it goes. */
@@ -112,6 +113,12 @@ export interface WeekGridProps {
    * press on a block or an absence never reaches it.
    */
   paint: PaintController;
+  /**
+   * The band a PAINTED form is still holding, following its fields. Drawn like the live band and in
+   * the same slot, so a week change never slides it — and over several columns, because the form's
+   * hours may be far more than the day it was drawn on can hold.
+   */
+  draftRows: readonly DraftRow[];
   placing: PlacingFragment | null;
   onPlace: (slot: { date: string; startMinutes: number }) => void;
   onOpenJob: (projectId: string) => void;
@@ -138,6 +145,7 @@ export function WeekGrid({
   busy,
   drag,
   paint,
+  draftRows,
   placing,
   onPlace,
   onOpenJob,
@@ -454,6 +462,7 @@ export function WeekGrid({
               ghost={ghost}
               drag={drag}
               paint={paint}
+              draftRows={draftRows}
               placing={placing}
               placingSlot={hover}
               placingGhost={placingGhost}
@@ -623,6 +632,12 @@ interface DayColumnProps {
   ghost: GhostPlan | null;
   drag: DragController;
   paint: PaintController;
+  /**
+   * The band a PAINTED form is still holding, following its fields. Drawn like the live band and in
+   * the same slot, so a week change never slides it — and over several columns, because the form's
+   * hours may be far more than the day it was drawn on can hold.
+   */
+  draftRows: readonly DraftRow[];
   placing: PlacingFragment | null;
   /** The slot the pointer is over while placing a fragment. */
   placingSlot: { date: string; startMinutes: number } | null;
@@ -655,6 +670,7 @@ function DayColumn({
   ghost,
   drag,
   paint,
+  draftRows,
   placing,
   placingSlot,
   placingGhost,
@@ -671,6 +687,7 @@ function DayColumn({
   const bands = nonWorkingBands(day.periods, timeline);
   /** The band being painted, when it is being painted on THIS column. */
   const painting = paint.painting?.date === day.date ? paint.painting : null;
+  const draftHere = draftRows.filter((row) => row.date === day.date);
   const preview = drag.preview?.date === day.date ? drag.preview : null;
   // The gesture itself, whichever column it was released over: `preview` is null on every other
   // one, while the ghost's colour and total hours are needed wherever its hours land.
@@ -1252,6 +1269,23 @@ function DayColumn({
               )}
             </div>
           ))}
+
+      {/* THE SAME BAND, still drawn while its form is open and following the form's fields. It is a
+          SHAPE and not a promise: agnostic to what is under it, so a continuation day is drawn
+          fainter rather than dressed up as exact. Nothing is written until Guardar. */}
+      {draftHere.map((row) => (
+        <div
+          key={`draft-${row.startMinutes}`}
+          className={[styles.paintBand, row.continuation ? styles.paintBandCarried : '']
+            .filter(Boolean)
+            .join(' ')}
+          style={{
+            '--ww-gap-color': gapColor,
+            top: `${timeline.yOf(row.startMinutes)}px`,
+            height: `${timeline.heightBetween(row.startMinutes, row.startMinutes + row.durationMinutes)}px`,
+          } as React.CSSProperties}
+        />
+      ))}
 
       {/* A split fragment waiting for its target, previewed exactly like the drop it is: in
           segments where it lands literally, as the reflow's own rows where it is a rank. */}

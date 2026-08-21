@@ -30,13 +30,13 @@ export { SplitBlockDialog, MIN_SPLITTABLE_MINUTES, type SplitBlockDialogProps } 
 
 export { useWeek, type WeekController } from './useWeek';
 export {
-  paintedSpan,
   usePaintAbsence,
   type PaintController,
   type PaintOptions,
   type PaintRefusal,
   type PaintedAbsence,
 } from './usePaintAbsence';
+export { paintedSpan, type PaintPoint, type PaintedSpan } from './paintSession';
 export {
   useBlockDrag,
   type BlockDragOptions,

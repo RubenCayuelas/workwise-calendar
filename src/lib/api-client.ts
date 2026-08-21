@@ -132,12 +132,20 @@ export interface CreateProjectInput {
   startDate?: string;
   /** Only with `startDate`, and only worth sending when the preview says `canForce`. */
   force?: boolean;
+  /**
+   * A band PAINTED on the grid: minutes from midnight. It makes `startDate` a point rather than a
+   * floor, so the hours start exactly there and the rows on that day come back padlocked. Requires
+   * `startDate`; never sent with `force`.
+   */
+  startMinutes?: number;
 }
 
 export interface PreviewProjectInput {
   startDate: string;
   totalMinutes: number;
   force?: boolean;
+  /** Send whatever the save will send, or the preview answers a different question. */
+  startMinutes?: number;
 }
 
 export interface UpdateProjectInput {

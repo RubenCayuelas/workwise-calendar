@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { CreationPreview } from '../../lib/api-client';
-import { summarizeStartDate } from './startDate';
+import { confirmKindFor, summarizeStartDate } from './startDate';
 
 const WED = '2026-08-12';
 const THU = '2026-08-13';
@@ -115,7 +115,58 @@ describe('summarizing a start-date preview', () => {
     expect(
       summarizeStartDate(preview({ day: 'weekend', needsDayConfirmation: true })).confirmKind,
     ).toBe('weekend');
+    expect(
+      summarizeStartDate(preview({ day: 'closed', needsDayConfirmation: true })).confirmKind,
+    ).toBe('closed');
     expect(summarizeStartDate(preview({ day: 'past' })).confirmKind).toBe(null);
+  });
+
+  it('has words for every day the policy confirms, and only those', () => {
+    // `needsConfirmation` true with `confirmKind` null is a dialog with no sentence in it. The
+    // three days below are exactly the ones `decideStartDate` sets the flag for.
+    const kindOf = (day: CreationPreview['day']): string | null =>
+      summarizeStartDate(preview({ day, needsDayConfirmation: true })).confirmKind;
+
+    expect([kindOf('buffer'), kindOf('weekend'), kindOf('closed')]).toEqual([
+      'buffer',
+      'weekend',
+      'closed',
+    ]);
+    expect([kindOf('auto'), kindOf('past')]).toEqual([null, null]);
+  });
+
+  it('says the hours start where the band was drawn, and drops what cannot be true', () => {
+    const summary = summarizeStartDate(
+      preview({ mode: 'painted', autoLock: true, canForce: true, deferred: true }),
+    );
+
+    expect(summary.notes).toContain('painted');
+    // A painted band is on its minute or refused, so none of these describes it: `autoLock` would
+    // claim the engine chose the day, `deferred` that the hours start later, `forced` that the owner
+    // overrode a deferral. Offering to force it would offer to answer a question nobody asked.
+    expect(summary.notes).not.toContain('autoLock');
+    expect(summary.notes).not.toContain('deferred');
+    expect(summary.notes).not.toContain('forced');
+    expect(summary.canForce).toBe(false);
+  });
+
+  it('reads the buffer and the weekend off the weekday, with no preview at all', () => {
+    // The point of asking the weekday: a preview that failed or has not answered yet must never
+    // let a save honour a Friday or a Saturday silently.
+    expect(confirmKindFor(FRI, null)).toBe('buffer');
+    expect(confirmKindFor(SAT, null)).toBe('weekend');
+    expect(confirmKindFor(WED, null)).toBe(null);
+  });
+
+  it('can only learn a CLOSED day from the server', () => {
+    // Nothing about the date says a day is closed — only `day_overrides` does.
+    expect(confirmKindFor(WED, null)).toBe(null);
+    expect(confirmKindFor(WED, 'closed')).toBe('closed');
+  });
+
+  it('lets the weekday win, so the server cannot soften a Saturday', () => {
+    expect(confirmKindFor(SAT, 'closed')).toBe('weekend');
+    expect(confirmKindFor(FRI, null)).toBe('buffer');
   });
 
   it('abridges every list rather than burying the answer', () => {

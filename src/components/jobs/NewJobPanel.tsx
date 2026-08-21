@@ -29,14 +29,23 @@ import {
   type Project,
   type ScheduleSummary,
 } from '../../lib/api-client';
-import { FRIDAY, hoursToMinutes, isValidDate, isWeekend, todayLocal, weekdayOf } from '../../lib/dates';
+import { hoursToMinutes, isValidDate, todayLocal } from '../../lib/dates';
+import { MIN_ROW_MINUTES } from '../../lib/validation';
 import { PROJECT_COLORS } from '../../lib/projectColors';
 import { useFormat, type Formatter } from '../../lib/useFormat';
 import { JobFields, jobFieldErrors, type JobFieldName, type JobFormValues } from './JobFields';
 import { PlacementNotice } from './PlacementNotice';
 import { describePlacement, type PlacementOutcome } from './placement';
-import { summarizeStartDate, type StartDateNote, type StartDateSummary } from './startDate';
+import {
+  confirmKindFor,
+  summarizeStartDate,
+  type DayConfirmKind,
+  type StartDateNote,
+  type StartDateSummary,
+} from './startDate';
+import { offWeekChoice } from './offWeek';
 import { scheduleSummaryMessage } from './summary';
+import type { GridDraft } from '../calendar/draftBand';
 import type { JobsMutationHandler } from './events';
 import styles from './jobs.module.css';
 
@@ -63,6 +72,17 @@ export interface NewJobPanelProps {
   defaultHours?: number;
   /** Pre-selects a swatch — e.g. the colour the calendar sees least of. */
   defaultColor?: string;
+  /**
+   * A BAND painted on the grid. The day and the minute are the owner's and are not editable away
+   * from being a point: the hours field still wins on LENGTH, and whatever the day cannot hold
+   * carries on from the next day the engine uses.
+   */
+  painted?: { date: string; startMinutes: number };
+  /** Only with `painted`: keeps the band drawn on the grid, following these fields. */
+  onDraft?: (draft: GridDraft | null) => void;
+  /** The days on screen: without them a date leaving the week cannot be noticed. */
+  visibleDates?: readonly string[];
+  onShowWeekOf?: (date: string) => void;
   /** `settings.planningHorizonWeeks`: how far ahead the day picker reaches. */
   horizonWeeks?: number;
 }
@@ -76,6 +96,10 @@ export function NewJobPanel({
   today,
   defaultHours = DEFAULT_HOURS,
   defaultColor = PROJECT_COLORS[0],
+  painted,
+  onDraft,
+  visibleDates,
+  onShowWeekOf,
   horizonWeeks,
 }: NewJobPanelProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -100,6 +124,8 @@ export function NewJobPanel({
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<unknown>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  /** The last day chosen that WAS on screen: the honest place to offer going back to. */
+  const [lastVisible, setLastVisible] = useState<string | null>(null);
 
   const done = created !== null;
 
@@ -121,14 +147,46 @@ export function NewJobPanel({
     setLocalErrors({});
     setActionError(null);
     setCreated(null);
-    setDated(false);
-    setStartDate(reference);
+    // A painted band arrives with its day already chosen, so the date section opens ON it.
+    setDated(painted !== undefined);
+    setStartDate(painted?.date ?? reference);
     setForce(false);
     setPreview(null);
     setPreviewError(null);
-  }, [open, defaultHours, defaultColor, reference]);
+  }, [open, defaultHours, defaultColor, reference, painted]);
 
   const previewable = open && !done && dated && isValidDate(startDate) && values.hours > 0;
+
+  /**
+   * The painted minute, but only while the date is still the day it was painted on. Changing the day
+   * by hand gives up the point and goes back to a floor — which is the honest reading, since the
+   * minute was drawn on a column that is no longer the one being asked about.
+   */
+  const paintedMinutes =
+    painted !== undefined && startDate === painted.date ? painted.startMinutes : undefined;
+
+  // Only offered while a BAND is being held: elsewhere the date is just a floor and there is nothing
+  // on the grid to go and look at.
+  const offWeek =
+    painted === undefined || visibleDates === undefined
+      ? null
+      : offWeekChoice(startDate, visibleDates, lastVisible);
+
+  // The grid cannot know what this form holds, so the form tells it — on every change, and `null`
+  // once the job is created, where the real rows take the band's place.
+  useEffect(() => {
+    if (onDraft === undefined) return;
+    if (paintedMinutes === undefined || done) {
+      onDraft(null);
+      return;
+    }
+    onDraft({
+      kind: 'job',
+      date: startDate,
+      startMinutes: paintedMinutes,
+      durationMinutes: hoursToMinutes(values.hours),
+    });
+  }, [onDraft, paintedMinutes, startDate, values.hours, done]);
 
   useEffect(() => {
     if (!previewable) {
@@ -142,7 +200,14 @@ export function NewJobPanel({
     const timer = setTimeout(() => {
       setPreviewing(true);
       previewProjectCreation(
-        { startDate, totalMinutes: hoursToMinutes(values.hours), force },
+        {
+          startDate,
+          totalMinutes: hoursToMinutes(values.hours),
+          force,
+          // Only while the date is STILL the painted one: moving the day makes it an ordinary floor
+          // again, and previewing a minute on another day would promise a placement nobody asked for.
+          ...(paintedMinutes === undefined ? {} : { startMinutes: paintedMinutes }),
+        },
         { signal: controller.signal },
       )
         .then((result) => {
@@ -165,14 +230,20 @@ export function NewJobPanel({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [previewable, startDate, values.hours, force]);
+  }, [previewable, startDate, values.hours, force, paintedMinutes]);
 
   const startSummary: StartDateSummary | null =
     preview === null ? null : summarizeStartDate(preview);
 
-  // Deliberately local rather than taken from the preview: the weekday alone decides it, so a
-  // failed preview request can never let a save honour a Friday or a weekend silently.
-  const dayConfirmKind = !dated || !isValidDate(startDate) ? null : confirmKindOf(startDate);
+  const dayConfirmKind =
+    !dated || !isValidDate(startDate)
+      ? null
+      : confirmKindFor(startDate, startSummary?.confirmKind ?? null);
+
+  // A dated save WAITS for its preview. The weekday answers for a Friday and a weekend on its own,
+  // but a closed day is invisible to it, so saving before the server has spoken could honour one
+  // without ever asking. A preview that fails leaves this true and `previewMessage` says why.
+  const awaitingPreview = previewable && startSummary === null;
 
   const save = async (): Promise<void> => {
     setConfirmOpen(false);
@@ -189,6 +260,7 @@ export function NewJobPanel({
         color: values.color,
         totalMinutes: hoursToMinutes(values.hours),
         ...(dated ? { startDate, force } : {}),
+        ...(paintedMinutes === undefined ? {} : { startMinutes: paintedMinutes }),
       });
 
       // Every row is new, so the diff against nothing is where the engine put it.
@@ -257,7 +329,7 @@ export function NewJobPanel({
                 className={styles.grow}
                 variant="primary"
                 icon={<IconPlus size={15} stroke={1.75} />}
-                disabled={saving}
+                disabled={saving || awaitingPreview}
                 onClick={submit}
               >
                 {saving ? t('common.saving') : t('jobForm.submit')}
@@ -300,6 +372,7 @@ export function NewJobPanel({
           disabled={saving || done}
           // Nothing to LIFO yet: on a new job the hours are simply the estimate.
           hoursHint={null}
+          {...(painted === undefined ? {} : { hoursStep: MIN_ROW_MINUTES / 60 })}
         />
 
         {done ? null : (
@@ -331,12 +404,37 @@ export function NewJobPanel({
                     horizonWeeks={horizonWeeks}
                     disabled={saving}
                     onChange={(next) => {
+                      // Set OPTIMISTICALLY: the band on the grid has to follow the field, and a
+                      // field frozen behind a question would freeze the band mid-edit.
+                      if (visibleDates?.includes(startDate) === true) setLastVisible(startDate);
                       setStartDate(next);
                       // A new day is a new question; the old answer must not carry over.
                       setForce(false);
                     }}
                   />
                 </Field>
+
+                {offWeek === null ? null : (
+                  <InlineBanner tone="info" title={t('jobForm.offWeekTitle')}>
+                    {t('jobForm.offWeek', { date: format.longDate(offWeek.goTo) })}
+                    <div className={styles.offWeekActions}>
+                      <Button size="sm" onClick={() => onShowWeekOf?.(offWeek.goTo)}>
+                        {t('jobForm.offWeekGo')}
+                      </Button>
+                      {offWeek.backTo === null ? null : (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setStartDate(offWeek.backTo as string)}
+                        >
+                          {t('jobForm.offWeekBack', {
+                            date: format.dayOption(offWeek.backTo),
+                          })}
+                        </Button>
+                      )}
+                    </div>
+                  </InlineBanner>
+                )}
 
                 <StartDatePreview
                   summary={startSummary}
@@ -375,14 +473,10 @@ export function NewJobPanel({
 
       <ConfirmDialog
         open={confirmOpen && dayConfirmKind !== null}
-        title={t(
-          dayConfirmKind === 'weekend' ? 'jobForm.confirmWeekendTitle' : 'jobForm.confirmBufferTitle',
-        )}
+        title={t(CONFIRM_TITLE[dayConfirmKind ?? 'buffer'])}
         description={
           isValidDate(startDate)
-            ? t(dayConfirmKind === 'weekend' ? 'jobForm.confirmWeekendBody' : 'jobForm.confirmBufferBody', {
-                date: format.longDate(startDate),
-              })
+            ? t(CONFIRM_BODY[dayConfirmKind ?? 'buffer'], { date: format.longDate(startDate) })
             : undefined
         }
         confirmLabel={t('jobForm.confirmDay')}
@@ -446,6 +540,8 @@ function StartDatePreview({
         return t('jobForm.startForced', { date: format.longDate(chosenDate) });
       case 'autoLock':
         return t('jobForm.startAutoLock');
+      case 'painted':
+        return t('jobForm.startPainted');
       case 'buffer':
         return t('jobForm.startBuffer');
       case 'weekend':
@@ -538,11 +634,18 @@ function StartDatePreview({
   );
 }
 
-/** Which confirmation a chosen day needs, from its weekday alone. */
-function confirmKindOf(date: string): 'buffer' | 'weekend' | null {
-  if (isWeekend(date)) return 'weekend';
-  return weekdayOf(date) === FRIDAY ? 'buffer' : null;
-}
+/** A `Record`, so a new kind of confirmation cannot be added without words for it. */
+const CONFIRM_TITLE: Record<DayConfirmKind, string> = {
+  buffer: 'jobForm.confirmBufferTitle',
+  weekend: 'jobForm.confirmWeekendTitle',
+  closed: 'jobForm.confirmClosedTitle',
+};
+
+const CONFIRM_BODY: Record<DayConfirmKind, string> = {
+  buffer: 'jobForm.confirmBufferBody',
+  weekend: 'jobForm.confirmWeekendBody',
+  closed: 'jobForm.confirmClosedBody',
+};
 
 function blankJob(hours: number, color: string): JobFormValues {
   return { name: '', description: '', hours, color };

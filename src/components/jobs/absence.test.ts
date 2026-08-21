@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeAbsence } from './absence';
+import { absenceFormMode, summarizeAbsence } from './absence';
 import type { AbsencePreview } from '../../lib/api-client';
 
 const MON = '2026-08-10';
@@ -95,5 +95,25 @@ describe('what a bulk absence is going to cost', () => {
 
     expect(summary.reachesUntil).toBeNull();
     expect(summary.notes).not.toContain('reachesFurther');
+  });
+});
+
+describe('which shape of the absences form a gesture opens', () => {
+  it('opens the RANGE screen only where a range makes sense', () => {
+    // `Ausencias` from the menu, and pressing a closed column, are the two ways a whole week of
+    // absence is asked for.
+    expect(absenceFormMode('menu')).toBe('range');
+    expect(absenceFormMode('closed-column')).toBe('range');
+  });
+
+  it('opens ONE absence for a painted band', () => {
+    // A paint is one column by definition, so the Desde/Hasta screen asked a question the gesture
+    // had already answered — and offered a range pre-filled on a single day.
+    expect(absenceFormMode('paint')).toBe('single');
+  });
+
+  it('opens ONE absence for the two gestures that already name their day', () => {
+    expect(absenceFormMode('gap')).toBe('single');
+    expect(absenceFormMode('close-day')).toBe('single');
   });
 });

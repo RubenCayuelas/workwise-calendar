@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { hhmmToMinutes as t, minutesToHHmm } from './dates';
+import { compareDates, hhmmToMinutes as t, minutesToHHmm } from './dates';
 import { DEFAULT_SETTINGS, dayShapeFromSettings } from './settings';
 import { manualWindowsOf } from './manualWindow';
 import { compose, createDayConfigResolver, type ComposeInput, type ComposeResult } from './composition';
@@ -116,6 +116,23 @@ function plan(
     now: stamp(99),
     startDate: request.startDate,
     force: request.force,
+  });
+}
+
+/** A band painted at an exact minute: the same request, plus the minute the release names. */
+function paint(
+  composeInput: ComposeInput,
+  request: { startDate: string; from: string; hours: number },
+): CreationResult {
+  let minted = 0;
+  return planCreation(composeInput, {
+    projectId: 'new',
+    minutes: Math.round(request.hours * 60),
+    blockId: 'n1',
+    newBlockId: () => `n${++minted + 1}`,
+    now: stamp(99),
+    startDate: request.startDate,
+    startMinutes: t(request.from),
   });
 }
 
@@ -285,6 +302,24 @@ describe('deciding what a start date means', () => {
     expect(decideStartDate({ ...question, startDate: SAT, isClosed: true }).day).toBe('weekend');
     expect(decideStartDate({ ...question, startDate: NEXT_MON, isClosed: true }).day).toBe('closed');
   });
+
+  it('padlocks a closed day and asks for a confirmation, exactly as the weekend does', () => {
+    // The floor does NOT bind here — the queue lands later — so `closed` is the only thing that
+    // can make this born. Before 2026-08-20 it could not, and the job started the first open day.
+    const decision = decideStartDate({
+      ...question,
+      startDate: WED,
+      lastOccupiedDate: NEXT_TUE,
+      queueStartDate: NEXT_TUE,
+      isClosed: true,
+    });
+
+    expect(decision.day).toBe('closed');
+    expect(decision.floorBinding).toBe(false);
+    expect(decision.mode).toBe('born');
+    expect(decision.dayLock).toBe(true);
+    expect(decision.needsDayConfirmation).toBe(true);
+  });
 });
 
 describe('a date the queue already runs past', () => {
@@ -445,6 +480,221 @@ describe('the buffer, the weekend and the past', () => {
   });
 });
 
+describe('a band painted at an exact minute', () => {
+  /** Mornings taken to NEXT_MON, afternoons free: the holes a paint is actually aimed at. */
+  const busyMornings = input({
+    blocks: [
+      block({ project: 'bar', date: WED, from: '08:00', hours: 6 }),
+      block({ project: 'bar', date: THU, from: '08:00', hours: 6 }),
+      block({ project: 'bar', date: NEXT_MON, from: '08:00', hours: 6 }),
+    ],
+  });
+
+  it('starts on the minute it was painted on, padlocked', () => {
+    const result = paint(busyMornings, { startDate: THU, from: '16:00', hours: 2 });
+
+    expect(rows(result)).toEqual([`${THU} 16:00-18:00 [locked]`]);
+  });
+
+  it('padlocks on Monday-Thursday inside the periods, where a DROP deliberately does not', () => {
+    // The one place this gesture departs from the drop path: without the padlock the reflow would
+    // pull the row off the minute the band was drawn on and the band would have lied.
+    const result = paint(busyMornings, { startDate: THU, from: '16:00', hours: 2 });
+
+    expect(expectOk(result).placed.every((row) => row.locked)).toBe(true);
+  });
+
+  it('is cut at the comida, so no stored row straddles it', () => {
+    const result = paint(input({}), { startDate: NEXT_TUE, from: '13:00', hours: 3 });
+
+    expect(rows(result)).toEqual([
+      `${NEXT_TUE} 13:00-14:00 [locked]`,
+      `${NEXT_TUE} 15:30-17:30 [locked]`,
+    ]);
+  });
+
+  it('may take margin time, which is workable time the owner chose', () => {
+    const result = paint(input({}), { startDate: NEXT_TUE, from: '19:00', hours: 1.5 });
+
+    expect(rows(result)).toEqual([`${NEXT_TUE} 19:00-20:30 [locked]`]);
+  });
+
+  it('reads a release inside the comida as the afternoon', () => {
+    const result = paint(input({}), { startDate: NEXT_TUE, from: '14:30', hours: 2 });
+
+    expect(rows(result)).toEqual([`${NEXT_TUE} 15:30-17:30 [locked]`]);
+  });
+
+  it('THE FORM\'S HOURS WIN: the band sets the start, the number sets the length', () => {
+    const result = paint(input({}), { startDate: NEXT_TUE, from: '10:00', hours: 12 });
+    const placed = expectOk(result).placed;
+    const onDay = placed.filter((row) => row.date === NEXT_TUE);
+
+    // 10:00 leaves 4 h + 5 h of the manual window; the other 3 h carry on.
+    expect(onDay.reduce((total, row) => total + row.durationMinutes, 0)).toBe(9 * 60);
+    expect(minutesOf(result, 'new')).toBe(12 * 60);
+    expect(placed.some((row) => row.date !== NEXT_TUE)).toBe(true);
+  });
+
+  it('NEVER puts the overflow in front of the band it came from', () => {
+    // The guard that matters most: `rankedRow` writes a rank at 00:00, so anchoring the tail on the
+    // painted day laid 3 h at NEXT_TUE 08:00 — padlocked, in front of a band drawn at 17:00.
+    const result = paint(input({}), { startDate: NEXT_TUE, from: '17:00', hours: 6 });
+    const placed = expectOk(result).placed;
+
+    expect(placed[0].date).toBe(NEXT_TUE);
+    expect(placed[0].startMinutes).toBe(t('17:00'));
+    for (const row of placed) {
+      expect(compareDates(row.date, NEXT_TUE)).toBeGreaterThanOrEqual(0);
+      if (row.date === NEXT_TUE) expect(row.startMinutes).toBeGreaterThanOrEqual(t('17:00'));
+    }
+    expect(minutesOf(result, 'new')).toBe(6 * 60);
+  });
+
+  it('leaves the tail to the engine when the floor does not bind', () => {
+    // The queue reaches past the painted day, so nothing but the owner's minute holds the head.
+    const result = paint(busyMornings, { startDate: WED, from: '16:00', hours: 8 });
+    const placed = expectOk(result).placed;
+
+    expect(placed.filter((row) => row.date === WED).every((row) => row.locked)).toBe(true);
+    expect(placed.filter((row) => row.date !== WED).every((row) => !row.locked)).toBe(true);
+  });
+
+  it('padlocks the tail too where the queue would never have reached that day', () => {
+    const result = paint(input({}), { startDate: FAR_MON, from: '17:00', hours: 6 });
+
+    expect(expectOk(result).decision.autoLock).toBe(true);
+    expect(expectOk(result).placed.every((row) => row.locked)).toBe(true);
+  });
+
+  it('still asks before painting on the buffer or the weekend', () => {
+    for (const date of [FRI, SAT]) {
+      const result = paint(input({}), { startDate: date, from: '10:00', hours: 2 });
+
+      expect(expectOk(result).decision.needsDayConfirmation).toBe(true);
+      expect(rows(result)[0]).toBe(`${date} 10:00-12:00 [locked]`);
+    }
+  });
+
+  it('is refused when it lands on a gap, naming nothing else', () => {
+    const withGap = input({ gaps: [gap({ date: NEXT_TUE, from: '10:00', hours: 2 })] });
+    const result = paint(withGap, { startDate: NEXT_TUE, from: '11:00', hours: 2 });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('painted-over-gap');
+  });
+
+  it('is refused when it lands on a row the engine cannot move', () => {
+    const withLock = input({
+      blocks: [block({ project: 'bar', date: NEXT_TUE, from: '10:00', hours: 2, locked: true })],
+    });
+    const result = paint(withLock, { startDate: NEXT_TUE, from: '11:00', hours: 2 });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('painted-over-fixed-block');
+      expect(result.error.projectId).toBe('bar');
+    }
+  });
+
+  it('does NOT refuse over ordinary work: the reflow pushes that forward', () => {
+    const withWork = input({
+      blocks: [block({ project: 'bar', date: NEXT_TUE, from: '10:00', hours: 2 })],
+    });
+    const result = paint(withWork, { startDate: NEXT_TUE, from: '11:00', hours: 2 });
+
+    expect(result.ok).toBe(true);
+    expect(rows(result)).toEqual([`${NEXT_TUE} 11:00-13:00 [locked]`]);
+  });
+
+  it('asks the refusal of every ROW it will be stored as, not of the clock span', () => {
+    // 13:00 +3 h is stored 13:00-14:00 and 15:30-17:30. Measured over `start + duration` the test
+    // would cover 13:00-16:00 and MISS a padlocked row at 16:30.
+    const withLock = input({
+      blocks: [block({ project: 'bar', date: NEXT_TUE, from: '16:30', hours: 1, locked: true })],
+    });
+    const result = paint(withLock, { startDate: NEXT_TUE, from: '13:00', hours: 3 });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe('painted-over-fixed-block');
+  });
+
+  it('reports the painted mode, and never offers to force it', () => {
+    const result = expectOk(paint(input({}), { startDate: NEXT_TUE, from: '10:00', hours: 2 }));
+
+    expect(result.decision.mode).toBe('painted');
+    expect(result.canForce).toBe(false);
+    expect(result.deferred).toBe(false);
+  });
+});
+
+describe('a closed day chosen as the start date', () => {
+  const CLOSED = { date: NEXT_TUE, isClosed: true, capacityHours: null, note: 'Festivo' };
+
+  /**
+   * Work to NEXT_MON, so an appended job would start on NEXT_WED — the closed Tuesday is skipped.
+   * The floor therefore does NOT bind on NEXT_TUE, which is what isolates the closed day as the
+   * only reason the job is born there.
+   */
+  const calendar = input({
+    blocks: [
+      block({ project: 'bar', date: WED, from: '08:00', hours: 6 }),
+      block({ project: 'bar', date: WED, from: '15:30', hours: 4 }),
+      block({ project: 'bar', date: THU, from: '08:00', hours: 6 }),
+      block({ project: 'bar', date: THU, from: '15:30', hours: 4 }),
+      block({ project: 'bar', date: NEXT_MON, from: '08:00', hours: 6 }),
+      block({ project: 'bar', date: NEXT_MON, from: '15:30', hours: 4 }),
+    ],
+    overrides: [CLOSED],
+  });
+
+  it('lays the hours out on the closed day itself, padlocked', () => {
+    const result = plan(calendar, { startDate: NEXT_TUE, hours: 4 });
+
+    expect(expectOk(result).decision.floorBinding).toBe(false);
+    expect(rows(result)).toEqual([`${NEXT_TUE} 08:00-12:00 [locked]`]);
+  });
+
+  it('padlocks the closed day only: the tail is the engine\'s day', () => {
+    const result = plan(calendar, { startDate: NEXT_TUE, hours: 14 });
+    const placed = expectOk(result).placed;
+    const onClosedDay = placed.filter((row) => row.date === NEXT_TUE);
+
+    // Asserted as MINUTES, not with `every`: an empty day satisfies `every` vacuously, which is
+    // how a version that places nothing there passes a test meant to prove that it does.
+    expect(onClosedDay.reduce((total, row) => total + row.durationMinutes, 0)).toBe(10 * 60);
+    expect(onClosedDay.every((row) => row.locked)).toBe(true);
+    expect(placed.filter((row) => row.date !== NEXT_TUE).every((row) => !row.locked)).toBe(true);
+    expect(placed.some((row) => row.date !== NEXT_TUE)).toBe(true);
+    expect(minutesOf(result, 'new')).toBe(14 * 60);
+  });
+
+  it('never overlaps work already sitting on the closed day', () => {
+    const withWork = input({
+      blocks: [block({ project: 'bar', date: NEXT_TUE, from: '09:00', hours: 2, locked: true })],
+      overrides: [CLOSED],
+    });
+    const result = plan(withWork, { startDate: NEXT_TUE, hours: 3 });
+
+    expect(rows(result)).toEqual([`${NEXT_TUE} 11:00-14:00 [locked]`]);
+  });
+
+  it('skips a closed day when anchoring the tail of a chosen weekend day', () => {
+    const closedMonday = input({
+      overrides: [{ date: NEXT_MON, isClosed: true, capacityHours: null, note: 'Festivo' }],
+    });
+    const result = plan(closedMonday, { startDate: SAT, hours: 14 });
+    const placed = expectOk(result).placed;
+    const onSaturday = placed.filter((row) => row.date === SAT);
+
+    expect(onSaturday.reduce((total, row) => total + row.durationMinutes, 0)).toBe(10 * 60);
+    expect(onSaturday.every((row) => row.locked)).toBe(true);
+    // The tail may not be anchored on the closed Monday: compose lays nothing out there.
+    expect(placed.map((row) => row.date)).not.toContain(NEXT_MON);
+    expect(minutesOf(result, 'new')).toBe(14 * 60);
+  });
+});
+
 describe('what the plan hands the caller', () => {
   it('returns the whole calendar to compose, with the job in it', () => {
     const calendar = input({ blocks: [block({ project: 'bar', date: WED, from: '08:00', hours: 6 })] });
@@ -511,13 +761,14 @@ describe('what the plan hands the caller', () => {
     expect(rows(result)).toEqual([`${SAT} 11:00-14:00 [locked]`]);
   });
 
-  it('starts on the first open day when the chosen one is closed', () => {
+  it('honours a closed day, where the engine would place nothing at all', () => {
     const calendar = input({
       overrides: [{ date: NEXT_TUE, isClosed: true, capacityHours: null, note: 'Festivo' }],
     });
     const result = plan(calendar, { startDate: NEXT_TUE, hours: 4 });
 
     expect(expectOk(result).decision.day).toBe('closed');
-    expect(rows(result)).toEqual([`${NEXT_WED} 08:00-12:00 [locked]`]);
+    expect(rows(result)).toEqual([`${NEXT_TUE} 08:00-12:00 [locked]`]);
+    expect(expectOk(result).decision.needsDayConfirmation).toBe(true);
   });
 });

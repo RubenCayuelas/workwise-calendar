@@ -379,6 +379,25 @@ export function requireStartMinutes(body: JsonBody): number {
   return requireMinutes(body, START_SPEC);
 }
 
+/**
+ * A CREATION's start minute only means something with a day to put it on, and it is the opposite of
+ * forcing: `force` answers a deferral, while a painted band is on its minute or refused. Read by the
+ * create route and the preview route, so the preview cannot accept a body the save rejects.
+ */
+export function requirePaintedShape(input: {
+  startDate: string | undefined;
+  startMinutes: number | undefined;
+  force: boolean | undefined;
+}): void {
+  if (input.startMinutes === undefined) return;
+  if (input.startDate === undefined) {
+    throw badRequest('missing-field', ERROR_MESSAGE_KEYS.invalidDate, { field: 'startDate' });
+  }
+  if (input.force === true) {
+    throw badRequest('invalid-field', ERROR_MESSAGE_KEYS.invalidPayload, { field: 'force' });
+  }
+}
+
 /** A duration: `durationMinutes` or `durationHours`. Always more than zero. */
 export function readDurationMinutes(body: JsonBody): number | undefined {
   return readMinutes(body, DURATION_SPEC);

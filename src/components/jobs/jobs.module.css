@@ -237,3 +237,11 @@
 .grow {
   flex: 1 1 auto;
 }
+
+/* The two answers to a date that has left the week on screen. Side by side, because declining is as
+   ordinary a choice as accepting: the band simply goes back to a day that can be seen. */
+.offWeekActions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}

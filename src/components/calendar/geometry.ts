@@ -19,6 +19,12 @@ import type { DayShape, WorkPeriod } from '../../types';
  */
 export const SNAP_MINUTES = 15;
 
+/**
+ * Pixels of travel before a press becomes a gesture rather than a click. ONE constant for the drag
+ * layer and the paint: two declarations of 4 would need a test to say they agree.
+ */
+export const DRAG_THRESHOLD_PX = 4;
+
 /** Below this a row shows its name but not its hours. */
 export const MIN_LABEL_HEIGHT = 34;
 

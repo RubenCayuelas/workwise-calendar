@@ -873,6 +873,15 @@
   pointer-events: none;
 }
 
+/*
+ * A day the hours merely CARRIED ON to. Fainter because it is the one half of the drawing that is
+ * only a shape: the painted day's rectangles are byte-identical to what the save writes, while a
+ * continuation is drawn over whatever is there without asking, so it must not read as exact.
+ */
+.paintBandCarried {
+  opacity: 0.5;
+}
+
 .paintLabel {
   display: flex;
   overflow: hidden;

@@ -63,6 +63,11 @@ export interface CreateProjectInput {
   startDate?: string;
   /** The owner disagreed with the deferral: use that day and push what follows. */
   force?: boolean;
+  /**
+   * A BAND painted on the grid: minutes from midnight. It turns `startDate` from a floor into a
+   * point, so the hours start exactly there and the rows that land on that day are padlocked.
+   */
+  startMinutes?: number;
   today?: string;
 }
 
@@ -99,6 +104,7 @@ export function createProject(input: CreateProjectInput, db: Db = getDb()): Proj
           now: nowTimestamp(),
           startDate: input.startDate,
           force: input.force,
+          startMinutes: input.startMinutes,
         }),
       );
 
@@ -193,6 +199,8 @@ export interface PreviewCreationInput {
   startDate: string;
   totalMinutes: number;
   force?: boolean;
+  /** A painted band's minute. The preview must be given it, or it previews a different placement. */
+  startMinutes?: number;
   today?: string;
 }
 
@@ -218,6 +226,7 @@ export function previewProjectCreation(
       now: nowTimestamp(),
       startDate: input.startDate,
       force: input.force,
+      startMinutes: input.startMinutes,
     }),
   );
 

@@ -42,3 +42,6 @@ documents/*
 
 # Build artifacts
 *.tsbuildinfo
+
+# Worktrees (isolated checkouts live inside the repo; never committed)
+/.claude/worktrees/

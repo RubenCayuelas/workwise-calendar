@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { manualWindowsOf } from '../../lib/manualWindow';
-import { paintedSpan } from './usePaintAbsence';
+import { paintedSpan } from './paintSession';
 
 const t = (time: string): number => {
   const [hours, minutes] = time.split(':').map(Number);

@@ -8,6 +8,19 @@ import { compareDates } from '../../lib/dates';
 import type { AbsencePreview, AbsencePreviewRow, DisplacedWork } from '../../lib/api-client';
 import type { BannerTone } from '../ui';
 
+/** Which gesture opened the absences form. It decides the SHAPE, never the contents. */
+export type AbsenceOrigin = 'menu' | 'closed-column' | 'paint' | 'gap' | 'close-day';
+
+/**
+ * `range` is the whole screen — the two mode cards, `Desde`/`Hasta`, the server preview — and it is
+ * for the two gestures that name no day of their own. Everything else already named ONE day, so a
+ * range there asks a question the gesture has answered: a painted band opened the range screen
+ * pre-filled on a single day until 2026-08-21.
+ */
+export function absenceFormMode(origin: AbsenceOrigin): 'range' | 'single' {
+  return origin === 'menu' || origin === 'closed-column' ? 'range' : 'single';
+}
+
 /** One line under the row list. A KIND, so the panel's switch is the only place a string is chosen. */
 export type AbsenceNote =
   | 'closesDays'

@@ -273,6 +273,14 @@ three readers: the write path (`pinsTheRow`), the ghost (`dropPins`) and the lan
 | the lunch break, any day | **no** — it is not a slot: the drop starts at 15:30, inside the periods |
 | Monday-Thursday inside the periods | **no** — it re-ranks the queue and the row settles contiguously |
 
+**THIS TABLE IS ABOUT A DROP, and one gesture is deliberately not in it.** A band PAINTED on empty
+grid space and answered `Un trabajo` padlocks its head on **every** day, Monday to Thursday included —
+the only pin inside the working week. It is not an exception to `dropLandsLiterally`, which is
+untouched and still says no there: it is a different gesture, whose whole content is a minute the
+owner drew. *«Padlock everything the user drags»* was considered and rejected on 2026-08-12 for
+freezing the working week, and that reasoning still holds for DRAGS — this pins only what was drawn.
+See *Creating a Job With a Start Date*, mode `painted`.
+
 Two details keep the manual-only rule honest: it needs at least a quarter of an hour of manual-only
 time (`MIN_MANUAL_ONLY_MINUTES`, held equal to the drag layer's `SNAP_MINUTES` by a test), because a
 drop's rank may be nudged by a single minute and one minute of margin is a tie-break rather than a
@@ -390,17 +398,54 @@ the form's preview, so the form cannot promise a placement the save will not per
 |---|---|---|
 | the queue reaches it: appending the job lands on or after that day | `queue` | one provisional row after the last block. When the queue's own answer is LATER than the day chosen, the form says so before saving. |
 | the same, but the owner disagreed (`force`) | `forced` | one provisional row ranked at 00:00 of that day. The same outcome as creating the job and dragging it there, including that a **locked** row is not moved. |
-| the engine would place it EARLIER, or would not place it there at all (a Friday, a weekend, the past) | `born` | the job's real rows, on that day and the days after, laid out by `compose` itself. |
+| the engine would place it EARLIER, or would not place it there at all (a Friday, a weekend, a **closed day**, the past) | `born` | the job's real rows, on that day and the days after, laid out by `compose` itself. |
+| a BAND was painted on the grid, so the day carries a chosen MINUTE too (`startMinutes`) | `painted` | the hours start on that exact minute, cut at the comida, PADLOCKED; the overflow carries on from the NEXT day the engine lays out. |
+
+**`painted` is the only mode where the chosen day is a POINT rather than a floor**, and it brings the
+one thing the other three do not have:
+
+- **The head is padlocked on EVERY day, Monday to Thursday included.** That is the first gesture in
+  the app that pins inside the working week, and a deliberate exception: a drop there is a queue rank
+  (`dropLandsLiterally` returns false) precisely so the week stays fluid, but without a padlock the
+  next reflow moves the row off the minute the band was drawn on and the band has lied. `autoLock`
+  and `dayLock` are otherwise UNCHANGED, so **the tail follows the ordinary rule** — locked only where
+  the queue would never have reached that day anyway.
+- **The overflow is anchored on the day AFTER the painted one** (`engineRows`' `anchorDate`, with the
+  synthetic `today` moved with it). `rankedRow` writes a rank at 00:00, so anchoring on the painted day
+  laid the overflow in FRONT of the band, padlocked, on hours the owner never aimed at.
+- **The head is cut before anything else sees it** (`paintedSegments`). `compose` re-derives nothing on
+  a locked row, so an uncut `13:00 +6 h` would be STORED across the comida — and `assertRowWithinDayEnd`
+  reads `clockEndOf`, so it would not catch it.
+- **The refusals are a GAP's, not a drop's.** A gap or a row outside the movable pool under any of the
+  head's rows is refused naming it (409 `painted-over-gap`, `painted-over-fixed-block`), asked of every
+  ROW rather than of `start + duration`; ordinary work is NOT a refusal — the reflow pushes it. A
+  painted band is never SLID and never CUTS another job: it is on its minute or it is refused.
+- **`force` is meaningless here** and sending both is a 400: forcing answers a deferral, and a painted
+  band is never deferred. `startMinutes` without `startDate` is a 400 too.
 
 **The automatic padlock is mechanical, not a preference.** A job born where the engine would
 otherwise fill earlier has every one of its rows padlocked (`autoLock`) — the padlock is the only
 thing that holds it, and a half-locked job would come apart on the next reflow. Inside the span
 already planned no lock is added, because the work in front of the job is what holds it there.
 
-**Friday and the weekend are honoured after an explicit confirmation**, and the rows landing on the
-chosen day are padlocked (`dayLock`). The job's continuation follows the normal rules from there,
-including skipping the buffer, since it is still a new job. A **past** date is allowed: the rows are
-created there, locked, as a record of work that was done but never logged.
+**Friday, the weekend and a CLOSED DAY are honoured after an explicit confirmation**, and the rows
+landing on the chosen day are padlocked (`dayLock`). The job's continuation follows the normal rules
+from there, including skipping the buffer, since it is still a new job. A **past** date is allowed:
+the rows are created there, locked, as a record of work that was done but never logged.
+
+**A closed day joined that list on 2026-08-20**, and it is a REVERSAL: choosing one used to relocate
+the job to the first open day, which contradicted *a closed day behaves like a weekend* — the rule
+stated in Settings and relied on by every drop onto a dimmed column. It is honoured the way a chosen
+Saturday is, by the same `manualDaySegments` over the day's own periods, for the same reason: the
+engine plans nothing there, so only the owner's choice and the padlock hold the rows.
+
+- **The confirmation is now the SERVER's answer, not the weekday's.** `confirmKindFor` asks the
+  weekday FIRST and lets it win, so a preview that failed or has not arrived can still never let a
+  save honour a Friday or a weekend silently. A closed day is invisible to the weekday — only
+  `day_overrides` knows — so a **dated save waits for its preview** and Guardar is inert until one
+  answers. Without that wait a closed day would be honoured without ever being asked about.
+- **`needsDayConfirmation` and `confirmKind` are one question**, held so by a `Record` over the three
+  kinds: a confirmation with no sentence in it is a dialog the owner cannot read.
 
 **`newProjectIds` still applies in every mode**, so the continuation of a dated job skips the Friday
 buffer like any new job's tail. The chosen day itself is the one exception, opened up explicitly:
@@ -453,7 +498,7 @@ the whole span, whether every row would come back locked, and which days are fre
 |---|---|---|
 | Enlarge a block that is **not** the last | Subtract those hours from the job's later rows, cascading backwards (LIFO), deleting any that reach 0 | unchanged |
 | Enlarge past everything those rows hold | **ASKS**: 409 `grow-needs-choice`, one answer, `add-to-total` | **increases** by the shortfall |
-| Enlarge the **last** block (or the only block) | No farther block to draw from | **increases** |
+| Enlarge the **last** block (or the only block) | No farther block to draw from — **ASKS**, the same way | **increases** once answered |
 | Shrink a block that is **not** the last | Add those hours to the job's last block the engine still lays out | unchanged |
 | Shrink with **no block that can take the hours** | **ASKS**: `reduce-total` or `new-block` | depends on the answer |
 
@@ -469,10 +514,18 @@ adelantar trabajo»* — so it has to hold. Pressing the padlock undoes it. (Thi
 `usesManualOnlyTime`, was deleted with `manual_duration` on 2026-08-18 when nothing read it any more,
 and was restored with the gesture on 2026-08-20.)
 
-**Both dead ends ASK, and neither writes anything unanswered.** 409 with `details.freedMinutes` and
-`details.choices`; the answer comes back on the next request as `freedHours`, and cancelling is simply
-never sending it. `ResizeChoiceDialog` builds itself from the server's list, so the answers offered
-are always the ones that exist.
+**EVERY DEAD END ASKS, IN BOTH DIRECTIONS, and none writes anything unanswered.** 409 with
+`details.freedMinutes` and `details.choices`; the answer comes back on the next request as
+`freedHours`, and cancelling is simply never sending it. `ResizeChoiceDialog` builds itself from the
+server's list, so the answers offered are always the ones that exist — and it takes the DIRECTION too,
+because "what do we do with these hours?" and "shall the job get bigger?" are not the same sentence.
+
+**THE TWO DIRECTIONS ARE SYMMETRICAL, and were not until 2026-08-21.** Growing the job's LAST row
+rewrote `total_hours` with nothing asked, while shrinking that same row asked; the owner reported it as
+one thing behaving two ways. Worse, the grow that DID ask (`grow-needs-choice`, past everything the
+other rows hold) was never caught by the screen, so a question the server had asked arrived as a red
+error banner. Both halves are fixed: the last-row grow asks, and the client turns either code into the
+dialog.
 
 **A GAP's bottom edge is ABSOLUTE** — it just sets the absence's duration — because there is no job
 to transfer hours to. See *Gaps Are Dragged And Resized*.
@@ -514,9 +567,11 @@ a 400, never a silent re-ask. `ResizeChoiceDialog` renders it; `details` carries
 dialog formats them. **`freedHours` is the answer channel for BOTH directions** — the name predates the
 grow and is kept because it is the documented wire field.
 
-**The dead ends are three**: the stretch being sized contains the job's LAST row; every counterparty is
-outside the movable pool (locked, weekend, frozen past); or the growth is larger than everything the
-counterparties hold.
+**The dead ends are three, and each of them asks whichever way the edge was dragged**: the stretch
+being sized contains the job's LAST row; every counterparty is outside the movable pool (locked,
+weekend, frozen past); or the growth is larger than everything the counterparties hold. **A transfer
+that the job's other rows can pay for is NOT one of them** and must stay silent — a dialog on every
+ordinary drag would be the gesture asking permission to do its job.
 
 - **The drag crosses the lunch break, which costs nothing.** A row starting at 10:00 dragged to 17:30
   is **6 h** — `10:00-14:00` plus `15:30-17:30` — never 7.5 h. Releasing anywhere inside 14:00-15:30
@@ -1353,26 +1408,67 @@ gesture.
 - **NO HALF-DAY.** `capacity_hours` stays without a screen: the owner was asked and said no, because a
   short day is a GAP. Do not offer it.
 
-#### Painting an Absence on Empty Grid Space
-> **A drag on empty grid space paints a band and, ON RELEASE, OPENS THE FORM PRE-FILLED with the day,
-> the start and the net duration. IT WRITES NOTHING — the owner presses Guardar.** That is the rule
-> they set on 2026-08-18 about *cerrar el día aquí* and it holds for every absence: the app never
-> creates a gap by itself.
+#### Painting on Empty Grid Space — a Hueco or a Trabajo
+> **A drag on empty grid space paints a band. ON RELEASE the band STAYS DRAWN and two buttons appear
+> at the pointer — `Un trabajo` / `Un hueco` — and whichever is pressed OPENS A FORM PRE-FILLED with
+> the day, the start and the net duration. IT WRITES NOTHING either way — the owner presses Guardar.**
+> That is the rule they set on 2026-08-18 about *cerrar el día aquí* and it holds for both: the app
+> never creates work or an absence by itself.
 
-- **ONE COLUMN per paint** (`usePaintAbsence`). Several days go through the form's range; cross-column
-  painting does not exist.
-- **GAPS ONLY.** There is therefore no gap-versus-closed-day threshold to compute — a question that
-  was asked and then dissolved by this answer. Painting the whole column gives a **12 h gap in two
-  rows**, which LOOKS like a closed day and is not one. Do not add a threshold.
-- **The band draws the rows the absence will really be stored as**, cut at the comida
+- **ONE COLUMN per paint** (`usePaintAbsence` over the `paintSession` reducer). Several days go through
+  the form's range; cross-column painting does not exist.
+- **THE BAND NO LONGER MEANS ONE THING, so it is ASKED rather than guessed.** *«GAPS ONLY»* was
+  deleted on 2026-08-21 — but the half of it that forbade a THRESHOLD is now stronger, not weaker: the
+  kind is never inferred from the band's size, its day or anything else. `Un trabajo` is focused, so
+  Enter is the common answer; there is no memory of the last choice, and **no modifier key, ever**.
+- **A `Trabajo` is a job created at the painted MINUTE, padlocked** — see *Creating a Job With a Start
+  Date*, mode `painted`. **A `Hueco` is the absence it always was**, and it opens ONE absence rather
+  than the `Desde`/`Hasta` range screen, which a one-column gesture had no use for.
+- **The band draws the rows the gesture will really be stored as**, cut at the comida
   (`segmentDroppedRow`), like every other ghost on this grid, and it is measured in NET working
   minutes: 13:00 to 16:30 is 2 h. It paints upwards as readily as downwards, reaches the visual
   margins, and a press aimed inside the comida starts at the first minute that can hold work.
-- **Under a quarter of an hour there is no band and no form**: a press that wandered is not a gesture.
+- **Under a quarter of an hour there is no band and no question**: a press that wandered is not a
+  gesture. A **pointercancel** commits nothing.
 - **Disabled while a scissors fragment waits for its target**, where a grid click already means "put it
-  here". **No modifier key, ever.**
+  here", and **while a painted form is open** — otherwise a second band replaced a form the owner had
+  already typed a name and hours into.
 - **A past day and a closed day take no paint**, and each says so once, on the first travel: the past
-  gets the frozen-day notice, a closed day opens the absences screen for itself.
+  gets the frozen-day notice, a closed day opens the absences screen for itself. That the FORM reaches
+  a closed day while the brush does not is deliberate: the form asks a confirmation, and pressing a
+  dimmed column already means "reopen this day".
+
+#### The Band Stays Drawn While Its Form Is Open
+> **Choosing an answer does not erase the band. It stays on the grid and FOLLOWS THE FORM — the day,
+> the start and the hours — until Guardar replaces it with the real rows, or Cancelar takes it away.
+> For a hueco and for a trabajo alike.**
+
+- **Client-side only, and AGNOSTIC to what is underneath it** (`planDraftRows`, `draftBand.ts`): it
+  reads no block and no gap, is drawn OVER whatever is there, and never tries to show who gets pushed.
+  That is the form's warning to make, and only a whole pass knows the answer.
+- **The painted day is EXACT**: its rectangles come from the same `paintedSegments` the save writes, so
+  the two cannot drift. A **continuation** day is a shape and is drawn fainter for it.
+- **A job's hours span days; a gap's never do.** The band walks the days after the painted one exactly
+  as the engine would — skipping the weekend, closed days and the Friday buffer, and measured over
+  their PERIODS, because auto-fill never enters a margin. A gap is one column and what the day cannot
+  hold is simply not drawn.
+- **It never slides on a week change**: it is drawn in the paint band's own slot, outside
+  `.columnBody`, so *A Week Change Says Which Way It Went* leaves it alone by construction.
+- **The axis is frozen only while the pointer is DOWN** (`PaintController.pressed`). The band and the
+  form are held in minutes, so they redraw correctly at any scale; freezing on the band instead would
+  hold a stale scale across a window resize.
+
+#### A Date That Leaves the Week On Screen
+> **While a band is being held, moving the form's day off the visible week OFFERS THE TRIP: *Ir a esa
+> semana*, or *Volver al …* — the last day chosen that WAS on screen. Declining puts the band back
+> where it can be seen; it never leaves the owner looking at a week their band is not in.**
+
+- **The date is set OPTIMISTICALLY** and the notice appears after: the band has to follow the field, and
+  a field frozen behind a question would freeze the band mid-edit.
+- **The way back is the last VISIBLE day, not the previous value** (`offWeekChoice`). Sep 1 → Sep 8
+  would otherwise offer Sep 1, which is off screen too, leaving nothing left to press.
+- **Triggered by the FIELD changing, never by visibility.** Paging the week with the header arrows
+  while a form is open must not ask "shall we go back?" the instant the owner deliberately left it.
 
 #### The Warning Before Work Is Pushed
 > **Bulk creation PREVIEWS: `POST /api/absences/preview` takes the same body and WRITES NOTHING. It
@@ -1387,6 +1483,12 @@ gesture.
 - **Only bulk creation warns** — a range of closed days, a range of gaps, a painted gap — because those
   displace hours into weeks that are not on screen. A DRAG or a RESIZE of one absence does not: the
   result is on screen and the ghost drew it.
+- **A painted TRABAJO warns through the creation preview it already had** (`POST /api/projects/preview`
+  + `PlacementNotice`), not through this one: `planCreation` computes the whole placement, so the form
+  states what the day will hold and what the hours cost before Guardar. `startMinutes` is sent to the
+  preview only while the date is STILL the painted one — moving the day gives the point up and makes it
+  an ordinary floor again, and previewing a minute on another column would promise a placement nobody
+  asked for.
 - **The hours are read from what the write DID**, not predicted: the rows before and after, per job,
   with the job's furthest day afterwards as "where they land" (`displacedWork`). `summarizeAbsence`
   turns that into the sentences, and it is where the wording is decided and tested.
@@ -1551,7 +1653,28 @@ DECISIONS.md § *Reproductions behind the Open Decisions*.
 
 ## Current Project Status
 
-**v0.17 (current).** The engine, the API, the week view, the gestures and the drag layer are built
+**v0.18 (current).** `tsc --noEmit` clean, `vitest run` **1049 passing across 37 files**, `eslint .`
+clean, `next build` clean.
+
+**PAINTING MAKES A TRABAJO AS WELL AS A HUECO** (2026-08-21). A released band now stays drawn and asks
+which it is; `Un trabajo` opens the ordinary job form pre-filled, and the save places the hours on the
+exact painted MINUTE, padlocked — a fourth creation mode, `painted`, and **the first gesture in the app
+that pins inside Monday to Thursday**. *«GAPS ONLY»* is deleted; the half of it that forbade inferring
+the kind from the band's SIZE is now stronger, because the question is asked out loud instead. The band
+stays on the grid and follows the form until Guardar, and a date that leaves the visible week offers
+the trip rather than vanishing. **Three defects the round fixed before building on the gesture**: a
+`pointercancel` COMMITTED the band it had abandoned; the hook leaked four window listeners on a
+mid-press unmount; and a painted release opened the whole `Desde`/`Hasta` range screen for a gesture
+that is one column by definition. **And one it fixed underneath**: the job form's hours stepper snapped
+to the half hour before it clamped, so a 15- or 45-minute band was silently rounded to 30.
+
+**A CLOSED DAY CHOSEN AS A START DATE IS HONOURED** (2026-08-20). It behaves like a chosen Saturday —
+confirmation, then born there with a padlock — which is what *a closed day behaves like a weekend* had
+said all along while the creation form quietly relocated the job to the first open day. The
+confirmation now comes from the SERVER for a closed day and from the WEEKDAY for a Friday or a weekend,
+so a failed preview can still never let one of those through silently.
+
+**v0.17.** The engine, the API, the week view, the gestures and the drag layer are built
 and green: `tsc --noEmit` clean, `vitest run` **977 passing across 33 files** (including five
 2000-seed property harnesses over placement, manual placement, drops, editing and shrinking — the
 placement one generating off-grid quantities on a quarter of its calendars, which is where the

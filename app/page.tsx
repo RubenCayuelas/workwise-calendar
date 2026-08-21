@@ -51,13 +51,30 @@ export default function HomePage(): React.JSX.Element {
           />
         )
       }
-      renderNewJob={({ close, onChanged, today, summary, suggestedColor, horizonWeeks }) => (
+      renderNewJob={({
+        close,
+        onChanged,
+        today,
+        summary,
+        suggestedColor,
+        horizonWeeks,
+        painted,
+        defaultHours,
+        onDraft,
+        visibleDates,
+        onShowWeekOf,
+      }) => (
         <NewJobPanel
           open
           today={today}
           summary={summary}
           defaultColor={suggestedColor}
           horizonWeeks={horizonWeeks}
+          painted={painted}
+          defaultHours={defaultHours}
+          onDraft={onDraft}
+          visibleDates={visibleDates}
+          onShowWeekOf={onShowWeekOf}
           onClose={close}
           onChanged={onChanged}
         />
@@ -66,6 +83,7 @@ export default function HomePage(): React.JSX.Element {
         gap,
         closeDay,
         kind,
+        origin,
         close,
         onChanged,
         today,
@@ -76,6 +94,9 @@ export default function HomePage(): React.JSX.Element {
         defaultStartMinutes,
         defaultDurationMinutes,
         horizonWeeks,
+        onDraft,
+        visibleDates,
+        onShowWeekOf,
       }) => (
         <AbsencePanel
           open
@@ -83,6 +104,10 @@ export default function HomePage(): React.JSX.Element {
           // "Stop the day here" is the same gap, pre-filled: same panel, same endpoint.
           closeDay={closeDay ?? undefined}
           defaultKind={kind}
+          origin={origin}
+          onDraft={onDraft}
+          visibleDates={visibleDates}
+          onShowWeekOf={onShowWeekOf}
           today={today}
           shape={shape}
           gapColor={gapColor}
