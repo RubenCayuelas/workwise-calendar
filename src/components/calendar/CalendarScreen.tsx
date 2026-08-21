@@ -536,7 +536,10 @@ export function CalendarScreen({
   // A PAINT COUNTS AS A GESTURE IN THE AIR, or the rule protects only half the grid: the band and the
   // hours the form is pre-filled with are read off the axis fixed at press, so a late re-fit under a
   // still-pressed pointer would hand the owner a duration they never drew.
-  const gestureInAir = drag.kind !== null || paint.painting !== null;
+  // `pressed`, not "a band exists": since the release keeps the band drawn while it is asked what
+  // it is, freezing the axis on the band would hold a stale scale across a window resize. The band
+  // and the form are both held in MINUTES, so they redraw correctly at any scale.
+  const gestureInAir = drag.kind !== null || paint.pressed;
   const heldTimeline = useRef<Timeline | null>(fittedTimeline);
   if (!gestureInAir) heldTimeline.current = fittedTimeline;
   const timeline = gestureInAir ? heldTimeline.current : fittedTimeline;

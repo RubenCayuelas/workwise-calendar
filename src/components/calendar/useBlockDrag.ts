@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { dayEndMinutes } from '../../lib/manualWindow';
 import {
+  DRAG_THRESHOLD_PX,
   durationTo,
   rankFor,
   slotAt,
@@ -23,9 +24,6 @@ import { aimAtThirds, resolveDropDay, type AimRow } from './dropAim';
 import { edgeDelayFor, edgeSideAt, type EdgeHold, type EdgeSide } from './edgePaging';
 import type { WeekDay } from '../../lib/api-client';
 import type { GapUnit } from '../../types';
-
-/** Pixels of travel before a press becomes a drag rather than a click. */
-const DRAG_THRESHOLD = 4;
 
 /** One array, so a render with nothing in the air never invalidates a memo. */
 const EMPTY_IDS: readonly string[] = [];
@@ -436,7 +434,7 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         // A press that cannot write never becomes a drag: no ghost is published, so nothing on
         // screen promises a move. It speaks once, as soon as the travel proves a drag was meant.
         if (current.inert !== undefined) {
-          if (travelled < DRAG_THRESHOLD || current.explained === true) return;
+          if (travelled < DRAG_THRESHOLD_PX || current.explained === true) return;
           current.explained = true;
           // `moved` without a kind or a target: no ghost and no "lifted" styling, but the
           // release is no longer read as a click either — a refused drag must not navigate.
@@ -446,7 +444,7 @@ export function useBlockDrag(options: BlockDragOptions): DragController {
         }
 
         if (!current.moved) {
-          if (travelled < DRAG_THRESHOLD) return;
+          if (travelled < DRAG_THRESHOLD_PX) return;
           current.moved = true;
           setKind(current.kind);
           setTarget(current.target);

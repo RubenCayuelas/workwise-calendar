@@ -1,32 +1,30 @@
 'use client';
 
 /**
- * Painting an absence on empty grid space: press, drag a band down one column, release, and the
- * absences form OPENS PRE-FILLED with the day, the start and the net duration. IT WRITES NOTHING —
- * the owner presses Guardar, because the app never creates a gap by itself.
+ * Painting a band on empty grid space: press, drag down one column, release, and the band STAYS
+ * DRAWN while it is asked what it is — a hueco or a trabajo. IT WRITES NOTHING either way; the form
+ * opens pre-filled and the owner presses Guardar, because the app never creates work by itself.
  *
  * ONE COLUMN per paint: several days go through the form's range instead. No modifier key, ever.
+ * The state machine lives in `paintSession.ts`; this hook installs listeners and runs the effects.
  */
 
-import { useCallback, useRef, useState } from 'react';
-import { firstWorkingMinute, netMinutesBetween } from '../../lib/manualWindow';
-import { SNAP_MINUTES, snapTo, type GridMetrics, type Timeline } from './geometry';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  paintStep,
+  type PaintEvent,
+  type PaintPoint,
+  type PaintRefusal,
+  type PaintState,
+  type PaintedSpan,
+} from './paintSession';
+import type { GridMetrics, Timeline } from './geometry';
 import type { WeekDay } from '../../lib/api-client';
-import type { WorkPeriod } from '../../types';
 
-/** Pixels of travel before a press becomes a paint rather than a click. */
-const PAINT_THRESHOLD = 4;
+export type { PaintRefusal, PaintedSpan } from './paintSession';
 
-/** What the release hands the form: exactly what fully describes an absence. */
-export interface PaintedAbsence {
-  date: string;
-  startMinutes: number;
-  /** NET working minutes over the day's manual windows, so the comida costs nothing. */
-  durationMinutes: number;
-}
-
-/** Why a press on this column cannot become an absence. */
-export type PaintRefusal = 'past' | 'closed' | 'busy';
+/** The former name of `PaintedSpan`, kept while callers still speak of absences. */
+export type PaintedAbsence = PaintedSpan;
 
 export interface PaintOptions {
   /** Live measurement, so a scroll mid-paint cannot offset the pointer. */
@@ -34,11 +32,12 @@ export interface PaintOptions {
   /** The axis. Read ONCE, at press, and held for the gesture. */
   timeline: Timeline;
   dayAt: (date: string) => WeekDay | undefined;
-  /** False while another gesture owns the grid: a split fragment waiting for its target. */
+  /** False while another gesture owns the grid: a split fragment, or a painted form still open. */
   enabled: boolean;
   /** Asked at press: a save or a reload in flight leaves the grid alone. */
   writable: () => boolean;
-  onPainted: (painted: PaintedAbsence) => void;
+  /** The band was released. It is STILL DRAWN — call `settle` once the answer is in. */
+  onPainted: (painted: PaintedSpan, at: PaintPoint) => void;
   /** A paint that travelled on a day that cannot take one. Called ONCE per press. */
   onRefused: (reason: PaintRefusal, date: string) => void;
   /** A press that did not travel. The grid background has no click of its own. */
@@ -47,63 +46,60 @@ export interface PaintOptions {
 
 export interface PaintController {
   /** The band, as the rows it will really be stored as. `null` when nothing is being painted. */
-  painting: PaintedAbsence | null;
+  painting: PaintedSpan | null;
+  /** True only while the pointer is DOWN, which is what freezes the axis. */
+  pressed: boolean;
   begin: (event: React.PointerEvent, date: string) => void;
-}
-
-interface PaintSession {
-  date: string;
-  timeline: Timeline;
-  originY: number;
-  originX: number;
-  anchorMinutes: number;
-  windows: readonly WorkPeriod[];
-  refusal: PaintRefusal | null;
-  /** The refusal has spoken; it must not speak twice. */
-  explained: boolean;
-  moved: boolean;
-  painted: PaintedAbsence | null;
-}
-
-/**
- * The band between the minute the press went down on and the minute the pointer is at, in either
- * direction. `null` below a quarter of an hour of working time: that is the smallest row the calendar
- * draws, and a band shorter than one is a press that wandered rather than a gesture.
- */
-export function paintedSpan(
-  windows: readonly WorkPeriod[],
-  anchorMinutes: number,
-  pointerMinutes: number,
-): { startMinutes: number; durationMinutes: number } | null {
-  const a = firstWorkingMinute(windows, snapTo(anchorMinutes));
-  const b = firstWorkingMinute(windows, snapTo(pointerMinutes));
-  const from = Math.min(a, b);
-  const durationMinutes = netMinutesBetween(windows, from, Math.max(a, b));
-  if (durationMinutes < SNAP_MINUTES) return null;
-  // The band's own start is the first minute that can hold work: painting from inside the comida
-  // means the afternoon, exactly as a drop aimed there does.
-  return { startMinutes: firstWorkingMinute(windows, from), durationMinutes };
+  /** Clear the band once the release has been answered. */
+  settle: () => void;
 }
 
 export function usePaintAbsence(options: PaintOptions): PaintController {
-  const [painting, setPainting] = useState<PaintedAbsence | null>(null);
-  const session = useRef<PaintSession | null>(null);
+  const [state, setState] = useState<PaintState>({ phase: 'idle' });
+  const session = useRef<PaintState>({ phase: 'idle' });
   const teardown = useRef<(() => void) | null>(null);
 
   const live = useRef(options);
   live.current = options;
 
-  const finish = useCallback((): void => {
+  const unlisten = useCallback((): void => {
     teardown.current?.();
     teardown.current = null;
-    session.current = null;
-    setPainting(null);
   }, []);
+
+  /** One place where an event becomes the next state and its effects are carried out. */
+  const dispatch = useCallback(
+    (event: PaintEvent): void => {
+      const { state: next, effects } = paintStep(session.current, event);
+      session.current = next;
+      setState(next);
+
+      for (const effect of effects) {
+        switch (effect.kind) {
+          case 'unlisten':
+            unlisten();
+            break;
+          case 'refused':
+            live.current.onRefused(effect.reason, effect.date);
+            break;
+          case 'clicked':
+            live.current.onClick(effect.date);
+            break;
+          case 'painted':
+            live.current.onPainted(effect.span, effect.at);
+            break;
+        }
+      }
+    },
+    [unlisten],
+  );
+
+  const settle = useCallback((): void => dispatch({ kind: 'dismiss' }), [dispatch]);
 
   const begin = useCallback(
     (event: React.PointerEvent, date: string): void => {
       const current = live.current;
-      if (!current.enabled || event.button !== 0 || session.current !== null) return;
+      if (!current.enabled || event.button !== 0 || session.current.phase !== 'idle') return;
 
       const metrics = current.measure();
       if (metrics === null) return;
@@ -112,74 +108,36 @@ export function usePaintAbsence(options: PaintOptions): PaintController {
 
       event.preventDefault();
       const timeline = current.timeline;
-      session.current = {
+
+      dispatch({
+        kind: 'press',
         date,
-        timeline,
-        originX: event.clientX,
-        originY: event.clientY,
+        origin: { x: event.clientX, y: event.clientY },
         anchorMinutes: timeline.minutesAt(event.clientY - metrics.top),
         windows: day.manualWindows,
         // Said ONCE, on the first travel, exactly as an inert press on a row is: the past is a
         // record, a closed day holds no work, and a save in flight is a moment that will pass.
-        refusal: day.isPast
-          ? 'past'
-          : day.isClosed
-            ? 'closed'
-            : current.writable()
-              ? null
-              : 'busy',
-        explained: false,
-        moved: false,
-        painted: null,
-      };
+        refusal: day.isPast ? 'past' : day.isClosed ? 'closed' : current.writable() ? null : 'busy',
+      });
 
       const onPointerMove = (moveEvent: PointerEvent): void => {
-        const running = session.current;
-        if (running === null) return;
-        const travelled = Math.hypot(
-          moveEvent.clientX - running.originX,
-          moveEvent.clientY - running.originY,
-        );
-
-        if (running.refusal !== null) {
-          if (travelled < PAINT_THRESHOLD || running.explained) return;
-          running.explained = true;
-          running.moved = true;
-          live.current.onRefused(running.refusal, running.date);
-          return;
-        }
-
-        if (!running.moved) {
-          if (travelled < PAINT_THRESHOLD) return;
-          running.moved = true;
-        }
-
-        const nextMetrics = live.current.measure();
-        if (nextMetrics === null) return;
-        const span = paintedSpan(
-          running.windows,
-          running.anchorMinutes,
-          running.timeline.minutesAt(moveEvent.clientY - nextMetrics.top),
-        );
-        running.painted = span === null ? null : { date: running.date, ...span };
-        setPainting(running.painted);
+        const metricsNow = live.current.measure();
+        if (metricsNow === null) return;
+        dispatch({
+          kind: 'move',
+          at: { x: moveEvent.clientX, y: moveEvent.clientY },
+          minutes: timeline.minutesAt(moveEvent.clientY - metricsNow.top),
+        });
       };
 
-      const onPointerUp = (): void => {
-        const running = session.current;
-        finish();
-        if (running === null) return;
-        if (!running.moved) {
-          live.current.onClick(running.date);
-          return;
-        }
-        if (running.painted !== null) live.current.onPainted(running.painted);
-      };
+      const onPointerUp = (): void => dispatch({ kind: 'release' });
+      // Its OWN handler. Wired to `pointerup` it committed a band the pointer had abandoned.
+      const onPointerCancel = (): void => dispatch({ kind: 'cancel' });
 
       const onKeyDown = (keyEvent: KeyboardEvent): void => {
         if (keyEvent.key === 'Escape') {
           keyEvent.stopPropagation();
-          finish();
+          dispatch({ kind: 'cancel' });
           return;
         }
         // THE WEEK MAY NOT TURN UNDER A PAINT. A block drag pages on the arrows on purpose — it can
@@ -194,18 +152,26 @@ export function usePaintAbsence(options: PaintOptions): PaintController {
 
       window.addEventListener('pointermove', onPointerMove);
       window.addEventListener('pointerup', onPointerUp);
-      window.addEventListener('pointercancel', onPointerUp);
+      window.addEventListener('pointercancel', onPointerCancel);
       window.addEventListener('keydown', onKeyDown, true);
 
       teardown.current = () => {
         window.removeEventListener('pointermove', onPointerMove);
         window.removeEventListener('pointerup', onPointerUp);
-        window.removeEventListener('pointercancel', onPointerUp);
+        window.removeEventListener('pointercancel', onPointerCancel);
         window.removeEventListener('keydown', onKeyDown, true);
       };
     },
-    [finish],
+    [dispatch],
   );
 
-  return { painting, begin };
+  // A mid-press unmount left four window listeners behind, as `useBlockDrag` already guards against.
+  useEffect(() => unlisten, [unlisten]);
+
+  return {
+    painting: state.painted ?? null,
+    pressed: state.phase === 'pressed' || state.phase === 'painting',
+    begin,
+    settle,
+  };
 }
