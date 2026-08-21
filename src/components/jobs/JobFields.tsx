@@ -38,6 +38,12 @@ export interface JobFieldsProps {
    * form has no last block to add hours to, so the LIFO explanation would be a lie.
    */
   hoursHint?: ReactNode | null;
+  /**
+   * Overrides the stepper's half-hour grid AND its floor. A PAINTED band can be any quarter, and
+   * `NumberStepper` snaps to the step before it clamps — so on the half-hour grid a 2 h 15 band was
+   * rounded to 2.5 h by a focus and a blur, silently lengthening what the owner drew.
+   */
+  hoursStep?: number;
   /** Focuses the name field. The panel shell already focuses the first control. */
   autoFocusName?: boolean;
 }
@@ -48,6 +54,7 @@ export function JobFields({
   errors = {},
   disabled = false,
   hoursHint,
+  hoursStep,
   autoFocusName = false,
 }: JobFieldsProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -86,8 +93,9 @@ export function JobFields({
       >
         <NumberStepper
           value={values.hours}
-          min={MIN_JOB_HOURS}
+          min={hoursStep ?? MIN_JOB_HOURS}
           max={MAX_JOB_HOURS}
+          {...(hoursStep === undefined ? {} : { step: hoursStep })}
           suffix={t('units.hoursSuffix')}
           disabled={disabled}
           onChange={(hours) => patch({ hours })}

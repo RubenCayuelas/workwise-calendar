@@ -51,13 +51,24 @@ export default function HomePage(): React.JSX.Element {
           />
         )
       }
-      renderNewJob={({ close, onChanged, today, summary, suggestedColor, horizonWeeks }) => (
+      renderNewJob={({
+        close,
+        onChanged,
+        today,
+        summary,
+        suggestedColor,
+        horizonWeeks,
+        painted,
+        defaultHours,
+      }) => (
         <NewJobPanel
           open
           today={today}
           summary={summary}
           defaultColor={suggestedColor}
           horizonWeeks={horizonWeeks}
+          painted={painted}
+          defaultHours={defaultHours}
           onClose={close}
           onChanged={onChanged}
         />

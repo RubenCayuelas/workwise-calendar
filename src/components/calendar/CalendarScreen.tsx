@@ -34,7 +34,7 @@ import type { DayShape, GapUnit } from '../../types';
 import type { AbsenceOrigin } from '../jobs/absence';
 import type { CloseDayRequest } from '../../lib/closeDay';
 import { PROJECT_COLORS } from '../../lib/projectColors';
-import { manualWindowsOf } from '../../lib/manualWindow';
+import { clockEndOf, manualWindowsOf } from '../../lib/manualWindow';
 import { spillByDay } from '../../lib/dropSpill';
 import { closeDayAfter, closeDayInputFor } from './closeDayOffer';
 import { rankFor, createTimeline, type GridMetrics, type Timeline } from './geometry';
@@ -53,6 +53,8 @@ import {
   type InertReason,
 } from './useBlockDrag';
 import { usePaintAbsence } from './usePaintAbsence';
+import { PaintChooser } from './PaintChooser';
+import type { PaintPoint, PaintedSpan } from './paintSession';
 import { useWeek } from './useWeek';
 import styles from './CalendarScreen.module.css';
 
@@ -79,6 +81,13 @@ export interface NewJobContext {
   suggestedColor: string;
   /** `settings.planningHorizonWeeks` — how far the optional start-date picker reaches. */
   horizonWeeks: number;
+  /**
+   * Set when a painted BAND is what opened the form: the day and the minute the hours start on. The
+   * form's hours field still decides the LENGTH.
+   */
+  painted?: { date: string; startMinutes: number };
+  /** The band's own hours, pre-filled and editable. */
+  defaultHours?: number;
 }
 
 export interface AbsenceFormContext {
@@ -154,6 +163,17 @@ export function CalendarScreen({
     date?: string;
     /** The hours a paint drew. Nothing is written until the owner presses Guardar. */
     painted?: { startMinutes: number; durationMinutes: number };
+  } | null>(null);
+  /**
+   * A band the pointer has let go of, still drawn, waiting to be told what it is. Nothing has been
+   * written and nothing will be by either answer — each one opens a form.
+   */
+  const [release, setRelease] = useState<{ span: PaintedSpan; at: PaintPoint } | null>(null);
+  /** A painted band on its way to the JOB form: its day and its minute. */
+  const [paintedJob, setPaintedJob] = useState<{
+    date: string;
+    startMinutes: number;
+    durationMinutes: number;
   } | null>(null);
   const [splitSource, setSplitSource] = useState<WeekBlock | null>(null);
   const [placing, setPlacing] = useState<PlacingFragment | null>(null);
@@ -507,9 +527,17 @@ export function CalendarScreen({
     measure: () => metricsRef.current?.() ?? null,
     timeline: fittedTimeline ?? FALLBACK_TIMELINE,
     dayAt,
-    enabled: fittedTimeline !== null && placing === null && renderAbsenceForm !== undefined,
+    // A band already waiting for its answer, or a form already open on one, OWNS the grid: without
+    // this a second paint reopened the question and replaced a form the owner had typed into.
+    enabled:
+      fittedTimeline !== null &&
+      placing === null &&
+      renderAbsenceForm !== undefined &&
+      release === null &&
+      paintedJob === null,
     writable: () => !week.mutating.current && !loading,
-    onPainted: ({ date, ...painted }) => setGapTarget({ gap: null, origin: 'paint', kind: 'gap', date, painted }),
+    // IT WRITES NOTHING. The band stays drawn and the question is asked beside it.
+    onPainted: (span, at) => setRelease({ span, at }),
     // A day that can take no absence, said once — and for a CLOSED one the honest answer is the
     // screen that can reopen it, since a dimmed column has nothing else to press.
     onRefused: (reason, date) => {
@@ -789,6 +817,37 @@ export function CalendarScreen({
         </div>
       </main>
 
+      {release === null || view === null ? null : (
+        <PaintChooser
+          at={release.at}
+          label={`${format.dayOption(release.span.date)} · ${format.timeRange(
+            release.span.startMinutes,
+            clockEndOf(
+              dayAt(release.span.date)?.manualWindows ?? view.shape.manualWindows,
+              release.span.startMinutes,
+              release.span.durationMinutes,
+            ),
+          )} · ${format.hours(release.span.durationMinutes)}`}
+          // Each answer clears the band and opens a form IN THE SAME HANDLER, so the rectangle never
+          // blinks between the question and the form that inherits it.
+          onJob={() => {
+            setPaintedJob(release.span);
+            setRelease(null);
+            paint.settle();
+          }}
+          onGap={() => {
+            const { date, ...painted } = release.span;
+            setGapTarget({ gap: null, origin: 'paint', kind: 'gap', date, painted });
+            setRelease(null);
+            paint.settle();
+          }}
+          onCancel={() => {
+            setRelease(null);
+            paint.settle();
+          }}
+        />
+      )}
+
       <SplitBlockDialog
         block={splitSource}
         onCancel={() => setSplitSource(null)}
@@ -853,15 +912,25 @@ export function CalendarScreen({
                 horizonWeeks: view.settings.planningHorizonWeeks,
               })}
 
-          {!newJobOpen || renderNewJob === undefined
+          {(!newJobOpen && paintedJob === null) || renderNewJob === undefined
             ? null
             : renderNewJob({
-                close: () => setNewJobOpen(false),
+                close: () => {
+                  setNewJobOpen(false);
+                  setPaintedJob(null);
+                },
                 onChanged: week.reload,
                 today: view.today,
                 summary: view.summary,
                 suggestedColor: leastUsedColor(view.blocks),
                 horizonWeeks: view.settings.planningHorizonWeeks,
+                ...(paintedJob === null
+                  ? {}
+                  : {
+                      painted: { date: paintedJob.date, startMinutes: paintedJob.startMinutes },
+                      // The band's own hours, which the form's number may then override.
+                      defaultHours: paintedJob.durationMinutes / 60,
+                    }),
               })}
 
           {gapTarget === null || renderAbsenceForm === undefined

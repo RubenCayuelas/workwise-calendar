@@ -30,6 +30,7 @@ import {
   type ScheduleSummary,
 } from '../../lib/api-client';
 import { hoursToMinutes, isValidDate, todayLocal } from '../../lib/dates';
+import { MIN_ROW_MINUTES } from '../../lib/validation';
 import { PROJECT_COLORS } from '../../lib/projectColors';
 import { useFormat, type Formatter } from '../../lib/useFormat';
 import { JobFields, jobFieldErrors, type JobFieldName, type JobFormValues } from './JobFields';
@@ -69,6 +70,12 @@ export interface NewJobPanelProps {
   defaultHours?: number;
   /** Pre-selects a swatch — e.g. the colour the calendar sees least of. */
   defaultColor?: string;
+  /**
+   * A BAND painted on the grid. The day and the minute are the owner's and are not editable away
+   * from being a point: the hours field still wins on LENGTH, and whatever the day cannot hold
+   * carries on from the next day the engine uses.
+   */
+  painted?: { date: string; startMinutes: number };
   /** `settings.planningHorizonWeeks`: how far ahead the day picker reaches. */
   horizonWeeks?: number;
 }
@@ -82,6 +89,7 @@ export function NewJobPanel({
   today,
   defaultHours = DEFAULT_HOURS,
   defaultColor = PROJECT_COLORS[0],
+  painted,
   horizonWeeks,
 }: NewJobPanelProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -127,14 +135,23 @@ export function NewJobPanel({
     setLocalErrors({});
     setActionError(null);
     setCreated(null);
-    setDated(false);
-    setStartDate(reference);
+    // A painted band arrives with its day already chosen, so the date section opens ON it.
+    setDated(painted !== undefined);
+    setStartDate(painted?.date ?? reference);
     setForce(false);
     setPreview(null);
     setPreviewError(null);
-  }, [open, defaultHours, defaultColor, reference]);
+  }, [open, defaultHours, defaultColor, reference, painted]);
 
   const previewable = open && !done && dated && isValidDate(startDate) && values.hours > 0;
+
+  /**
+   * The painted minute, but only while the date is still the day it was painted on. Changing the day
+   * by hand gives up the point and goes back to a floor — which is the honest reading, since the
+   * minute was drawn on a column that is no longer the one being asked about.
+   */
+  const paintedMinutes =
+    painted !== undefined && startDate === painted.date ? painted.startMinutes : undefined;
 
   useEffect(() => {
     if (!previewable) {
@@ -148,7 +165,14 @@ export function NewJobPanel({
     const timer = setTimeout(() => {
       setPreviewing(true);
       previewProjectCreation(
-        { startDate, totalMinutes: hoursToMinutes(values.hours), force },
+        {
+          startDate,
+          totalMinutes: hoursToMinutes(values.hours),
+          force,
+          // Only while the date is STILL the painted one: moving the day makes it an ordinary floor
+          // again, and previewing a minute on another day would promise a placement nobody asked for.
+          ...(paintedMinutes === undefined ? {} : { startMinutes: paintedMinutes }),
+        },
         { signal: controller.signal },
       )
         .then((result) => {
@@ -171,7 +195,7 @@ export function NewJobPanel({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [previewable, startDate, values.hours, force]);
+  }, [previewable, startDate, values.hours, force, paintedMinutes]);
 
   const startSummary: StartDateSummary | null =
     preview === null ? null : summarizeStartDate(preview);
@@ -201,6 +225,7 @@ export function NewJobPanel({
         color: values.color,
         totalMinutes: hoursToMinutes(values.hours),
         ...(dated ? { startDate, force } : {}),
+        ...(paintedMinutes === undefined ? {} : { startMinutes: paintedMinutes }),
       });
 
       // Every row is new, so the diff against nothing is where the engine put it.
@@ -312,6 +337,7 @@ export function NewJobPanel({
           disabled={saving || done}
           // Nothing to LIFO yet: on a new job the hours are simply the estimate.
           hoursHint={null}
+          {...(painted === undefined ? {} : { hoursStep: MIN_ROW_MINUTES / 60 })}
         />
 
         {done ? null : (

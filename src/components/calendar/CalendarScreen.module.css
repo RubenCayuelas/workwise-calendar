@@ -58,3 +58,42 @@
 .hint {
   color: var(--ww-warning);
 }
+
+/* THE QUESTION A RELEASED BAND ASKS. Fixed to the viewport and offset from the pointer, so the band
+   it is about stays visible underneath it. Clamped in the component, which is the only place the
+   window's size is known. */
+.paintChooser {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  min-width: 200px;
+  flex-direction: column;
+  gap: 8px;
+  border: 0.5px solid var(--ww-border-strong);
+  border-radius: var(--radius);
+  background: var(--ww-surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  padding: 10px;
+}
+
+.paintChooserLabel {
+  margin: 0;
+  color: var(--ww-text-muted);
+  font-size: var(--ww-text-sm);
+}
+
+.paintChooserButtons {
+  display: flex;
+  gap: 6px;
+}
+
+.paintChooserCancel {
+  align-self: flex-start;
+  border: 0;
+  background: none;
+  color: var(--ww-text-muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: var(--ww-text-sm);
+  text-decoration: underline;
+}
