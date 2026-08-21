@@ -1051,8 +1051,7 @@ of sitting grey and mute.
   `drifted: false`. A write that finds a calendar the line does not recognise floors a new line on
   it.
 
-*(Why, what was rejected and the traps it had to survive: DECISIONS.md § Undo and Redo Are a Line of
-States.)*
+*(Why, and what was rejected: DECISIONS.md § Undo and Redo Are a Line of States.)*
 
 ---
 
@@ -1780,82 +1779,19 @@ DECISIONS.md § *Reproductions behind the Open Decisions*.
 
 ## Current Project Status
 
-**v0.19 (current).** `tsc --noEmit` clean, `vitest run` **1088 passing across 39 files**, `eslint .`
-clean, `next build` clean.
+**v0.19.** `tsc --noEmit` clean, `vitest run` **1088 passing across 39 files**, `eslint .` clean,
+`next build` clean.
 
 **UNDO AND REDO, MANY STEPS DEEP** (2026-08-21). `Ctrl+Z` and `Ctrl+Y` walk the calendar back and
 forward up to 50 writes, and two discreet icons in the header say what the next step is. A step is a
 whole STATE of the calendar rather than the inverse of a gesture — the reflow recreates rows on every
 pass, so what a move did is not derivable from the move — written inside the same transaction as the
-rows it describes, which is what makes a refusal and `previewAbsence`'s deliberate rollback discard it
-for free. **The line lasts one run of the app** and is emptied when the database is OPENED, because a
-close can be skipped and rows outliving their run would describe yesterday's calendar. **Two decisions
-are the owner's**: the scope is the calendar, so a settings save EMPTIES the line instead of joining it
-(they named the cost out loud), and with a panel open the shortcut is inert and says so rather than
-risking a half-written form. **A write that changed nothing the owner can see earns no step**, which
-also stops the `SET ASIDE` micro-resize costing one. Verified by walking **500 generated sessions**
-back to where they started and forward again, then over real HTTP and in a real browser: `Ctrl+Z`
-inside a text field is still the browser's own, and a 3 h job restored across the comida comes back
-with both of its rows.
-
-**v0.18 — PAINTING MAKES A JOB AS WELL AS A GAP** (2026-08-21). A released band now stays drawn and asks
-which it is; `Un trabajo` opens the ordinary job form pre-filled, and the save places the hours on the
-exact painted MINUTE, padlocked — a fourth creation mode, `painted`, and **the first gesture in the app
-that pins inside Monday to Thursday**. *«GAPS ONLY»* is deleted; the half of it that forbade inferring
-the kind from the band's SIZE is now stronger, because the question is asked out loud instead. The band
-stays on the grid and follows the form until Guardar, and a date that leaves the visible week offers
-the trip rather than vanishing. **Three defects the round fixed before building on the gesture**: a
-`pointercancel` COMMITTED the band it had abandoned; the hook leaked four window listeners on a
-mid-press unmount; and a painted release opened the whole `Desde`/`Hasta` range screen for a gesture
-that is one column by definition. **And one it fixed underneath**: the job form's hours stepper snapped
-to the half hour before it clamped, so a 15- or 45-minute band was silently rounded to 30.
-
-**A CLOSED DAY CHOSEN AS A START DATE IS HONOURED** (2026-08-20). It behaves like a chosen Saturday —
-confirmation, then born there with a padlock — which is what *a closed day behaves like a weekend* had
-said all along while the creation form quietly relocated the job to the first open day. The
-confirmation now comes from the SERVER for a closed day and from the WEEKDAY for a Friday or a weekend,
-so a failed preview can still never let one of those through silently.
-
-**v0.17.** The engine, the API, the week view, the gestures and the drag layer are built
-and green: `tsc --noEmit` clean, `vitest run` **976 passing across 33 files** (including five
-2000-seed property harnesses over placement, manual placement, drops, editing and shrinking — the
-placement one generating off-grid quantities on a quarter of its calendars, which is where the
-quarter-hour floor is really at risk, and asserting strict order on EVERY seed since the hand-set
-duration was deleted), `eslint .` clean, `next build` clean.
-
-**A LONG ABSENCE IS ONE GESTURE, AND A CLOSED DAY HAS A SCREEN** (2026-08-19). `Ausencias` has two
-modes — *un hueco* and *cerrar días* — sharing `Desde` / `Hasta`, so the shop's four hand-typed `Feria`
-rows are now one request in one transaction; `day_overrides` had 0 rows for want of a screen. Bulk
-creation PREVIEWS by running the real write and rolling it back, so the warning names the hours, the
-jobs and the day they land on, and cancelling writes nothing. A drag on empty grid space PAINTS a band
-that only ever opens the form pre-filled. **A defect the round found and fixed**: a drop onto a closed
-weekday was read as a queue rank — `role` is still `auto` there — so the hours left for the next open
-Monday, unlocked and unannounced; `DropPin.closed` makes a closed day pin like the weekend it behaves
-like. **And one that would have bricked the shop**: the overrides were written outside the reflow's
-transaction, so a close the horizon could not absorb stayed on disk and every later write answered the
-same 409, deletions included.
-
-**A GAP IS DRAGGED AND RESIZED** (2026-08-19). It was already a padlocked task to the engine; now it has
-the two gestures one has. The drag is a literal placement of the whole UNIT, cut at the lunch break, never
-rolled to another day; the bottom edge of the unit's last row sets the absence's duration ABSOLUTELY and
-crosses the lunch break; a plain click still opens the form; and the past is read-only to both while the form
-still reaches it. `DragTarget` is a union (`kind: 'block' | 'gap'`) over one drag controller, so *One
-Axis Per Gesture* has one implementation. **A defect the round fixed before building on it**: the form
-was being handed one ROW of a comida-crossing absence, so opening its morning half and pressing Guardar
-destroyed 4 of its 10 hours.
-
-**NO STORED ROW STRADDLES THE LUNCH BREAK — gaps included.** A gap's `duration` became NET working
-minutes on 2026-08-19, so a gap is cut at the break like everything else, its two halves are ONE unit on
-screen, and the one row in the app that could span a break is gone. The four `08:00 +11,5 h` Feria rows
-in the shop's file are split by a one-shot data migration (`data_migrations`, the first of its kind:
-`PRAGMA table_info` cannot see a change of MEANING).
-
-**A row carries ONE mark, the padlock.** `manual_duration` was deleted on 2026-08-18 with every rule
-that held it up, and the bottom edge now sizes only a row the engine does not lay out. That is the
-SECOND mark removed by the same argument — `hand_placed` went on 2026-08-14 — and the argument is the
-same both times: a second column that says what the padlock already says costs a rule for every
-consequence and buys nothing the padlock cannot state. What is left open by this round is Open
-Decision 4, and it got broader — read it before touching the resize.
+rows it describes, which is what makes a refusal discard it for free. **The line lasts one run of the
+app** and is emptied when the database is OPENED, because a close can be skipped and rows outliving
+their run would describe yesterday's calendar. **Two decisions are the owner's**: the scope is the
+calendar, so a settings save EMPTIES the line instead of joining it, and with a panel open the shortcut
+is inert and says so rather than risking a half-written form. **A write that changed nothing the owner
+can see earns no step**, which also stops the `SET ASIDE` micro-resize costing one.
 
 Everything in *Composition Engine Business Rules* and *UI/UX Behavior* above is implemented and was
 verified by driving the running app, except the items marked **Decided but NOT BUILT** in
