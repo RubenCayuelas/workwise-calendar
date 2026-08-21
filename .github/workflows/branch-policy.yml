@@ -1,0 +1,23 @@
+name: Branch policy
+
+# GitHub's branch protection cannot restrict which branch a pull request comes FROM — there is no such
+# setting, in the classic rules or in rulesets. This check is the mechanism: make it required on `main`
+# and a pull request from anywhere else cannot be merged.
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  source-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only develop or a hotfix may open a pull request into main
+        env:
+          SOURCE: ${{ github.head_ref }}
+        run: |
+          if [ "$SOURCE" = "develop" ] || case "$SOURCE" in hotfix/*) true ;; *) false ;; esac; then
+            echo "$SOURCE may merge into main."
+            exit 0
+          fi
+          echo "::error::'$SOURCE' cannot merge into main. Merge it into develop first, or name it hotfix/<something>."
+          exit 1
