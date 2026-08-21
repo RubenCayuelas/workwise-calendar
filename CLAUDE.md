@@ -68,7 +68,7 @@ Enable quick visual reorganization via drag & drop.
   - `duration` is **NET WORKING MINUTES, exactly like a block's** (changed 2026-08-19), and **a stored
     gap row never straddles a non-working interval** either — so the invariant holds for EVERY row in
     the app and `start_time + duration` is any row's clock extent — see *Blocks and the Lunch Break*.
-  - `unit_id`: **which rows are ONE ABSENCE.** The two halves around the comida share one and carry
+  - `unit_id`: **which rows are ONE ABSENCE.** The two halves around the lunch break share one and carry
     one reason between them, and **ANY ROW OF A UNIT ADDRESSES THE UNIT** — a PATCH and a DELETE both
     mean the whole absence, whichever row they name. It cannot be the reason text: `deleteProject`
     writes the same sentence on every past row, so two absences that merely touch would fuse.
@@ -372,7 +372,7 @@ is *The Calendar Sits On The Quarter Hour* applied at the one place splitting no
 
 Two details make it hold rather than nearly hold:
 - **A free stretch is cut at every real break between two periods**, because a stretch spanning the
-  comida is one stretch to the arithmetic and TWO rows on the clock. Without the cut an obstacle
+  lunch break is one stretch to the arithmetic and TWO rows on the clock. Without the cut an obstacle
   ending at 13:50 stored a ten-minute `13:50-14:00` row plus the rest of the afternoon.
 - **The floor is never a refusal.** `compose` walks the horizon once with it on and, only if the
   hours still have nowhere to go, once more with it off: an item the cursor keeps stepping over ends
@@ -399,7 +399,7 @@ the form's preview, so the form cannot promise a placement the save will not per
 | the queue reaches it: appending the job lands on or after that day | `queue` | one provisional row after the last block. When the queue's own answer is LATER than the day chosen, the form says so before saving. |
 | the same, but the owner disagreed (`force`) | `forced` | one provisional row ranked at 00:00 of that day. The same outcome as creating the job and dragging it there, including that a **locked** row is not moved. |
 | the engine would place it EARLIER, or would not place it there at all (a Friday, a weekend, a **closed day**, the past) | `born` | the job's real rows, on that day and the days after, laid out by `compose` itself. |
-| a BAND was painted on the grid, so the day carries a chosen MINUTE too (`startMinutes`) | `painted` | the hours start on that exact minute, cut at the comida, PADLOCKED; the overflow carries on from the NEXT day the engine lays out. |
+| a BAND was painted on the grid, so the day carries a chosen MINUTE too (`startMinutes`) | `painted` | the hours start on that exact minute, cut at the lunch break, PADLOCKED; the overflow carries on from the NEXT day the engine lays out. |
 
 **`painted` is the only mode where the chosen day is a POINT rather than a floor**, and it brings the
 one thing the other three do not have:
@@ -414,7 +414,7 @@ one thing the other three do not have:
   synthetic `today` moved with it). `rankedRow` writes a rank at 00:00, so anchoring on the painted day
   laid the overflow in FRONT of the band, padlocked, on hours the owner never aimed at.
 - **The head is cut before anything else sees it** (`paintedSegments`). `compose` re-derives nothing on
-  a locked row, so an uncut `13:00 +6 h` would be STORED across the comida — and `assertRowWithinDayEnd`
+  a locked row, so an uncut `13:00 +6 h` would be STORED across the lunch break — and `assertRowWithinDayEnd`
   reads `clockEndOf`, so it would not catch it.
 - **The refusals are a GAP's, not a drop's.** A gap or a row outside the movable pool under any of the
   head's rows is refused naming it (409 `painted-over-gap`, `painted-over-fixed-block`), asked of every
@@ -609,7 +609,7 @@ Three honest ways, all of which fall out of the rules above:
 2. **Stop the day with a gap.** A **one-click action** on the block's hover bar ("Cerrar el día
    aquí"): it pre-fills a gap from a chosen moment to the end of the day's last enabled period, asks
    only for an optional reason, and states what the day loses and whose hours the engine will move.
-   **Across the comida that is TWO rows** and the plan says so (`CloseDayPlan.rows`), while the hours
+   **Across the lunch break that is TWO rows** and the plan says so (`CloseDayPlan.rows`), while the hours
    it asks for are the day's NET working minutes — closing at 13:00 is 5 h, not 6.5 h. One request
    still: the form posts the stretch and the save cuts it, so there is one refusal and one undo.
    It is an ordinary gap — same endpoint, same refusals, editable and deletable afterwards.
@@ -743,7 +743,7 @@ three of those minutes commit the same duration), so the drop reads it the same 
   ordinary request inside the periods, so it is a queue rank like any other. The **day** still pins
   (Friday, the weekend), and so does a margin.
 - **A GAP reads it too** (changed 2026-08-19). A gap's duration is net working minutes, so a gap aimed
-  at the comida is stored from 15:30 and a gap can no longer be recorded inside the break. Nothing
+  at the lunch break is stored from 15:30 and a gap can no longer be recorded inside the break. Nothing
   happens during it by definition.
 
 `firstWorkingMinute` (`src/lib/manualWindow.ts`) is the rule, and it is read in exactly two places
@@ -798,7 +798,7 @@ no hours move. On the fixed side the same answer falls out by construction — a
 from its very start leaves no head, so that row is pushed whole.
 
 **A PINNED placement is never nudged at all.** Where the row keeps the minute it was released on —
-the weekend, the colchón, a visual margin, a locked unit — that minute is not an ordering, it is the
+the weekend, the buffer, a visual margin, a locked unit — that minute is not an ordering, it is the
 clock, and it is what gets stored. `rankFor(…, pinned)` in
 `src/components/calendar/geometry.ts` is the one place both rules live.
 
@@ -874,7 +874,7 @@ the ghost draws in their place is the division itself — see *The Ghost of a Ra
 day, the frozen past, a visual margin, and a padlocked row anywhere.
 
 **It only ever leaves a day the engine LAYS OUT, and only lands on one** (`dayReflows`):
-- from Monday to Thursday, and from the Friday colchón, it rolls forward to the next such day. The
+- from Monday to Thursday, and from the Friday buffer, it rolls forward to the next such day. The
   buffer is one of them — and a run that lands there padlocks like any other Friday drop;
 - from the WEEKEND, a closed day or the past it does not roll at all. There the drop is a literal
   placement on a day the owner named on purpose, so moving it to another DATE would be a bigger
@@ -974,7 +974,7 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   despreciable". A margin is never compressed: the owner puts real work in one by hand.
   - **The seam is DISCREET: the margins' own grey fill between two hairlines in the ordinary
     border colour.** No hatch, no heavy rules. Three things already say "nothing lives here" —
-    it is the same grey as the top and bottom margins (a margin and the comida are the same kind
+    it is the same grey as the top and bottom margins (a margin and the lunch break are the same kind
     of nothing), it spans the week edge to edge and square (nothing else on the grid has that
     shape, so it cannot be misread as a very short block), and 28 px where an hour is 50-plus is
     itself the statement.
@@ -1297,7 +1297,7 @@ minute by minute, at several fitted scales — never at sample points.
 *(Absences over a RANGE of days, closing days, and painting a band are the four sub-sections at the end
 of this one.)*
 - **Create**: Date + Start Time + Duration + Reason (optional). The hours are **net working minutes**,
-  and the save **cuts them at the comida** into one row per manual window they reach, sharing the
+  and the save **cuts them at the lunch break** into one row per manual window they reach, sharing the
   reason (`createGap` → `segmentDroppedRow` over `manualWindows`). Consequences the form has to live
   with:
   - **the stored start may differ from the one asked for** — a gap aimed at 14:00 is stored from 15:30
@@ -1310,7 +1310,7 @@ of this one.)*
   `isMovable` says no. On Saturday the weekend is what holds the row, so a padlocked weekend row is
   refused as `errors.gapOverWeekendBlock` while `locked` is reserved for the case where the padlock is
   the ONLY thing holding it. **The refusal is asked of every ROW the gap will be stored as**: measured
-  over `start + duration` instead, 8 h from 10:00 tests `10:00-18:00`, names rows in the comida where
+  over `start + duration` instead, 8 h from 10:00 tests `10:00-18:00`, names rows in the lunch break where
   nothing can be, and MISSES the padlocked `18:00-19:30` its real second half lands on.
 - **Create in one click**: *stop the day here* from a block's action bar.
 - **Edit**: modify any field; the result is tested and cut exactly as a create is. **A PATCH ADDRESSES
@@ -1331,13 +1331,13 @@ of this one.)*
 > a padlocked block has. A plain CLICK still opens the form — only a press that TRAVELS drags.**
 
 - **The drag is a LITERAL placement**, like a padlocked row: the absence lands on the minute it was
-  released and is cut at the comida. **Never a queue rank — a gap is not in the queue**, so there is
+  released and is cut at the lunch break. **Never a queue rank — a gap is not in the queue**, so there is
   no rank for it to take and `dropLandsLiterally` answers `fixed` for it on every day.
 - **The WHOLE UNIT moves.** Both halves travel; the far one is created or deleted by the same
   transaction, since the absence is (day, start, net duration) and nothing else.
 - **A release aimed at a minute no window covers starts at the first minute that can hold work** —
   the same rule a block's drop follows (*A Minute With No Working Time*), so a gap aimed anywhere in
-  the comida is stored from 15:30 and the drop SAYS so (`notices.gapMovedTo`).
+  the lunch break is stored from 15:30 and the drop SAYS so (`notices.gapMovedTo`).
 - **Its DAY is as literal as its minute, so it is never carried to another one.** A footprint the day
   cannot hold is CLAMPED to the latest start that fits (`resolveDropDay`'s `rolls: false`), exactly
   like a weekend drop: the owner named the day the machine broke, and moving an absence to Thursday
@@ -1378,7 +1378,7 @@ gesture.
   the preview both NAME the days they skipped, so the skip is never silent. A range longer than
   `MAX_ABSENCE_DAYS` (120) or running backwards is 400 `invalid-range` on `to`.
 - **In `gap` mode a range writes the SAME absence on each day**: same start, same net duration, one
-  unit id per day, each cut at the comida by the very function a single gap uses (`insertAbsence`).
+  unit id per day, each cut at the lunch break by the very function a single gap uses (`insertAbsence`).
 - **The rows are written first and the reflow runs ONCE**, at the end, so the hours are displaced by one
   pass and reported once. A refusal on ANY day of the range rolls the whole thing back.
 - **The two OLD shapes of the form are untouched**: editing one absence and *cerrar el día aquí* still
@@ -1408,7 +1408,7 @@ gesture.
 - **NO HALF-DAY.** `capacity_hours` stays without a screen: the owner was asked and said no, because a
   short day is a GAP. Do not offer it.
 
-#### Painting on Empty Grid Space — a Hueco or a Trabajo
+#### Painting on Empty Grid Space — a Gap or a Job
 > **A drag on empty grid space paints a band. ON RELEASE the band STAYS DRAWN and two buttons appear
 > at the pointer — `Un trabajo` / `Un hueco` — and whichever is pressed OPENS A FORM PRE-FILLED with
 > the day, the start and the net duration. IT WRITES NOTHING either way — the owner presses Guardar.**
@@ -1424,10 +1424,10 @@ gesture.
 - **A `Trabajo` is a job created at the painted MINUTE, padlocked** — see *Creating a Job With a Start
   Date*, mode `painted`. **A `Hueco` is the absence it always was**, and it opens ONE absence rather
   than the `Desde`/`Hasta` range screen, which a one-column gesture had no use for.
-- **The band draws the rows the gesture will really be stored as**, cut at the comida
+- **The band draws the rows the gesture will really be stored as**, cut at the lunch break
   (`segmentDroppedRow`), like every other ghost on this grid, and it is measured in NET working
   minutes: 13:00 to 16:30 is 2 h. It paints upwards as readily as downwards, reaches the visual
-  margins, and a press aimed inside the comida starts at the first minute that can hold work.
+  margins, and a press aimed inside the lunch break starts at the first minute that can hold work.
 - **Under a quarter of an hour there is no band and no question**: a press that wandered is not a
   gesture. A **pointercancel** commits nothing.
 - **Disabled while a scissors fragment waits for its target**, where a grid click already means "put it
@@ -1441,7 +1441,7 @@ gesture.
 #### The Band Stays Drawn While Its Form Is Open
 > **Choosing an answer does not erase the band. It stays on the grid and FOLLOWS THE FORM — the day,
 > the start and the hours — until Guardar replaces it with the real rows, or Cancelar takes it away.
-> For a hueco and for a trabajo alike.**
+> For a gap and for a job alike.**
 
 - **Client-side only, and AGNOSTIC to what is underneath it** (`planDraftRows`, `draftBand.ts`): it
   reads no block and no gap, is drawn OVER whatever is there, and never tries to show who gets pushed.
@@ -1558,6 +1558,11 @@ easy to revisit rather than buried in the code.
   **CLAUDE.md** on every start: a dirty tree on every run, and framework prose inside the file that
   states its own contract in its header. The useful half of that block is kept below, in
   *Notes for Development*.
+- **The calendar every suite is written against lives in `src/testing/fixtures.ts`** — the
+  wireframe's week, Monday 10 to Sunday 16 August 2026, plus the days either side the horizon tests
+  need. Nine test files had been declaring it themselves, and two had drifted: one called
+  `2026-08-20` THURSDAY while the rest call `2026-08-13` THU, so one word meant two days depending
+  on the file. Add a date here rather than locally.
 - **Test timeout**: 30 s (`vitest.config.mts`). The suite's property tests run thousands of generated
   calendars each; the seed counts are the guard, so the timeout must not be what decides how many run.
 
@@ -1628,7 +1633,7 @@ DECISIONS.md § *Reproductions behind the Open Decisions*.
 
 - **The one-minute rank nudge, and the sub-quarter row it can produce.** A drop that goes in BEFORE a
   row writes its rank one minute earlier; that minute was then treated as a time and the run cut at
-  the comida from it, so a day could come back off the quarter hour (`5,77 h`, and once a 14-minute
+  the lunch break from it, so a day could come back off the quarter hour (`5,77 h`, and once a 14-minute
   row). **The owner could not reproduce it and set it aside on 2026-08-20**: *«parece ser solo problema
   teórico en código, ignorar por ahora pero si ocurre un problema similar mencionar este detalle»*.
   So: do not spend a round on it unsolicited — but **if anything similar surfaces, say that this was
@@ -1694,9 +1699,9 @@ transaction, so a close the horizon could not absorb stayed on disk and every la
 same 409, deletions included.
 
 **A GAP IS DRAGGED AND RESIZED** (2026-08-19). It was already a padlocked task to the engine; now it has
-the two gestures one has. The drag is a literal placement of the whole UNIT, cut at the comida, never
+the two gestures one has. The drag is a literal placement of the whole UNIT, cut at the lunch break, never
 rolled to another day; the bottom edge of the unit's last row sets the absence's duration ABSOLUTELY and
-crosses the comida; a plain click still opens the form; and the past is read-only to both while the form
+crosses the lunch break; a plain click still opens the form; and the past is read-only to both while the form
 still reaches it. `DragTarget` is a union (`kind: 'block' | 'gap'`) over one drag controller, so *One
 Axis Per Gesture* has one implementation. **A defect the round fixed before building on it**: the form
 was being handed one ROW of a comida-crossing absence, so opening its morning half and pressing Guardar
@@ -1741,7 +1746,17 @@ is in [DECISIONS.md](DECISIONS.md) § Release history.**
   what they said — that exact overstatement stood for two days about the resize precondition and cost
   a round to undo. If it was an inference, say so, and name what they actually decided.
 - **All code, comments, variable names**: English. **UI strings**: only in
-  `public/locales/{lang}/common.json`, with the es and en key sets identical.
+  `public/locales/{lang}/common.json`, with the es and en key sets identical. That includes TEST
+  DATA: jobs are `Railing`, `Staircase`, `Door`, `Shutter`, `Grille`, `Shed`, `Casing`, `Capping`,
+  and gap reasons are `Fair`, `Breakdown`, `Errands` and the rest — the English word for the thing,
+  because the test COMMENTS were already using it while the code said `escalera`.
+  **Four kinds of Spanish are correct and must survive a sweep**, all of them found by one that did
+  not spare them: an assertion of an `es` locale VALUE (`locales.test.ts`, `summary.test.ts`, the
+  `apiErrorMessage(..., 'es')` cases); a UI label the spec NAMES, so the doc describes the screen
+  that exists (`Ausencias`, `Cerrar días`, `Un hueco`, `desborde 2 h`); the owner's own words, quoted;
+  and a reason STORED in the shop's database, where `Feria` is the datum and `Fair` would be a lie.
+  A fifth trap has no Spanish in it at all: `taller` is the English comparative, and a map that
+  translates it turns *"made the grid taller than its box"* into nonsense.
 - **A comment carries what the code cannot, and nothing else.** The path names the module, the
   identifier names the thing, the type says its shape, this file holds the rules and DECISIONS.md
   holds the why. A comment restating any of those is a copy that will drift out of step with them.
