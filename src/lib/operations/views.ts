@@ -15,6 +15,7 @@ import {
   weekdayOf,
 } from '../dates';
 import { summarizeSchedule, type DayRole, type ScheduleSummary } from '../composition';
+import { readHistoryState, type HistoryState } from '../history';
 import { plannableMinutesOf, readSnapshot } from '../scheduler';
 import { listDayOverridesBetween } from '../repositories/dayOverrides';
 import { listProjectLabels } from '../repositories/projects';
@@ -73,6 +74,12 @@ export interface WeekView {
   gaps: Gap[];
   /** Week-independent: identical to `GET /api/summary`. */
   summary: ScheduleSummary;
+  /**
+   * Week-independent too. It rides here because the screen already refetches the week after
+   * every mutation, so the undo and redo controls cannot fall out of step with the calendar
+   * they act on, and no second request or second loading state is needed.
+   */
+  history: HistoryState;
 }
 
 /**
@@ -144,6 +151,7 @@ export function readWeek(
     blocks,
     gaps: snapshot.gaps.filter((gap) => withinWeek(gap.date, startDate, endDate)),
     summary: summarizeSchedule(snapshot.blocks, today),
+    history: readHistoryState(db),
   };
 }
 

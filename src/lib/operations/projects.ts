@@ -12,7 +12,8 @@ import {
 import { conflict, notFound, ERROR_MESSAGE_KEYS } from '../errors';
 import { newId } from '../ids';
 import { nowTimestamp } from '../timestamps';
-import { composeInputOf, readSnapshot, recompose, readSummary, runTransaction } from '../scheduler';
+import { withHistory } from '../history';
+import { composeInputOf, readSnapshot, recompose, readSummary } from '../scheduler';
 import { deletedJobGapReason } from '../text';
 import { insertGap } from '../repositories/gaps';
 import { listBlocks, listBlocksByProject } from '../repositories/blocks';
@@ -81,7 +82,7 @@ export interface CreateProjectInput {
 export function createProject(input: CreateProjectInput, db: Db = getDb()): ProjectMutation {
   const today = input.today ?? todayLocal();
 
-  return runTransaction(db, () => {
+  return withHistory(db, { kind: 'project.create', name: input.name }, () => {
     const projectId = newId();
     const project = insertProject(
       {
@@ -278,7 +279,7 @@ export interface PatchProjectInput {
 export function patchProject(projectId: string, input: PatchProjectInput, db: Db = getDb()): ProjectMutation {
   const today = input.today ?? todayLocal();
 
-  return runTransaction(db, () => {
+  return withHistory(db, { kind: 'project.update', projectId }, () => {
     const current = findProject(projectId, db);
     if (current === undefined) {
       throw notFound('project-not-found', ERROR_MESSAGE_KEYS.projectNotFound, { details: { projectId } });
@@ -368,7 +369,7 @@ export function deleteProject(
 ): ProjectDeletion {
   const today = options.today ?? todayLocal();
 
-  return runTransaction(db, () => {
+  return withHistory(db, { kind: 'project.delete', projectId }, () => {
     const project = findProject(projectId, db);
     if (project === undefined) {
       throw notFound('project-not-found', ERROR_MESSAGE_KEYS.projectNotFound, { details: { projectId } });

@@ -2,6 +2,7 @@ import { getDb, type Db } from '../db';
 import { todayLocal } from '../dates';
 import type { ScheduleSummary } from '../composition';
 import { badRequest, ERROR_MESSAGE_KEYS } from '../errors';
+import { restartHistory } from '../history';
 import { recompose, runTransaction } from '../scheduler';
 import {
   SettingsValidationError,
@@ -42,6 +43,7 @@ export function updateSettings(
   const today = options.today ?? todayLocal();
 
   return runTransaction(db, () => {
+    const previous = readSettings(db);
     let settings: Settings;
     try {
       settings = writeSettings(definedFieldsOf(patch), db);
@@ -58,6 +60,12 @@ export function updateSettings(
     }
 
     const report = recompose(db, { today });
+    // A settings change is the one write that does not become an undo step: the shift the
+    // stored rows were laid out against is gone, so the line they belonged to goes with it.
+    // Asked of the reflow too, or a save that changed no setting but moved rows a restore had
+    // put back would leave the line describing a calendar that is no longer there.
+    if (report.changed || JSON.stringify(previous) !== JSON.stringify(settings)) restartHistory(db);
+
     return {
       settings,
       shape: dayShapeFromSettings(settings),

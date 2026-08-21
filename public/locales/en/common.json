@@ -359,6 +359,35 @@
     "deletedJobPast_one": "The job was deleted. The hour already worked stays on the calendar as a gap, so the day keeps its shape.",
     "deletedJobPast_other": "The job was deleted. The {{count}} parts already worked stay on the calendar as gaps, so those days keep their shape."
   },
+  "undo": {
+    "undo": "Undo",
+    "redo": "Redo",
+    "undoOf": "Undo: {{what}}",
+    "redoOf": "Redo: {{what}}",
+    "nothingToUndo": "Nothing left to undo",
+    "nothingToRedo": "Nothing to redo",
+    "clearedBySettings": "Saving the settings emptied the history: the shift those blocks were laid out against is gone.",
+    "done": "Undone: {{what}}",
+    "redone": "Redone: {{what}}",
+    "closePanel": "Close what you have open and try again: with a panel or a form in front, undo stays out of the way rather than throwing away something half written.",
+    "drifted": "The calendar changed by another route, so the history was emptied. Nothing was undone.",
+    "kinds": {
+      "blockMove": "moving «{{name}}»",
+      "blockResize": "changing the length of «{{name}}»",
+      "blockLock": "changing the padlock on «{{name}}»",
+      "blockSplit": "splitting «{{name}}»",
+      "blockDelete": "deleting a part of «{{name}}»",
+      "projectCreate": "creating «{{name}}»",
+      "projectUpdate": "editing «{{name}}»",
+      "projectDelete": "deleting «{{name}}»",
+      "gapCreate": "creating a gap",
+      "gapUpdate": "editing a gap",
+      "gapDelete": "deleting a gap",
+      "absenceGaps": "creating the absences",
+      "absenceCloseDays": "closing the days",
+      "absenceReopen": "reopening the days"
+    }
+  },
   "resizeChoice": {
     "title": "What should happen to those {{hours}} h?",
     "body": "«{{name}}» has no other block that can take them: the rest are locked, on the weekend or already past.",

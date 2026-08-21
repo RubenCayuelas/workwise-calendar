@@ -18,14 +18,18 @@ import {
   isApiError,
   moveBlock as apiMoveBlock,
   moveGap as apiMoveGap,
+  redoChange as apiRedoChange,
   resizeBlock as apiResizeBlock,
   resizeGap as apiResizeGap,
   setBlockLock as apiSetBlockLock,
   splitBlock as apiSplitBlock,
+  undoChange as apiUndoChange,
   type AbsenceKind,
   type BlockMutation,
   type FreedHoursChoice,
+  type HistoryStep,
   type ScheduleSummary,
+  type UndoKind,
   type WeekBlock,
   type WeekDay,
   type WeekView,
@@ -56,6 +60,7 @@ import { usePaintAbsence } from './usePaintAbsence';
 import { PaintChooser } from './PaintChooser';
 import type { PaintPoint, PaintedSpan } from './paintSession';
 import { planDraftRows, type DraftRow, type GridDraft } from './draftBand';
+import { historyShortcut } from './undoShortcut';
 import { useWeek } from './useWeek';
 import styles from './CalendarScreen.module.css';
 
@@ -165,6 +170,10 @@ export function CalendarScreen({
   const metricsRef = useRef<(() => GridMetrics | null) | null>(null);
   const viewRef = useRef<WeekView | null>(null);
   viewRef.current = view;
+  // Read by a callback that outlives its render: an undo's response lands after the week may have
+  // been paged, and the controller captured at press time would compare against a stale reference.
+  const weekRef = useRef(week);
+  weekRef.current = week;
 
   const gridArea = useRef<HTMLDivElement | null>(null);
   const areaHeight = useElementHeight(gridArea);
@@ -706,6 +715,66 @@ export function CalendarScreen({
   // Stable, so the grid's layout effect is not re-armed by every unrelated render.
   const onSettled = useCallback(() => setSettle(null), []);
 
+  // --- Undo and redo ---
+
+  const history = view?.history ?? null;
+  const canUndo = history !== null && history.undo !== null;
+  const canRedo = history !== null && history.redo !== null;
+  /**
+   * ONE predicate, shared by the buttons and the shortcut. It is what keeps a restore from
+   * leaving an open panel or a pending gesture pointing at a row it has just deleted: with all
+   * of them shut, there is no client state left to go stale.
+   */
+  const nothingOpen =
+    placing === null &&
+    splitSource === null &&
+    deleteTarget === null &&
+    resizeChoice === null &&
+    openJobId === null &&
+    !newJobOpen &&
+    gapTarget === null &&
+    release === null &&
+    paintedJob === null &&
+    // A gesture in the air OWNS the calendar; it is not a save, and saying "wait, the previous
+    // change is still saving" about a held pointer would be a sentence about a request that does
+    // not exist.
+    !gestureInAir;
+  /**
+   * `loading` and not only `busy`: `mutate` clears `busy` where it SCHEDULES the refetch, so for
+   * the length of that GET `view.history` still describes the calendar from before the write —
+   * long enough for an undo followed straight away by a redo to read the redo as unavailable.
+   */
+  const historySaving = busy || loading;
+  const historyReady = nothingOpen && !historySaving;
+
+  const stepText = useCallback(
+    (step: HistoryStep | null): string | null =>
+      step === null ? null : t(UNDO_KIND_KEYS[step.kind], step.args),
+    [t],
+  );
+
+  const runHistory = useCallback(
+    (action: 'undo' | 'redo'): void => {
+      void mutate(() => (action === 'undo' ? apiUndoChange() : apiRedoChange())).then((result) => {
+        // A refusal already speaks through the banner; `undefined` is that case.
+        if (result === undefined) return;
+        if (result.drifted) {
+          toast.warning(t('undo.drifted'));
+          return;
+        }
+        // Nothing there is an ordinary answer: the control was already off, so say nothing.
+        if (!result.changed) return;
+        // Through the ref, not the captured controller: `showWeekOf` compares against the
+        // `reference` of the render it was built in, and the header arrows have no busy guard, so
+        // a page turn during the request would make it skip the week it was asked to show.
+        if (result.focusDate !== null) weekRef.current.showWeekOf(result.focusDate);
+        const what = stepText(result.step);
+        if (what !== null) toast.info(t(action === 'undo' ? 'undo.done' : 'undo.redone', { what }));
+      });
+    },
+    [mutate, stepText, t, toast],
+  );
+
   const confirmDelete = useCallback((): void => {
     const target = deleteTarget;
     if (target === null) return;
@@ -735,6 +804,41 @@ export function CalendarScreen({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [week, placing, splitSource, deleteTarget, openJobId, newJobOpen, gapTarget, drag.kind]);
 
+  /**
+   * Ctrl+Z and Ctrl+Y. On `window` in the BUBBLE phase deliberately: the two capture-phase
+   * listeners the grid installs — the drag and the paint — only ever match Escape and the
+   * arrows, so nothing has to be fought over, and Escape stays theirs.
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      // A HELD key repeats, and every repeat would raise its own toast into a viewport with no cap
+      // and a four-second life. One press, one step.
+      if (event.repeat) return;
+      const intent = historyShortcut(event, {
+        typing: isTypingTarget(event.target),
+        open: !nothingOpen,
+        busy: historySaving,
+        canUndo,
+        canRedo,
+      });
+      if (intent === null) return;
+      // Inside a field the press is the browser's own undo: not ours to prevent, not ours to
+      // answer.
+      if ('blocked' in intent && intent.blocked === 'typing') return;
+      event.preventDefault();
+      if ('blocked' in intent) {
+        // A drag or a paint in the air is blocked as `open` too, and gets no sentence: mid-gesture
+        // a toast is noise rather than an answer, and «close the panel» would name the wrong thing.
+        if (intent.blocked === 'open' && !gestureInAir) toast.info(t('undo.closePanel'));
+        if (intent.blocked === 'busy') toast.info(t(INERT_KEYS.busy));
+        return;
+      }
+      runHistory(intent.action);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [canRedo, canUndo, gestureInAir, historySaving, nothingOpen, runHistory, t, toast]);
+
   // Escape abandons a pending placement.
   useEffect(() => {
     if (placing === null) return;
@@ -749,6 +853,17 @@ export function CalendarScreen({
 
   const weekLabel =
     view === null ? '' : format.weekLabel(view.week.isoWeek, view.week.startDate, view.week.endDate);
+
+  // A control that is off says WHY. Grey with no reason is the one thing a settings save could
+  // leave behind, since emptying the line is the price the owner chose for it.
+  const undoLabel = canUndo
+    ? t('undo.undoOf', { what: stepText(history?.undo ?? null) })
+    : history?.clearedBySettings === true
+      ? t('undo.clearedBySettings')
+      : t('undo.nothingToUndo');
+  const redoLabel = canRedo
+    ? t('undo.redoOf', { what: stepText(history?.redo ?? null) })
+    : t('undo.nothingToRedo');
 
   const emptyWeek = view !== null && view.blocks.length === 0 && view.gaps.length === 0;
 
@@ -785,6 +900,12 @@ export function CalendarScreen({
           renderAbsenceForm === undefined ? undefined : () => setGapTarget({ gap: null, origin: 'menu' })
         }
         settingsHref={settingsHref}
+        undoLabel={undoLabel}
+        redoLabel={redoLabel}
+        canUndo={canUndo && historyReady}
+        canRedo={canRedo && historyReady}
+        onUndo={() => runHistory('undo')}
+        onRedo={() => runHistory('redo')}
       />
 
       <main className="ww-app__body">
@@ -1066,6 +1187,24 @@ const DROP_OUTCOME_KEYS: Record<DropOutcomeKind, string> = {
   filled: 'notices.dropFilled',
   unchanged: 'notices.dropUnchanged',
   absorbed: 'notices.dropAbsorbed',
+};
+
+/** One key per `UndoKind`, so a step the server records always has a sentence to be read as. */
+const UNDO_KIND_KEYS: Record<UndoKind, string> = {
+  'block.move': 'undo.kinds.blockMove',
+  'block.resize': 'undo.kinds.blockResize',
+  'block.lock': 'undo.kinds.blockLock',
+  'block.split': 'undo.kinds.blockSplit',
+  'block.delete': 'undo.kinds.blockDelete',
+  'project.create': 'undo.kinds.projectCreate',
+  'project.update': 'undo.kinds.projectUpdate',
+  'project.delete': 'undo.kinds.projectDelete',
+  'gap.create': 'undo.kinds.gapCreate',
+  'gap.update': 'undo.kinds.gapUpdate',
+  'gap.delete': 'undo.kinds.gapDelete',
+  'absence.gaps': 'undo.kinds.absenceGaps',
+  'absence.closeDays': 'undo.kinds.absenceCloseDays',
+  'absence.reopen': 'undo.kinds.absenceReopen',
 };
 
 /** The names behind a list of job ids, from the week on screen, without repeats. */

@@ -312,9 +312,13 @@ from 15:30 (*A Minute With No Working Time*), so it asks for no manual-only minu
 **The padlock is only ever ADDED by a gesture, never removed by one.** Dropping a padlocked row back
 onto Mon-Thu leaves it padlocked, where it lands on the exact minute it was released at. The way
 back is to press the padlock — on the row's hover bar, and on every row in the job panel's list, so
-it is reachable for a row weeks away. **It is the only undo there is**, and it gives back the whole
-row: its place in the queue and its length. (*Back to automatic*, `{action:"release"}`, existed while
-a hand-set LENGTH was a mark of its own; both went on 2026-08-18.)
+it is reachable for a row weeks away. **It is the only way back for the ROW**, and it gives back the
+whole of it: its place in the queue and its length. (*Back to automatic*, `{action:"release"}`,
+existed while a hand-set LENGTH was a mark of its own; both went on 2026-08-18.)
+
+`Ctrl+Z` is a different thing and does not replace it: the padlock hands one row to the engine, while
+the undo line reverts the last WRITE, whatever it was — see *Undo and Redo*. Until 2026-08-21 the
+padlock really was the only undo in the app, and this passage said so.
 
 On a day the engine reflows, a padlocking drop's slot is its **intent, not the last word**: if the
 slot it asks for is held by a gap or a locked row, the drop slides forward to the nearest slot it
@@ -482,6 +486,9 @@ the whole span, whether every row would come back locked, and which days are fre
 - **Still allowed, and it is the way out**: editing the job in its FORM, and deleting it. Hours
   added to a job whose last row is past get their own row on a future day (`lastAutomatic`), and
   deleting a job leaves its past rows behind as gaps.
+- **`Ctrl+Z` reaches here too, and that is not an exception.** An undo is not a gesture: it restores
+  rows this calendar already held, so undoing a deletion puts the past rows back where they were.
+  Reverting the record is not editing it — see *Undo and Redo*.
 - **A padlock a row carried into the past simply stays**, and toggling it is refused: it changes
   nothing the engine reads, since `isMovable` asks the date before it asks the flag. Nothing is
   stranded by that — there is no second mark left to hand back.
@@ -947,6 +954,108 @@ prose the data layer ever produces; every other message is an i18n KEY the UI re
 
 ---
 
+## Undo and Redo
+
+> **`Ctrl+Z` walks the calendar back one write, `Ctrl+Y` walks it forward again, up to 50 steps. A
+> step is a whole STATE of the calendar, never the inverse of a gesture — the reflow rewrites,
+> deletes and recreates rows on every pass, so what a move DID is not derivable from the move. The
+> line lasts ONE RUN OF THE APP.**
+
+A step holds `projects`, `blocks`, `gaps` and `day_overrides`, ids and timestamps verbatim.
+**`settings` is not in it** — see *A Settings Save Empties the Line*.
+
+**The line is a row of STATES with a cursor** (`history`, `src/lib/history.ts`). The lowest `seq` is
+the FLOOR: restorable, not undoable. Every later row is the calendar AFTER the write its `kind`
+names. `undone = 1` marks the redo tail, so the cursor is the highest `seq` with `undone = 0`.
+
+- **A new write drops the tail** — the standard rule, and the only way a redo is ever lost.
+- **50 steps**, then the oldest is forgotten: 51 rows are 50 undoable steps and a floor.
+- **Emptied when the database is OPENED, not when it is closed.** A close can be skipped — a power
+  cut, a kill, a crash — and rows outliving their run would describe a calendar from a previous day:
+  at best the drift guard throws the line away, at worst an undo silently reverts yesterday's work.
+  No run can BEGIN without opening the file, and that is the only way to a handle, so nothing can
+  read a stale line before it is gone. Once the app ships as a Windows application (*Architecture*),
+  "a run" is one launch of it, which is what the owner asked the line to last.
+
+**A RESTORE DOES NOT RECOMPOSE.** It puts the stored rows back exactly — same ids, same
+`created_at`, same `updated_at` — because anything else would mean undo did not give back what was
+there. Two details make that hold rather than nearly hold: the queue's tiebreak is `(date,
+start_time, created_at, id)`, so a re-insert through the repositories (which leave `created_at` to
+SQLite) reorders the calendar; and it is a DELETE and an INSERT rather than an UPDATE, because the
+`updated_at` triggers fire `WHEN OLD.updated_at = NEW.updated_at` and would rewrite a row restored
+to its own timestamp. `assertProjectHours` runs afterwards as a net.
+
+**A WRITE THAT CHANGED NOTHING THE OWNER CAN SEE EARNS NO STEP**, so `Ctrl+Z` can never appear to do
+nothing. The comparison is the one `RecomposeReport.changed` already uses — over the rows the owner
+sees, ignoring timestamps and a BLOCK's id, since the reflow recreates rows on a pass that moved
+nothing. Two consequences, both wanted: the micro-resize in *SET ASIDE* stops costing a step, and so
+does a Monday-to-Thursday drop the reflow answers with the row's own slot.
+
+**EVERY WRITE PASSES ONE PLACE.** `withHistory` wraps `runTransaction` (`src/lib/scheduler.ts`) at
+its 13 mutating call sites, so the step is written inside the same transaction as the rows it
+describes, and a refusal or a `horizon-exceeded` rollback discards it for free. That is why the line
+is a TABLE and not an array in memory. (`previewAbsence` needs none of it today — it reaches
+`writeAbsence` directly, below the hook — but it is the standing proof that this codebase writes for
+real and rolls back, and an array would have to be told about every such path by hand.)
+
+**THE ROW CARRIES ITS OWN FINGERPRINT** — the state as the owner sees it, `canonical`. Both questions
+the line ever asks are then a string comparison and never a parse of the blob: *did this write change
+anything?* and *has the calendar moved outside the line?* Safe to store only because the table is
+emptied on open, so a change to how the fingerprint is computed can never meet a row written under
+the old one.
+
+**`POST /api/history/undo` and `/redo`**, both answering `{changed, step, focusDate, drifted,
+summary}`. What the line HOLDS rides on `GET /api/week`, which the grid already refetches after every
+mutation, so the controls cannot fall out of step with the calendar they act on.
+
+### A Settings Save Empties the Line
+> **Saving Settings is the one write that is not undoable: it empties the line instead of joining
+> it. The owner decided this on 2026-08-21, naming the cost — no undo right after narrowing the
+> shift, which is when it would be most welcome.**
+
+A settings save recomposes in the same transaction, so it moves the very rows the earlier steps
+describe: the shift they were laid out against is gone. It is asked of the REFLOW as well as of the
+fields, or a save that changed no setting but moved rows a restore had put back would leave the line
+describing a calendar that is no longer there. **The undo control then says WHY it is off**, instead
+of sitting grey and mute.
+
+### What Ctrl+Z Is Not
+- **It is not the padlock.** The padlock hands one ROW back to the engine; `Ctrl+Z` reverts the last
+  WRITE, whatever it was — padlock presses included.
+- **It is not a grid gesture, so *The Past is Frozen* does not refuse it.** Undoing a job's deletion
+  puts its past rows back where they were: reverting the record is not editing it.
+- **It is not offered on the Settings screen**, which shares no component with the calendar and holds
+  a draft form of its own.
+
+### The Two Controls and the Two Keys
+- **`Ctrl+Z` undoes; `Ctrl+Y` and `Ctrl+Shift+Z` both redo.** On `window` in the BUBBLE phase: the
+  grid's two capture-phase listeners — the drag and the paint — match only Escape and the arrows, so
+  there is nothing to fight over and Escape stays theirs.
+- **Two discreet ghost icon buttons** before `Hoy`, whose tooltip names the step: *«Deshacer: mover
+  «Barandilla»»*. The keyboard is the normal route; the buttons are how the gesture is discovered.
+- **ONE predicate decides the buttons AND the keys.** Inert while any panel, form or dialog is open,
+  while a gesture is in the air, and while a save is in flight. That is what keeps a restore from
+  leaving an open panel, a pending scissors fragment or a held band pointing at a row it has just
+  deleted: with everything shut, there is no client state left to go stale.
+- **Inside a text field the press is the BROWSER's** and is not touched — no `preventDefault`, no
+  notice. With a panel open and the focus on a BUTTON it is inert AND SAYS SO, because there the
+  press would otherwise look ignored.
+- **A restore shows the week it touched** (`focusDate`, the earliest day the two states disagree
+  about) and a toast names what was undone. **Nothing to undo is silent and is not an error**:
+  `changed: false`, never a 409 — a control that raced a keystroke must not raise a red banner.
+- **A calendar that moved outside the line is never clobbered, and that is checked TWICE.** Before a
+  restore, what is on disk must be what the cursor says is there; where it is not — a hand-edited
+  file, a maintenance script — the line is emptied, the request says so, and nothing is restored.
+  **And before a step is RECORDED**, the cursor must still describe what the write found: checking
+  only at restore time protected the foreign write for exactly one gesture, because the next
+  ordinary write folded it into its own `after` and the undo below then deleted it reporting
+  `drifted: false`. A write that finds a calendar the line does not recognise floors a new line on
+  it.
+
+*(Why, and what was rejected: DECISIONS.md § Undo and Redo Are a Line of States.)*
+
+---
+
 ## UI/UX Behavior
 
 **Reference wireframes** (gitignored, local only): `documents/workwise_wireframe_vista_semana.png`
@@ -1020,8 +1129,9 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   **`GET /api/summary` is API surface, not dead code**, even though the week view reads the same
   object out of `GET /api/week`: it is the one place the strip's arithmetic is reachable on its own.
   An audit called it unused on 2026-08-20; it is unused BY THIS APP, which is a different thing.
-- **Header**: logo, `‹ Semana 33 · 10–16 ago 2026 ›`, and `Hoy`, `+ Nuevo trabajo`, language,
-  overflow menu.
+- **Header**: logo, `‹ Semana 33 · 10–16 ago 2026 ›`, and two discreet undo/redo icons, `Hoy`,
+  `+ Nuevo trabajo`, language, overflow menu. The icons are ghost-styled and their tooltip names the
+  step — see *The Two Controls and the Two Keys*.
 - **Visual blocks**: tinted fill with a saturated border in the project colour, name + hours. A unit
   cut at the lunch break is marked at both ends. Engine-placed Friday blocks read `desborde 2 h` and
   get a distinct border so an overrun week is visible at a glance.
@@ -1034,9 +1144,9 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   The tooltip is one line naming it and what it fixes, so it never needs a legend. The solid outline
   does a second job: on Friday it is the difference between `desborde 2 h` (dashed) and a row the
   owner put there on purpose, so `isOverflow` excludes any unit with a padlocked row in it.
-- **One mark, one undo**: pressing the padlock. It hands the row back whole, length included. (A
-  second mark for a hand-set LENGTH, drawn as a ruler with *back to automatic* beside it, existed
-  until 2026-08-18.)
+- **One mark, one way back**: pressing the padlock. It hands the row back whole, length included —
+  which is not what `Ctrl+Z` does, that being the last WRITE rather than one row. (A second mark for a
+  hand-set LENGTH, drawn as a ruler with *back to automatic* beside it, existed until 2026-08-18.)
 - **The bottom-edge strip is LIVE on every row but a PAST one** (`ns-resize`, the job-coloured pill):
   the server sizes them all. **On a past row there is no edge at all** — the body answers the press
   with `notices.pressOnPastDay`. Withholding the strip anywhere was tried twice and reverted twice:
@@ -1295,8 +1405,9 @@ minute by minute, at several fitted scales — never at sample points.
   is already behind it.
 - **Delete**: requires confirmation. FUTURE blocks deleted and the calendar recomposes; PAST blocks
   become gaps.
-- **Lock/Unlock**: toggle `locked` per block. Not offered on a past row. It is the app's ONE undo for
-  a row the owner has settled by hand — position and length together.
+- **Lock/Unlock**: toggle `locked` per block. Not offered on a past row. It is the way back for a row
+  the owner has settled by hand — position and length together — which is a narrower thing than
+  `Ctrl+Z`, and the only one that reaches a row weeks away without walking the line.
 
 ### Gap Management
 *(Absences over a RANGE of days, closing days, and painting a band are the four sub-sections at the end
@@ -1507,6 +1618,8 @@ Work periods, auto-fill capacity, visual margins, planning horizon, gap colour, 
   periods or margins would strand, and — per *The Capacity Is Never Touched Alone* — the capacity the
   new shift can no longer buy, with both numbers. **Cancel writes nothing** and leaves the rest of the
   unsaved form exactly as it was.
+- **A save EMPTIES the undo line**, and the undo control then says so rather than sitting grey — see
+  *A Settings Save Empties the Line*. There is no `Ctrl+Z` on this screen.
 
 ---
 
@@ -1597,8 +1710,6 @@ DECISIONS.md § *Reproductions behind the Open Decisions*.
 
   `findGapConflicts` and `otherJobOverlaps` already exist — the drop path's two halves — so this is
   wiring, not a new mechanism.
-- **One-level undo, Ctrl+Z** *(decided 2026-08-14)*. Every mutation runs in a single transaction, so
-  remembering the previous state is enough.
 - ***Añadir otra parte*** on the job panel *(decided 2026-08-14)*: a second job entry with the name and
   colour pre-filled. DECISIONS.md § Two Parts of One Job.
 
@@ -1653,8 +1764,10 @@ DECISIONS.md § *Reproductions behind the Open Decisions*.
 
 ### Deferred by direction
 
-- **Backups**: an Export button in Settings. The DB is gitignored and there is no undo. **It stops
-  being optional the day the app is installed on the shop PC** — that one file IS their calendar.
+- **Backups**: an Export button in Settings. The DB is gitignored, and the undo line is no
+  substitute: it holds 50 steps, it lasts one run of the app, and a settings save empties it. **It
+  stops being optional the day the app is installed on the shop PC** — that one file IS their
+  calendar.
 - **The Windows executable**, above. Wanted, planned, and behind a few features the owner wants first.
   The milestone to build before anything cosmetic is the one that can only be tested on Windows:
   `ELECTRON_RUN_AS_NODE` plus the standalone server plus an Electron-ABI `better-sqlite3`.
@@ -1667,67 +1780,19 @@ DECISIONS.md § *Reproductions behind the Open Decisions*.
 
 ## Current Project Status
 
-**v0.18 (current).** `tsc --noEmit` clean, `vitest run` **1052 passing across 37 files**, `eslint .`
-clean, `next build` clean.
+**v0.19.** `tsc --noEmit` clean, `vitest run` **1088 passing across 39 files**, `eslint .` clean,
+`next build` clean.
 
-**PAINTING MAKES A JOB AS WELL AS A GAP** (2026-08-21). A released band now stays drawn and asks
-which it is; `Un trabajo` opens the ordinary job form pre-filled, and the save places the hours on the
-exact painted MINUTE, padlocked — a fourth creation mode, `painted`, and **the first gesture in the app
-that pins inside Monday to Thursday**. *«GAPS ONLY»* is deleted; the half of it that forbade inferring
-the kind from the band's SIZE is now stronger, because the question is asked out loud instead. The band
-stays on the grid and follows the form until Guardar, and a date that leaves the visible week offers
-the trip rather than vanishing. **Three defects the round fixed before building on the gesture**: a
-`pointercancel` COMMITTED the band it had abandoned; the hook leaked four window listeners on a
-mid-press unmount; and a painted release opened the whole `Desde`/`Hasta` range screen for a gesture
-that is one column by definition. **And one it fixed underneath**: the job form's hours stepper snapped
-to the half hour before it clamped, so a 15- or 45-minute band was silently rounded to 30.
-
-**A CLOSED DAY CHOSEN AS A START DATE IS HONOURED** (2026-08-20). It behaves like a chosen Saturday —
-confirmation, then born there with a padlock — which is what *a closed day behaves like a weekend* had
-said all along while the creation form quietly relocated the job to the first open day. The
-confirmation now comes from the SERVER for a closed day and from the WEEKDAY for a Friday or a weekend,
-so a failed preview can still never let one of those through silently.
-
-**v0.17.** The engine, the API, the week view, the gestures and the drag layer are built
-and green: `tsc --noEmit` clean, `vitest run` **976 passing across 33 files** (including five
-2000-seed property harnesses over placement, manual placement, drops, editing and shrinking — the
-placement one generating off-grid quantities on a quarter of its calendars, which is where the
-quarter-hour floor is really at risk, and asserting strict order on EVERY seed since the hand-set
-duration was deleted), `eslint .` clean, `next build` clean.
-
-**A LONG ABSENCE IS ONE GESTURE, AND A CLOSED DAY HAS A SCREEN** (2026-08-19). `Ausencias` has two
-modes — *un hueco* and *cerrar días* — sharing `Desde` / `Hasta`, so the shop's four hand-typed `Feria`
-rows are now one request in one transaction; `day_overrides` had 0 rows for want of a screen. Bulk
-creation PREVIEWS by running the real write and rolling it back, so the warning names the hours, the
-jobs and the day they land on, and cancelling writes nothing. A drag on empty grid space PAINTS a band
-that only ever opens the form pre-filled. **A defect the round found and fixed**: a drop onto a closed
-weekday was read as a queue rank — `role` is still `auto` there — so the hours left for the next open
-Monday, unlocked and unannounced; `DropPin.closed` makes a closed day pin like the weekend it behaves
-like. **And one that would have bricked the shop**: the overrides were written outside the reflow's
-transaction, so a close the horizon could not absorb stayed on disk and every later write answered the
-same 409, deletions included.
-
-**A GAP IS DRAGGED AND RESIZED** (2026-08-19). It was already a padlocked task to the engine; now it has
-the two gestures one has. The drag is a literal placement of the whole UNIT, cut at the lunch break, never
-rolled to another day; the bottom edge of the unit's last row sets the absence's duration ABSOLUTELY and
-crosses the lunch break; a plain click still opens the form; and the past is read-only to both while the form
-still reaches it. `DragTarget` is a union (`kind: 'block' | 'gap'`) over one drag controller, so *One
-Axis Per Gesture* has one implementation. **A defect the round fixed before building on it**: the form
-was being handed one ROW of a comida-crossing absence, so opening its morning half and pressing Guardar
-destroyed 4 of its 10 hours.
-
-**NO STORED ROW STRADDLES THE LUNCH BREAK — gaps included.** A gap's `duration` became NET working
-minutes on 2026-08-19, so a gap is cut at the break like everything else, its two halves are ONE unit on
-screen, and the one row in the app that could span a break is gone. The four `08:00 +11,5 h` Feria rows
-in the shop's file are split by a one-shot data migration (`data_migrations`, the first of its kind:
-`PRAGMA table_info` cannot see a change of MEANING).
-
-**A row carries ONE mark, the padlock.** `manual_duration` was deleted on 2026-08-18 with every rule
-that held it up, and the bottom edge now sizes only a row the engine does not lay out. That is the
-SECOND mark removed by the same argument — `hand_placed` went on 2026-08-14 — and the argument is the
-same both times: a second column that says what the padlock already says costs a rule for every
-consequence and buys nothing the padlock cannot state. What is left open by this round is Open
-Decision 4, and it got broader — read it before touching the resize.
+**UNDO AND REDO, MANY STEPS DEEP** (2026-08-21). `Ctrl+Z` and `Ctrl+Y` walk the calendar back and
+forward up to 50 writes, and two discreet icons in the header say what the next step is. A step is a
+whole STATE of the calendar rather than the inverse of a gesture — the reflow recreates rows on every
+pass, so what a move did is not derivable from the move — written inside the same transaction as the
+rows it describes, which is what makes a refusal discard it for free. **The line lasts one run of the
+app** and is emptied when the database is OPENED, because a close can be skipped and rows outliving
+their run would describe yesterday's calendar. **Two decisions are the owner's**: the scope is the
+calendar, so a settings save EMPTIES the line instead of joining it, and with a panel open the shortcut
+is inert and says so rather than risking a half-written form. **A write that changed nothing the owner
+can see earns no step**, which also stops the `SET ASIDE` micro-resize costing one.
 
 Everything in *Composition Engine Business Rules* and *UI/UX Behavior* above is implemented and was
 verified by driving the running app, except the items marked **Decided but NOT BUILT** in

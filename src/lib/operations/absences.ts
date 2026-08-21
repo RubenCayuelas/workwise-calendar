@@ -14,7 +14,8 @@ import { MINUTES_PER_DAY, compareDates, daysBetween, minutesToHHmm, todayLocal }
 import { absenceRange, MAX_ABSENCE_DAYS } from '../absences';
 import { findGapConflicts, type GapConflict, type ScheduleSummary } from '../composition';
 import { badRequest, conflict, ERROR_MESSAGE_KEYS } from '../errors';
-import { readSummary, recompose, runTransaction } from '../scheduler';
+import { withHistory } from '../history';
+import { readSummary, recompose } from '../scheduler';
 import { listBlocks } from '../repositories/blocks';
 import {
   deleteDayOverride,
@@ -99,7 +100,8 @@ export interface AbsencePreview {
 /** Writes it, in ONE transaction: the rows, the reflow they displace and nothing half done. */
 export function saveAbsence(input: AbsenceInput, db: Db = getDb()): AbsenceMutation {
   const today = input.today ?? todayLocal();
-  return runTransaction(db, () => writeAbsence(input, today, db));
+  const kind = input.kind === 'closed-days' ? 'absence.closeDays' : 'absence.gaps';
+  return withHistory(db, { kind }, () => writeAbsence(input, today, db));
 }
 
 /**
@@ -147,7 +149,7 @@ export function reopenDays(
   const today = input.today ?? todayLocal();
   const range = resolveRange({ from: input.from, to: input.to });
 
-  return runTransaction(db, () => {
+  return withHistory(db, { kind: 'absence.reopen' }, () => {
     const dates: string[] = [];
     for (const date of range.dates) {
       const stored = findDayOverride(date, db);

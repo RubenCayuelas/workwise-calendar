@@ -14,13 +14,8 @@ import {
 import { conflict, notFound, ERROR_MESSAGE_KEYS } from '../errors';
 import { newId } from '../ids';
 import { nowTimestamp } from '../timestamps';
-import {
-  dayConfigResolver,
-  getDayConfig,
-  recompose,
-  runTransaction,
-  type RecomposeReport,
-} from '../scheduler';
+import { withHistory } from '../history';
+import { dayConfigResolver, getDayConfig, recompose, type RecomposeReport } from '../scheduler';
 import {
   findBlock,
   listBlocks,
@@ -70,7 +65,7 @@ export interface MoveBlockInput {
 export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb()): BlockMutation {
   const today = input.today ?? todayLocal();
 
-  return runTransaction(db, () => {
+  return withHistory(db, { kind: 'block.move', blockId }, () => {
     const block = requireBlock(blockId, db);
     assertNotPast(block.date, today, { blockId });
     assertNotPastTarget(input.date, today);
@@ -163,7 +158,7 @@ export interface ResizeBlockInput {
 export function resizeBlock(blockId: string, input: ResizeBlockInput, db: Db = getDb()): BlockMutation {
   const today = input.today ?? todayLocal();
 
-  return runTransaction(db, () => {
+  return withHistory(db, { kind: 'block.resize', blockId }, () => {
     const block = requireBlock(blockId, db);
     assertNotPast(block.date, today, { blockId });
     const edit = requireEdit(
@@ -216,7 +211,7 @@ export function setBlockLock(
 ): BlockMutation {
   const today = options.today ?? todayLocal();
 
-  return runTransaction(db, () => {
+  return withHistory(db, { kind: 'block.lock', blockId }, () => {
     const block = requireBlock(blockId, db);
     assertNotPast(block.date, today, { blockId });
     setBlockLocked(blockId, locked, db);
@@ -245,7 +240,7 @@ export interface SplitBlockInput {
 export function splitBlock(blockId: string, input: SplitBlockInput, db: Db = getDb()): BlockMutation {
   const today = input.today ?? todayLocal();
 
-  return runTransaction(db, () => {
+  return withHistory(db, { kind: 'block.split', blockId }, () => {
     const block = requireBlock(blockId, db);
     assertNotPast(block.date, today, { blockId });
     assertNotPastTarget(input.date, today);
@@ -321,7 +316,7 @@ export function deleteBlock(
 ): { projectId: string; summary: ScheduleSummary } {
   const today = options.today ?? todayLocal();
 
-  return runTransaction(db, () => {
+  return withHistory(db, { kind: 'block.delete', blockId }, () => {
     const block = requireBlock(blockId, db);
     assertNotPast(block.date, today, { blockId });
     const own = listBlocksByProject(block.projectId, db);
