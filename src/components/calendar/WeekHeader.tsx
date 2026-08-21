@@ -5,6 +5,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  IconArrowBackUp,
+  IconArrowForwardUp,
   IconCalendarPlus,
   IconChevronLeft,
   IconChevronRight,
@@ -26,6 +28,16 @@ export interface WeekHeaderProps {
   onNewJob?: () => void;
   onNewAbsence?: () => void;
   settingsHref: string;
+  /**
+   * Already worded by the screen, which is the only place that knows how to name a step — and
+   * which says why the control is off when it is off, rather than leaving it grey and mute.
+   */
+  undoLabel: string;
+  redoLabel: string;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
 }
 
 export function WeekHeader({
@@ -37,6 +49,12 @@ export function WeekHeader({
   onNewJob,
   onNewAbsence,
   settingsHref,
+  undoLabel,
+  redoLabel,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
 }: WeekHeaderProps): React.JSX.Element {
   const { t } = useTranslation();
 
@@ -74,6 +92,22 @@ export function WeekHeader({
       <span className="ww-spacer" />
 
       <div className="ww-toolbar">
+        {/* Ghost, so the pair sits quietly beside the controls that do something every day:
+            the keyboard is the normal route to them. */}
+        <IconButton
+          icon={<IconArrowBackUp size={18} stroke={1.75} />}
+          label={undoLabel}
+          variant="ghost"
+          disabled={!canUndo}
+          onClick={onUndo}
+        />
+        <IconButton
+          icon={<IconArrowForwardUp size={18} stroke={1.75} />}
+          label={redoLabel}
+          variant="ghost"
+          disabled={!canRedo}
+          onClick={onRedo}
+        />
         <Button title={t('header.todayHint')} disabled={disabled} onClick={onToday}>
           {t('header.today')}
         </Button>

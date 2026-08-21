@@ -359,6 +359,35 @@
     "deletedJobPast_one": "Se ha eliminado el trabajo. La hora que ya estaba trabajada se queda en el calendario como hueco, para que el día no cambie de forma.",
     "deletedJobPast_other": "Se ha eliminado el trabajo. Las {{count}} partes que ya estaban trabajadas se quedan en el calendario como huecos, para que esos días no cambien de forma."
   },
+  "undo": {
+    "undo": "Deshacer",
+    "redo": "Rehacer",
+    "undoOf": "Deshacer: {{what}}",
+    "redoOf": "Rehacer: {{what}}",
+    "nothingToUndo": "No queda nada que deshacer",
+    "nothingToRedo": "No hay nada que rehacer",
+    "clearedBySettings": "Guardar la configuración ha vaciado el historial: el turno con el que se colocaron esos bloques ya no existe.",
+    "done": "Deshecho: {{what}}",
+    "redone": "Rehecho: {{what}}",
+    "closePanel": "Cierra lo que tienes abierto y vuelve a intentarlo: con un panel o un formulario delante no se deshace, para no tirar a la basura algo a medio escribir.",
+    "drifted": "El calendario ha cambiado por otro camino, así que el historial se ha vaciado. No se ha deshecho nada.",
+    "kinds": {
+      "blockMove": "mover «{{name}}»",
+      "blockResize": "cambiar la duración de «{{name}}»",
+      "blockLock": "cambiar el candado de «{{name}}»",
+      "blockSplit": "dividir «{{name}}»",
+      "blockDelete": "eliminar una parte de «{{name}}»",
+      "projectCreate": "crear «{{name}}»",
+      "projectUpdate": "editar «{{name}}»",
+      "projectDelete": "eliminar «{{name}}»",
+      "gapCreate": "crear un hueco",
+      "gapUpdate": "editar un hueco",
+      "gapDelete": "eliminar un hueco",
+      "absenceGaps": "crear las ausencias",
+      "absenceCloseDays": "cerrar los días",
+      "absenceReopen": "reabrir los días"
+    }
+  },
   "resizeChoice": {
     "title": "¿Qué hacemos con esas {{hours}} h?",
     "body": "«{{name}}» no tiene ningún otro bloque que pueda quedárselas: los demás están bloqueados, en fin de semana o ya pasados.",
