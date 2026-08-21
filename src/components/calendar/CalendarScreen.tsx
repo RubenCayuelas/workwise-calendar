@@ -31,6 +31,7 @@ import {
   type WeekView,
 } from '../../lib/api-client';
 import type { DayShape, GapUnit } from '../../types';
+import type { AbsenceOrigin } from '../jobs/absence';
 import type { CloseDayRequest } from '../../lib/closeDay';
 import { PROJECT_COLORS } from '../../lib/projectColors';
 import { manualWindowsOf } from '../../lib/manualWindow';
@@ -91,6 +92,8 @@ export interface AbsenceFormContext {
   closeDay: CloseDayRequest | null;
   /** Which mode a NEW absence opens in: `closed-days` when the owner pressed a closed column. */
   kind: AbsenceKind;
+  /** Which gesture opened it. Decides the RANGE screen versus one absence, never the contents. */
+  origin: AbsenceOrigin;
   close: () => void;
   onChanged: () => void;
   today: string;
@@ -143,6 +146,8 @@ export function CalendarScreen({
   const [gapTarget, setGapTarget] = useState<{
     gap: GapUnit | null;
     closeDay?: CloseDayRequest;
+    /** Which gesture opened it: the RANGE screen is only for the two that name no day. */
+    origin: AbsenceOrigin;
     /** Which mode a NEW absence opens in. */
     kind?: AbsenceKind;
     /** The day a NEW absence opens on: a painted band's, or a closed column that was pressed. */
@@ -489,7 +494,7 @@ export function CalendarScreen({
     // A press that did not travel: the job panel, or the absence's own form. It arrives here rather
     // than from a native click so one press cannot answer twice — see the gap's `role="button"`.
     onClick: (target) =>
-      target.kind === 'gap' ? setGapTarget({ gap: target.gap }) : setOpenJobId(target.projectId),
+      target.kind === 'gap' ? setGapTarget({ gap: target.gap, origin: 'gap' }) : setOpenJobId(target.projectId),
   });
 
   /**
@@ -504,7 +509,7 @@ export function CalendarScreen({
     dayAt,
     enabled: fittedTimeline !== null && placing === null && renderAbsenceForm !== undefined,
     writable: () => !week.mutating.current && !loading,
-    onPainted: ({ date, ...painted }) => setGapTarget({ gap: null, kind: 'gap', date, painted }),
+    onPainted: ({ date, ...painted }) => setGapTarget({ gap: null, origin: 'paint', kind: 'gap', date, painted }),
     // A day that can take no absence, said once — and for a CLOSED one the honest answer is the
     // screen that can reopen it, since a dimmed column has nothing else to press.
     onRefused: (reason, date) => {
@@ -512,7 +517,7 @@ export function CalendarScreen({
         toast.info(t(reason === 'past' ? 'notices.pressOnPastDay' : 'notices.pressWhileBusy'));
         return;
       }
-      setGapTarget({ gap: null, kind: 'closed-days', date });
+      setGapTarget({ gap: null, origin: 'closed-column', kind: 'closed-days', date });
     },
     // The only press the grid background has ever had a use for: a closed column, whose reason and
     // whose way back out both live on the absences screen.
@@ -524,7 +529,7 @@ export function CalendarScreen({
     onClick: (date) => {
       const day = dayAt(date);
       if (day === undefined || day.isPast || !day.isClosed) return;
-      setGapTarget({ gap: null, kind: 'closed-days', date });
+      setGapTarget({ gap: null, origin: 'closed-column', kind: 'closed-days', date });
     },
   });
 
@@ -710,7 +715,7 @@ export function CalendarScreen({
         onToday={week.goToday}
         onNewJob={renderNewJob === undefined ? undefined : () => setNewJobOpen(true)}
         onNewAbsence={
-          renderAbsenceForm === undefined ? undefined : () => setGapTarget({ gap: null })
+          renderAbsenceForm === undefined ? undefined : () => setGapTarget({ gap: null, origin: 'menu' })
         }
         settingsHref={settingsHref}
       />
@@ -745,13 +750,13 @@ export function CalendarScreen({
                 placing={placing}
                 onPlace={onPlace}
                 onOpenJob={setOpenJobId}
-                onOpenGap={renderAbsenceForm === undefined ? undefined : (gap) => setGapTarget({ gap })}
+                onOpenGap={renderAbsenceForm === undefined ? undefined : (gap) => setGapTarget({ gap, origin: 'gap' })}
                 onCloseDay={
                   renderAbsenceForm === undefined
                     ? undefined
                     : // A gap IS how a day stops early, so the action opens the gap form
                       // with everything but the reason filled in.
-                      (closeDay) => setGapTarget({ gap: null, closeDay })
+                      (closeDay) => setGapTarget({ gap: null, origin: 'close-day', closeDay })
                 }
                 onToggleLock={onToggleLock}
                 onSplit={onSplit}
@@ -865,6 +870,7 @@ export function CalendarScreen({
                 gap: gapTarget.gap,
                 closeDay: gapTarget.closeDay ?? null,
                 kind: gapTarget.kind ?? 'gap',
+                origin: gapTarget.origin,
                 close: () => setGapTarget(null),
                 onChanged: week.reload,
                 today: view.today,

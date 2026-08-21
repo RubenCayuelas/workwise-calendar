@@ -66,6 +66,7 @@ export default function HomePage(): React.JSX.Element {
         gap,
         closeDay,
         kind,
+        origin,
         close,
         onChanged,
         today,
@@ -83,6 +84,7 @@ export default function HomePage(): React.JSX.Element {
           // "Stop the day here" is the same gap, pre-filled: same panel, same endpoint.
           closeDay={closeDay ?? undefined}
           defaultKind={kind}
+          origin={origin}
           today={today}
           shape={shape}
           gapColor={gapColor}
