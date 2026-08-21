@@ -16,6 +16,37 @@ queue order respecting capacity, padlocks and gaps, and the owner reorganises by
 Local-only notes and the wireframes live in `documents/`, which is gitignored on purpose: it holds
 whatever the owner does not want in the repository. Do not move it, tidy it or read from it unasked.
 
+## When you write in these documents
+
+**Each file has one shape, and `src/lib/docs.test.ts` enforces it.** Three rounds produced three styles,
+a 1,900-line CLAUDE.md and pointers to sections that had been renamed — a written rule was not enough,
+so the shape is a test now. Run `npx vitest run src/lib/docs.test.ts` after editing any of them.
+
+| file | shape |
+|---|---|
+| **CLAUDE.md** | the agreement, under 320 lines. A rule needing more than a line or two belongs in SPEC.md. `## The invariants` stays a numbered list, so a new one joins the list instead of hiding in prose |
+| **docs/SPEC.md** | behaviour, present tense, no history. What the app does, not what it used to do |
+| **docs/DECISIONS.md** | one entry per decision, all the same shape (below) |
+| **CHANGELOG.md** | `## X.Y.Z — title`, newest first, an entry for the version in `package.json`, and `desktop/package.json` on the same number |
+
+A **DECISIONS.md** entry is always these parts in this order:
+
+```
+## The Name Of The Rule
+
+**Rule** — SPEC § *Where it is specified*. One or two sentences of the rule as it stands today.
+
+**Why** — what makes it right, and what was measured.
+
+**Rejected** — the alternative that was tried, and what it cost. (Only where one was.)
+```
+
+- **A superseded decision is DELETED, not annotated.** An agent reading *"this used to be X"* may restore
+  X — that has happened. The rule as it stands today is the only thing the file says.
+- **`§ *Name*` must name a real heading** of SPEC.md or DECISIONS.md. The test resolves every one.
+- **Never write a `SPEC.md §` or `DECISIONS.md §` pointer in a code comment.** That the rules live there
+  is understood; the test refuses it.
+
 ## How the owner works
 
 Recorded because two rounds were spent learning it.
