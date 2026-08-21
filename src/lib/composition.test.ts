@@ -34,20 +34,11 @@ import {
   type ManualPlacementSuccess,
   type PlacedBlock,
 } from './composition';
+import { FRI, LAST_FRI, MON, NEXT_MON, SAT, SUN, THU, TUE, WED } from '../testing/fixtures';
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
-
-const LAST_FRI = '2026-08-07';
-const MON = '2026-08-10';
-const TUE = '2026-08-11';
-const WED = '2026-08-12';
-const THU = '2026-08-13';
-const FRI = '2026-08-14';
-const SAT = '2026-08-15';
-const SUN = '2026-08-16';
-const NEXT_MON = '2026-08-17';
 
 /** A day with BOTH views derived as `dayShapeFromSettings` derives them, so they cannot disagree. */
 function withWindows(spec: Omit<DayShape, 'manualWindows'>): DayShape {

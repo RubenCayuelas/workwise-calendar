@@ -4,12 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { hhmmToMinutes as t } from './dates';
 import { dropLanding, dropLandsLiterally, type DropDay } from './dropSlide';
 import { manualWindowsOf } from './manualWindow';
-
-const MON = '2026-08-10';
-const THU = '2026-08-13';
-const FRI = '2026-08-14';
-const SAT = '2026-08-15';
-const NEXT_MON = '2026-08-17';
+import { FRI, MON, NEXT_MON, SAT, THU } from '../testing/fixtures';
 
 const PERIODS = [
   { startMinutes: t('08:00'), endMinutes: t('14:00') },

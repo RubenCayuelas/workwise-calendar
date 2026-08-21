@@ -9,12 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CreationPreview } from '../../lib/api-client';
 import { confirmKindFor, summarizeStartDate } from './startDate';
-
-const WED = '2026-08-12';
-const THU = '2026-08-13';
-const FRI = '2026-08-14';
-const SAT = '2026-08-15';
-const NEXT_MON = '2026-08-17';
+import { FRI, NEXT_MON, SAT, THU, WED } from '../../testing/fixtures';
 
 /** A preview that lands exactly where it was asked to, with nothing in the way. */
 function preview(overrides: Partial<CreationPreview> = {}): CreationPreview {

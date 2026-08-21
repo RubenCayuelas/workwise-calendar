@@ -5,21 +5,9 @@ import { manualWindowsOf } from './manualWindow';
 import { compose, createDayConfigResolver, type ComposeInput, type ComposeResult } from './composition';
 import { decideStartDate, planCreation, type CreationPlan, type CreationResult } from './creation';
 import type { Block, DayOverride, DayShape, Gap } from '../types';
+import { FAR_MON, FRI, LAST_WED, MON, NEXT_MON, NEXT_THU, NEXT_TUE, NEXT_WED, SAT, SUN, THU, TUE, WED } from '../testing/fixtures';
 
-const LAST_WED = '2026-08-05';
-const MON = '2026-08-10';
-const TUE = '2026-08-11';
 /** The week under test is the wireframe's, and today is the Wednesday inside it. */
-const WED = '2026-08-12';
-const THU = '2026-08-13';
-const FRI = '2026-08-14';
-const SAT = '2026-08-15';
-const SUN = '2026-08-16';
-const NEXT_MON = '2026-08-17';
-const NEXT_TUE = '2026-08-18';
-const NEXT_WED = '2026-08-19';
-const NEXT_THU = '2026-08-20';
-const FAR_MON = '2026-09-07';
 
 const PERIODS = [
   { startMinutes: t('08:00'), endMinutes: t('14:00') },

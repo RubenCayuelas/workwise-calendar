@@ -26,17 +26,7 @@ import { listDayOverrides, upsertDayOverride } from './repositories/dayOverrides
 import { listProjects } from './repositories/projects';
 import { readSettings } from './settings';
 import type { Block } from '../types';
-
-const LAST_FRI = '2026-08-07';
-const MON = '2026-08-10';
-const TUE = '2026-08-11';
-const WED = '2026-08-12';
-const THU = '2026-08-13';
-const FRI = '2026-08-14';
-const SAT = '2026-08-15';
-const SUN = '2026-08-16';
-const NEXT_MON = '2026-08-17';
-const NEXT_TUE = '2026-08-18';
+import { FRI, LAST_FRI, MON, NEXT_MON, NEXT_TUE, SAT, SUN, THU, TUE, WED } from '../testing/fixtures';
 
 const BLUE = PROJECT_COLORS[0];
 const GREEN = PROJECT_COLORS[1];

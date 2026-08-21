@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { absenceFormMode, summarizeAbsence } from './absence';
 import type { AbsencePreview } from '../../lib/api-client';
-
-const MON = '2026-08-10';
-const TUE = '2026-08-11';
-const WED = '2026-08-12';
+import { MON, TUE, WED } from '../../testing/fixtures';
 
 function preview(overrides: Partial<AbsencePreview> = {}): AbsencePreview {
   return {

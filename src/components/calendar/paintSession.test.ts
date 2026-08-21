@@ -9,8 +9,7 @@ import { hhmmToMinutes as t } from '../../lib/dates';
 import { manualWindowsOf } from '../../lib/manualWindow';
 import { DRAG_THRESHOLD_PX } from './geometry';
 import { paintStep, type PaintEffect, type PaintState } from './paintSession';
-
-const WED = '2026-08-12';
+import { WED } from '../../testing/fixtures';
 
 const WINDOWS = manualWindowsOf(
   [
