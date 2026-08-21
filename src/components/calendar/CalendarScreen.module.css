@@ -66,34 +66,50 @@
   position: fixed;
   z-index: 40;
   display: flex;
-  min-width: 200px;
+  min-width: 216px;
   flex-direction: column;
-  gap: 8px;
-  border: 0.5px solid var(--ww-border-strong);
-  border-radius: var(--radius);
+  gap: 10px;
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius-lg);
   background: var(--ww-surface);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
-  padding: 10px;
+  box-shadow: var(--ww-shadow-popover);
+  padding: 12px 14px 10px;
 }
 
+/* The band spelled out, so the question names what it is about. Its own line, tighter than the
+   buttons under it, because it is a caption rather than a choice. */
 .paintChooserLabel {
   margin: 0;
   color: var(--ww-text-muted);
   font-size: var(--ww-text-sm);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--ww-line-tight);
 }
 
 .paintChooserButtons {
   display: flex;
-  gap: 6px;
+  gap: 8px;
 }
 
+/* Each answer takes half the width: neither is the small print, and equal targets are easier to
+   hit than ragged ones on a shop PC's mouse. */
+.paintChooserButtons > * {
+  flex: 1;
+  justify-content: center;
+}
+
+/* Centred and quiet, below a hairline: it is the way out, not a third answer. */
 .paintChooserCancel {
-  align-self: flex-start;
+  align-self: stretch;
   border: 0;
+  border-top: var(--ww-hairline) solid var(--ww-border);
   background: none;
   color: var(--ww-text-muted);
   cursor: pointer;
-  padding: 0;
+  padding: 8px 0 0;
   font-size: var(--ww-text-sm);
-  text-decoration: underline;
+}
+
+.paintChooserCancel:hover {
+  color: var(--ww-text);
 }

@@ -16,8 +16,8 @@ import styles from './CalendarScreen.module.css';
 
 /** Kept off the pointer itself so the band is never hidden under the question. */
 const OFFSET_PX = 12;
-const ESTIMATED_WIDTH = 232;
-const ESTIMATED_HEIGHT = 132;
+const ESTIMATED_WIDTH = 248;
+const ESTIMATED_HEIGHT = 140;
 
 export interface PaintChooserProps {
   at: PaintPoint;
