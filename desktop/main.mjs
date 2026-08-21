@@ -2,6 +2,7 @@
 // `server.mjs`, which imports no Electron and can therefore be run from a plain Node process.
 
 import { app, BrowserWindow, Menu, dialog, shell } from 'electron';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startServer, stopServer } from './server.mjs';
@@ -33,8 +34,49 @@ function payload() {
   };
 }
 
+/**
+ * What is actually on disk, named. Two builds failed on a machine that could not be inspected, and a
+ * raw `Cannot find module` from a child process does not say which of the pieces is missing or where it
+ * was looked for. This turns any future failure into one line worth reporting.
+ */
+function describePayload({ appDir, nodeExe }) {
+  const checks = [
+    ['server', path.join(appDir, 'server.js')],
+    ['next', path.join(appDir, 'node_modules', 'next', 'package.json')],
+    ['database driver', path.join(appDir, 'node_modules', 'better-sqlite3', 'package.json')],
+    ['static assets', path.join(appDir, '.next', 'static')],
+    ['node runtime', nodeExe],
+  ];
+  const missing = checks.filter(([, target]) => !fs.existsSync(target));
+  if (missing.length === 0) return null;
+  return [
+    `Workwise ${app.getVersion()} is missing part of its payload.`,
+    '',
+    `Looked in: ${appDir}`,
+    '',
+    ...missing.map(([what, target]) => `  MISSING  ${what}: ${target}`),
+    '',
+    `Present there: ${listing(appDir)}`,
+  ].join('\n');
+}
+
+function listing(dir) {
+  try {
+    return fs.readdirSync(dir).slice(0, 12).join(', ') || '(empty)';
+  } catch {
+    return '(the directory does not exist)';
+  }
+}
+
 async function open() {
   const { appDir, nodeExe } = payload();
+
+  const problem = describePayload({ appDir, nodeExe });
+  if (problem !== null) {
+    dialog.showErrorBox('Workwise', problem);
+    app.quit();
+    return;
+  }
   const window = new BrowserWindow({
     show: false,
     minWidth: MIN_WIDTH,
