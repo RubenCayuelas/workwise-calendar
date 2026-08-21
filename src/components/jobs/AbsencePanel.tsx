@@ -65,6 +65,7 @@ import { useFormat, type Formatter } from '../../lib/useFormat';
 /** An absence is drawn on the same quarter-hour grid the calendar snaps to, so the field is too. */
 const ABSENCE_HOUR_STEP = TIME_STEP_MINUTES / 60;
 import type { GridDraft } from '../calendar/draftBand';
+import { offWeekChoice } from './offWeek';
 import { otherGapConflicts } from './placement';
 import {
   absenceFormMode,
@@ -107,6 +108,9 @@ export interface AbsencePanelProps {
   origin: AbsenceOrigin;
   /** Only for a PAINTED band: keeps it drawn on the grid, following these fields. */
   onDraft?: (draft: GridDraft | null) => void;
+  /** The days on screen: without them a date leaving the week cannot be noticed. */
+  visibleDates?: readonly string[];
+  onShowWeekOf?: (date: string) => void;
   /** Where a NEW absence starts. Defaults to today and the start of the morning period. */
   defaultDate?: string;
   /**
@@ -135,6 +139,8 @@ export function AbsencePanel({
   defaultKind = 'gap',
   origin,
   onDraft,
+  visibleDates,
+  onShowWeekOf,
   defaultDate,
   defaultReason,
   defaultStartMinutes,
@@ -164,6 +170,8 @@ export function AbsencePanel({
   const [preview, setPreview] = useState<AbsencePreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<unknown>(null);
+  /** The last day chosen that WAS on screen: the honest place to offer going back to. */
+  const [lastVisible, setLastVisible] = useState<string | null>(null);
 
   /** Set only in the "stop the day here" shape: editing a gap always wins over it. */
   const closing = gap === undefined ? closeDay : undefined;
@@ -234,6 +242,12 @@ export function AbsencePanel({
     }
     onDraft({ kind: 'gap', date, startMinutes, durationMinutes });
   }, [onDraft, open, date, startMinutes, durationMinutes]);
+
+  // Only while a BAND is being held: elsewhere there is nothing on the grid to go and look at.
+  const offWeek =
+    onDraft === undefined || visibleDates === undefined
+      ? null
+      : offWeekChoice(date, visibleDates, lastVisible);
 
   const rangeValid =
     isValidDate(date) && isValidDate(endDate) && compareDates(endDate, date) >= 0;
@@ -560,6 +574,8 @@ export function AbsencePanel({
                   horizonWeeks={horizonWeeks}
                   disabled={busy}
                   onChange={(next) => {
+                    // Set OPTIMISTICALLY: a painted band on the grid has to follow the field.
+                    if (visibleDates?.includes(date) === true) setLastVisible(date);
                     setDate(next);
                     // "Hasta" follows the day it can no longer precede, so the range is never
                     // inverted by moving its start.
@@ -567,6 +583,26 @@ export function AbsencePanel({
                   }}
                 />
               </Field>
+
+              {offWeek === null ? null : (
+                <InlineBanner tone="info" title={t('jobForm.offWeekTitle')}>
+                  {t('jobForm.offWeek', { date: format.longDate(offWeek.goTo) })}
+                  <div className={styles.offWeekActions}>
+                    <Button size="sm" onClick={() => onShowWeekOf?.(offWeek.goTo)}>
+                      {t('jobForm.offWeekGo')}
+                    </Button>
+                    {offWeek.backTo === null ? null : (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setDate(offWeek.backTo as string)}
+                      >
+                        {t('jobForm.offWeekBack', { date: format.dayOption(offWeek.backTo) })}
+                      </Button>
+                    )}
+                  </div>
+                </InlineBanner>
+              )}
 
               {!bulk ? null : (
                 <Field

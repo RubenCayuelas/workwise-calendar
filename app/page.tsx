@@ -61,6 +61,8 @@ export default function HomePage(): React.JSX.Element {
         painted,
         defaultHours,
         onDraft,
+        visibleDates,
+        onShowWeekOf,
       }) => (
         <NewJobPanel
           open
@@ -71,6 +73,8 @@ export default function HomePage(): React.JSX.Element {
           painted={painted}
           defaultHours={defaultHours}
           onDraft={onDraft}
+          visibleDates={visibleDates}
+          onShowWeekOf={onShowWeekOf}
           onClose={close}
           onChanged={onChanged}
         />
@@ -91,6 +95,8 @@ export default function HomePage(): React.JSX.Element {
         defaultDurationMinutes,
         horizonWeeks,
         onDraft,
+        visibleDates,
+        onShowWeekOf,
       }) => (
         <AbsencePanel
           open
@@ -100,6 +106,8 @@ export default function HomePage(): React.JSX.Element {
           defaultKind={kind}
           origin={origin}
           onDraft={onDraft}
+          visibleDates={visibleDates}
+          onShowWeekOf={onShowWeekOf}
           today={today}
           shape={shape}
           gapColor={gapColor}

@@ -43,6 +43,7 @@ import {
   type StartDateNote,
   type StartDateSummary,
 } from './startDate';
+import { offWeekChoice } from './offWeek';
 import { scheduleSummaryMessage } from './summary';
 import type { GridDraft } from '../calendar/draftBand';
 import type { JobsMutationHandler } from './events';
@@ -79,6 +80,9 @@ export interface NewJobPanelProps {
   painted?: { date: string; startMinutes: number };
   /** Only with `painted`: keeps the band drawn on the grid, following these fields. */
   onDraft?: (draft: GridDraft | null) => void;
+  /** The days on screen: without them a date leaving the week cannot be noticed. */
+  visibleDates?: readonly string[];
+  onShowWeekOf?: (date: string) => void;
   /** `settings.planningHorizonWeeks`: how far ahead the day picker reaches. */
   horizonWeeks?: number;
 }
@@ -94,6 +98,8 @@ export function NewJobPanel({
   defaultColor = PROJECT_COLORS[0],
   painted,
   onDraft,
+  visibleDates,
+  onShowWeekOf,
   horizonWeeks,
 }: NewJobPanelProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -118,6 +124,8 @@ export function NewJobPanel({
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<unknown>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  /** The last day chosen that WAS on screen: the honest place to offer going back to. */
+  const [lastVisible, setLastVisible] = useState<string | null>(null);
 
   const done = created !== null;
 
@@ -156,6 +164,13 @@ export function NewJobPanel({
    */
   const paintedMinutes =
     painted !== undefined && startDate === painted.date ? painted.startMinutes : undefined;
+
+  // Only offered while a BAND is being held: elsewhere the date is just a floor and there is nothing
+  // on the grid to go and look at.
+  const offWeek =
+    painted === undefined || visibleDates === undefined
+      ? null
+      : offWeekChoice(startDate, visibleDates, lastVisible);
 
   // The grid cannot know what this form holds, so the form tells it — on every change, and `null`
   // once the job is created, where the real rows take the band's place.
@@ -389,12 +404,37 @@ export function NewJobPanel({
                     horizonWeeks={horizonWeeks}
                     disabled={saving}
                     onChange={(next) => {
+                      // Set OPTIMISTICALLY: the band on the grid has to follow the field, and a
+                      // field frozen behind a question would freeze the band mid-edit.
+                      if (visibleDates?.includes(startDate) === true) setLastVisible(startDate);
                       setStartDate(next);
                       // A new day is a new question; the old answer must not carry over.
                       setForce(false);
                     }}
                   />
                 </Field>
+
+                {offWeek === null ? null : (
+                  <InlineBanner tone="info" title={t('jobForm.offWeekTitle')}>
+                    {t('jobForm.offWeek', { date: format.longDate(offWeek.goTo) })}
+                    <div className={styles.offWeekActions}>
+                      <Button size="sm" onClick={() => onShowWeekOf?.(offWeek.goTo)}>
+                        {t('jobForm.offWeekGo')}
+                      </Button>
+                      {offWeek.backTo === null ? null : (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setStartDate(offWeek.backTo as string)}
+                        >
+                          {t('jobForm.offWeekBack', {
+                            date: format.dayOption(offWeek.backTo),
+                          })}
+                        </Button>
+                      )}
+                    </div>
+                  </InlineBanner>
+                )}
 
                 <StartDatePreview
                   summary={startSummary}

@@ -56,11 +56,11 @@ import { usePaintAbsence } from './usePaintAbsence';
 import { PaintChooser } from './PaintChooser';
 import type { PaintPoint, PaintedSpan } from './paintSession';
 import { planDraftRows, type DraftRow, type GridDraft } from './draftBand';
+import { useWeek } from './useWeek';
+import styles from './CalendarScreen.module.css';
 
 /** One array, so a render with no band held never invalidates the grid's memos. */
 const EMPTY_DRAFT: readonly DraftRow[] = [];
-import { useWeek } from './useWeek';
-import styles from './CalendarScreen.module.css';
 
 // --- The seams to the screens that are not the grid ---
 
@@ -97,6 +97,10 @@ export interface NewJobContext {
    * the grid can keep the band drawn on them. `null` when there is nothing to draw.
    */
   onDraft?: (draft: GridDraft | null) => void;
+  /** The days on screen, so a form can tell when its own date has left them. */
+  visibleDates?: readonly string[];
+  /** Page the calendar to the week holding that day. Nothing is written: it is a GET. */
+  onShowWeekOf?: (date: string) => void;
 }
 
 export interface AbsenceFormContext {
@@ -130,6 +134,10 @@ export interface AbsenceFormContext {
   horizonWeeks: number;
   /** Only for a PAINTED band: keeps it drawn on the grid while this form is open. */
   onDraft?: (draft: GridDraft | null) => void;
+  /** The days on screen, so a form can tell when its own date has left them. */
+  visibleDates?: readonly string[];
+  /** Page the calendar to the week holding that day. Nothing is written: it is a GET. */
+  onShowWeekOf?: (date: string) => void;
 }
 
 export interface CalendarScreenProps {
@@ -956,6 +964,8 @@ export function CalendarScreen({
                       // The band's own hours, which the form's number may then override.
                       defaultHours: paintedJob.durationMinutes / 60,
                       onDraft: setDraft,
+                      visibleDates: view.week.dates,
+                      onShowWeekOf: week.showWeekOf,
                     }),
               })}
 
@@ -970,7 +980,13 @@ export function CalendarScreen({
                   setGapTarget(null);
                   setDraft(null);
                 },
-                ...(gapTarget.origin === 'paint' ? { onDraft: setDraft } : {}),
+                ...(gapTarget.origin === 'paint'
+                  ? {
+                      onDraft: setDraft,
+                      visibleDates: view.week.dates,
+                      onShowWeekOf: week.showWeekOf,
+                    }
+                  : {}),
                 onChanged: week.reload,
                 today: view.today,
                 shape: view.shape,
