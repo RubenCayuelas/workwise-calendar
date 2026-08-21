@@ -8,6 +8,7 @@ import { closeDb, openDatabase, type Db } from './db';
 import { minutesToHHmm } from './dates';
 import { AppError } from './errors';
 import { PROJECT_COLORS } from './projectColors';
+import { readHistoryState, undoLast } from './history';
 import { assertProjectHours, readSummary } from './scheduler';
 import {
   createProject,
@@ -3184,5 +3185,110 @@ describe('a closed day is as literal as a weekend', () => {
     job('Railing', 4, GREEN);
 
     expect(calendar()).toEqual([`${MON} 08:00-12:00 Railing`, `${THU} 09:00-11:00 Door [locked]`]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe('every gesture that writes leaves one undo step', () => {
+  it('names the gesture and the job it was about', () => {
+    const door = job('Door', 4);
+    expect(readHistoryState(db).undo).toEqual({ kind: 'project.create', args: { name: 'Door' } });
+
+    // Onto the weekend, so the drop lands literally: a Mon-Thu drop of the only job on the
+    // calendar is a queue rank the reflow answers with the row's own slot, and a request that
+    // changed nothing deliberately earns no step.
+    moveBlock(door.blocks[0].id, { date: SAT, startMinutes: 9 * 60, today: MON }, db);
+    expect(readHistoryState(db).undo).toEqual({ kind: 'block.move', args: { name: 'Door' } });
+
+    setBlockLock(listBlocks(db)[0].id, false, { today: MON }, db);
+    expect(readHistoryState(db).undo).toEqual({ kind: 'block.lock', args: { name: 'Door' } });
+
+    // The name is read from BEFORE the step, which is what lets a rename and a deletion be named.
+    patchProject(door.project.id, { name: 'Gate', today: MON }, db);
+    expect(readHistoryState(db).undo).toEqual({ kind: 'project.update', args: { name: 'Door' } });
+
+    createGap({ date: THU, startMinutes: 10 * 60, durationMinutes: 60, today: MON }, db);
+    expect(readHistoryState(db).undo).toEqual({ kind: 'gap.create', args: {} });
+
+    deleteGap(listGaps(db)[0].id, { today: MON }, db);
+    expect(readHistoryState(db).undo).toEqual({ kind: 'gap.delete', args: {} });
+
+    saveAbsence({ kind: 'closed-days', from: THU, to: THU, reason: 'Fair', today: MON }, db);
+    expect(readHistoryState(db).undo).toEqual({ kind: 'absence.closeDays', args: {} });
+
+    reopenDays({ from: THU, to: THU, today: MON }, db);
+    expect(readHistoryState(db).undo).toEqual({ kind: 'absence.reopen', args: {} });
+
+    saveAbsence({ kind: 'gap', from: THU, startMinutes: 10 * 60, durationMinutes: 60, today: MON }, db);
+    expect(readHistoryState(db).undo).toEqual({ kind: 'absence.gaps', args: {} });
+
+    deleteProject(door.project.id, { today: MON }, db);
+    expect(readHistoryState(db).undo).toEqual({ kind: 'project.delete', args: { name: 'Gate' } });
+  });
+
+  it('puts the calendar back exactly, without recomposing it', () => {
+    job('Door', 6);
+    job('Railing', 4, GREEN);
+    const before = calendar();
+
+    moveBlock(listBlocks(db)[0].id, { date: SAT, startMinutes: 9 * 60, today: MON }, db);
+    expect(calendar()).not.toEqual(before);
+
+    expect(undoLast(db).changed).toBe(true);
+
+    expect(calendar()).toEqual(before);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('gives a deleted job its past back, gaps and all', () => {
+    const door = createProject(
+      { name: 'Door', color: BLUE, totalMinutes: 4 * 60, startDate: LAST_FRI, today: MON },
+      db,
+    );
+    expect(calendar()).toEqual([`${LAST_FRI} 08:00-12:00 Door [locked]`]);
+
+    deleteProject(door.project.id, { today: MON, language: 'en' }, db);
+    expect(calendar()).toEqual([]);
+    expect(gapLines()).toEqual([`${LAST_FRI} 08:00-12:00 Job «Door» deleted`]);
+
+    expect(undoLast(db).changed).toBe(true);
+
+    // The rows come back where they were, in the frozen past: reverting the record is not
+    // editing it, which is why the restore goes round the gestures' own refusals.
+    expect(calendar()).toEqual([`${LAST_FRI} 08:00-12:00 Door [locked]`]);
+    expect(gapLines()).toEqual([]);
+  });
+});
+
+describe('what never becomes an undo step', () => {
+  it('a refusal, which wrote nothing to be undone', () => {
+    const door = job('Door', 4);
+    setBlockLock(door.blocks[0].id, true, { today: MON }, db);
+    const steps = readHistoryState(db);
+
+    refusal(() => createGap({ date: MON, startMinutes: 9 * 60, durationMinutes: 60, today: MON }, db));
+
+    expect(readHistoryState(db)).toEqual(steps);
+  });
+
+  it('a preview, which writes for real and rolls itself back', () => {
+    job('Door', 4);
+    const steps = readHistoryState(db);
+
+    previewAbsence({ kind: 'gap', from: WED, startMinutes: 10 * 60, durationMinutes: 60, today: MON }, db);
+    previewProjectCreation({ startDate: WED, totalMinutes: 120, today: MON }, db);
+
+    expect(readHistoryState(db)).toEqual(steps);
+  });
+
+  it('a settings save, which empties the line instead of joining it', () => {
+    job('Door', 4);
+    moveBlock(listBlocks(db)[0].id, { date: WED, startMinutes: 9 * 60, today: MON }, db);
+    expect(readHistoryState(db).undo).not.toBeNull();
+
+    updateSettings({ visualMarginTop: 2 }, { today: MON }, db);
+
+    expect(readHistoryState(db)).toEqual({ undo: null, redo: null, clearedBySettings: true });
   });
 });

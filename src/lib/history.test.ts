@@ -23,9 +23,8 @@ import { insertGap, listGaps } from './repositories/gaps';
 import { upsertDayOverride } from './repositories/dayOverrides';
 import { PROJECT_COLORS } from './projectColors';
 import { hhmmToMinutes } from './dates';
+import { MON, TUE } from '../testing/fixtures';
 
-const MON = '2026-08-10';
-const TUE = '2026-08-11';
 const t = hhmmToMinutes;
 
 let db: Db;
@@ -83,7 +82,7 @@ function depth(): number {
 
 describe('a step restores the rows exactly as they were', () => {
   it('gives back the id, the timestamps and the queue order, not an equivalent row', () => {
-    const { blockId } = seedJob('Barandilla');
+    const { blockId } = seedJob('Railing');
     const before = rawRows();
 
     withHistory(db, { kind: 'block.move', blockId }, () => {
@@ -104,7 +103,7 @@ describe('a step restores the rows exactly as they were', () => {
   });
 
   it('names the day the restore touched, so the week can be shown', () => {
-    const { blockId } = seedJob('Barandilla');
+    const { blockId } = seedJob('Railing');
     withHistory(db, { kind: 'block.move', blockId }, () => {
       updateBlock({ id: blockId, projectId: listProjects(db)[0].id, date: TUE, startMinutes: t('09:00'), durationMinutes: 120, locked: false }, db);
     });
@@ -115,18 +114,18 @@ describe('a step restores the rows exactly as they were', () => {
 
 describe('what earns a step', () => {
   it('records one step for a request that changed something', () => {
-    const { blockId } = seedJob('Barandilla');
+    const { blockId } = seedJob('Railing');
     withHistory(db, { kind: 'block.lock', blockId }, () => {
       updateBlock({ id: blockId, projectId: listProjects(db)[0].id, date: MON, startMinutes: t('08:00'), durationMinutes: 120, locked: true }, db);
     });
 
     // The floor plus the step: the first step of a timeline needs the state it started from.
     expect(depth()).toBe(2);
-    expect(readHistoryState(db).undo).toEqual({ kind: 'block.lock', args: { name: 'Barandilla' } });
+    expect(readHistoryState(db).undo).toEqual({ kind: 'block.lock', args: { name: 'Railing' } });
   });
 
   it('records nothing when the request changed nothing the owner can see', () => {
-    const { blockId } = seedJob('Barandilla');
+    const { blockId } = seedJob('Railing');
     // The same placement rewritten: the updated_at trigger fires and nothing else moves.
     withHistory(db, { kind: 'block.resize', blockId }, () => {
       updateBlock({ id: blockId, projectId: listProjects(db)[0].id, date: MON, startMinutes: t('08:00'), durationMinutes: 120, locked: false }, db);
@@ -137,7 +136,7 @@ describe('what earns a step', () => {
   });
 
   it('records nothing when the work throws, because the transaction took the row with it', () => {
-    const { blockId } = seedJob('Barandilla');
+    const { blockId } = seedJob('Railing');
     const before = rawRows();
 
     expect(() =>
@@ -154,7 +153,7 @@ describe('what earns a step', () => {
 
 describe('walking the line', () => {
   it('goes back and forward through several steps', () => {
-    const { projectId, blockId } = seedJob('Barandilla');
+    const { projectId, blockId } = seedJob('Railing');
     const move = (date: string, startMinutes: number): void => {
       withHistory(db, { kind: 'block.move', blockId }, () => {
         updateBlock({ id: blockId, projectId, date, startMinutes, durationMinutes: 120, locked: false }, db);
@@ -186,7 +185,7 @@ describe('walking the line', () => {
   });
 
   it('drops the redo tail when a new mutation arrives after an undo', () => {
-    const { projectId, blockId } = seedJob('Barandilla');
+    const { projectId, blockId } = seedJob('Railing');
     const move = (date: string, startMinutes: number): void => {
       withHistory(db, { kind: 'block.move', blockId }, () => {
         updateBlock({ id: blockId, projectId, date, startMinutes, durationMinutes: 120, locked: false }, db);
@@ -206,7 +205,7 @@ describe('walking the line', () => {
   });
 
   it('says nothing to undo on a line that has never been written to', () => {
-    seedJob('Barandilla');
+    seedJob('Railing');
     expect(readHistoryState(db)).toEqual({ undo: null, redo: null, clearedBySettings: false });
     expect(undoLast(db)).toEqual({ changed: false, step: null, focusDate: null, drifted: false });
     expect(redoNext(db)).toEqual({ changed: false, step: null, focusDate: null, drifted: false });
@@ -215,7 +214,7 @@ describe('walking the line', () => {
 
 describe('the depth', () => {
   it(`keeps ${MAX_HISTORY_STEPS} undoable steps and forgets the oldest`, () => {
-    const { projectId, blockId } = seedJob('Barandilla');
+    const { projectId, blockId } = seedJob('Railing');
     for (let step = 1; step <= MAX_HISTORY_STEPS + 10; step += 1) {
       withHistory(db, { kind: 'block.resize', blockId }, () => {
         updateBlock({ id: blockId, projectId, date: MON, startMinutes: t('08:00'), durationMinutes: 15 * step, locked: false }, db);
@@ -232,7 +231,7 @@ describe('the depth', () => {
 
 describe('the label', () => {
   it('still names a job the step deleted', () => {
-    const { projectId } = seedJob('Barandilla');
+    const { projectId } = seedJob('Railing');
     withHistory(db, { kind: 'project.delete', projectId }, () => {
       deleteProject(projectId, db);
     });
@@ -240,16 +239,16 @@ describe('the label', () => {
 
     expect(readHistoryState(db).undo).toEqual({
       kind: 'project.delete',
-      args: { name: 'Barandilla' },
+      args: { name: 'Railing' },
     });
-    expect(undoLast(db).step).toEqual({ kind: 'project.delete', args: { name: 'Barandilla' } });
-    expect(listProjects(db).map((project) => project.name)).toEqual(['Barandilla']);
+    expect(undoLast(db).step).toEqual({ kind: 'project.delete', args: { name: 'Railing' } });
+    expect(listProjects(db).map((project) => project.name)).toEqual(['Railing']);
   });
 
   it('carries no name for an absence, which is not a job', () => {
     insertGap({ id: id('g'), date: MON, startMinutes: t('10:00'), durationMinutes: 60 }, db);
     withHistory(db, { kind: 'gap.create' }, () => {
-      insertGap({ id: id('g'), date: TUE, startMinutes: t('10:00'), durationMinutes: 60, reason: 'Avería' }, db);
+      insertGap({ id: id('g'), date: TUE, startMinutes: t('10:00'), durationMinutes: 60, reason: 'Breakdown' }, db);
     });
 
     expect(readHistoryState(db).undo).toEqual({ kind: 'gap.create', args: {} });
@@ -260,7 +259,7 @@ describe('the label', () => {
 
 describe('a calendar that moved outside the line', () => {
   it('is never clobbered: the line is emptied and the request says so', () => {
-    const { projectId, blockId } = seedJob('Barandilla');
+    const { projectId, blockId } = seedJob('Railing');
     withHistory(db, { kind: 'block.move', blockId }, () => {
       updateBlock({ id: blockId, projectId, date: TUE, startMinutes: t('09:00'), durationMinutes: 120, locked: false }, db);
     });
@@ -279,7 +278,7 @@ describe('a calendar that moved outside the line', () => {
 
 describe('a settings save starts a new line', () => {
   it('leaves nothing to undo, and says why', () => {
-    const { projectId, blockId } = seedJob('Barandilla');
+    const { projectId, blockId } = seedJob('Railing');
     withHistory(db, { kind: 'block.move', blockId }, () => {
       updateBlock({ id: blockId, projectId, date: TUE, startMinutes: t('09:00'), durationMinutes: 120, locked: false }, db);
     });
@@ -294,7 +293,7 @@ describe('a settings save starts a new line', () => {
   });
 
   it('is the floor the next step comes back to', () => {
-    const { projectId, blockId } = seedJob('Barandilla');
+    const { projectId, blockId } = seedJob('Railing');
     restartHistory(db);
     withHistory(db, { kind: 'block.move', blockId }, () => {
       updateBlock({ id: blockId, projectId, date: TUE, startMinutes: t('09:00'), durationMinutes: 120, locked: false }, db);
@@ -306,7 +305,7 @@ describe('a settings save starts a new line', () => {
     // the settings save is where the line begins.
     expect(readHistoryState(db)).toEqual({
       undo: null,
-      redo: { kind: 'block.move', args: { name: 'Barandilla' } },
+      redo: { kind: 'block.move', args: { name: 'Railing' } },
       clearedBySettings: true,
     });
   });
@@ -330,7 +329,7 @@ describe('a closed day is calendar too', () => {
 
 describe('what the line never holds', () => {
   it('leaves settings and the applied data migrations alone', () => {
-    const { projectId, blockId } = seedJob('Barandilla');
+    const { projectId, blockId } = seedJob('Railing');
     withHistory(db, { kind: 'block.move', blockId }, () => {
       updateBlock({ id: blockId, projectId, date: TUE, startMinutes: t('09:00'), durationMinutes: 120, locked: false }, db);
     });
@@ -348,7 +347,7 @@ describe('what the line never holds', () => {
     const file = path.join(directory, 'calendar.db');
 
     const first = openDatabase(file);
-    insertProject({ id: id('p'), name: 'Barandilla', color: PROJECT_COLORS[0], totalMinutes: 120 }, first);
+    insertProject({ id: id('p'), name: 'Railing', color: PROJECT_COLORS[0], totalMinutes: 120 }, first);
     const projectId = listProjects(first)[0].id;
     const blockId = id('b');
     insertBlock({ id: blockId, projectId, date: MON, startMinutes: t('08:00'), durationMinutes: 120, locked: false }, first);
