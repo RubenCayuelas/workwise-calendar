@@ -1382,9 +1382,10 @@ of this one.)*
 - **The handle is on the LAST row of the unit only.** An absence has ONE duration, measured from its
   own start, so that row's bottom edge is the only edge that is its END.
 - **The refusals are the ones a gap already had**, now reachable from two more gestures: a footprint
-  over a row the engine cannot move is refused naming it (`gapOverLockedBlock` /
-  `gapOverWeekendBlock` / `gapOverPastBlock`), and on Mon-Thu unlocked work is pushed forward. A gap
-  is never SLID and never MERGED — two gaps that touch keep their reasons and stay two.
+  over a row the engine cannot move is refused 409 `gap-over-fixed-block`, naming it
+  (`gapOverLockedBlock` / `gapOverWeekendBlock` / `gapOverPastBlock`), and on Mon-Thu unlocked work is
+  pushed forward. A gap is never SLID and never MERGED — two gaps that touch keep their reasons and
+  stay two.
 - **NEITHER GESTURE CONFIRMS.** A drag and a resize are direct manipulation: the ghost drew the rows
   and what they would displace, and the result is on screen. Only bulk creation warns.
 - **The past is read-only to both** — see *The Past is Frozen*.
@@ -1551,6 +1552,10 @@ gesture.
 - **The rotation only ever deletes names it could have written itself.** A copy saved by hand into the
   same folder survives a limit of three, and so does `workwise-before-restore.db`. Lowering the limit
   deletes nothing until the next copy is taken: saving a preference must not delete data.
+- **The refusals, all of which write nothing**: 400 `backup-not-a-database` when the file is not SQLite,
+  400 `backup-not-workwise` when it is a database but not this app's, and 404 `backup-not-found` for a
+  name that is not one of the automatic copies in the folder — which is also what a name reaching
+  outside it gets.
 - **Restoring is ONE implementation** for both ways in, a name from the folder and a file from
   anywhere, so neither can be the less tested one. In order: recognise the file (SQLite header, then
   the tables), **migrate it** so a copy from an older version of the app is what a backup is for,
