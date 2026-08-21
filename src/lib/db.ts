@@ -55,6 +55,12 @@ export function openDatabase(dbPath: string): Db {
   runMigrations(db);
   // Opening the file starts a new undo timeline: the owner asked for one that lasts a run of
   // the app, not one that reaches back into a previous day's work.
+  //
+  // ON OPEN AND NOT ON CLOSE, deliberately. A close can be skipped — a power cut, a kill, a
+  // crash — and rows that outlived their run would describe a calendar from a previous day: at
+  // best the drift guard throws the line away, at worst an undo silently reverts yesterday's
+  // work. No run can BEGIN without opening the file, and this is the only way to a handle, so
+  // nothing can read a stale line before it is gone.
   db.exec('DELETE FROM history');
   return db;
 }

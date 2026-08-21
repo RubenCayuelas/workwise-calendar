@@ -9,6 +9,7 @@ import { minutesToHHmm } from './dates';
 import { AppError } from './errors';
 import { PROJECT_COLORS } from './projectColors';
 import { readHistoryState, undoLast } from './history';
+import { redoChange, undoChange } from './operations/history';
 import { assertProjectHours, readSummary } from './scheduler';
 import {
   createProject,
@@ -3280,6 +3281,30 @@ describe('what never becomes an undo step', () => {
     previewProjectCreation({ startDate: WED, totalMinutes: 120, today: MON }, db);
 
     expect(readHistoryState(db)).toEqual(steps);
+  });
+
+  it('rides on the week the grid already refetches, and answers an empty line plainly', () => {
+    job('Door', 4);
+    const created = { kind: 'project.create', args: { name: 'Door' } };
+    expect(readWeek(MON, { today: MON }, db).history.undo).toEqual(created);
+
+    expect(undoChange({ today: MON }, db).changed).toBe(true);
+    expect(readWeek(MON, { today: MON }, db).history).toEqual({
+      undo: null,
+      redo: created,
+      clearedBySettings: false,
+    });
+
+    // Nothing to undo is an ordinary answer: a grey button that raced a keystroke must not
+    // raise an error banner.
+    expect(undoChange({ today: MON }, db)).toMatchObject({
+      changed: false,
+      step: null,
+      drifted: false,
+    });
+
+    expect(redoChange({ today: MON }, db)).toMatchObject({ changed: true, step: created });
+    expect(calendar()).toEqual([`${MON} 08:00-12:00 Door`]);
   });
 
   it('a settings save, which empties the line instead of joining it', () => {

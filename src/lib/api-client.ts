@@ -25,6 +25,8 @@ export type {
   CreationPreviewRow,
 } from './operations/projects';
 export type { CreationMode, StartDateDay } from './creation';
+export type { HistoryState, HistoryStep, UndoKind } from './history';
+export type { HistoryMutation } from './operations/history';
 export type {
   AbsenceKind,
   AbsenceMutation,
@@ -34,6 +36,7 @@ export type {
 } from './operations/absences';
 
 import type { WeekView } from './operations/views';
+import type { HistoryMutation } from './operations/history';
 import type { CreationOutcome, CreationPreview } from './operations/projects';
 import type { AbsenceKind, AbsenceMutation, AbsencePreview } from './operations/absences';
 
@@ -752,6 +755,23 @@ export function getSummary(options?: RequestOptions): Promise<SummaryView> {
 export function getWeek(date?: string, options?: RequestOptions): Promise<WeekView> {
   const suffix = date === undefined ? '' : `?date=${encodeURIComponent(date)}`;
   return get<WeekView>(`/week${suffix}`, options);
+}
+
+// ---------------------------------------------------------------------------
+// Undo and redo
+// ---------------------------------------------------------------------------
+
+/**
+ * One step back along the undo line. `changed: false` means there was nothing there — an
+ * ordinary answer, not a refusal, so it must not be shown as an error. What the state of the
+ * line IS travels on `getWeek`, which the screen already refetches after every mutation.
+ */
+export function undoChange(options?: RequestOptions): Promise<HistoryMutation> {
+  return send<HistoryMutation>('POST', '/history/undo', undefined, options);
+}
+
+export function redoChange(options?: RequestOptions): Promise<HistoryMutation> {
+  return send<HistoryMutation>('POST', '/history/redo', undefined, options);
 }
 
 // ---------------------------------------------------------------------------
