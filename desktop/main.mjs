@@ -42,8 +42,8 @@ function payload() {
 function describePayload({ appDir, nodeExe }) {
   const checks = [
     ['server', path.join(appDir, 'server.js')],
-    ['next', path.join(appDir, 'node_modules', 'next', 'package.json')],
-    ['database driver', path.join(appDir, 'node_modules', 'better-sqlite3', 'package.json')],
+    ['next', path.join(appDir, 'deps', 'next', 'package.json')],
+    ['database driver', path.join(appDir, 'deps', 'better-sqlite3', 'package.json')],
     ['static assets', path.join(appDir, '.next', 'static')],
     ['node runtime', nodeExe],
   ];

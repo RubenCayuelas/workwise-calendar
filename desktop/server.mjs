@@ -42,6 +42,10 @@ export async function startServer({ appDir, nodeExe, dbPath, onExit, timeoutMs =
       PORT: String(port),
       HOSTNAME: '127.0.0.1',
       WORKWISE_DB_PATH: dbPath,
+      // The payload's dependencies are in `deps`, not `node_modules`, because electron-builder will not
+      // copy a directory by that name. CJS `require` reads NODE_PATH, which is how `server.js` finds
+      // `next` and `better-sqlite3` again.
+      NODE_PATH: path.join(appDir, 'deps'),
     },
   });
 

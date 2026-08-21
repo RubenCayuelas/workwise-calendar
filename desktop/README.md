@@ -49,6 +49,19 @@ npm run dist                  # produces dist/Workwise Setup <version>.exe
 > overwrites its `node_modules`, and the installed app dies on `Cannot find module 'next'` — which is
 > exactly what the first build did.
 
+## Two things the packager does that cost three builds to find
+
+**It silently drops any directory named `node_modules`** from `extraResources`. Measured: with that
+name it does not arrive, renamed it arrives, and an explicit `**/node_modules/**` filter cannot
+override it. So `prepare.mjs` renames it to `deps` and `server.mjs` sets `NODE_PATH` — CJS `require`
+reads that, which is how `server.js` finds `next` and `better-sqlite3` again.
+
+**`resources/app` is where it puts the application itself** (`platformPackager.js:218`), so the payload
+goes to `resources/server`. Aiming it at `app` overwrote the app's own files.
+
+Neither failure says anything useful at the time. `main.mjs` therefore checks the five pieces of the
+payload before opening a window and names the ones that are missing, with the path it looked in.
+
 ## What the installer does
 
 One-click, **per user**: installs into `%LOCALAPPDATA%`, never asks for administrator, and adds a
@@ -61,6 +74,14 @@ workshop's calendar; removing it has to be a deliberate act.
 It is **not code-signed**, so Windows shows "Windows protected your PC" the first time. Handing the
 installer over on a USB stick avoids it entirely: the warning comes from the mark Windows puts on files
 downloaded from the internet, and a file copied from removable media does not carry one.
+
+## The tracer had to be told to leave the data alone
+
+`output: 'standalone'` traces the files the server needs, and `getDbPath()` builds
+`path.join(process.cwd(), 'data', ...)`. The tracer resolved it and pulled the **whole directory in**,
+so the standalone output — and therefore the installer — carried the shop's own `calendar.db` and its
+backups. `outputFileTracingExcludes` in `next.config.ts` stops it, and `prepare.mjs`'s output is worth
+a glance after a Next upgrade: a payload that grows by the size of a database is this coming back.
 
 ## Moving an existing calendar onto a new machine
 

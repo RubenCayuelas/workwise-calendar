@@ -13,6 +13,13 @@ const nextConfig: NextConfig = {
   // dependencies it traces, `better-sqlite3` and its native binary among them. `next start` is
   // unaffected; the desktop build would otherwise have nothing to package.
   output: 'standalone',
+  // The file tracer resolves `path.join(process.cwd(), 'data', ...)` in `getDbPath()` and pulls the
+  // whole directory in, so the standalone output arrived carrying THE SHOP'S OWN calendar.db and its
+  // backups — which the installer would then ship to every customer. `desktop/` comes in the same way
+  // and would nest a copy of the payload inside itself.
+  outputFileTracingExcludes: {
+    '*': ['data/**', 'desktop/**', 'documents/**', '.claude/**'],
+  },
 };
 
 export default nextConfig;

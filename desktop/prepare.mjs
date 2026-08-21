@@ -19,6 +19,9 @@ const build = path.join(here, 'build');
  */
 const NODE_VERSION = process.version;
 
+/** Anything but `node_modules`, which the packager drops. Read by `server.mjs` as NODE_PATH. */
+export const DEPS_DIR = 'deps';
+
 function copyDir(from, to) {
   if (!fs.existsSync(from)) throw new Error(`Missing ${from} — run \`npm run build\` in the repo root first`);
   fs.cpSync(from, to, { recursive: true });
@@ -50,6 +53,11 @@ copyDir(path.join(root, 'public'), path.join(build, 'server', 'public'));
 for (const unused of ['sharp', '@img']) {
   fs.rmSync(path.join(build, 'server', 'node_modules', unused), { recursive: true, force: true });
 }
+
+// electron-builder refuses to copy any directory named `node_modules` into extraResources — measured:
+// with the name it is dropped silently, renamed it copies, and an explicit `**/node_modules/**` filter
+// cannot override it. The server finds them again through NODE_PATH, set in `server.mjs`.
+fs.renameSync(path.join(build, 'server', 'node_modules'), path.join(build, 'server', DEPS_DIR));
 
 const node = await fetchNodeExe();
 
