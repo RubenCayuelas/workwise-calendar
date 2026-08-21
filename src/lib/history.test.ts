@@ -640,12 +640,16 @@ function mutateAtRandom(handle: Db, random: () => number, step: number): Gesture
 }
 
 /**
- * Chosen deliberately, not by what the timeout allows: each session opens and migrates a database
- * and every gesture runs a full reflow, so this is the count that keeps the file well inside the
- * 30 s per-test budget on a slower machine while still exercising every gesture hundreds of times.
+ * Chosen deliberately: each session opens and migrates a database and every gesture runs a full
+ * reflow, and this is the count that exercises all eleven gestures hundreds of times.
+ *
+ * The two tests below carry their OWN timeout rather than living inside the global 30 s. They run
+ * in about seven seconds each on an idle machine and failed at 30 s once, on a loaded one — and the
+ * seed count is the guard here, so it must not be the timeout that decides how many run.
  */
 const SESSIONS = 500;
 const STEPS_PER_SESSION = 8;
+const HARNESS_TIMEOUT_MS = 120_000;
 
 describe('the line holds over generated sessions', () => {
   it(`walks ${SESSIONS} of them back to where they started, and forward again`, () => {
@@ -710,7 +714,7 @@ describe('the line holds over generated sessions', () => {
         closeDb();
       }
     }
-  });
+  }, HARNESS_TIMEOUT_MS);
 
   it('generates the sessions these properties are about, gesture by gesture', () => {
     let steps = 0;
@@ -757,5 +761,5 @@ describe('the line holds over generated sessions', () => {
     expect(refusals, 'the refusal path is never exercised').toBeGreaterThan(20);
     // The guards above are only meaningful while the generator is not mostly aiming at nothing.
     expect(skipped, 'most draws still hit their own guard').toBeLessThan(SESSIONS);
-  });
+  }, HARNESS_TIMEOUT_MS);
 });

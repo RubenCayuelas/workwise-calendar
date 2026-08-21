@@ -3795,6 +3795,10 @@ and the six traps are in § *Undo and Redo Are a Line of States*.
 - [x] **defect, same review**: no `event.repeat` guard, so holding Ctrl+Z stacked one four-second toast per
       key repeat into a viewport with no cap; and `runHistory` compared against the `reference` captured at
       press time, so a page turn during the request could make it skip the week it was asked to show
+- [x] **flake, caught on the last run before this entry was written**: the harness needs about seven seconds
+      and failed once at the global 30 s timeout, on a machine running the build at the same time. The two
+      harness tests carry their own 120 s timeout now — the seed count is the guard here, so the timeout must
+      not be what decides how many run. Confirmed by passing them with the global timeout set to 4 s
 - [x] `POST /api/history/undo` and `/redo`; the state of the line rides on `GET /api/week`, which the grid
       already refetches after every mutation
 - [x] each row carries the FINGERPRINT of its own state, so both guards are a string comparison and never a
