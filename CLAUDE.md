@@ -974,7 +974,8 @@ names. `undone = 1` marks the redo tail, so the cursor is the highest `seq` with
   cut, a kill, a crash — and rows outliving their run would describe a calendar from a previous day:
   at best the drift guard throws the line away, at worst an undo silently reverts yesterday's work.
   No run can BEGIN without opening the file, and that is the only way to a handle, so nothing can
-  read a stale line before it is gone.
+  read a stale line before it is gone. Once the app ships as a Windows application (*Architecture*),
+  "a run" is one launch of it, which is what the owner asked the line to last.
 
 **A RESTORE DOES NOT RECOMPOSE.** It puts the stored rows back exactly — same ids, same
 `created_at`, same `updated_at` — because anything else would mean undo did not give back what was
