@@ -36,7 +36,7 @@ export function listBlocks(db: Db = getDb()): Block[] {
   return prepared<BlockRow>(db, `SELECT ${COLUMNS} FROM blocks ${QUEUE_ORDER}`).all().map(mapBlockRow);
 }
 
-/** One job's blocks, in queue order — what the job panel lists as "4 tramos". */
+/** One job's blocks, in queue order — what the job panel lists as "4 stretches". */
 export function listBlocksByProject(projectId: string, db: Db = getDb()): Block[] {
   return prepared<BlockRow>(db, `SELECT ${COLUMNS} FROM blocks WHERE project_id = ? ${QUEUE_ORDER}`)
     .all(projectId)

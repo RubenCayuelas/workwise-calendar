@@ -2,7 +2,7 @@
 
 /**
  * Painting a band on empty grid space: press, drag down one column, release, and the band STAYS
- * DRAWN while it is asked what it is — a hueco or a trabajo. IT WRITES NOTHING either way; the form
+ * DRAWN while it is asked what it is — a gap or a job. IT WRITES NOTHING either way; the form
  * opens pre-filled and the owner presses Guardar, because the app never creates work by itself.
  *
  * ONE COLUMN per paint: several days go through the form's range instead. No modifier key, ever.

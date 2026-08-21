@@ -114,7 +114,7 @@ export function updateGap(id: string, patch: GapPatch, db: Db = getDb()): Gap | 
   return result.changes === 0 ? undefined : requireStored(id, db);
 }
 
-/** Every row of one unit, in calendar order. The halves around the comida come back together. */
+/** Every row of one unit, in calendar order. The halves around the lunch break come back together. */
 export function listGapsOfUnit(unitId: string, db: Db = getDb()): Gap[] {
   return prepared<GapRow>(db, `SELECT ${COLUMNS} FROM gaps WHERE unit_id = ? ${CALENDAR_ORDER}`)
     .all(unitId)

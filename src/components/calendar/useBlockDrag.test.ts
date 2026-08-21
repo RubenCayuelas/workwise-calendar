@@ -85,35 +85,35 @@ const OPTIONS = {
   rowsOn: (): readonly AimRow[] => [],
 };
 
-/** `Reja`, the 4 h row of the report: Thursday 10:00-14:00. */
+/** `Grille`, the 4 h row of the report: Thursday 10:00-14:00. */
 function target(over: Partial<BlockDragTarget> = {}): BlockDragTarget {
   return {
     kind: 'block',
-    groupId: 'reja',
-    projectId: 'p-reja',
-    name: 'Reja',
+    groupId: 'grille',
+    projectId: 'p-grille',
+    name: 'Grille',
     color: '#1D9E75',
     date: '2026-08-13',
     startMinutes: 10 * 60,
     durationMinutes: 4 * 60,
-    rowIds: ['reja'],
-    blockId: 'reja',
+    rowIds: ['grille'],
+    blockId: 'grille',
     fixed: false,
     ...over,
   };
 }
 
 /**
- * `Avería torno`, one absence: Thursday 10:00, two hours. A gap is FIXED by itself — it lands on the
+ * `Lathe breakdown`, one absence: Thursday 10:00, two hours. A gap is FIXED by itself — it lands on the
  * minute it is released, on every day — and it names its own day, so it is never rolled to another.
  */
 function gapTarget(over: Partial<GapDragTarget['gap']> = {}): GapDragTarget {
   const gap = {
-    id: 'averia',
+    id: 'breakdown',
     date: '2026-08-13',
     startMinutes: 10 * 60,
     durationMinutes: 2 * 60,
-    reason: 'Avería torno',
+    reason: 'Lathe breakdown',
     ...over,
   };
   return {
@@ -448,7 +448,7 @@ describe('previewMove', () => {
 // The aim and the day, through the preview. Their arithmetic is pinned in dropAim.test.ts; what
 // these add is that the GESTURE asks them, and in what order.
 describe('previewMove — the aim and the day', () => {
-  /** Friday, the colchón: the next day the engine would use after Thursday. */
+  /** Friday, the buffer: the next day the engine would use after Thursday. */
   const FRIDAY: WeekDay = day('2026-08-14', { role: 'buffer', weekday: 5 });
   const WEEK = [THURSDAY, FRIDAY, SATURDAY];
 
@@ -540,7 +540,7 @@ describe('previewMove after the week has paged', () => {
     session.grabOffsetMinutes = 0;
     session.preview = {
       kind: 'move',
-      groupId: 'reja',
+      groupId: 'grille',
       color: '#1D9E75',
       date: '2026-08-13',
       startMinutes: 10 * 60,
@@ -622,7 +622,7 @@ describe('the two gestures on an ABSENCE', () => {
     expect(preview).toMatchObject({ date: '2026-08-13', startMinutes: 12 * 60, pinned: true });
   });
 
-  it('is stored from the first minute that can hold work when it is aimed at the comida', () => {
+  it('is stored from the first minute that can hold work when it is aimed at the lunch break', () => {
     // Nothing happens during the break by definition, so the whole band means 15:30 — the same
     // reading `segmentDroppedRow` gives it on the way in.
     for (const aim of [14 * 60, 14 * 60 + 30, 15 * 60 + 15]) {
@@ -645,7 +645,7 @@ describe('the two gestures on an ABSENCE', () => {
     expect(release(9 * 60).pinned).toBe(true);
   });
 
-  it('sizes the whole absence from its own start, across the comida', () => {
+  it('sizes the whole absence from its own start, across the lunch break', () => {
     // The unit starts at 10:00; released on 17:30 that is 10:00-14:00 plus 15:30-17:30.
     const session = pressOn('resize', 12 * 60, gapTarget());
     expect(previewResize({ clientY: yOf(17 * 60 + 30) }, session, METRICS, options).durationMinutes).toBe(
@@ -654,7 +654,7 @@ describe('the two gestures on an ABSENCE', () => {
   });
 
   it("stops at the end of the day's last manual window, margin included", () => {
-    // From 10:00 the day holds 4 h before the comida and 5 h after it, margin and all.
+    // From 10:00 the day holds 4 h before the lunch break and 5 h after it, margin and all.
     const session = pressOn('resize', 12 * 60, gapTarget());
     expect(previewResize({ clientY: yOf(22 * 60) }, session, METRICS, options).durationMinutes).toBe(
       9 * 60,

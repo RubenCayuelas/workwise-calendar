@@ -34,14 +34,14 @@ describe('the band a paint draws', () => {
     });
   });
 
-  it('counts NET working minutes, so the comida costs nothing', () => {
+  it('counts NET working minutes, so the lunch break costs nothing', () => {
     expect(paintedSpan(WINDOWS, t('13:00'), t('16:30'))).toEqual({
       startMinutes: t('13:00'),
       durationMinutes: 120,
     });
   });
 
-  it('starts at the first minute that can hold work when the press was inside the comida', () => {
+  it('starts at the first minute that can hold work when the press was inside the lunch break', () => {
     expect(paintedSpan(WINDOWS, t('14:30'), t('17:30'))).toEqual({
       startMinutes: t('15:30'),
       durationMinutes: 120,
@@ -58,7 +58,7 @@ describe('the band a paint draws', () => {
   it('is nothing at all below a quarter of an hour — a press that wandered is not a gesture', () => {
     expect(paintedSpan(WINDOWS, t('09:00'), t('09:00'))).toBeNull();
     expect(paintedSpan(WINDOWS, t('09:00'), t('09:06'))).toBeNull();
-    // Both ends inside the comida: no working minute between them.
+    // Both ends inside the lunch break: no working minute between them.
     expect(paintedSpan(WINDOWS, t('14:15'), t('15:00'))).toBeNull();
   });
 

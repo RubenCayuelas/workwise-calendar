@@ -1,6 +1,6 @@
 /**
  * An absence over a RANGE of days, in the two shapes the owner has: one gap repeated on every day of
- * it, or one CLOSED DAY each. The shop's own week — `2026-09-01` to `09-04`, "Feria" — was four gaps
+ * it, or one CLOSED DAY each. The shop's own week — `2026-09-01` to `09-04`, "Fair" — was four gaps
  * typed by hand because this had no screen and no route, while `day_overrides` held nothing.
  *
  * ONE FUNCTION SERVES THE PREVIEW AND THE SAVE (`writeAbsence`): the preview runs the real write
@@ -40,7 +40,7 @@ export interface AbsenceInput {
    * what the day header prints.
    */
   reason?: string;
-  /** `gap` only, and required there. Net working minutes, cut at the comida on the way in. */
+  /** `gap` only, and required there. Net working minutes, cut at the lunch break on the way in. */
   startMinutes?: number;
   durationMinutes?: number;
   today?: string;
@@ -86,7 +86,7 @@ export interface AbsencePreview {
   kind: AbsenceKind;
   dates: string[];
   skippedDates: string[];
-  /** `gap` only: the rows each day would hold, cut at the comida. */
+  /** `gap` only: the rows each day would hold, cut at the lunch break. */
   rows: AbsencePreviewRow[];
   /** Days of the range that are already closed, so the screen offers to reopen them. */
   alreadyClosedDates: string[];

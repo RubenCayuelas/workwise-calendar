@@ -29,7 +29,7 @@ const OPEN: DropDay = {
 /** The weekend, a closed day, the frozen past. */
 const FIXED: DropDay = { ...OPEN, reflows: false, role: 'manual' };
 
-/** The colchón: the engine lays it out, and yet a drop there keeps its minute. */
+/** The buffer: the engine lays it out, and yet a drop there keeps its minute. */
 const BUFFER: DropDay = { ...OPEN, role: 'buffer' };
 
 function calendar(fixedDates: string[] = []): (date: string) => DropDay {
@@ -63,7 +63,7 @@ describe('dropLanding — a drop aimed below what the day holds', () => {
   });
 
   it('skips the weekend on the way out of a Friday', () => {
-    // The colchón keeps the minute a drop is released on, so its footprint has to fit it.
+    // The buffer keeps the minute a drop is released on, so its footprint has to fit it.
     expect(
       dropLanding({ date: FRI, startMinutes: t('19:00'), durationMinutes: 300, dayOf: calendar(WEEKEND) }),
     ).toEqual({ date: NEXT_MON, startMinutes: t('08:00') });

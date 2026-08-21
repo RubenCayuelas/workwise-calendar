@@ -18,14 +18,14 @@ const PERIODS = [
 
 function block(overrides: Partial<WeekBlock> & { id: string }): WeekBlock {
   return {
-    projectId: 'barandilla',
+    projectId: 'railing',
     date: '2026-08-12',
     startMinutes: 8 * 60,
     durationMinutes: 60,
     locked: false,
     createdAt: '2026-08-11T09:00:00.000Z',
     updatedAt: '2026-08-11T09:00:00.000Z',
-    project: { id: 'barandilla', name: 'Barandilla', color: '#2F6FEB' },
+    project: { id: 'railing', name: 'Railing', color: '#2F6FEB' },
     ...overrides,
   };
 }
@@ -78,7 +78,7 @@ describe('segmentsOf — the seam is the hole, not the join', () => {
 
   it('says nothing about a hole left by a margin the owner has since set to 0', () => {
     // The top margin is now 0, so the half hour before 08:00 has stopped being workable
-    // and the two rows became one unit. The hole is real, but it is not the comida.
+    // and the two rows became one unit. The hole is real, but it is not the lunch break.
     const narrowed = [
       { startMinutes: 8 * 60, endMinutes: 14 * 60 },
       { startMinutes: 15 * 60 + 30, endMinutes: 20 * 60 + 30 },
@@ -142,7 +142,7 @@ describe('buildRuns', () => {
   it('stops at another job, because that separation is the owner\'s own decision', () => {
     const runs = runsOf([
       block({ id: 'a1', startMinutes: 8 * 60, durationMinutes: 120 }),
-      block({ id: 'other', projectId: 'reja', startMinutes: 10 * 60, durationMinutes: 60 }),
+      block({ id: 'other', projectId: 'grille', startMinutes: 10 * 60, durationMinutes: 60 }),
       block({ id: 'a2', startMinutes: 11 * 60, durationMinutes: 60 }),
     ]);
     expect(runs.get('a1')?.blockIds).toEqual(['a1']);
@@ -153,7 +153,7 @@ describe('buildRuns', () => {
     // An obstacle the reflow flows around does not divide the job, and drags on its own.
     const runs = runsOf([
       block({ id: 'a1', startMinutes: 8 * 60, durationMinutes: 120 }),
-      block({ id: 'pinned', projectId: 'reja', startMinutes: 10 * 60, durationMinutes: 60, locked: true }),
+      block({ id: 'pinned', projectId: 'grille', startMinutes: 10 * 60, durationMinutes: 60, locked: true }),
       block({ id: 'a2', startMinutes: 11 * 60, durationMinutes: 60 }),
     ]);
     expect(runs.get('a1')?.blockIds).toEqual(['a1', 'a2']);
@@ -195,7 +195,7 @@ describe('buildRuns', () => {
 // The two halves of ONE gap
 // ---------------------------------------------------------------------------
 
-describe('groupGaps — a gap cut at the comida is one unit', () => {
+describe('groupGaps — a gap cut at the lunch break is one unit', () => {
   const MANUAL_WINDOWS = [
     { startMinutes: 7 * 60, endMinutes: 14 * 60 },
     { startMinutes: 15 * 60 + 30, endMinutes: 20 * 60 + 30 },
@@ -206,7 +206,7 @@ describe('groupGaps — a gap cut at the comida is one unit', () => {
       date: '2026-08-12',
       startMinutes: 10 * 60,
       durationMinutes: 60,
-      reason: 'Feria',
+      reason: 'Fair',
       // Its own unit unless the case shares one on purpose: that is what makes two touching
       // absences stay two.
       unitId: overrides.id,
@@ -227,7 +227,7 @@ describe('groupGaps — a gap cut at the comida is one unit', () => {
 
     expect(groups).toHaveLength(1);
     // The unit's own hours are NET — 11 h, not the 12.5 h its rectangle spans.
-    expect(groups[0]).toMatchObject({ id: 'morning', totalMinutes: 11 * 60, reason: 'Feria' });
+    expect(groups[0]).toMatchObject({ id: 'morning', totalMinutes: 11 * 60, reason: 'Fair' });
     expect(groups[0].endMinutes).toBe(20 * 60 + 30);
 
     const segments = gapSegmentsOf(groups, MANUAL_WINDOWS);
@@ -241,18 +241,18 @@ describe('groupGaps — a gap cut at the comida is one unit', () => {
     ]);
   });
 
-  it('keeps two absences apart across the comida even when they say the SAME thing', () => {
+  it('keeps two absences apart across the lunch break even when they say the SAME thing', () => {
     // The case reason-equality got wrong: a deleted job writes the same sentence on every past row,
     // so two independent absences would have fused into one unit. Their unit ids differ.
     const groups = groupGaps(
       [
-        gap({ id: 'averia', unitId: 'averia', startMinutes: 12 * 60, durationMinutes: 2 * 60, reason: 'Feria' }),
-        gap({ id: 'gestiones', unitId: 'gestiones', startMinutes: 15 * 60 + 30, durationMinutes: 60, reason: 'Feria' }),
+        gap({ id: 'breakdown', unitId: 'breakdown', startMinutes: 12 * 60, durationMinutes: 2 * 60, reason: 'Fair' }),
+        gap({ id: 'errands', unitId: 'errands', startMinutes: 15 * 60 + 30, durationMinutes: 60, reason: 'Fair' }),
       ],
       MANUAL_WINDOWS,
     );
 
-    expect(groups.map((group) => group.id)).toEqual(['averia', 'gestiones']);
+    expect(groups.map((group) => group.id)).toEqual(['breakdown', 'errands']);
     expect(gapSegmentsOf(groups, MANUAL_WINDOWS).map((segment) => segment.seamBelow)).toEqual([
       false,
       false,
@@ -278,7 +278,7 @@ describe('groupGaps — a gap cut at the comida is one unit', () => {
       date: '2026-08-12',
       startMinutes: 8 * 60,
       durationMinutes: 11 * 60,
-      reason: 'Feria',
+      reason: 'Fair',
     });
   });
 
@@ -305,18 +305,18 @@ describe('groupGaps — a gap cut at the comida is one unit', () => {
     // either still edited the whole thing. A drag makes that arrangement a one-gesture accident.
     const groups = groupGaps(
       [
-        gap({ id: 'am', unitId: 'averia', startMinutes: 8 * 60, durationMinutes: 60, reason: 'Avería' }),
-        gap({ id: 'other', unitId: 'reunion', startMinutes: 10 * 60, durationMinutes: 60, reason: 'Reunión' }),
-        gap({ id: 'pm', unitId: 'averia', startMinutes: 12 * 60, durationMinutes: 60, reason: 'Avería' }),
+        gap({ id: 'am', unitId: 'breakdown', startMinutes: 8 * 60, durationMinutes: 60, reason: 'Breakdown' }),
+        gap({ id: 'other', unitId: 'meeting', startMinutes: 10 * 60, durationMinutes: 60, reason: 'Meeting' }),
+        gap({ id: 'pm', unitId: 'breakdown', startMinutes: 12 * 60, durationMinutes: 60, reason: 'Breakdown' }),
       ],
       MANUAL_WINDOWS,
     );
 
     expect(groups).toHaveLength(2);
-    const averia = groups.find((group) => group.unitId === 'averia');
-    expect(averia?.gaps.map((row) => row.id)).toEqual(['am', 'pm']);
+    const breakdown = groups.find((group) => group.unitId === 'breakdown');
+    expect(breakdown?.gaps.map((row) => row.id)).toEqual(['am', 'pm']);
     // The NET total of the absence, not the clock it spans.
-    expect(averia?.totalMinutes).toBe(2 * 60);
+    expect(breakdown?.totalMinutes).toBe(2 * 60);
   });
 
   it('marks no seam where the two rows of a unit merely TOUCH', () => {

@@ -273,7 +273,7 @@ export function WeekGrid({
           budgetMinutes: Math.max(0, released.plannableMinutes - spentAhead),
           fromMinutes,
         },
-        // The days the overflow may use: the ones the engine lays out, minus the colchón, which
+        // The days the overflow may use: the ones the engine lays out, minus the buffer, which
         // takes overflow only from work that GREW (`acceptsItem`).
         ...view.days
           .filter((day) => day.date > input.date && dayReflowsOn(day) && day.role !== 'buffer')
@@ -547,7 +547,7 @@ function DayHeader({ day, slide }: { day: WeekDay; slide: WeekSlide }): React.JS
   const format = useFormat();
 
   // Past wins over everything: a frozen Friday is not a buffer any more. On a CLOSED day the
-  // owner's own words are the state — `Mar 1 · Feria` — because "cerrado" is what the dimmed
+  // owner's own words are the state — `Mar 1 · Fair` — because "cerrado" is what the dimmed
   // column already says and the reason is the only thing it cannot.
   const state = day.isPast
     ? t('day.frozen')
@@ -916,7 +916,7 @@ function DayColumn({
         <div
           key={`${band.kind}-${band.startMinutes}`}
           // The break is drawn COMPRESSED while the margins keep the axis's ordinary scale: the
-          // owner puts real work in a margin by hand and none in the comida.
+          // owner puts real work in a margin by hand and none in the lunch break.
           className={[styles.band, band.kind === 'lunch' ? styles.bandBreak : '']
             .filter(Boolean)
             .join(' ')}
@@ -962,7 +962,7 @@ function DayColumn({
 
         {/*
          * The same view the block grouping was read over. A gap's duration is net working minutes, so
-         * a gap across the comida is TWO rows, drawn joined with the seam and the `sigue…` marks
+         * a gap across the lunch break is TWO rows, drawn joined with the seam and the `sigue…` marks
          * exactly as a job cut there is — one unit, one reason, one lane.
          *
          * AND IT IS DRAGGED, like a padlocked row: the whole UNIT moves, it lands on the minute it
@@ -1241,7 +1241,7 @@ function DayColumn({
             </div>
           ))}
 
-      {/* The band, drawn as the ROWS the absence will be stored as — cut at the comida like every
+      {/* The band, drawn as the ROWS the absence will be stored as — cut at the lunch break like every
           other ghost here, because one rectangle through the grey band promises a shape that will
           never exist. It writes nothing: the release opens the form. */}
       {painting === null
@@ -1416,7 +1416,7 @@ function buildLayout(view: WeekView): WeekLayout {
   for (const day of view.days) {
     // Grouped over the MANUAL WINDOWS: two rows are one unit when nothing WORKABLE separates
     // them, and half an hour of margin between two rows is workable by hand. Gaps go through the
-    // same predicate, and their units are packed here so a gap cut at the comida takes ONE lane.
+    // same predicate, and their units are packed here so a gap cut at the lunch break takes ONE lane.
     const dayGroups = groupBlocks(blocksByDate.get(day.date) ?? [], day.manualWindows);
     const dayGapGroups = groupGaps(gapsByDate.get(day.date) ?? [], day.manualWindows);
     groups.set(day.date, dayGroups);
@@ -1464,7 +1464,7 @@ function targetFor(group: BlockGroup, day: WeekDay, run: BlockRun): BlockDragTar
 /**
  * What a press on a gap picks up: the whole ABSENCE. `fixed` is unconditional — a gap lands on the
  * minute it was released, on every day, because it is not in the queue and there is no rank for it
- * to take. Both halves around the comida travel in `rowIds`, so neither is an obstacle to the drag.
+ * to take. Both halves around the lunch break travel in `rowIds`, so neither is an obstacle to the drag.
  */
 function gapTargetFor(group: GapGroup, gapColor: string): GapDragTarget {
   const unit = gapUnitOf(group);
@@ -1494,7 +1494,7 @@ function runFor(runs: ReadonlyMap<string, BlockRun>, group: BlockGroup): BlockRu
 }
 
 /**
- * Friday's `desborde` label: hours the ENGINE parked on the colchón. Anything it could have put
+ * Friday's `overflow` label: hours the ENGINE parked on the buffer. Anything it could have put
  * there IS overflow, so the exclusions are a past Friday and a PADLOCK. `some` rather than
  * `every`: a unit with any padlocked row in it is not something the engine decided.
  */

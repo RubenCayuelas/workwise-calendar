@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * `Bloques · 11 h en 4 tramos` and the rows under it: display plus one padlock toggle, and the
+ * `Bloques · 11 h en 4 stretches` and the rows under it: display plus one padlock toggle, and the
  * only place a row in another week can be unlocked.
  */
 
@@ -126,7 +126,7 @@ export function BlockRows({
 
 /**
  * The one word a row is worth annotating with, in the day header's own vocabulary. The
- * frozen past first (it explains the dimming), then the Friday colchón, then today.
+ * frozen past first (it explains the dimming), then the Friday buffer, then today.
  */
 function tagOf(block: Block, today: string | undefined): string | undefined {
   if (today !== undefined && compareDates(block.date, today) < 0) return 'day.frozen';

@@ -1193,7 +1193,7 @@ export interface GapConflict {
  *
  * `gap` IS ONE STORED ROW, never a gap's whole net total: a gap's duration is net working minutes, so
  * `start + duration` is a clock interval only inside a single window. A caller with hours that reach
- * across the comida segments them first and asks this of each row.
+ * across the lunch break segments them first and asks this of each row.
  */
 export function findGapConflicts(
   blocks: readonly Block[],

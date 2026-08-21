@@ -1,9 +1,9 @@
 'use client';
 
 /**
- * `Ausencias` — one screen for every way the shop is not working, in two modes the owner picks
- * between inside it: **un hueco** (`gaps`, cut at the comida) and **cerrar días** (`day_overrides`).
- * Both share `Desde` / `Hasta`, so a whole Feria week is one gesture instead of one hand-typed row
+ * `Absences` — one screen for every way the shop is not working, in two modes the owner picks
+ * between inside it: **un gap** (`gaps`, cut at the lunch break) and **cerrar días** (`day_overrides`).
+ * Both share `Desde` / `Hasta`, so a whole Fair week is one gesture instead of one hand-typed row
  * per day, which is what the shop's own database was full of.
  *
  * It is also the gap form in its two OLD shapes, unchanged: editing one absence, and *cerrar el día
@@ -89,7 +89,7 @@ export interface AbsencePanelProps {
   /**
    * Omit to create; pass one to edit it. THE WHOLE ABSENCE — its day, its start and the NET total of
    * its rows — because `PATCH /api/gaps/:id` addresses the unit through whichever row the id names:
-   * handed one half of a comida-crossing gap, this form would save 6 h as the whole of a 10 h absence
+   * handed one half of a lunch-break-crossing gap, this form would save 6 h as the whole of a 10 h absence
    * and the reconcile would delete the other row.
    */
   gap?: GapUnit;

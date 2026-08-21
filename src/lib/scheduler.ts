@@ -112,7 +112,7 @@ export function readSnapshot(db: Db = getDb(), today: string = todayLocal()): Sc
 export interface RecomposeIntent {
   /** Projects CREATED by this operation. Their hours never target Friday. */
   newProjectIds?: readonly string[];
-  /** Projects whose hours this operation RAISED. The only thing the colchón absorbs. */
+  /** Projects whose hours this operation RAISED. The only thing the buffer absorbs. */
   grownProjectIds?: readonly string[];
 }
 

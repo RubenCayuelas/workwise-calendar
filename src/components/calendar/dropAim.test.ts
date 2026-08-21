@@ -40,7 +40,7 @@ function day(date: string, over: Partial<WeekDay> = {}): WeekDay {
   };
 }
 
-/** A working week: Mon-Thu auto, Friday the colchón, Sat/Sun manual. */
+/** A working week: Mon-Thu auto, Friday the buffer, Sat/Sun manual. */
 const WEEK: WeekDay[] = [
   day('2026-08-17'),
   day('2026-08-18'),
@@ -140,7 +140,7 @@ describe('resolveDropDay', () => {
       fixed: true,
       timeline: TIMELINE,
     });
-    // Thursday is closed, so it is Friday — the colchón takes a day's overflow.
+    // Thursday is closed, so it is Friday — the buffer takes a day's overflow.
     expect(rolled).toEqual({
       date: '2026-08-21',
       startMinutes: 8 * 60,

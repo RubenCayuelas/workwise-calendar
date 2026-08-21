@@ -57,10 +57,10 @@ export interface Gap {
   date: string;
   startMinutes: number;
   durationMinutes: number;
-  /** Free text such as "Avería torno". May be absent. */
+  /** Free text such as "Lathe breakdown". May be absent. */
   reason?: string;
   /**
-   * The gap this row is a PIECE of: the halves around the comida share one, and they carry one
+   * The gap this row is a PIECE of: the halves around the lunch break share one, and they carry one
    * reason between them. Two gaps that merely touch keep different ids and stay two gaps, which a
    * comparison of their reasons cannot say — the same sentence is written twice by a deleted job.
    */
@@ -71,7 +71,7 @@ export interface Gap {
 
 /**
  * ONE ABSENCE, as every screen and every gesture edits it: any of its rows' id, the day, the start
- * and the NET total. A gap cut at the comida is TWO rows and one absence — `PATCH /api/gaps/:id`
+ * and the NET total. A gap cut at the lunch break is TWO rows and one absence — `PATCH /api/gaps/:id`
  * addresses the unit through whichever row it names, so handing a form or a drag ONE ROW'S duration
  * claims the whole absence is that long, and the next save makes it true.
  */

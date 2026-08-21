@@ -30,7 +30,7 @@ describe('the rows a painted band becomes', () => {
     expect(rows(WINDOWS, '10:00', 3)).toEqual(['10:00-13:00']);
   });
 
-  it('is cut at the comida, never stored straddling it', () => {
+  it('is cut at the lunch break, never stored straddling it', () => {
     // `compose` re-derives nothing on a locked row, so an uncut row would be STORED across the
     // break — the one shape no row in the app may have.
     expect(rows(WINDOWS, '13:00', 3)).toEqual(['13:00-14:00', '15:30-17:30']);
@@ -41,7 +41,7 @@ describe('the rows a painted band becomes', () => {
     expect(rows(WINDOWS, '19:00', 1.5)).toEqual(['19:00-20:30']);
   });
 
-  it('reads a start inside the comida as the first minute that can hold work', () => {
+  it('reads a start inside the lunch break as the first minute that can hold work', () => {
     expect(rows(WINDOWS, '14:30', 2)).toEqual(['15:30-17:30']);
   });
 

@@ -47,7 +47,7 @@ function blockOf(overrides: Partial<WeekBlock> = {}): WeekBlock {
     locked: false,
     createdAt: '2026-08-18T08:00:00Z',
     updatedAt: '2026-08-18T08:00:00Z',
-    project: { id: 'p1', name: 'Barandilla', color: '#c07a2b' },
+    project: { id: 'p1', name: 'Railing', color: '#c07a2b' },
     ...overrides,
   };
 }
@@ -78,7 +78,7 @@ describe('closeDayInputFor', () => {
       {
         id: 'b1',
         projectId: 'p1',
-        name: 'Barandilla',
+        name: 'Railing',
         startMinutes: 8 * 60,
         durationMinutes: 4 * 60,
         locked: true,

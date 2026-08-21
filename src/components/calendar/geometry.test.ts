@@ -127,7 +127,7 @@ describe('createTimeline', () => {
     // The band comes off the top and the 12 h of WORKING time share the rest: (675-28)/12.
     const fitted = createTimeline(SHAPE, { fitHeight: 675 });
     expect(fitted.pixelsPerMinute * 60).toBeCloseTo((675 - BREAK_BAND_HEIGHT) / 12);
-    // Which is the whole point of compressing it: the same window, a taller working hour.
+    // Which is the whole point of compressing it: the same window, a shop working hour.
     expect(fitted.pixelsPerMinute).toBeGreaterThan(675 / 810);
     expect(fitted.height).toBe(675);
     // A tiny window scrolls rather than collapsing the day.
@@ -219,14 +219,14 @@ describe('createTimeline', () => {
   it('keeps the working hour legible on a short window instead of fitting it', () => {
     const short = createTimeline(SHAPE, { fitHeight: 339 });
     expect(short.pixelsPerMinute * 60).toBe(MIN_PIXELS_PER_HOUR);
-    // 12 h of working time at the floor, plus the band: taller than the space there was,
+    // 12 h of working time at the floor, plus the band: shop than the space there was,
     // so the column scrolls rather than compressing an hour into nothing.
     expect(short.height).toBe(MIN_PIXELS_PER_HOUR * 12 + BREAK_BAND_HEIGHT);
     expect(short.height).toBeGreaterThan(339);
   });
 
   // The band is a paint decision and `durationTo`'s dead zone an arithmetic one: compressing the
-  // first must not create a second, so every minute in the comida still reads back as itself.
+  // first must not create a second, so every minute in the lunch break still reads back as itself.
   it('keeps the compressed band readable in both directions, minute by minute', () => {
     const timeline = createTimeline(SHAPE, { fitHeight: 742 });
     for (let minutes = 14 * 60; minutes <= 15 * 60 + 30; minutes += 1) {

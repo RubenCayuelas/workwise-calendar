@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * "Taller ocupado hasta el jueves 27 de agosto · 96 h en cola · viernes libre", plus the
+ * "Shop ocupado hasta el jueves 27 de agosto · 96 h en cola · viernes libre", plus the
  * capacity clause when auto-fill stops below the shift.
  */
 

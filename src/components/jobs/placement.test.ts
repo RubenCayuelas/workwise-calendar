@@ -3,7 +3,7 @@
  * with tests. Everything else is a controlled form over `src/lib/api-client.ts`.
  *
  * The dates are the wireframe's own week: 2026-08-10 is the Monday of ISO week 33,
- * 2026-08-14 the Friday colchón, 2026-08-17 next week's Monday.
+ * 2026-08-14 the Friday buffer, 2026-08-17 next week's Monday.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -89,7 +89,7 @@ describe('describePlacement', () => {
     expect(outcome.minutesDelta).toBe(0);
   });
 
-  it('flags the Friday colchón when the extra hours land there', () => {
+  it('flags the Friday buffer when the extra hours land there', () => {
     const before = [block({ id: 'a' })];
     const after = [block({ id: 'a' }), block({ id: 'b', date: FRIDAY, durationMinutes: 120 })];
 
@@ -180,7 +180,7 @@ describe('readGapConflicts', () => {
   const conflict = {
     blockId: 'block-1',
     projectId: 'job-1',
-    projectName: 'Barandilla',
+    projectName: 'Railing',
     date: TUESDAY,
     startMinutes: 480,
     durationMinutes: 240,
@@ -206,7 +206,7 @@ describe('readGapConflicts', () => {
 
   it('leaves the project name empty rather than inventing one', () => {
     const { projectName, ...withoutName } = conflict;
-    expect(projectName).toBe('Barandilla');
+    expect(projectName).toBe('Railing');
     expect(readGapConflicts({ conflicts: [withoutName] })[0].projectName).toBe('');
   });
 });
@@ -215,7 +215,7 @@ describe('otherGapConflicts', () => {
   const locked = {
     blockId: 'block-locked',
     projectId: 'job-1',
-    projectName: 'Barandilla',
+    projectName: 'Railing',
     date: TUESDAY,
     startMinutes: 480,
     durationMinutes: 240,
@@ -224,7 +224,7 @@ describe('otherGapConflicts', () => {
   const past = {
     blockId: 'block-past',
     projectId: 'job-2',
-    projectName: 'Puerta',
+    projectName: 'Door',
     date: TUESDAY,
     startMinutes: 930,
     durationMinutes: 120,
@@ -235,7 +235,7 @@ describe('otherGapConflicts', () => {
     // `assertGapFits` reports the LOCKED conflict in the message even though the past
     // one comes first in the array, so position is not what identifies it.
     const details = {
-      projectName: 'Barandilla',
+      projectName: 'Railing',
       date: TUESDAY,
       startTime: '08:00',
       endTime: '12:00',

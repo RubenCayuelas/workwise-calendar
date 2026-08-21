@@ -92,7 +92,7 @@ describe('the paint gesture state machine', () => {
     });
   });
 
-  it('crosses the comida for free: the band is NET working minutes', () => {
+  it('crosses the lunch break for free: the band is NET working minutes', () => {
     const { state } = moveTo(press().state, '17:30');
 
     // 10:00-14:00 plus 15:30-17:30, never 7.5 h.

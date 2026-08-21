@@ -66,7 +66,7 @@ export interface MoveBlockInput {
   today?: string;
 }
 
-/** No intent is passed: a drag is not growth, so it must not spend the Friday colchón. */
+/** No intent is passed: a drag is not growth, so it must not spend the Friday buffer. */
 export function moveBlock(blockId: string, input: MoveBlockInput, db: Db = getDb()): BlockMutation {
   const today = input.today ?? todayLocal();
 

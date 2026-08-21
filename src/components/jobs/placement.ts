@@ -13,7 +13,7 @@ export type PlacementKind = 'new' | 'grown' | 'shrunk' | 'moved';
 export interface PlacementChange {
   block: Block;
   kind: PlacementKind;
-  /** The row sits on a Friday — the colchón. */
+  /** The row sits on a Friday — the buffer. */
   isBuffer: boolean;
   /** The row is outside the week of the reference date, i.e. it slipped to a later week. */
   isLaterWeek: boolean;

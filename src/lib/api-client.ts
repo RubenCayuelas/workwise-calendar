@@ -84,11 +84,11 @@ export interface BlockMutation {
 export interface GapMutation {
   /**
    * The row the request was about, and the one a PATCH updated in place. A gap's hours are cut at the
-   * comida like everything else, so THE START MAY DIFFER FROM THE ONE ASKED FOR: a gap aimed at 14:00
+   * lunch break like everything else, so THE START MAY DIFFER FROM THE ONE ASKED FOR: a gap aimed at 14:00
    * comes back at 15:30.
    */
   gap: Gap;
-  /** Every row the save wrote, in clock order — two of them for a gap across the comida. */
+  /** Every row the save wrote, in clock order — two of them for a gap across the lunch break. */
   gaps: Gap[];
   summary: ScheduleSummary;
 }
@@ -612,7 +612,7 @@ export function createGap(
 }
 
 /**
- * Edits an absence, whichever of its rows `gapId` names: the two halves around the comida are ONE
+ * Edits an absence, whichever of its rows `gapId` names: the two halves around the lunch break are ONE
  * gap, so an omitted `durationMinutes` defaults to their SUM and sending one half's duration would
  * claim the whole absence is that long.
  */
@@ -630,7 +630,7 @@ export function updateGap(
 }
 
 /**
- * The grid's drag: an absence lands on the minute it was released, cut at the comida — a LITERAL
+ * The grid's drag: an absence lands on the minute it was released, cut at the lunch break — a LITERAL
  * placement, never a queue rank, because a gap is not in the queue. THE STORED START MAY DIFFER
  * FROM THE ONE SENT (a release with no working time under it becomes the next minute that has
  * some), so read `gap` back.
@@ -646,7 +646,7 @@ export function moveGap(
 /**
  * The grid's bottom edge: the absence's NET working minutes, ABSOLUTE rather than a transfer —
  * there is no job to hand hours to, so nothing is ever asked and `shrink-needs-choice` cannot
- * happen here. It crosses the comida, creating or deleting the far half.
+ * happen here. It crosses the lunch break, creating or deleting the far half.
  */
 export function resizeGap(
   gapId: string,
@@ -678,7 +678,7 @@ export interface SaveAbsenceInput {
   from: string;
   to?: string;
   reason?: string;
-  /** Net working minutes, cut at the comida on the way in, exactly like a single gap. */
+  /** Net working minutes, cut at the lunch break on the way in, exactly like a single gap. */
   startMinutes?: number;
   durationMinutes?: number;
 }

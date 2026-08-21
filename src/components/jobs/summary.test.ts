@@ -55,7 +55,7 @@ describe('scheduleSummaryMessage', () => {
     expect(text).toBe('Taller ocupado hasta el jueves 20 de agosto · 66 h en cola · viernes libre');
   });
 
-  it('names the buffer date once the colchón carries work', () => {
+  it('names the buffer date once the buffer carries work', () => {
     const text = scheduleSummaryMessage(
       summary({ bufferClear: false }),
       translator(es as Record<string, unknown>),

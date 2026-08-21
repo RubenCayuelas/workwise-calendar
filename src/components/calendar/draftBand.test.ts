@@ -98,7 +98,7 @@ describe('the draft band while the form is open', () => {
     });
     const dates = [...new Set(plan.rows.map((row) => row.date))];
 
-    // Thursday's tail, then straight past Friday's colchón and the weekend.
+    // Thursday's tail, then straight past Friday's buffer and the weekend.
     expect(dates).toEqual(['2026-08-27']);
     expect(plan.beyondMinutes).toBe(12 * 60 - 90);
   });

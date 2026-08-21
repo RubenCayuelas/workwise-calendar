@@ -72,10 +72,10 @@ describe('locale files', () => {
   });
 
   it('composes the deleted job gap reason in each of them, and falls back to Spanish', () => {
-    expect(deletedJobGapReason('Barandilla', 'es')).toBe('Trabajo «Barandilla» eliminado');
-    expect(deletedJobGapReason('Barandilla', 'en')).toBe('Job «Barandilla» deleted');
-    expect(deletedJobGapReason('Barandilla', 'kl')).toBe('Trabajo «Barandilla» eliminado');
-    expect(deletedJobGapReason('Barandilla')).toBe('Trabajo «Barandilla» eliminado');
+    expect(deletedJobGapReason('Railing', 'es')).toBe('Trabajo «Railing» eliminado');
+    expect(deletedJobGapReason('Railing', 'en')).toBe('Job «Railing» deleted');
+    expect(deletedJobGapReason('Railing', 'kl')).toBe('Trabajo «Railing» eliminado');
+    expect(deletedJobGapReason('Railing')).toBe('Trabajo «Railing» eliminado');
   });
 
   it('words the wireframe strings exactly', () => {

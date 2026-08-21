@@ -75,7 +75,7 @@ describe('the migration meets a database that already holds work', () => {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
-      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Escalera', '#1D9E75', 2);
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#1D9E75', 2);
       INSERT INTO blocks (id, project_id, date, start_time, duration)
         VALUES ('b1', 'p1', '2026-08-10', '08:00', 2);
     `);
@@ -126,8 +126,8 @@ describe('the migration meets a database that already holds work', () => {
       BEGIN
         UPDATE blocks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
       END;
-      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Escalera', '#1D9E75', 6);
-      INSERT INTO projects (id, name, color, total_hours) VALUES ('p2', 'Puerta', '#1D9E75', 4);
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#1D9E75', 6);
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p2', 'Door', '#1D9E75', 4);
       INSERT INTO blocks (id, project_id, date, start_time, duration, locked, manual_duration, hand_placed)
         VALUES ('viernes',   'p1', '2026-08-14', '10:00', 2, 0, 0, 1),
                ('bloqueado', 'p1', '2026-08-13', '08:00', 2, 1, 1, 0),
@@ -169,7 +169,7 @@ describe('the migration meets a database that already holds work', () => {
 
     const first = openDatabase(dbPath);
     first.exec(`
-      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Escalera', '#1D9E75', 2);
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#1D9E75', 2);
       INSERT INTO blocks (id, project_id, date, start_time, duration, locked)
         VALUES ('libre', 'p1', '2026-08-12', '08:00', 2, 0);
     `);
@@ -183,8 +183,8 @@ describe('the migration meets a database that already holds work', () => {
 
 describe('the gap migration: a duration that used to be clock minutes', () => {
   /**
-   * The shop's own file, which is where this change came from: four `08:00 +11,5 h` "Feria" gaps —
-   * 11.5 and not 10 because the comida was paid for — and one ordinary gap that crosses nothing.
+   * The shop's own file, which is where this change came from: four `08:00 +11,5 h` "Fair" gaps —
+   * 11.5 and not 10 because the lunch break was paid for — and one ordinary gap that crosses nothing.
    * The legacy file has no `data_migrations` table and no settings, so opening it is the real path:
    * the schema is created, the DEFAULTS ARE SEEDED, and only then does the data migration read the
    * shift it must cut at.
@@ -208,11 +208,11 @@ describe('the gap migration: a duration that used to be clock minutes', () => {
   };
 
   const FERIA_WEEK = `
-        ('feria-1', '2026-09-01', '08:00', 11.5, 'Feria',      '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
-        ('feria-2', '2026-09-02', '08:00', 11.5, 'Feria',      '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
-        ('feria-3', '2026-09-03', '08:00', 11.5, 'Feria',      '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
-        ('feria-4', '2026-09-04', '08:00', 11.5, 'Feria',      '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
-        ('corto',   '2026-08-24', '09:00', 1,    'Vacaciones', '2026-08-01 09:00:00', '2026-08-01 09:00:00')`;
+        ('feria-1', '2026-09-01', '08:00', 11.5, 'Fair',      '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+        ('feria-2', '2026-09-02', '08:00', 11.5, 'Fair',      '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+        ('feria-3', '2026-09-03', '08:00', 11.5, 'Fair',      '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+        ('feria-4', '2026-09-04', '08:00', 11.5, 'Fair',      '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+        ('corto',   '2026-08-24', '09:00', 1,    'Holiday', '2026-08-01 09:00:00', '2026-08-01 09:00:00')`;
 
   const shopFile = (name: string): string => legacyFile(name, FERIA_WEEK);
 
@@ -223,22 +223,22 @@ describe('the gap migration: a duration that used to be clock minutes', () => {
         .all() as Array<{ date: string; start_time: string; duration: number; reason: string }>
     ).map((row) => `${row.date} ${row.start_time} +${row.duration} ${row.reason}`);
 
-  it('splits every gap that crossed the comida and leaves the others byte-identical', () => {
+  it('splits every gap that crossed the lunch break and leaves the others byte-identical', () => {
     const dbPath = shopFile('gaps-clock-minutes');
     const db = openDatabase(dbPath);
 
-    // Each Feria row becomes the two rows it always was on screen, both keeping the reason. 6 + 4 is
-    // 10 net hours, which is what the day really lost; the missing 1.5 h is the comida, unpaid for now.
+    // Each Fair row becomes the two rows it always was on screen, both keeping the reason. 6 + 4 is
+    // 10 net hours, which is what the day really lost; the missing 1.5 h is the lunch break, unpaid for now.
     expect(gapLines(db)).toEqual([
-      '2026-08-24 09:00 +1 Vacaciones',
-      '2026-09-01 08:00 +6 Feria',
-      '2026-09-01 15:30 +4 Feria',
-      '2026-09-02 08:00 +6 Feria',
-      '2026-09-02 15:30 +4 Feria',
-      '2026-09-03 08:00 +6 Feria',
-      '2026-09-03 15:30 +4 Feria',
-      '2026-09-04 08:00 +6 Feria',
-      '2026-09-04 15:30 +4 Feria',
+      '2026-08-24 09:00 +1 Holiday',
+      '2026-09-01 08:00 +6 Fair',
+      '2026-09-01 15:30 +4 Fair',
+      '2026-09-02 08:00 +6 Fair',
+      '2026-09-02 15:30 +4 Fair',
+      '2026-09-03 08:00 +6 Fair',
+      '2026-09-03 15:30 +4 Fair',
+      '2026-09-04 08:00 +6 Fair',
+      '2026-09-04 15:30 +4 Fair',
     ]);
 
     // The gap that crossed nothing was not written at all: same id, same timestamps.
@@ -284,16 +284,16 @@ describe('the gap migration: a duration that used to be clock minutes', () => {
       `
         ('madrugon', '2026-08-24', '06:00', 3,   'Madrugon',     '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
         ('noche',    '2026-08-25', '19:00', 3,   'Noche',        '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
-        ('comida',   '2026-08-26', '14:15', 0.5, 'Comida larga', '2026-08-01 09:00:00', '2026-08-01 09:00:00')`,
+        ('lunch break',   '2026-08-26', '14:15', 0.5, 'Lunch break larga', '2026-08-01 09:00:00', '2026-08-01 09:00:00')`,
     );
     const db = openDatabase(dbPath);
 
     expect(gapLines(db)).toEqual([
       '2026-08-24 06:00 +3 Madrugon',
       '2026-08-25 19:00 +3 Noche',
-      // Wholly inside the comida, where a gap can no longer be recorded. Left as it is rather than
+      // Wholly inside the lunch break, where a gap can no longer be recorded. Left as it is rather than
       // moved to 15:30, which would be the migration deciding a placement the owner never asked for.
-      '2026-08-26 14:15 +0.5 Comida larga',
+      '2026-08-26 14:15 +0.5 Lunch break larga',
     ]);
     // Untouched means untouched: assigning a unit id is not an edit.
     expect(db.prepare('SELECT updated_at FROM gaps ORDER BY date').all()).toEqual([
@@ -306,14 +306,14 @@ describe('the gap migration: a duration that used to be clock minutes', () => {
 
   it('re-pairs the halves the split already made on a file it has already run on', () => {
     // The shop's own database, which ran the split on 2026-08-19 before `unit_id` existed: the
-    // marker is there, so the split must NOT run again, and the two halves of each Feria gap have
+    // marker is there, so the split must NOT run again, and the two halves of each Fair gap have
     // nothing left linking them but their date, their reason and the second they were written in.
     const dbPath = legacyFile(
       'gaps-already-split',
       `
-        ('feria-am', '2026-09-01', '08:00', 6, 'Feria', '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
-        ('feria-pm', '2026-09-01', '15:30', 4, 'Feria', '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
-        ('otro',     '2026-09-01', '19:30', 1, 'Feria', '2026-08-02 11:00:00', '2026-08-02 11:00:00')`,
+        ('feria-am', '2026-09-01', '08:00', 6, 'Fair', '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+        ('feria-pm', '2026-09-01', '15:30', 4, 'Fair', '2026-08-01 09:00:00', '2026-08-01 09:00:00'),
+        ('otro',     '2026-09-01', '19:30', 1, 'Fair', '2026-08-02 11:00:00', '2026-08-02 11:00:00')`,
       `
       CREATE TABLE data_migrations (
         name TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -332,9 +332,9 @@ describe('the gap migration: a duration that used to be clock minutes', () => {
     expect(units[2].unit_id).toBe('otro');
     // The split did not run again: 6 h and 4 h, not re-cut, and the rows still 10 h between them.
     expect(gapLines(db)).toEqual([
-      '2026-09-01 08:00 +6 Feria',
-      '2026-09-01 15:30 +4 Feria',
-      '2026-09-01 19:30 +1 Feria',
+      '2026-09-01 08:00 +6 Fair',
+      '2026-09-01 15:30 +4 Fair',
+      '2026-09-01 19:30 +1 Fair',
     ]);
     db.close();
   });
@@ -347,11 +347,11 @@ describe('the gap migration: a duration that used to be clock minutes', () => {
     // Nothing to migrate on a brand-new file; both migrations are still recorded, so neither runs
     // again against a shift the owner may have changed in the meantime.
     expect(first.prepare('SELECT COUNT(*) AS n FROM data_migrations').get()).toEqual({ n: 2 });
-    first.exec("INSERT INTO gaps (id, date, start_time, duration, reason) VALUES ('g1', '2026-08-24', '09:00', 1, 'Gestiones')");
+    first.exec("INSERT INTO gaps (id, date, start_time, duration, reason) VALUES ('g1', '2026-08-24', '09:00', 1, 'Errands')");
     first.close();
 
     const again = openDatabase(dbPath);
-    expect(gapLines(again)).toEqual(['2026-08-24 09:00 +1 Gestiones']);
+    expect(gapLines(again)).toEqual(['2026-08-24 09:00 +1 Errands']);
     again.close();
   });
 });
@@ -360,7 +360,7 @@ describe('openDatabase', () => {
   it('hands out an isolated, already-migrated database for tests', () => {
     const a = openDatabase(':memory:');
     const b = openDatabase(':memory:');
-    a.prepare("INSERT INTO projects (id, name, color) VALUES ('p1', 'Escalera', '#1D9E75')").run();
+    a.prepare("INSERT INTO projects (id, name, color) VALUES ('p1', 'Staircase', '#1D9E75')").run();
 
     expect(a.prepare('SELECT COUNT(*) AS n FROM projects').get()).toEqual({ n: 1 });
     expect(b.prepare('SELECT COUNT(*) AS n FROM projects').get()).toEqual({ n: 0 });

@@ -25,7 +25,7 @@ function block(overrides: Partial<CloseDayBlock> = {}): CloseDayBlock {
   return {
     id: 'b1',
     projectId: 'p1',
-    name: 'Puerta',
+    name: 'Door',
     startMinutes: 8 * 60,
     durationMinutes: 120,
     locked: false,
@@ -51,7 +51,7 @@ describe('planCloseDay', () => {
     expect(plan?.startMinutes).toBe(10 * 60);
     expect(plan?.endMinutes).toBe(19 * 60 + 30);
     // NET working minutes, not wall clock: 4 h of morning left plus the whole 4 h afternoon. The
-    // comida is not closed because nothing was open in it.
+    // lunch break is not closed because nothing was open in it.
     expect(plan?.durationMinutes).toBe(480);
     expect(plan?.workingMinutes).toBe(480);
     // And the gap it proposes is the two rows a gap of those hours is stored as.
@@ -73,7 +73,7 @@ describe('planCloseDay', () => {
     const plan = planCloseDay(day(), 14 * 60 + 30);
     expect(plan?.workingMinutes).toBe(240);
     expect(plan?.durationMinutes).toBe(240);
-    // One row, and it starts where the shop can work again — never inside the comida.
+    // One row, and it starts where the shop can work again — never inside the lunch break.
     expect(plan?.rows).toEqual([{ startMinutes: 15 * 60 + 30, durationMinutes: 240 }]);
   });
 
@@ -121,15 +121,15 @@ describe('planCloseDay', () => {
     const plan = planCloseDay(
       day({
         blocks: [
-          block({ id: 'a', projectId: 'p2', name: 'Barandilla', startMinutes: 12 * 60, durationMinutes: 120 }),
-          block({ id: 'b', projectId: 'p1', name: 'Puerta', startMinutes: 15 * 60 + 30, durationMinutes: 120 }),
+          block({ id: 'a', projectId: 'p2', name: 'Railing', startMinutes: 12 * 60, durationMinutes: 120 }),
+          block({ id: 'b', projectId: 'p1', name: 'Door', startMinutes: 15 * 60 + 30, durationMinutes: 120 }),
         ],
       }),
       13 * 60,
     );
     expect(plan?.displaced).toEqual([
-      { projectId: 'p2', name: 'Barandilla', minutes: 60 },
-      { projectId: 'p1', name: 'Puerta', minutes: 120 },
+      { projectId: 'p2', name: 'Railing', minutes: 60 },
+      { projectId: 'p1', name: 'Door', minutes: 120 },
     ]);
   });
 
@@ -143,7 +143,7 @@ describe('planCloseDay', () => {
       }),
       13 * 60,
     );
-    expect(plan?.displaced).toEqual([{ projectId: 'p1', name: 'Puerta', minutes: 180 }]);
+    expect(plan?.displaced).toEqual([{ projectId: 'p1', name: 'Door', minutes: 180 }]);
   });
 
   it('ignores work that ends exactly at the moment the day closes', () => {
@@ -165,7 +165,7 @@ describe('planCloseDay', () => {
       {
         blockId: 'b1',
         projectId: 'p1',
-        name: 'Puerta',
+        name: 'Door',
         startMinutes: 16 * 60,
         durationMinutes: 120,
       },

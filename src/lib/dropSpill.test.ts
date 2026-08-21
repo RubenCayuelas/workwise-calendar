@@ -29,7 +29,7 @@ function day(date: string, overrides: Partial<SpillDay> = {}): SpillDay {
 }
 
 describe('freeStretchesFrom — one stretch per period, never across the break', () => {
-  it('cuts an empty day at the comida', () => {
+  it('cuts an empty day at the lunch break', () => {
     expect(freeStretchesFrom(PERIODS, [], 0)).toEqual([
       { startMinutes: 8 * 60, endMinutes: 14 * 60 },
       { startMinutes: 15 * 60 + 30, endMinutes: 19 * 60 + 30 },
