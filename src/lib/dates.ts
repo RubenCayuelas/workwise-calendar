@@ -90,6 +90,27 @@ export function instantToLocalDate(instant: Date, timeZone: string = SHOP_TIME_Z
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
+/**
+ * An instant as `YYYY-MM-DD-HHmm` in `timeZone` — a filename that sorts chronologically. Here rather
+ * than at the caller so the shop's timezone is still read in exactly one module.
+ */
+export function instantToLocalStamp(instant: Date, timeZone: string = SHOP_TIME_ZONE): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(instant);
+
+  const get = (type: Intl.DateTimeFormatPartTypes): string => {
+    const found = parts.find((part) => part.type === type);
+    if (!found) throw new Error(`Missing "${type}" while formatting a time`);
+    return found.value;
+  };
+
+  return `${instantToLocalDate(instant, timeZone)}-${get('hour')}${get('minute')}`;
+}
+
 // ---------------------------------------------------------------------------
 // Day arithmetic
 // ---------------------------------------------------------------------------

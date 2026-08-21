@@ -318,7 +318,24 @@
     "gapColorHint": "Every gap on the calendar is painted this colour.",
     "languageSection": "Language",
     "language": "Interface language",
-    "languageHint": "It can be changed at any time and is remembered on this machine."
+    "languageHint": "It can be changed at any time and is remembered on this machine.",
+    "backupsSection": "Backups",
+    "backupsHint": "Automatic copies are kept beside the database, in {{directory}}.",
+    "backupsEnabled": "Automatic backup",
+    "backupsEnabledHint": "Checked when the app opens: if the newest copy is older than the interval, another is taken. Nothing runs while the app is closed.",
+    "backupEveryDays": "Every how many days",
+    "backupEveryDaysHint": "Between {{min}} and {{max}} days.",
+    "backupsKept": "Copies to keep",
+    "backupsKeptHint": "Taking a new copy deletes the oldest until this many remain. It only ever deletes automatic copies: one you saved yourself is left alone.",
+    "backupsList": "Automatic copies",
+    "backupsListEmpty": "None yet. The first is taken next time the app opens.",
+    "backupsSave": "Save a copy…",
+    "backupsLoad": "Load a copy from my PC…",
+    "backupsRestore": "Restore",
+    "backupsRestoreTitle": "Restore this copy?",
+    "backupsRestoreBody": "The calendar as it is now is replaced by the copy from {{date}} at {{time}}. A copy of the current one is taken first, so this can be undone.",
+    "backupsRestoreFileBody": "The calendar as it is now is replaced by the one in “{{file}}”. A copy of the current one is taken first, so this can be undone.",
+    "backupsRestoreConfirm": "Restore"
   },
   "colors": {
     "1": "Blue",
@@ -357,7 +374,9 @@
     "gapMovedTo": "The absence is saved on {{day}} at {{time}}: nothing happens during the lunch break, so it starts at the first minute that can hold work.",
     "gapResized": "The absence is {{hours}} h long now. Whatever was in those hours is pushed aside; to change its day or its reason, click the gap.",
     "deletedJobPast_one": "The job was deleted. The hour already worked stays on the calendar as a gap, so the day keeps its shape.",
-    "deletedJobPast_other": "The job was deleted. The {{count}} parts already worked stay on the calendar as gaps, so those days keep their shape."
+    "deletedJobPast_other": "The job was deleted. The {{count}} parts already worked stay on the calendar as gaps, so those days keep their shape.",
+    "backupSaved": "Copy saved.",
+    "backupRestored": "Calendar restored. The previous one was saved as “{{name}}” in the backups folder."
   },
   "undo": {
     "undo": "Undo",
@@ -453,6 +472,9 @@
     "loadFailed": "The workshop data could not be loaded.",
     "networkFailed": "No connection to the server. Nothing was saved.",
     "notFound": "That no longer exists. Reload the calendar.",
-    "title": "Could not be completed"
+    "title": "Could not be completed",
+    "backupNotFound": "That copy is no longer in the folder. Nothing was changed.",
+    "backupNotADatabase": "That file is not a database. Choose the .db of a Workwise copy. Nothing was changed.",
+    "backupNotWorkwise": "That file is a database, but not a Workwise one. Nothing was changed."
   }
 }

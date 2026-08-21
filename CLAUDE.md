@@ -122,6 +122,8 @@ The workshop operates with a **split shift (jornada partida)** by default:
   from today. If the hours do not fit within the horizon the whole operation rolls back in one
   transaction and shows a single message.
 - `gapColor`: Colour hex for all user-defined gaps.
+- **Backups**: `backupsEnabled` (default ON), `backupEveryDays` (default 7, range 1-90, whole days),
+  `backupsKept` (default 3, range 1-30). See *Backups* below.
 
 All values are user-editable in Settings and apply Monday-Friday (extendable to weekends if needed).
 
@@ -1612,6 +1614,45 @@ gesture.
   transaction as the reflow. They did not once: the overrides survived the failed pass and **every
   later write answered the same 409**, including the deletion of the job that would not fit.
 
+### Backups
+> **A copy of the database is a file SQLite writes, never a file copy. The automatic ones live beside
+> the database and rotate; a copy the owner saves goes wherever they point it and is never touched.**
+
+- **`VACUUM INTO`, not `copyFile`.** WAL holds recent pages outside the main file — measured on the
+  shop's own calendar, a 688 KB sidecar against 73 KB of database — so a file copy loses most of the
+  recent work, and on a young database it loses the SCHEMA too. One consistent, compacted file with
+  no sidecars to carry around.
+- **`backups/` sits beside the database**, `path.dirname(getDbPath())`, so it is `data/backups/` today
+  and `%APPDATA%\Workwise\backups\` once packaged. NOT the program folder: on Windows that needs
+  elevation and an update replaces it.
+- **`workwise-YYYY-MM-DD-HHmm.db`**, local time. The name sorts chronologically, which is what the
+  rotation and "which is newest" both read — never a modification time, which any copy would falsify.
+- **The automatic copy is ELAPSED TIME, not a schedule.** Nothing runs while the app is closed, so the
+  check happens when it is opened: newer than `backupEveryDays` means nothing, older means one copy.
+  Three weeks away owes ONE. **"When was the last one" is derived from the FOLDER, never stored** —
+  in the database it would be restored along with an old copy, and the app would believe it had just
+  run one.
+- **A copy is taken even when nothing changed.** The owner was shown the consequence — the rotation
+  can retire the last copy from before a mistake — and chose it (2026-08-21).
+- **The rotation only ever deletes names it could have written itself.** A copy saved by hand into the
+  same folder survives a limit of three, and so does `workwise-before-restore.db`. Lowering the limit
+  deletes nothing until the next copy is taken: saving a preference must not delete data.
+- **Restoring is ONE implementation** for both ways in, a name from the folder and a file from
+  anywhere, so neither can be the less tested one. In order: recognise the file (SQLite header, then
+  the tables), **migrate it** so a copy from an older version of the app is what a backup is for,
+  keep the calendar being replaced as `workwise-before-restore.db`, then close, swap, delete the
+  orphaned sidecars and reopen. Nothing is destroyed before the last step, and reopening clears
+  `history` — an undo may not reach back into a calendar that no longer exists.
+- **A name is `basename`d and must match the automatic pattern**, so the folder cannot be used to read
+  an arbitrary file off the disk.
+- **The buttons.** *Guardar copia* opens the browser's native save dialog (`showSaveFilePicker`,
+  falling back to a download where it does not exist) — the server streams bytes and never learns
+  where they went. The list of automatic copies is the primary way to restore; *Cargar copia desde mi
+  PC* is a secondary button for a file the owner saved themselves.
+- **Silent when it works, loud when it does not.** The automatic copy says nothing on success or when
+  it was not due; a failure raises the error banner, because a backup that quietly never happens is
+  worse than none.
+
 ### Settings
 Work periods, auto-fill capacity, visual margins, planning horizon, gap colour, language.
 - **A change that narrows the day asks first**, in ONE confirmation: it names the blocks the narrower
@@ -1764,10 +1805,6 @@ DECISIONS.md § *Reproductions behind the Open Decisions*.
 
 ### Deferred by direction
 
-- **Backups**: an Export button in Settings. The DB is gitignored, and the undo line is no
-  substitute: it holds 50 steps, it lasts one run of the app, and a settings save empties it. **It
-  stops being optional the day the app is installed on the shop PC** — that one file IS their
-  calendar.
 - **The Windows executable**, above. Wanted, planned, and behind a few features the owner wants first.
   The milestone to build before anything cosmetic is the one that can only be tested on Windows:
   `ELECTRON_RUN_AS_NODE` plus the standalone server plus an Electron-ABI `better-sqlite3`.
@@ -1780,7 +1817,7 @@ DECISIONS.md § *Reproductions behind the Open Decisions*.
 
 ## Current Project Status
 
-**v0.19.** `tsc --noEmit` clean, `vitest run` **1088 passing across 39 files**, `eslint .` clean,
+**v0.19.** `tsc --noEmit` clean, `vitest run` **1127 passing across 41 files**, `eslint .` clean,
 `next build` clean.
 
 **UNDO AND REDO, MANY STEPS DEEP** (2026-08-21). `Ctrl+Z` and `Ctrl+Y` walk the calendar back and

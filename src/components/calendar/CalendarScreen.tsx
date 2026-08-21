@@ -13,17 +13,19 @@ import { IconClockStop } from '@tabler/icons-react';
 import { Button, ConfirmDialog, InlineBanner, useToast } from '../ui';
 import { useFormat } from '../../lib/useFormat';
 import {
+  apiErrorMessage,
   deleteBlock as apiDeleteBlock,
   getProject,
+  isAbortError,
   isApiError,
   moveBlock as apiMoveBlock,
   moveGap as apiMoveGap,
   redoChange as apiRedoChange,
   resizeBlock as apiResizeBlock,
   resizeGap as apiResizeGap,
+  runAutomaticBackup,
   setBlockLock as apiSetBlockLock,
   splitBlock as apiSplitBlock,
-  undoChange as apiUndoChange,
   type AbsenceKind,
   type BlockMutation,
   type FreedHoursChoice,
@@ -33,6 +35,7 @@ import {
   type WeekBlock,
   type WeekDay,
   type WeekView,
+  undoChange as apiUndoChange,
 } from '../../lib/api-client';
 import type { DayShape, GapUnit } from '../../types';
 import type { AbsenceOrigin } from '../jobs/absence';
@@ -840,6 +843,20 @@ export function CalendarScreen({
   }, [canRedo, canUndo, gestureInAir, historySaving, nothingOpen, runHistory, t, toast]);
 
   // Escape abandons a pending placement.
+  const [backupFailure, setBackupFailure] = useState<unknown>(undefined);
+
+  // The automatic copy, asked for once per visit. Elapsed time and not a schedule: nothing runs while
+  // the app is closed, so opening it is the only moment there is. Silent when it takes one or decides
+  // it is not due — a safety net announcing itself every week is noise — but a FAILURE is said out
+  // loud, because a backup that quietly never happens is worse than having none.
+  useEffect(() => {
+    const controller = new AbortController();
+    runAutomaticBackup({ signal: controller.signal }).catch((error: unknown) => {
+      if (!isAbortError(error)) setBackupFailure(error);
+    });
+    return () => controller.abort();
+  }, []);
+
   useEffect(() => {
     if (placing === null) return;
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -921,6 +938,17 @@ export function CalendarScreen({
           {week.actionError === null ? null : (
             <InlineBanner tone="error" title={t('errors.title')} onDismiss={week.clearActionError}>
               {week.actionError}
+            </InlineBanner>
+          )}
+
+          {backupFailure === undefined ? null : (
+            <InlineBanner
+              tone="error"
+              title={t('errors.title')}
+              onDismiss={() => setBackupFailure(undefined)}
+            >
+              {/* Formatted here and not in the effect, so it also follows a language change. */}
+              {apiErrorMessage(backupFailure, t, format.language)}
             </InlineBanner>
           )}
 

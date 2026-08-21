@@ -147,3 +147,29 @@
   font-size: var(--ww-text-sm);
   color: var(--ww-text-muted);
 }
+
+.backupList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-1);
+  margin-top: var(--ww-space-2);
+}
+
+.backupRow {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-3);
+  padding: var(--ww-space-2) 0;
+  border-top: var(--ww-hairline) solid var(--ww-border);
+}
+
+.backupRow:first-child {
+  border-top: none;
+}
+
+.backupActions {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-3);
+  margin-top: var(--ww-space-2);
+}

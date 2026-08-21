@@ -3000,6 +3000,50 @@ editing it.
 
 ---
 
+## Backups
+
+**Built 2026-08-21**, and the first of the features the owner wanted before the Windows executable —
+which is the round that made it urgent: on their PC that one file IS the workshop's calendar.
+
+**The fact that shaped it.** A backup cannot be a copy of `calendar.db`. WAL keeps recent pages
+outside the main file, and on the shop's own calendar the sidecar was **688 KB against 73 KB** of
+database. `VACUUM INTO` asks SQLite for one consistent, compacted file instead. Writing the test for
+it showed the stronger version: on a database young enough, the WAL still holds the SCHEMA, so a file
+copy has no `projects` table at all.
+
+**Their decisions**, asked before building: the native "Save as" dialog rather than a download, so a
+copy goes where they point it; **3 copies kept** and **every 7 days**, adjustable 1-30 and 1-90;
+**on by default**, because a backup nobody enables is not one; the list of copies inside Settings with
+a Restore on each row as the primary way back, and a secondary button for a file they saved
+themselves; and a copy taken **even when nothing changed** — they were shown that the rotation can
+then retire the last copy from before a mistake, and chose it anyway.
+
+**One correction to the plan, and it was theirs to accept:** the copies do not go in the folder the
+app is installed in. On Windows that needs elevation and an update replaces it. They live beside the
+database, which is `data/backups/` today and `%APPDATA%\Workwise\backups\` once packaged — one
+expression, `path.dirname(getDbPath())`.
+
+**Two things that are design and not detail.** "When was the last copy" is derived from the FOLDER and
+never stored: in the database it would be restored along with an old copy and the app would believe it
+had just run one. And the rotation only deletes names it could have written itself, so a copy saved by
+hand into the same folder survives a limit of three.
+
+**Restoring is one implementation for both ways in**, so neither is the less tested one. It recognises
+the file, migrates it, keeps the replaced calendar as `workwise-before-restore.db`, and only then
+closes, swaps and reopens — which also clears `history`, because an undo must not reach into a
+calendar that no longer exists. A refused restore has touched nothing.
+
+Verified over HTTP on a scratch database as well as in the suite: the first ask creates a copy and the
+second answers `not-due`; the export streams a valid database; a restore by name drops the newer job
+and leaves the before-restore copy; a photo is 400 `backup-not-a-database`, `../calendar.db` is 404,
+and the calendar is unchanged after both. The Settings section, its three controls, the folder path
+and the list were read out of a real browser's DOM.
+
+`tsc --noEmit` clean, `vitest run` **1127 passing across 41 files** (+39), `eslint .` clean,
+`next build` clean, `data/calendar.db` untouched.
+
+---
+
 ## Release history
 
 Each entry records what was built, what was measured, and what the measuring found. They are left as

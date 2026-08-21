@@ -111,6 +111,17 @@ export interface Settings {
   planningHorizonWeeks: number;
   /** One colour for every user-defined gap. */
   gapColor: string;
+  /** Whether the app takes a copy of the database by itself. On by default. */
+  backupsEnabled: boolean;
+  /**
+   * How stale the newest copy may get before another is taken. Whole days.
+   *
+   * It is elapsed time, not a schedule: nothing runs while the app is closed, so the check happens
+   * when the app is next used. Three weeks without opening it means one copy, not three.
+   */
+  backupEveryDays: number;
+  /** How many AUTOMATIC copies to keep. The rotation never touches any other file. */
+  backupsKept: number;
 }
 
 /** A contiguous stretch of working time, in minutes from midnight. */

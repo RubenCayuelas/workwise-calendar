@@ -39,6 +39,7 @@ import type { WeekView } from './operations/views';
 import type { HistoryMutation } from './operations/history';
 import type { CreationOutcome, CreationPreview } from './operations/projects';
 import type { AbsenceKind, AbsenceMutation, AbsencePreview } from './operations/absences';
+import type { AutomaticBackupResult, BackupList, RestoreResult } from './operations/backups';
 
 // ---------------------------------------------------------------------------
 // Response shapes
@@ -786,4 +787,44 @@ function isIsoDate(value: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// ---------------------------------------------------------------------------
+// Backups
+// ---------------------------------------------------------------------------
+
+export function listBackups(options?: RequestOptions): Promise<BackupList> {
+  return get<BackupList>('/backups', options);
+}
+
+/** Called once when the app opens. Answers what it did, so the UI can stay quiet when nothing was due. */
+export function runAutomaticBackup(options?: RequestOptions): Promise<AutomaticBackupResult> {
+  return send<AutomaticBackupResult>('POST', '/backups/auto', undefined, options);
+}
+
+export function restoreBackupByName(name: string, options?: RequestOptions): Promise<RestoreResult> {
+  return send<RestoreResult>('POST', '/backups/restore', { name }, options);
+}
+
+/**
+ * The file itself as the whole body: there is one field, so multipart would only add a parser. The
+ * content type has to be set explicitly because `request` assumes JSON whenever there is a body.
+ */
+export function restoreBackupFile(file: File, options?: RequestOptions): Promise<RestoreResult> {
+  return request<RestoreResult>('/backups/restore', {
+    method: 'POST',
+    signal: options?.signal,
+    body: file,
+    headers: { 'Content-Type': 'application/octet-stream' },
+  });
+}
+
+/** The database as bytes. Where it is written is the browser's business, not the server's. */
+export async function fetchBackupBytes(options?: RequestOptions): Promise<Blob> {
+  const response = await fetch(`${API_BASE}/backups/export`, {
+    cache: 'no-store',
+    signal: options?.signal,
+  });
+  if (!response.ok) throw await readError(response);
+  return response.blob();
 }

@@ -318,7 +318,24 @@
     "gapColorHint": "Todos los huecos del calendario se pintan de este color.",
     "languageSection": "Idioma",
     "language": "Idioma de la interfaz",
-    "languageHint": "Se puede cambiar en cualquier momento y se recuerda en este equipo."
+    "languageHint": "Se puede cambiar en cualquier momento y se recuerda en este equipo.",
+    "backupsSection": "Copias de seguridad",
+    "backupsHint": "Las copias automáticas se guardan junto a la base de datos, en {{directory}}.",
+    "backupsEnabled": "Copia automática",
+    "backupsEnabledHint": "Se comprueba al abrir la app: si la copia más reciente tiene más días de los indicados, se hace otra. Con la app cerrada no se hace nada.",
+    "backupEveryDays": "Cada cuántos días",
+    "backupEveryDaysHint": "Entre {{min}} y {{max}} días.",
+    "backupsKept": "Copias que se guardan",
+    "backupsKeptHint": "Al hacer una copia nueva se borran las más antiguas hasta dejar este número. Solo borra copias automáticas: una que guardes tú no se toca.",
+    "backupsList": "Copias automáticas",
+    "backupsListEmpty": "Todavía no hay ninguna. La primera se hará al abrir la app.",
+    "backupsSave": "Guardar copia…",
+    "backupsLoad": "Cargar copia desde mi PC…",
+    "backupsRestore": "Restaurar",
+    "backupsRestoreTitle": "¿Restaurar esta copia?",
+    "backupsRestoreBody": "El calendario de ahora se reemplaza por el de la copia del {{date}} a las {{time}}. Antes se guarda una copia del actual, así que se puede volver atrás.",
+    "backupsRestoreFileBody": "El calendario de ahora se reemplaza por el del archivo «{{file}}». Antes se guarda una copia del actual, así que se puede volver atrás.",
+    "backupsRestoreConfirm": "Restaurar"
   },
   "colors": {
     "1": "Azul",
@@ -357,7 +374,9 @@
     "gapMovedTo": "La ausencia se guarda el {{day}} a las {{time}}: en la comida no se trabaja, así que empieza en el primer minuto que sí.",
     "gapResized": "La ausencia dura ahora {{hours}} h. Lo que estuviera en esas horas se aparta; si quieres cambiar el día o el motivo, pulsa el hueco.",
     "deletedJobPast_one": "Se ha eliminado el trabajo. La hora que ya estaba trabajada se queda en el calendario como hueco, para que el día no cambie de forma.",
-    "deletedJobPast_other": "Se ha eliminado el trabajo. Las {{count}} partes que ya estaban trabajadas se quedan en el calendario como huecos, para que esos días no cambien de forma."
+    "deletedJobPast_other": "Se ha eliminado el trabajo. Las {{count}} partes que ya estaban trabajadas se quedan en el calendario como huecos, para que esos días no cambien de forma.",
+    "backupSaved": "Copia guardada.",
+    "backupRestored": "Calendario restaurado. El anterior se ha guardado como «{{name}}» en la carpeta de copias."
   },
   "undo": {
     "undo": "Deshacer",
@@ -453,6 +472,9 @@
     "loadFailed": "No se han podido cargar los datos del taller.",
     "networkFailed": "No hay conexión con el servidor. No se ha guardado nada.",
     "notFound": "Eso ya no existe. Recarga el calendario.",
-    "title": "No se ha podido completar"
+    "title": "No se ha podido completar",
+    "backupNotFound": "Esa copia ya no está en la carpeta. No se ha cambiado nada.",
+    "backupNotADatabase": "Ese archivo no es una base de datos. Elige el .db de una copia de Workwise. No se ha cambiado nada.",
+    "backupNotWorkwise": "Ese archivo es una base de datos, pero no de Workwise. No se ha cambiado nada."
   }
 }
