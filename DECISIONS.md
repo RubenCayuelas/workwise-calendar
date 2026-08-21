@@ -2685,6 +2685,125 @@ now correctly ignored for being outside the git repository.
 
 ---
 
+## Painting Makes a Trabajo As Well As a Hueco
+
+**Decided with the owner over 2026-08-20/21.** Their request, in their words: *«al hacer click y
+arrastrar por el calendario puedes crear un gap, quiero hacer lo mismo para crear un trabajo… se
+deberá de permitir crear un trabajo o un gap y cambiar ahí al menú de creación de un gap o el de una
+tarea con candado»*. Painting across MORE THAN ONE DAY was named as wanted and explicitly deferred:
+*«ejemplo arrastrar de lunes 12pm a martes 7pm pero por ahora queda fuera de alcance»*.
+
+### The rule this deletes, quoted before it goes
+
+> **GAPS ONLY.** There is therefore no gap-versus-closed-day threshold to compute — a question that
+> was asked and then dissolved by this answer. Painting the whole column gives a **12 h gap in two
+> rows**, which LOOKS like a closed day and is not one. Do not add a threshold.
+
+**It was never an owner decision.** It was the implementer's shortcut during the absences round
+(2026-08-19, § *Painting only ever makes gaps, which dissolved a question*), and its own argument is
+what this change is built on: *«adding a threshold would put a guess where the mode selector already
+asks the question out loud»*. So the half that forbade a THRESHOLD survives and is now stronger — with
+two meanings on one gesture, the kind is inferred from nothing at all, not the band's size, not its
+day, not its length. What died is only the premise that there was one meaning to infer.
+
+**The safety argument was a package deal and it still holds.** *«And it writes NOTHING — the release
+opens the form … the reason this gesture is safe to put on empty space with no modifier key.»* Both
+answers still write nothing; each opens a form. A release-time chooser is a second answer to one
+gesture, which § *Block Gestures* warns about, so the recorded trap is closed three ways: the
+dismissing `pointerdown` is taken in the CAPTURE phase and stopped (otherwise it lands on the column
+underneath and starts a second band), `paintStep` ignores a press while the question is open, and both
+gestures' `enabled` now also require that no painted form is open — without that, answering *Trabajo*,
+typing a name and 8 h, then painting on Thursday replaced the typed form with no confirmation.
+
+### The owner's answers, and the two the implementer had to settle
+
+Asked whether the painted hours were the job's TOTAL or only a pinned head, they answered by analogy:
+*«Como en un gap hasta ahora tu marcas y eso rellena el tiempo del trabajo, en este caso 3h pero luego
+digo que son 10h en el formulario pues se crean 10h iniciando donde he marcado»* — the band sets the
+START, the field sets the LENGTH. And on how it should behave otherwise: *«el comportamiento no será
+diferente, solo será una forma interactiva y visual de crear trabajos simples y en el corto plazo,
+normalmente de corta duración»*. That sentence is the whole design brief: `painted` adds a minute to
+`planCreation` and changes nothing else. Friday and the weekend still ask their confirmation, the past
+and closed days still take no paint, and painting never adds hours to an existing job — *«para ello
+está el arrastrar en el último bloque de un trabajo»*.
+
+**Where "the same as a start date" could not be taken literally**, and it had to be put to them: a
+start date is a FLOOR with no time in it, so on a day the queue already reaches, dated creation gives
+mode `queue` — the job goes wherever the queue lands, unlocked, and the painted minute is discarded.
+Shown that, they chose *«siempre donde se pintó»*. **So the head is padlocked on every day**, which is
+the first pin inside Monday to Thursday and a deliberate exception to *«padlock everything the user
+drags»*, rejected on 2026-08-12 for freezing the working week. That rejection is about DRAGS and still
+stands: `dropLandsLiterally` is untouched and a Mon-Thu drop is still a rank. This pins only the
+minutes the owner drew.
+
+**On what the TAIL carries, they handed it back**: *«no sé, como funcione hasta ahora»*. So `autoLock`
+and `dayLock` are unchanged and the tail is locked exactly where the queue would never have reached
+that day anyway — the smallest possible departure. The head could not follow that rule, because on a
+Mon-Thu hole it adds no lock at all and the band would have lied.
+
+### The defect that decided the shape of the engine change
+
+`engineRows` anchored the continuation on `decision.startDate` and `rankedRow` writes
+`startMinutes: 0` — a rank *before everything on that day*. Paint Thursday 17:00, type 10 h, and the
+6.5 h that did not fit were laid out from **Thursday 08:00, in front of the band, padlocked**, on hours
+nobody aimed at. The fix is one parameter (`anchorDate`, with the synthetic `today` moved with it) and
+it is asserted three ways, including *no row on the painted day before the band*. Sabotaging the
+parameter fails three tests, which is how it was proved they were not passing vacuously.
+
+**Two more that the shape rules out rather than guards against.** A locked head must be CUT before
+anything sees it: `compose` re-derives nothing on a locked row and `assertRowWithinDayEnd` reads
+`clockEndOf`, so an uncut `13:00 +6 h` would be stored straddling the comida — the one shape no row in
+this app may have. And `paintedSegments` uses `takeableFrom`, so the head/tail split can never strand a
+sub-quarter remainder.
+
+### Why the refusals are a GAP's and not a DROP's
+
+The owner: *«Se puede crear encima y empuja a lo que había si no tiene candado, eso sí te muestra una
+advertencia, luego si tiene candado te da error»*. That is exactly `findGapConflicts` plus the ordinary
+reflow, so `resolveManualPlacement` is deliberately NOT used: its step 0 slides a fixed row forward off
+an obstacle, which contradicts *exactly the minute you painted*, and on the fixed side it CUTS an
+unlocked row of another job, which would make a creation reorder someone else's work. Asked of every
+ROW rather than of `start + duration`, because a band across the comida spans a stretch where nothing
+can be and the test would miss whatever its real second half lands on.
+
+### The band that outlives the pointer
+
+Asked what the held band should draw, the owner set its limit themselves: *«es una previsualización así
+que debe de ser agnóstica a lo que haya debajo… se pinta por encima y ya sin complicaciones, no afecta
+al estado de nada ni se debe guardar nada… no hace falta enseñar dónde irán los bloques que empuje,
+solo lo que ocupará»*. So `planDraftRows` reads no block and no gap and makes no request. The one half
+that IS a promise — the painted day — comes from the same `paintedSegments` the save calls, and a
+continuation day is drawn fainter because it is only a shape. Continuation days are measured over the
+PERIODS: over the manual windows they would start an hour early, in a margin auto-fill never enters.
+
+**Lifting the gesture into a reducer was what made any of this testable.** The suite runs in `node`
+with no jsdom, so the threshold, the refuse-once rule and the click-versus-paint fork had no test at
+all; `paintSession.ts` is a pure `paintStep(state, event)` and `unlisten` is separated from ending
+precisely so the release can take the listeners off and LEAVE THE BAND. Three latent defects fell out
+of writing it: `pointercancel` shared the `pointerup` handler and therefore COMMITTED a band the
+pointer had abandoned; there was no unmount cleanup, leaking four window listeners where
+`useBlockDrag` already guarded; and `PAINT_THRESHOLD` was a second declaration of 4, now one
+`DRAG_THRESHOLD_PX` both hooks import rather than a test asserting they agree.
+
+### Driven over HTTP on a scratch database
+
+`13:00 +3 h` stored `13:00-14:00` + `15:30-17:30`, both padlocked. `17:00 +6 h` stored 3.5 h into the
+bottom margin then 2.5 h on the **Monday**, skipping the buffer, 6 h conserved, nothing before 17:00.
+`14:30` started at `15:30`; `07:00` stayed in the top margin; a 15-minute band stayed 15. Over a
+padlocked row and over a gap both refused by name and left **no project row behind**. Over ordinary
+work nothing was refused: the band took `10:30-11:30` padlocked and the other job was cut around it
+with its 6 h intact. `startMinutes` without `startDate` answered 400 on `startDate`; with `force`, 400
+on `force`.
+
+### Left undone, deliberately
+
+Painting across more than one DAY (the owner's own deferral). The payload is a point —
+`startDate` + `startMinutes` — which extends to a span by adding `endDate`/`endMinutes` beside it
+without moving anything else. Nothing in `composition.ts`, `scheduler.ts`'s placement machinery or the
+drop resolver was touched, and that is a constraint on the change rather than a happy accident.
+
+---
+
 ## A Closed Day Chosen As A Start Date Is Honoured
 
 **Decided by the owner, 2026-08-20**, while scoping the paint-creates-a-job round. They were asked
