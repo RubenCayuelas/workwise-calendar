@@ -2848,6 +2848,41 @@ after — `eslint .` clean, `next build` clean.
 
 ---
 
+## A Windows Application, Not a Local Server
+
+**Decided 2026-08-21, not built.** The shop PC runs Windows 10 and the owner wants a normal
+double-clickable application. The route is **Electron around the Next standalone server**: the app is
+not rewritten, `src/` and `app/` are not touched, and Electron supplies only a window and a runtime.
+
+**What made it a safe choice rather than a hope**, measured in a throwaway worktree before deciding:
+`output: 'standalone'` works under a Turbopack build; `better-sqlite3` travels inside the bundle with
+its native binary, because `serverExternalPackages` makes Next trace it; the bundle **runs the whole
+app, SQLite writes included**, at 68 MB against 784 MB of `node_modules`; and `better-sqlite3` 11.10.0
+publishes **40 prebuilt Windows binaries**, so nothing has to be compiled on the shop PC.
+
+**The one hard constraint: Electron 36 or lower.** Running the server with `ELECTRON_RUN_AS_NODE`
+means it uses Electron's Node, so `better-sqlite3` needs the **Electron** ABI, and the prebuilt Windows
+binaries stop at ABI 135. A newer Electron means Visual Studio on Windows, which is what this approach
+exists to avoid.
+
+**Two things it needs that cost nothing in code**: `WORKWISE_DB_PATH` already exists, so the database
+moves to `%APPDATA%` without a change; and `HOSTNAME=127.0.0.1`, because the standalone server binds
+`0.0.0.0` today and would otherwise be reachable from the whole shop network.
+
+**Rejected:** plain `next start` with a shortcut (leaves a console window and needs Node installed); a
+Windows service plus a browser shortcut (cheaper and genuinely usable, but still their browser); Tauri
+(rewrites the server in Rust); Node SEA (the native module sits beside the executable anyway, so it
+gives up the window for nothing).
+
+**The risk to retire first is the only one that cannot be tested from WSL**: that
+`ELECTRON_RUN_AS_NODE`, the standalone server and an Electron-ABI `better-sqlite3` agree on Windows.
+Build that before the installer or the icon, on a Windows machine or a `windows-latest` CI job.
+
+The full plan is in `documents/desktop-packaging.md`, which is gitignored — this section and
+CLAUDE.md § Architecture are the record that travels.
+
+---
+
 ## Release history
 
 Each entry records what was built, what was measured, and what the measuring found. They are left as

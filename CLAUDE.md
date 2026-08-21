@@ -17,6 +17,11 @@ Enable quick visual reorganization via drag & drop.
 
 ## Architecture
 - Web app, self-hosted locally (shop PC).
+- **It ships as a Windows application, not as a server the owner starts** (decided 2026-08-21, not
+  built). Electron around the Next standalone server: the app is not rewritten and `src/` and `app/`
+  are not touched. The plan, the measurements behind it and the one hard constraint — **Electron 36 or
+  lower**, because that is where `better-sqlite3`'s prebuilt Windows binaries stop — are in
+  `documents/desktop-packaging.md` (gitignored, local only).
 - Single user (just the shop owner for now).
 - **Desktop only, mouse driven.** No touch support and no narrow/mobile layout (decided 2026-08-11).
 - Stack: Next.js 16 + TypeScript + SQLite. Turbopack builds `dev` and `build`; React stays on 18.
@@ -1648,7 +1653,11 @@ DECISIONS.md § *Reproductions behind the Open Decisions*.
 
 ### Deferred by direction
 
-- **Backups**: an Export button in Settings. The DB is gitignored and there is no undo.
+- **Backups**: an Export button in Settings. The DB is gitignored and there is no undo. **It stops
+  being optional the day the app is installed on the shop PC** — that one file IS their calendar.
+- **The Windows executable**, above. Wanted, planned, and behind a few features the owner wants first.
+  The milestone to build before anything cosmetic is the one that can only be tested on Windows:
+  `ELECTRON_RUN_AS_NODE` plus the standalone server plus an Electron-ABI `better-sqlite3`.
 - **Whether a closed day belongs in the summary strip's sentence**, and whether a gap unit should be
   reachable from the job panel's list. Both left open by the owner, 2026-08-19.
 - **`day_overrides.capacity_hours` has no screen**, and that is a decision rather than a gap: a short
