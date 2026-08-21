@@ -1786,7 +1786,7 @@ dropped 15:29  ->  15:30-17:30 (120m)                          was: 15:29 +120m 
   only the straddle.
 - **Refusing a release inside the band** answers a plain gesture — "put it after lunch" — with an
   error about a minute. The owner's recorded reaction to exactly that shape of refusal is
-  *«Que se rechaza, de qué friki. Pasa al siguiente día. ¿Sabes cómo funciona un calendario?»*
+  that a drop past the end of a day should pass to the next one rather than be refused.
 - **The next working minute is the reading the app already had everywhere else.** A RESIZE released
   in the band has always been a dead zone by arithmetic — `durationTo` counts net working minutes, so
   14:00, 15:00 and 15:29 commit the same duration — and the axis draws the band as a 28 px seam
@@ -2554,134 +2554,46 @@ is why the essays were written in the first place: nothing said not to.
 
 ---
 
-## Next 16, and How It Was Proved Not to Change Anything
+## Next 16
 
-**Asked for by the owner, 2026-08-20**, after the security round had been prepared as a
-dependency-only patch: *«si es necesario cambia el nombre de la rama para que sea subir la versión,
-resolver las vulnerabilidades será lo secundario … usa ultrathink para no romper nada y actualizar de
-forma segura»*. So the version bump became the change, and the five Dependabot alerts fall out of it.
+**Upgraded 2026-08-20**, which closed five Dependabot advisories as a consequence: Next 16.3.1 depends
+on `postcss` 8.5.23 and `sharp` `^0.35.3`, so `package.json` needs no `overrides`.
 
-### The alternative, measured and then abandoned
+**React stays on 18.3.1.** Next 16 still declares it as a peer and the App Router runs React out of
+`next/dist/compiled/` regardless of what is installed, so the installed version reaches types and
+nothing else. React 19 is a separate major.
 
-The first attempt was the minimal one: stay on Next 15.5.23 and pin its two vulnerable transitive
-dependencies with npm `overrides`. It **worked** — `npm audit` reached 0, the emitted CSS was
-byte-identical, and the only difference in the whole build was one webpack module id per chunk. Two
-things from that attempt are worth keeping:
+**Turbopack builds both `dev` and `build`**, with `better-sqlite3` still external. Nine of Next 16's
+breaking changes do not apply to this app — the route handlers already await `params`, and there is no
+`middleware`, parallel route, `cookies()`, `revalidateTag`, `serverRuntimeConfig`, AMP or `next/image`.
 
-- **The SCOPED override form silently does nothing.** `"overrides": {"next": {"postcss": "…"}}` moves
-  `sharp` and leaves `node_modules/next/node_modules/postcss` at 8.4.31, with `npm audit` still
-  reporting it. The unscoped form deletes that nested copy. Measured by resolving both forms from the
-  same baseline lockfile with `npm install --package-lock-only`.
-- **`next build` is not deterministic on Next 15.** Building untouched `main` seven times produced two
-  different CSS chunk orderings — five times one, twice the other. Any "did my change alter the
-  build?" question on this repo needs that control first, or the flap reads as a regression.
+**Three things it did require**, all of them rules now, in CLAUDE.md:
 
-It was abandoned because it left `next` a major version behind for no gain once the owner asked for
-the upgrade. **Next 16 fixes all five alerts at the source**: it depends on `postcss` 8.5.23 and
-`sharp` `^0.35.3`, so `package.json` carries no `overrides` at all.
+- **`next lint` no longer exists** and `next build` no longer lints, so the gate is `eslint .` on a flat
+  config. `eslint-config-next` 16 brings `eslint-plugin-react-hooks` 7, whose two new rules fire 25
+  times on shapes this repo chose deliberately; both are off, and the refactor is an Open Decision.
+- **`agentRules: false`**, or `next dev` appends a self-rewriting block to CLAUDE.md on every start.
+- **`next-env.d.ts` is no longer tracked**, because Next 16 writes it differently for `dev`
+  (`.next/dev/types`) and `build` (`.next/types`), so tracking it left the tree dirty after every run.
+  `tsc` passes without the file and any run regenerates it.
 
-### What the upgrade actually required
+**`next build` is not deterministic, and it was not before either.** Building untouched `main` seven
+times on Next 15 produced two different CSS chunk orderings. Any future "did my change alter the
+build?" question needs that control run first, or the flap reads as a regression.
 
-Nine of Next 16's breaking changes do not touch this app, and that was checked rather than assumed:
-the four dynamic route handlers already type `params` as `Promise` and `await` it; there is no
-`middleware`, no parallel route, no `cookies()`/`headers()`/`draftMode()`, no `revalidateTag`, no
-`serverRuntimeConfig`, no AMP, no `next/image`, no `next/font`, and no `scroll-behavior` for the
-navigation change to stop overriding. Node 22.21 clears the new 20.9 floor; TypeScript 5.9.3 clears 5.1.
+**Nothing the app serves changed.** A 42-call replay of the whole HTTP surface returns the same 167
+lines byte for byte, the prerendered DOM is identical once bundler plumbing is masked, and the
+stylesheet differs only where Lightning CSS drops a redundant vendor prefix or a fallback whose modern
+form is present — `font-variant-numeric:tabular-nums` is there 12 times on both sides, and unprefixed
+`appearance:none` still hides the number-stepper spinners.
 
-**Two things did require a decision.**
+**The minimal alternative was measured and abandoned**: npm `overrides` on Next 15 reached `npm audit`
+0 with a byte-identical stylesheet, but left the framework a major behind. One thing from it is worth
+keeping — the SCOPED override form silently does nothing. `"overrides": {"next": {"postcss": "…"}}`
+leaves `node_modules/next/node_modules/postcss` where it was; only the unscoped form removes it.
 
-**`next lint` is gone**, and `next build` no longer lints, so the gate had to become the ESLint CLI:
-`eslint-config-next` 16 requires ESLint ≥ 9 and ships flat config. The official codemod
-(`next-lint-to-eslint-cli`) got the script and the config file right and left three problems behind —
-an unused `path`/`fileURLToPath`/`__dirname` preamble, no `ignores` at all, and `.eslintrc.json` still
-on disk — so the config was written by hand instead. **Coverage went UP**: 142 files now, including
-`next.config.ts`, `vitest.config.mts` and the ESLint config itself, which `next lint` never looked at.
-
-But `eslint .` also walked into **`.claude/worktrees/`**, a locked 795 MB checkout of another branch
-that lives inside the repo and is hidden from git by `.git/info/exclude` — which ESLint does not read.
-It was linting another branch's copy of the app and double-counting every finding. That is why the
-`ignores` list exists and why it names that directory specifically.
-
-**`eslint-plugin-react-hooks` 7 fires 25 times** — `react-hooks/refs` 13, `set-state-in-effect` 12 —
-and every one is a shape this repository chose on purpose and commented. Three, read before deciding:
-`useMounted` calls `setMounted(true)` in an effect *so that a portal is not created during hydration*;
-`useWeekSlide` reads and writes two refs during render so the week animation costs one render instead
-of two, which § *A Week Change Says Which Way It Went* depends on; and `live.current = options` in
-`useBlockDrag` exists because without it the window listeners captured the first render's callbacks and
-**dropped onto a stale week** — a measured defect. The rules are right in general and wrong about these.
-Silencing two rules narrowly, with the count recorded and the refactor put to the owner, is honest; a
-dependency bump quietly rewriting the drag layer is not.
-
-**And `next dev` wrote to CLAUDE.md.** Next 16 appends a self-rewriting `nextjs-agent-rules` block to
-it on every start — caught because the dev log said so. `agentRules: false` turns it off. The block's
-one useful claim, that the version-matched docs ship at `node_modules/next/dist/docs/`, is now stated
-in CLAUDE.md in the project's own words instead.
-
-Next also rewrote `tsconfig.json` (`moduleResolution` → `bundler`, `jsx` → `react-jsx`,
-`.next/dev/types` added to `include`) and `next-env.d.ts`. Both are its files to own, both are
-type-check-only, and `tsc` stays clean after them.
-
-### React stays on 18.3.1
-
-Next 16 still declares `react: ^18.2.0 || ^19.0.0` as a peer, and the App Router runs React out of
-`next/dist/compiled/` regardless of what is installed — that is how Next 15 shipped React 19 features
-to a project pinned at 18. So the installed version reaches types and nothing else, `tsc` is clean
-against it, and moving to React 19 is a separate major with its own breaking changes. One major per
-change.
-
-### How "nothing broke" was established
-
-**The proof is a functional fingerprint, not an inspection.** A 42-call replay drives the whole HTTP
-surface — every route, both preview endpoints, the closed-day range and its reopening, and the seven
-409 refusals and two 400s that carry the business rules — against a database created from scratch, with
-ids and timestamps normalised to ordinals. It was pinned first: **two runs on Next 15 are byte-identical**,
-which is what makes the comparison mean anything. One artefact had to be neutralised to get there —
-`GET /api/projects` orders by `(created_at, id)` and jobs created in the same second are separated by a
-random UUID, so the row order is stable for one database and differs between two. Not a defect; the
-ordering is total.
-
-**Next 16 returns the same 167 lines, byte for byte.** Same status codes, same bodies, same refusal
-codes, same displaced-hours arithmetic.
-
-**The DOM is structurally identical.** Comparing the prerendered HTML with bundler plumbing removed
-(CSS-Module class names, asset URLs, the flight payload, the build id) leaves zero differences on `/`
-and `/settings` — every element, attribute and text node. Next 16 packs the RSC payload into fewer
-script pushes and adds `crossorigin` to the async script tags. On the built-in 404 page only, Next's
-own `<title>404: This page could not be found.</title>` moved after `<title>Workwise</title>`, so that
-tab now reads *Workwise*; the app has no 404 in normal use and the page is not ours.
-
-**The stylesheet needed the most care, because the minifier changed** — cssnano under webpack, Lightning
-CSS under Turbopack. A selector-by-selector diff is useless here: Turbopack inlines shared declarations
-into each rule and drops the combined selector, so 37 selectors *looked* different. Comparing the
-**effective declaration set per single selector** instead, with equivalences canonicalised, leaves three
-classes of change and nothing else:
-
-- **provable equivalences** — `transparent`/`0 0`/`#0000`, `flex:1 1 auto`/`flex:auto`,
-  `flex:0 0 auto`/`flex:none`, `flex-flow:row wrap`/`wrap`, `translateX(-26px)`/`translate(-26px)`,
-  `animation` shorthand reordering, `180ms`/`.18s`, `#ffffff`/`#fff`, and
-  `color-mix(in srgb,#000000 55%,transparent)` computed to `#0000008c`;
-- **redundant vendor prefixes dropped** — `-moz-user-select`, `-webkit-appearance`, `-moz-appearance`,
-  `-webkit-clip-path`, `cursor:-webkit-grab`. The unprefixed property is present in every case, counted:
-  `cursor:grab` 4 on both sides, `appearance:none` on both spin-button rules (unprefixed `appearance`
-  has worked in Chrome since 84, so the number steppers stay hidden);
-- **redundant fallbacks dropped** — `font-feature-settings:"tnum"` disappears from 11 selectors because
-  `font-variant-numeric:tabular-nums` covers it, and that is present **12 times on both sides**; and the
-  `@supports (color-mix)` block is inlined with its flat-colour fallback removed, which on any browser
-  that has `color-mix` is the value Next 15 used too.
-
-Nothing a browser Next 16 supports renders differently. Every one of the 20 CSS-Module classes the HTML
-emits is present in the CSS that build produced.
-
-`tsc --noEmit` clean, `vitest run` **976 passing across 33 files** (the engine suite never loads Next, so
-it is the invariant check either way), `eslint .` clean, `next build` clean under Turbopack with
-`better-sqlite3` still external, `next dev` clean, `npm audit` **0 vulnerabilities**, `data/calendar.db`
-md5-identical before and after.
-
-**Two things got better without being asked for.** `next start` is ready in ~120 ms against ~6 s, and
-the stray `/home/rca/package-lock.json` that made Next 15 pick the wrong workspace root on every build is
-now correctly ignored for being outside the git repository.
-
-**Left undone, deliberately:** React 19, and the 25 `react-hooks` findings.
+`tsc --noEmit` clean, `vitest run` **976 passing across 33 files**, `eslint .` clean, `next build`
+clean, `npm audit` 0.
 
 ---
 

@@ -1344,7 +1344,7 @@ of this one.)*
   would be a bigger surprise than the clamp.
 - **The resize (bottom edge) is ABSOLUTE, not a transfer**: it just sets the duration. There is no job
   to hand hours to, so **`shrink-needs-choice` can never appear on a gap**. It is counted in net
-  working minutes, it CROSSES THE COMIDA — absorbing or creating the far half — and it clamps at the
+  working minutes, it CROSSES THE LUNCH BREAK — absorbing or creating the far half — and it clamps at the
   end of the day's last manual window. **This is not an exception to *the padlock holds the length***:
   that rule is about rows the ENGINE lays out, and a gap never is one.
 - **The handle is on the LAST row of the unit only.** An absence has ONE duration, measured from its
@@ -1483,7 +1483,7 @@ gesture.
 - **Only bulk creation warns** — a range of closed days, a range of gaps, a painted gap — because those
   displace hours into weeks that are not on screen. A DRAG or a RESIZE of one absence does not: the
   result is on screen and the ghost drew it.
-- **A painted TRABAJO warns through the creation preview it already had** (`POST /api/projects/preview`
+- **A painted JOB warns through the creation preview it already had** (`POST /api/projects/preview`
   + `PlacementNotice`), not through this one: `planCreation` computes the whole placement, so the form
   states what the day will hold and what the hours cost before Guardar. `startMinutes` is sent to the
   preview only while the date is STILL the painted one — moving the day gives the point up and makes it
@@ -1658,10 +1658,10 @@ DECISIONS.md § *Reproductions behind the Open Decisions*.
 
 ## Current Project Status
 
-**v0.18 (current).** `tsc --noEmit` clean, `vitest run` **1049 passing across 37 files**, `eslint .`
+**v0.18 (current).** `tsc --noEmit` clean, `vitest run` **1052 passing across 37 files**, `eslint .`
 clean, `next build` clean.
 
-**PAINTING MAKES A TRABAJO AS WELL AS A HUECO** (2026-08-21). A released band now stays drawn and asks
+**PAINTING MAKES A JOB AS WELL AS A GAP** (2026-08-21). A released band now stays drawn and asks
 which it is; `Un trabajo` opens the ordinary job form pre-filled, and the save places the hours on the
 exact painted MINUTE, padlocked — a fourth creation mode, `painted`, and **the first gesture in the app
 that pins inside Monday to Thursday**. *«GAPS ONLY»* is deleted; the half of it that forbade inferring
@@ -1680,7 +1680,7 @@ confirmation now comes from the SERVER for a closed day and from the WEEKDAY for
 so a failed preview can still never let one of those through silently.
 
 **v0.17.** The engine, the API, the week view, the gestures and the drag layer are built
-and green: `tsc --noEmit` clean, `vitest run` **977 passing across 33 files** (including five
+and green: `tsc --noEmit` clean, `vitest run` **976 passing across 33 files** (including five
 2000-seed property harnesses over placement, manual placement, drops, editing and shrinking — the
 placement one generating off-grid quantities on a quarter of its calendars, which is where the
 quarter-hour floor is really at risk, and asserting strict order on EVERY seed since the hand-set
@@ -1707,7 +1707,7 @@ Axis Per Gesture* has one implementation. **A defect the round fixed before buil
 was being handed one ROW of a comida-crossing absence, so opening its morning half and pressing Guardar
 destroyed 4 of its 10 hours.
 
-**NO STORED ROW STRADDLES THE COMIDA — gaps included.** A gap's `duration` became NET working
+**NO STORED ROW STRADDLES THE LUNCH BREAK — gaps included.** A gap's `duration` became NET working
 minutes on 2026-08-19, so a gap is cut at the break like everything else, its two halves are ONE unit on
 screen, and the one row in the app that could span a break is gone. The four `08:00 +11,5 h` Feria rows
 in the shop's file are split by a one-shot data migration (`data_migrations`, the first of its kind:
