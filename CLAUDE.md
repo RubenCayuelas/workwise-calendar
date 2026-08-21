@@ -992,8 +992,16 @@ does a Monday-to-Thursday drop the reflow answers with the row's own slot.
 
 **EVERY WRITE PASSES ONE PLACE.** `withHistory` wraps `runTransaction` (`src/lib/scheduler.ts`) at
 its 13 mutating call sites, so the step is written inside the same transaction as the rows it
-describes. A refusal, a `horizon-exceeded` rollback and `previewAbsence`'s deliberate rollback
-therefore discard it for free — which is why the line is a TABLE and not an array in memory.
+describes, and a refusal or a `horizon-exceeded` rollback discards it for free. That is why the line
+is a TABLE and not an array in memory. (`previewAbsence` needs none of it today — it reaches
+`writeAbsence` directly, below the hook — but it is the standing proof that this codebase writes for
+real and rolls back, and an array would have to be told about every such path by hand.)
+
+**THE ROW CARRIES ITS OWN FINGERPRINT** — the state as the owner sees it, `canonical`. Both questions
+the line ever asks are then a string comparison and never a parse of the blob: *did this write change
+anything?* and *has the calendar moved outside the line?* Safe to store only because the table is
+emptied on open, so a change to how the fingerprint is computed can never meet a row written under
+the old one.
 
 **`POST /api/history/undo` and `/redo`**, both answering `{changed, step, focusDate, drifted,
 summary}`. What the line HOLDS rides on `GET /api/week`, which the grid already refetches after every
@@ -1034,9 +1042,14 @@ of sitting grey and mute.
 - **A restore shows the week it touched** (`focusDate`, the earliest day the two states disagree
   about) and a toast names what was undone. **Nothing to undo is silent and is not an error**:
   `changed: false`, never a 409 — a control that raced a keystroke must not raise a red banner.
-- **A calendar that moved outside the line is never clobbered.** Before restoring, what is on disk
-  must be what the cursor says is there; where it is not — a hand-edited file, a second process — the
-  line is emptied, the request says so, and nothing is restored.
+- **A calendar that moved outside the line is never clobbered, and that is checked TWICE.** Before a
+  restore, what is on disk must be what the cursor says is there; where it is not — a hand-edited
+  file, a maintenance script — the line is emptied, the request says so, and nothing is restored.
+  **And before a step is RECORDED**, the cursor must still describe what the write found: checking
+  only at restore time protected the foreign write for exactly one gesture, because the next
+  ordinary write folded it into its own `after` and the undo below then deleted it reporting
+  `drifted: false`. A write that finds a calendar the line does not recognise floors a new line on
+  it.
 
 *(Why, what was rejected and the traps it had to survive: DECISIONS.md § Undo and Redo Are a Line of
 States.)*
@@ -1751,8 +1764,10 @@ DECISIONS.md § *Reproductions behind the Open Decisions*.
 
 ### Deferred by direction
 
-- **Backups**: an Export button in Settings. The DB is gitignored and there is no undo. **It stops
-  being optional the day the app is installed on the shop PC** — that one file IS their calendar.
+- **Backups**: an Export button in Settings. The DB is gitignored, and the undo line is no
+  substitute: it holds 50 steps, it lasts one run of the app, and a settings save empties it. **It
+  stops being optional the day the app is installed on the shop PC** — that one file IS their
+  calendar.
 - **The Windows executable**, above. Wanted, planned, and behind a few features the owner wants first.
   The milestone to build before anything cosmetic is the one that can only be tested on Windows:
   `ELECTRON_RUN_AS_NODE` plus the standalone server plus an Electron-ABI `better-sqlite3`.
@@ -1765,7 +1780,7 @@ DECISIONS.md § *Reproductions behind the Open Decisions*.
 
 ## Current Project Status
 
-**v0.19 (current).** `tsc --noEmit` clean, `vitest run` **1084 passing across 39 files**, `eslint .`
+**v0.19 (current).** `tsc --noEmit` clean, `vitest run` **1088 passing across 39 files**, `eslint .`
 clean, `next build` clean.
 
 **UNDO AND REDO, MANY STEPS DEEP** (2026-08-21). `Ctrl+Z` and `Ctrl+Y` walk the calendar back and
@@ -1778,7 +1793,7 @@ close can be skipped and rows outliving their run would describe yesterday's cal
 are the owner's**: the scope is the calendar, so a settings save EMPTIES the line instead of joining it
 (they named the cost out loud), and with a panel open the shortcut is inert and says so rather than
 risking a half-written form. **A write that changed nothing the owner can see earns no step**, which
-also stops the `SET ASIDE` micro-resize costing one. Verified by walking **1000 generated sessions**
+also stops the `SET ASIDE` micro-resize costing one. Verified by walking **500 generated sessions**
 back to where they started and forward again, then over real HTTP and in a real browser: `Ctrl+Z`
 inside a text field is still the browser's own, and a 3 h job restored across the comida comes back
 with both of its rows.

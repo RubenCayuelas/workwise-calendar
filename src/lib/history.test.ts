@@ -10,6 +10,7 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, openDatabase, type Db } from './db';
 import {
+  CAPTURED_TABLES,
   MAX_HISTORY_STEPS,
   readHistoryState,
   redoNext,
@@ -95,6 +96,12 @@ function depth(): number {
 describe('a step restores the rows exactly as they were', () => {
   it('gives back the id, the timestamps and the queue order, not an equivalent row', () => {
     const { blockId } = seedJob('Railing');
+    // Stamped by hand, and NOT with `now`: CURRENT_TIMESTAMP has one-second resolution and this
+    // test runs in milliseconds, so a restore that re-stamped every row would produce the same
+    // strings and the assertion below would pass while proving nothing. (Setting a DIFFERENT value
+    // leaves the updated_at trigger alone, which is the same latitude the restore relies on.)
+    db.prepare("UPDATE projects SET created_at = '2020-01-02 03:04:05', updated_at = '2020-01-02 03:04:06'").run();
+    db.prepare("UPDATE blocks SET created_at = '2020-01-02 03:04:07', updated_at = '2020-01-02 03:04:08'").run();
     const before = rawRows();
 
     withHistory(db, { kind: 'block.move', blockId }, () => {
@@ -269,6 +276,44 @@ describe('the label', () => {
   });
 });
 
+describe('what a state has to hold', () => {
+  it('carries every column of every table it is responsible for', () => {
+    for (const { table, columns } of CAPTURED_TABLES) {
+      const stored = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(
+        (column) => column.name,
+      );
+      // A column added to the schema and not added here is captured by nothing, so every restore
+      // resets it to its default with nothing said.
+      expect(columns.split(',').map((column) => column.trim()), table).toEqual(stored);
+    }
+  });
+
+  it('tells two writes apart even when the free text swaps a separator', () => {
+    const projectId = id('p');
+    insertProject(
+      { id: projectId, name: 'Door', description: '2 leaves|steel', color: PROJECT_COLORS[0], totalMinutes: 120 },
+      db,
+    );
+    insertBlock({ id: id('b'), projectId, date: MON, startMinutes: t('08:00'), durationMinutes: 120, locked: false }, db);
+
+    // Joined with a bare `|`, `Door` + `2 leaves|steel` and `Door|2 leaves` + `steel` are the SAME
+    // string, so this edit earned no step — and the next undo then reverted the gesture before it,
+    // deleting the job.
+    withHistory(db, { kind: 'project.update', projectId }, () => {
+      updateProject(projectId, { name: 'Door|2 leaves', description: 'steel' }, db);
+    });
+
+    expect(readHistoryState(db).undo).toEqual({
+      kind: 'project.update',
+      args: { name: 'Door' },
+    });
+    expect(undoLast(db).changed).toBe(true);
+    expect(listProjects(db).map((project) => [project.name, project.description])).toEqual([
+      ['Door', '2 leaves|steel'],
+    ]);
+  });
+});
+
 describe('a calendar that moved outside the line', () => {
   it('is never clobbered: the line is emptied and the request says so', () => {
     const { projectId, blockId } = seedJob('Railing');
@@ -284,6 +329,33 @@ describe('a calendar that moved outside the line', () => {
 
     expect(outcome).toEqual({ changed: false, step: null, focusDate: null, drifted: true });
     expect(rawRows()).toEqual(before);
+    expect(readHistoryState(db).undo).toBeNull();
+  });
+
+  it('is not clobbered by a LATER undo either: the next write starts a new line', () => {
+    const { projectId, blockId } = seedJob('Railing');
+    withHistory(db, { kind: 'block.move', blockId }, () => {
+      updateBlock({ id: blockId, projectId, date: TUE, startMinutes: t('09:00'), durationMinutes: 120, locked: false }, db);
+    });
+
+    // Something wrote without going through the line...
+    insertGap({ id: id('g'), date: MON, startMinutes: t('10:00'), durationMinutes: 60 }, db);
+    // ...and then an ordinary gesture followed it. Checking for drift only at restore time caught
+    // this for exactly one gesture: afterwards the cursor matched the disk again, and undoing that
+    // gesture deleted the foreign absence with `drifted: false` and nothing said.
+    withHistory(db, { kind: 'block.move', blockId }, () => {
+      updateBlock({ id: blockId, projectId, date: MON, startMinutes: t('15:30'), durationMinutes: 120, locked: false }, db);
+    });
+
+    const outcome = undoLast(db);
+
+    expect(outcome.changed).toBe(true);
+    expect(outcome.drifted).toBe(false);
+    // The gesture is undone — back to where the first step left it — and the absence the line never
+    // saw is still there.
+    expect(calendar()).toEqual([`${TUE} ${t('09:00')} +120`]);
+    expect(listGaps(db).map((gap) => gap.date)).toEqual([MON]);
+    // And there is nothing further back: the drifted write floored a new line.
     expect(readHistoryState(db).undo).toBeNull();
   });
 });
@@ -442,23 +514,64 @@ function cursorSeq(handle: Db): number {
 const GENERATED_DAYS = [LAST_FRI, MON, TUE, WED, THU, FRI, SAT, SUN, NEXT_MON];
 const GENERATED_NAMES = ['Staircase', 'Shutter', 'Railing', 'Gate'];
 
+/** The gestures the generator draws from. The name is what the per-case guard counts. */
+const GESTURES = [
+  'project.create',
+  'block.move',
+  'block.resize',
+  'block.lock',
+  'block.split',
+  'block.delete',
+  'project.update',
+  'project.delete',
+  'gap.create',
+  'gap.delete',
+  'absence',
+] as const;
+
+type Gesture = (typeof GESTURES)[number];
+
 /**
- * One gesture, chosen at random and aimed at whatever the calendar happens to hold. A refusal is
- * a legitimate outcome and is swallowed here: that it wrote nothing is asserted by the caller.
+ * A calendar for the session to mutate. Without it the generator was drawing block and project
+ * gestures against an empty database and returning from its own guards: measured, 77% of the
+ * mutations were no-ops, so the property was mostly walking lines built from creations — never the
+ * reflowed multi-job calendar a restore that does not recompose is actually risky on.
+ */
+function seedSession(handle: Db, random: () => number, recorded: () => void): void {
+  const jobs = 1 + Math.floor(random() * 3);
+  for (let job = 0; job < jobs; job += 1) {
+    createProject(
+      {
+        name: `${GENERATED_NAMES[job % GENERATED_NAMES.length]} ${job}`,
+        color: PROJECT_COLORS[job % PROJECT_COLORS.length],
+        totalMinutes: (1 + Math.floor(random() * 7)) * 60,
+        today: MON,
+      },
+      handle,
+    );
+    recorded();
+  }
+}
+
+/**
+ * One gesture, chosen at random and aimed at whatever the calendar happens to hold. Returns which
+ * one it was, so the guard below can see that each is really running. A refusal is a legitimate
+ * outcome and is thrown to the caller, which asserts it wrote nothing.
  *
  * `updateSettings` is deliberately absent — it EMPTIES the line by design, which is a different
  * property and has its own test above.
  */
-function mutateAtRandom(handle: Db, random: () => number, step: number): void {
+function mutateAtRandom(handle: Db, random: () => number, step: number): Gesture | null {
   const pick = <T,>(values: readonly T[]): T => values[Math.floor(random() * values.length)];
   const blocks = listBlocks(handle);
   const gaps = listGaps(handle);
   const projects = listProjects(handle);
   const block = blocks.length === 0 ? undefined : pick(blocks);
   const today = MON;
+  const gesture = GESTURES[Math.floor(random() * GESTURES.length)];
 
-  switch (Math.floor(random() * 11)) {
-    case 0:
+  switch (gesture) {
+    case 'project.create':
       createProject(
         {
           name: `${pick(GENERATED_NAMES)} ${step}`,
@@ -468,40 +581,40 @@ function mutateAtRandom(handle: Db, random: () => number, step: number): void {
         },
         handle,
       );
-      return;
-    case 1:
-      if (block === undefined) return;
+      return gesture;
+    case 'block.move':
+      if (block === undefined) return null;
       moveBlock(block.id, { date: pick(GENERATED_DAYS), startMinutes: t('08:00') + Math.floor(random() * 20) * 30, today }, handle);
-      return;
-    case 2:
-      if (block === undefined) return;
+      return gesture;
+    case 'block.resize':
+      if (block === undefined) return null;
       resizeBlock(block.id, { durationMinutes: (1 + Math.floor(random() * 8)) * 30, today }, handle);
-      return;
-    case 3:
-      if (block === undefined) return;
+      return gesture;
+    case 'block.lock':
+      if (block === undefined) return null;
       setBlockLock(block.id, !block.locked, { today }, handle);
-      return;
-    case 4:
-      if (block === undefined) return;
+      return gesture;
+    case 'block.split':
+      if (block === undefined) return null;
       splitBlock(
         block.id,
         { durationMinutes: 30, date: pick(GENERATED_DAYS), startMinutes: t('10:00'), today },
         handle,
       );
-      return;
-    case 5:
-      if (block === undefined) return;
+      return gesture;
+    case 'block.delete':
+      if (block === undefined) return null;
       deleteBlockRow(block.id, { today }, handle);
-      return;
-    case 6:
-      if (projects.length === 0) return;
+      return gesture;
+    case 'project.update':
+      if (projects.length === 0) return null;
       patchProject(pick(projects).id, { totalMinutes: (1 + Math.floor(random() * 10)) * 60, today }, handle);
-      return;
-    case 7:
-      if (projects.length === 0) return;
+      return gesture;
+    case 'project.delete':
+      if (projects.length === 0) return null;
       deleteProjectRow(pick(projects).id, { today }, handle);
-      return;
-    case 8:
+      return gesture;
+    case 'gap.create':
       createGap(
         {
           date: pick(GENERATED_DAYS),
@@ -512,21 +625,26 @@ function mutateAtRandom(handle: Db, random: () => number, step: number): void {
         },
         handle,
       );
-      return;
-    case 9:
-      if (gaps.length === 0) return;
+      return gesture;
+    case 'gap.delete':
+      if (gaps.length === 0) return null;
       deleteGap(pick(gaps).id, { today }, handle);
-      return;
+      return gesture;
     default: {
       const from = pick(GENERATED_DAYS);
       if (random() < 0.5) saveAbsence({ kind: 'closed-days', from, reason: 'Fair', today }, handle);
       else reopenDays({ from, today }, handle);
+      return 'absence';
     }
   }
 }
 
-/** Seeds and steps kept where the whole file still runs in a second or so. */
-const SESSIONS = 1000;
+/**
+ * Chosen deliberately, not by what the timeout allows: each session opens and migrates a database
+ * and every gesture runs a full reflow, so this is the count that keeps the file well inside the
+ * 30 s per-test budget on a slower machine while still exercising every gesture hundreds of times.
+ */
+const SESSIONS = 500;
 const STEPS_PER_SESSION = 8;
 
 describe('the line holds over generated sessions', () => {
@@ -540,6 +658,13 @@ describe('the line holds over generated sessions', () => {
         // and not only the two ends.
         const states = new Map<number, unknown>([[0, stateOf(handle)]]);
         const startVisible = visibleOf(handle);
+        const remember = (): void => {
+          states.set(cursorSeq(handle), stateOf(handle));
+        };
+        // The seed jobs are steps like any other, so the walk back covers them too and ends on the
+        // empty floor. What they buy is the rest of the session: a calendar for the block and
+        // project gestures to aim at.
+        seedSession(handle, random, remember);
 
         for (let step = 0; step < STEPS_PER_SESSION; step += 1) {
           const before = stateOf(handle);
@@ -587,22 +712,32 @@ describe('the line holds over generated sessions', () => {
     }
   });
 
-  it('generates the sessions these properties are about', () => {
+  it('generates the sessions these properties are about, gesture by gesture', () => {
     let steps = 0;
     let refusals = 0;
+    let skipped = 0;
+    const ran = new Map<Gesture, number>(GESTURES.map((gesture) => [gesture, 0]));
+
     for (let seed = 1; seed <= SESSIONS; seed += 1) {
       const handle = openDatabase(':memory:');
       try {
         const random = seededRandom(seed);
+        seedSession(handle, random, () => {});
         for (let step = 0; step < STEPS_PER_SESSION; step += 1) {
           const cursorBefore = cursorSeq(handle);
+          let gesture: Gesture | null;
           try {
-            mutateAtRandom(handle, random, step);
+            gesture = mutateAtRandom(handle, random, step);
           } catch (error) {
             if (!(error instanceof AppError)) throw error;
             refusals += 1;
             continue;
           }
+          if (gesture === null) {
+            skipped += 1;
+            continue;
+          }
+          ran.set(gesture, (ran.get(gesture) ?? 0) + 1);
           if (cursorSeq(handle) !== cursorBefore) steps += 1;
         }
       } finally {
@@ -610,8 +745,17 @@ describe('the line holds over generated sessions', () => {
         closeDb();
       }
     }
-    // Guards on the generator: without both of these the property above proves nothing.
-    expect(steps).toBeGreaterThan(SESSIONS);
-    expect(refusals).toBeGreaterThan(20);
+
+    // PER GESTURE, not in aggregate. Counting only totals hid that the block and project gestures
+    // were returning from their own guards on an empty calendar: the three that need no calendar
+    // satisfied both totals on their own, so a generator whose block gestures never ran once would
+    // still have passed.
+    for (const gesture of GESTURES) {
+      expect(ran.get(gesture), `${gesture} never ran`).toBeGreaterThan(SESSIONS / 20);
+    }
+    expect(steps, 'too few writes actually changed anything').toBeGreaterThan(SESSIONS * 2);
+    expect(refusals, 'the refusal path is never exercised').toBeGreaterThan(20);
+    // The guards above are only meaningful while the generator is not mostly aiming at nothing.
+    expect(skipped, 'most draws still hit their own guard').toBeLessThan(SESSIONS);
   });
 });

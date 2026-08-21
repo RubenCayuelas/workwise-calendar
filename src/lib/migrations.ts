@@ -100,13 +100,18 @@ CREATE TABLE IF NOT EXISTS settings (
 -- is opened, so a line lasts exactly one run of the app.
 -- 'label_args' holds what the step's sentence interpolates, and on a FLOOR written by a
 -- settings save it holds {"clearedBy":"settings"} instead: an empty undo with a reason.
+-- 'fingerprint' is that same state as the OWNER sees it — no timestamps, no block ids — so both
+-- guards (has the calendar moved outside the line? did this write change anything?) are a string
+-- comparison and never a parse of the blob. Safe to store because the table is emptied on open, so
+-- a change to how the fingerprint is computed can never meet a row written under the old one.
 CREATE TABLE IF NOT EXISTS history (
-  seq        INTEGER PRIMARY KEY,
-  kind       TEXT,
-  label_args TEXT,
-  state      TEXT NOT NULL,
-  undone     INTEGER NOT NULL DEFAULT 0 CHECK (undone IN (0, 1)),
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  seq         INTEGER PRIMARY KEY,
+  kind        TEXT,
+  label_args  TEXT,
+  state       TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  undone      INTEGER NOT NULL DEFAULT 0 CHECK (undone IN (0, 1)),
+  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Whole-day exceptions: holidays, closed weeks, a one-off day with other hours.

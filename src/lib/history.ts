@@ -77,6 +77,18 @@ const BLOCK_COLUMNS = 'id, project_id, date, start_time, duration, locked, creat
 const GAP_COLUMNS = 'id, date, start_time, duration, reason, unit_id, created_at, updated_at';
 const OVERRIDE_COLUMNS = 'date, is_closed, capacity_hours, note';
 
+/**
+ * The four tables a state is, and every column it carries. Exported so a test can hold the lists
+ * against `PRAGMA table_info`: a column added to one of these tables and not added here would be
+ * captured by nothing and reset to its default by every restore, silently.
+ */
+export const CAPTURED_TABLES: ReadonlyArray<{ table: string; columns: string }> = [
+  { table: 'projects', columns: PROJECT_COLUMNS },
+  { table: 'blocks', columns: BLOCK_COLUMNS },
+  { table: 'gaps', columns: GAP_COLUMNS },
+  { table: 'day_overrides', columns: OVERRIDE_COLUMNS },
+];
+
 /** Derived from the SELECT's own column list, so a capture and a restore cannot drift apart. */
 function insertSql(table: string, columns: string): string {
   const names = columns.split(',').map((column) => column.trim());
@@ -130,22 +142,31 @@ function restoreState(db: Db, state: CalendarState): void {
  */
 function canonical(state: CalendarState): string {
   return [
-    ...state.projects.map(
-      (row) => `P|${row.id}|${row.name}|${row.description ?? ''}|${row.color}|${row.total_hours}`,
+    ...state.projects.map((row) =>
+      fields('P', row.id, row.name, row.description, row.color, row.total_hours),
     ),
-    ...state.blocks.map(
-      (row) => `B|${row.project_id}|${row.date}|${row.start_time}|${row.duration}|${row.locked}`,
+    ...state.blocks.map((row) =>
+      fields('B', row.project_id, row.date, row.start_time, row.duration, row.locked),
     ),
-    ...state.gaps.map(
-      (row) =>
-        `G|${row.id}|${row.date}|${row.start_time}|${row.duration}|${row.reason ?? ''}|${row.unit_id ?? ''}`,
+    ...state.gaps.map((row) =>
+      fields('G', row.id, row.date, row.start_time, row.duration, row.reason, row.unit_id),
     ),
-    ...state.dayOverrides.map(
-      (row) => `D|${row.date}|${row.is_closed}|${row.capacity_hours ?? ''}|${row.note ?? ''}`,
+    ...state.dayOverrides.map((row) =>
+      fields('D', row.date, row.is_closed, row.capacity_hours, row.note),
     ),
   ]
     .sort()
     .join('\n');
+}
+
+/**
+ * JSON rather than a separator, because two of these fields are FREE TEXT. Joined with a bare `|`,
+ * a name and a description that swapped a `|` across their boundary — `2 hojas | acero` is an
+ * ordinary description — produced a byte-identical line: the write earned no step, and the next
+ * Ctrl+Z then reverted the gesture BEFORE it. JSON also escapes a newline, which a description has.
+ */
+function fields(...values: readonly (string | number | null)[]): string {
+  return JSON.stringify(values);
 }
 
 /** The earliest day the two states disagree about; `null` when they agree everywhere. */
@@ -186,36 +207,40 @@ interface EntryRow {
   kind: string | null;
   label_args: string | null;
   state: string;
+  fingerprint: string;
 }
 
-type LabelRow = Omit<EntryRow, 'state'>;
+type MarkRow = Omit<EntryRow, 'state'>;
 
-const ENTRY_COLUMNS = 'seq, kind, label_args, state';
-/** Reading a label must never pull the state blobs with it. */
-const LABEL_COLUMNS = 'seq, kind, label_args';
+const ENTRY_COLUMNS = 'seq, kind, label_args, state, fingerprint';
+/** A label or a fingerprint must never pull the state blob with it. */
+const MARK_COLUMNS = 'seq, kind, label_args, fingerprint';
 
 const IDLE: HistoryOutcome = { changed: false, step: null, focusDate: null, drifted: false };
 
 /**
  * Runs one mutation as its own transaction AND records the step it turned out to be. Wraps
  * `runTransaction`, so the entry is written inside the same transaction as the rows it
- * describes: a refusal, a horizon rollback and `previewAbsence`'s deliberate rollback all
- * discard it with everything else.
+ * describes: a refusal and a horizon rollback discard it with everything else, which an array in
+ * memory could not do.
  */
 export function withHistory<T>(db: Db, intent: HistoryIntent, work: () => T): T {
   return runTransaction(db, () => {
     const before = captureState(db);
+    const found = canonical(before);
     const result = work();
     const after = captureState(db);
-    if (canonical(before) !== canonical(after)) recordStep(db, intent, before, after);
+    const left = canonical(after);
+    if (found !== left) recordStep(db, intent, { before, found, after, left });
     return result;
   });
 }
 
 /** Empties the line and makes the calendar as it stands its floor. Only a settings save does this. */
 export function restartHistory(db: Db = getDb()): void {
+  const state = captureState(db);
   prepared(db, 'DELETE FROM history').run();
-  insertEntry(db, 0, null, { clearedBy: 'settings' }, captureState(db));
+  insertEntry(db, 0, null, { clearedBy: 'settings' }, state, canonical(state));
 }
 
 export function undoLast(db: Db = getDb()): HistoryOutcome {
@@ -227,9 +252,9 @@ export function redoNext(db: Db = getDb()): HistoryOutcome {
 }
 
 export function readHistoryState(db: Db = getDb()): HistoryState {
-  const cursor = prepared<LabelRow>(
+  const cursor = prepared<MarkRow>(
     db,
-    `SELECT ${LABEL_COLUMNS} FROM history WHERE undone = 0 ORDER BY seq DESC LIMIT 1`,
+    `SELECT ${MARK_COLUMNS} FROM history WHERE undone = 0 ORDER BY seq DESC LIMIT 1`,
   ).get();
   const below =
     cursor === undefined
@@ -238,13 +263,13 @@ export function readHistoryState(db: Db = getDb()): HistoryState {
           db,
           'SELECT seq FROM history WHERE seq < ? ORDER BY seq DESC LIMIT 1',
         ).get(cursor.seq);
-  const ahead = prepared<LabelRow>(
+  const ahead = prepared<MarkRow>(
     db,
-    `SELECT ${LABEL_COLUMNS} FROM history WHERE undone = 1 ORDER BY seq ASC LIMIT 1`,
+    `SELECT ${MARK_COLUMNS} FROM history WHERE undone = 1 ORDER BY seq ASC LIMIT 1`,
   ).get();
-  const floor = prepared<LabelRow>(
+  const floor = prepared<MarkRow>(
     db,
-    `SELECT ${LABEL_COLUMNS} FROM history ORDER BY seq ASC LIMIT 1`,
+    `SELECT ${MARK_COLUMNS} FROM history ORDER BY seq ASC LIMIT 1`,
   ).get();
 
   const undo = cursor === undefined || below === undefined ? null : stepOf(cursor);
@@ -282,7 +307,7 @@ function walk(db: Db, direction: 'back' | 'forward'): HistoryOutcome {
   const current = captureState(db);
   // Only this line may have written the calendar since the cursor was recorded. A restore over
   // somebody else's change would lose it with nothing said, so the line gives way instead.
-  if (canonical(current) !== canonical(parseState(cursor.state))) {
+  if (canonical(current) !== cursor.fingerprint) {
     prepared(db, 'DELETE FROM history').run();
     return { changed: false, step: null, focusDate: null, drifted: true };
   }
@@ -303,21 +328,42 @@ function walk(db: Db, direction: 'back' | 'forward'): HistoryOutcome {
   };
 }
 
-function recordStep(
-  db: Db,
-  intent: HistoryIntent,
-  before: CalendarState,
-  after: CalendarState,
-): void {
-  prepared(db, 'DELETE FROM history WHERE undone = 1').run();
+interface Recorded {
+  /** The calendar as the write FOUND it, and its fingerprint. */
+  before: CalendarState;
+  found: string;
+  /** The calendar as the write LEFT it, and its fingerprint. */
+  after: CalendarState;
+  left: string;
+}
+
+function recordStep(db: Db, intent: HistoryIntent, step: Recorded): void {
+  // The cursor has to still describe what was on disk when this write BEGAN. Where it does not,
+  // something outside the line wrote in between, and appending to the line would hide it: the next
+  // undo would restore a state recorded before that write and delete it with `drifted: false`.
+  // Checking only at restore time caught it for exactly one gesture. The line gives way instead —
+  // this write starts a new one, floored on the calendar it really found.
+  const cursor = prepared<MarkRow>(
+    db,
+    `SELECT ${MARK_COLUMNS} FROM history WHERE undone = 0 ORDER BY seq DESC LIMIT 1`,
+  ).get();
+  const drifted = cursor !== undefined && cursor.fingerprint !== step.found;
+  prepared(db, drifted ? 'DELETE FROM history' : 'DELETE FROM history WHERE undone = 1').run();
   const top = prepared<{ seq: number | null }>(db, 'SELECT MAX(seq) AS seq FROM history').get();
   let seq = top?.seq ?? null;
   if (seq === null) {
     // The first step of a line needs the state it started from, or it could not be undone.
-    insertEntry(db, 0, null, null, before);
+    insertEntry(db, 0, null, null, step.before, step.found);
     seq = 0;
   }
-  insertEntry(db, seq + 1, intent.kind, labelArgs(intent, before, after), after);
+  insertEntry(
+    db,
+    seq + 1,
+    intent.kind,
+    labelArgs(intent, step.before, step.after),
+    step.after,
+    step.left,
+  );
   prepared(
     db,
     'DELETE FROM history WHERE seq NOT IN (SELECT seq FROM history ORDER BY seq DESC LIMIT ?)',
@@ -330,13 +376,12 @@ function insertEntry(
   kind: UndoKind | null,
   args: Record<string, string> | null,
   state: CalendarState,
+  fingerprint: string,
 ): void {
-  prepared(db, 'INSERT INTO history (seq, kind, label_args, state) VALUES (?, ?, ?, ?)').run(
-    seq,
-    kind,
-    args === null ? null : JSON.stringify(args),
-    JSON.stringify(state),
-  );
+  prepared(
+    db,
+    'INSERT INTO history (seq, kind, label_args, state, fingerprint) VALUES (?, ?, ?, ?, ?)',
+  ).run(seq, kind, args === null ? null : JSON.stringify(args), JSON.stringify(state), fingerprint);
 }
 
 /** A job's name is read from BEFORE where it can be, so a deleted job is still named. */
@@ -361,7 +406,7 @@ function jobName(intent: HistoryIntent, state: CalendarState): string | undefine
   return undefined;
 }
 
-function stepOf(row: LabelRow): HistoryStep | null {
+function stepOf(row: MarkRow): HistoryStep | null {
   if (row.kind === null) return null;
   return { kind: row.kind as UndoKind, args: argsOf(row.label_args) };
 }

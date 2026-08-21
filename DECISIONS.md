@@ -2959,6 +2959,14 @@ failing:
    in a state at all, so the situation cannot arise.
 6. **`data_migrations` is not in a state either**, or an undo past one could re-arm it.
 
+A seventh was NOT in the code before the round — it was written during it, and found by reviewing the
+finished branch. `canonical` joined a project's fields with a bare `|`, and `name` and `description`
+are the only adjacent free-text pair in the whole state: `Door` + `2 leaves|steel` and
+`Door|2 leaves` + `steel` are the same string, so that edit earned no step, and the next `Ctrl+Z` then
+reverted the gesture BEFORE it and deleted the job. A description like `2 hojas|acero` is ordinary
+workshop text, and the form accepts a newline too. The fields are JSON now. The lesson is narrow and
+worth keeping: **a fingerprint over free text cannot be built by concatenation.**
+
 ### What earns a step, and the one thing that surprised the harness
 
 A write that changed nothing the owner can see records no step, so `Ctrl+Z` can never look broken. The
@@ -2966,7 +2974,7 @@ comparison is the one the app already had — `RecomposeReport.changed`, over th
 ignoring timestamps and a BLOCK's id.
 
 That decision turned out to be load bearing twice, and the second time was a surprise. The property
-harness walks a thousand generated sessions back and forward, comparing raw rows at every stop; it
+harness walks hundreds of generated sessions back and forward, comparing raw rows at every stop; it
 failed at the far end, and the diff looked like two rows changing duration and start time. They were
 not: the rows were the same and the ARRAY ORDER had changed, because `ORDER BY id` sorts UUIDs and the
 last gesture of that session had recreated the same calendar with new ids. No visible change, so no
@@ -2974,6 +2982,14 @@ step, so the redo walk ended at the last recorded state — which is right, and 
 why the drift guard compares canonically and not exactly. Had it compared raw rows, that harmless id
 churn would have emptied the line every time it happened. The two endpoint assertions now compare what
 the owner sees; every stop in between is still compared row for row, timestamps included.
+
+**And that same comparison is stored, not recomputed.** Each row carries the fingerprint of its own
+state, so «did this write change anything?» and «has the calendar moved outside the line?» are both a
+string comparison. It started as a performance fix — the second drift check, added after the review,
+had parsed the cursor's whole state on every write and doubled the harness's runtime — and it left the
+code simpler than before it. Storing a derived value is only safe here because the table is emptied
+when the file is opened, so a change to how the fingerprint is computed can never meet a row written
+under the old one; the very first such change was the `|`-to-JSON fix above, two hours later.
 
 ### What it does not do
 
@@ -3746,8 +3762,9 @@ and the six traps are in § *Undo and Redo Are a Line of States*.
 - [x] `history`, a line of whole calendar STATES with a cursor: the lowest `seq` is a restorable floor, a new
       write drops the redo tail, 50 steps then the oldest is forgotten
 - [x] `withHistory` wrapping `runTransaction` at its 13 mutating call sites, so the step is written inside the
-      transaction it describes — a refusal, a horizon rollback and `previewAbsence`'s deliberate rollback all
-      discard it with no special case
+      transaction it describes — a refusal and a horizon rollback discard it with no special case, which an
+      array in memory could not do (`previewAbsence` needs none of it today: it reaches `writeAbsence`
+      directly, below the hook)
 - [x] the restore: raw SQL naming every column, DELETE-then-INSERT, ids and both timestamps verbatim, blocks
       before projects and back in the mirror order, `assertProjectHours` as a net, and NO recompose
 - [x] emptied when the database is OPENED, not closed, because a close can be skipped
@@ -3761,14 +3778,32 @@ and the six traps are in § *Undo and Redo Are a Line of States*.
       function beside the screen (`undoShortcut.ts`), which is the only way this repo can test a key
 - [x] two ghost icons before `Hoy` naming the next step; a toast naming what was undone; the week the restore
       touched shown by `focusDate`; nothing-to-undo answered `changed: false`, never a 409
-- [x] a drift guard: what is on disk must be what the cursor says, or the line is emptied and nothing is
-      restored
+- [x] a drift guard at BOTH ends: what is on disk must be what the cursor says before a restore, AND the
+      cursor must still describe what a write found before that write joins the line
+- [x] **defect, found by reviewing the finished branch**: the drift guard was checked only at restore time,
+      so it protected a foreign write for exactly ONE gesture — the next ordinary write folded it into its
+      own `after`, and undoing that write then deleted it reporting `drifted: false`. Measured by execution
+      before and after
+- [x] **defect, same review**: `canonical` joined a project's fields with a bare `|`, and name and
+      description are the only adjacent FREE-TEXT pair in the state. `Door` + `2 leaves|steel` and
+      `Door|2 leaves` + `steel` were the same string, so that edit earned NO step — and the next Ctrl+Z then
+      reverted the gesture before it, deleting the job. Fields are JSON now, which also escapes the newline a
+      description can hold
+- [x] **defect, same review**: a drag or a paint in the air was answered «espera, se está guardando el cambio
+      anterior», a sentence about a request that did not exist; and `busy` alone left the controls one whole
+      week-refetch behind, so a redo straight after an undo read as unavailable
+- [x] **defect, same review**: no `event.repeat` guard, so holding Ctrl+Z stacked one four-second toast per
+      key repeat into a viewport with no cap; and `runHistory` compared against the `reference` captured at
+      press time, so a page turn during the request could make it skip the week it was asked to show
 - [x] `POST /api/history/undo` and `/redo`; the state of the line rides on `GET /api/week`, which the grid
       already refetches after every mutation
-- [x] a 1000-session property harness: every stop on the way back compared row for row, both endpoints
-      compared as the owner sees them, refusals asserted to write nothing and to leave no step
+- [x] each row carries the FINGERPRINT of its own state, so both guards are a string comparison and never a
+      parse of the blob — which is what kept the drift check below from doubling the harness's runtime
+- [x] a 500-session property harness, each session seeded with 1-3 real jobs first: every stop on the way
+      back compared row for row, both endpoints compared as the owner sees them, refusals asserted to write
+      nothing and to leave no step, and a guard that counts every gesture SEPARATELY
 
-Verified on 2026-08-21: `tsc --noEmit` clean, `vitest run` **1084 passing across 39 files** (+32, the five
+Verified on 2026-08-21: `tsc --noEmit` clean, `vitest run` **1088 passing across 39 files** (+36, the five
 2000-seed harnesses untouched and green), `eslint .` clean, `next build` clean. Driven over real HTTP and in a
 real browser on a scratch database: `Ctrl+Z` inside a text field is still the browser's own and raises no
 notice; with a panel open and the focus on a button it is inert and says so; a 3 h job restored across the
@@ -3779,3 +3814,13 @@ tooltip. `data/calendar.db` untouched.
 at the end of the session, in nothing but block ids and their sort order, when the last gesture recreated the
 same calendar with new ids. No visible change means no step, which is the rule — and it is why the drift
 guard compares canonically rather than exactly.
+
+*The review of the finished branch is the reason four of the bullets above exist.* It also found three
+weaknesses in the tests themselves, all fixed: the harness was running most of its gestures against an empty
+calendar and returning from its own guards, so it was mostly walking lines built from creations; its two
+guards counted only totals, and the three gestures that need no calendar satisfied both on their own, so a
+generator whose block gestures never ran once would have passed; and the test whose stated point was that a
+restore must name `created_at` and `updated_at` could not see them, because `CURRENT_TIMESTAMP` has
+one-second resolution and the test runs in milliseconds — a re-stamped row produced byte-identical strings.
+The rows are now stamped by hand with distinctive values, and both new guards were confirmed by breaking the
+fix and watching the test fail.

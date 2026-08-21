@@ -170,6 +170,10 @@ export function CalendarScreen({
   const metricsRef = useRef<(() => GridMetrics | null) | null>(null);
   const viewRef = useRef<WeekView | null>(null);
   viewRef.current = view;
+  // Read by a callback that outlives its render: an undo's response lands after the week may have
+  // been paged, and the controller captured at press time would compare against a stale reference.
+  const weekRef = useRef(week);
+  weekRef.current = week;
 
   const gridArea = useRef<HTMLDivElement | null>(null);
   const areaHeight = useElementHeight(gridArea);
@@ -730,9 +734,18 @@ export function CalendarScreen({
     !newJobOpen &&
     gapTarget === null &&
     release === null &&
-    paintedJob === null;
-  const historyBusy = busy || gestureInAir;
-  const historyReady = nothingOpen && !historyBusy;
+    paintedJob === null &&
+    // A gesture in the air OWNS the calendar; it is not a save, and saying "wait, the previous
+    // change is still saving" about a held pointer would be a sentence about a request that does
+    // not exist.
+    !gestureInAir;
+  /**
+   * `loading` and not only `busy`: `mutate` clears `busy` where it SCHEDULES the refetch, so for
+   * the length of that GET `view.history` still describes the calendar from before the write —
+   * long enough for an undo followed straight away by a redo to read the redo as unavailable.
+   */
+  const historySaving = busy || loading;
+  const historyReady = nothingOpen && !historySaving;
 
   const stepText = useCallback(
     (step: HistoryStep | null): string | null =>
@@ -751,12 +764,15 @@ export function CalendarScreen({
         }
         // Nothing there is an ordinary answer: the control was already off, so say nothing.
         if (!result.changed) return;
-        if (result.focusDate !== null) week.showWeekOf(result.focusDate);
+        // Through the ref, not the captured controller: `showWeekOf` compares against the
+        // `reference` of the render it was built in, and the header arrows have no busy guard, so
+        // a page turn during the request would make it skip the week it was asked to show.
+        if (result.focusDate !== null) weekRef.current.showWeekOf(result.focusDate);
         const what = stepText(result.step);
         if (what !== null) toast.info(t(action === 'undo' ? 'undo.done' : 'undo.redone', { what }));
       });
     },
-    [mutate, stepText, t, toast, week],
+    [mutate, stepText, t, toast],
   );
 
   const confirmDelete = useCallback((): void => {
@@ -795,10 +811,13 @@ export function CalendarScreen({
    */
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      // A HELD key repeats, and every repeat would raise its own toast into a viewport with no cap
+      // and a four-second life. One press, one step.
+      if (event.repeat) return;
       const intent = historyShortcut(event, {
         typing: isTypingTarget(event.target),
         open: !nothingOpen,
-        busy: historyBusy,
+        busy: historySaving,
         canUndo,
         canRedo,
       });
@@ -808,7 +827,9 @@ export function CalendarScreen({
       if ('blocked' in intent && intent.blocked === 'typing') return;
       event.preventDefault();
       if ('blocked' in intent) {
-        if (intent.blocked === 'open') toast.info(t('undo.closePanel'));
+        // A drag or a paint in the air is blocked as `open` too, and gets no sentence: mid-gesture
+        // a toast is noise rather than an answer, and «close the panel» would name the wrong thing.
+        if (intent.blocked === 'open' && !gestureInAir) toast.info(t('undo.closePanel'));
         if (intent.blocked === 'busy') toast.info(t(INERT_KEYS.busy));
         return;
       }
@@ -816,7 +837,7 @@ export function CalendarScreen({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [canRedo, canUndo, historyBusy, nothingOpen, runHistory, t, toast]);
+  }, [canRedo, canUndo, gestureInAir, historySaving, nothingOpen, runHistory, t, toast]);
 
   // Escape abandons a pending placement.
   useEffect(() => {

@@ -3228,6 +3228,52 @@ describe('every gesture that writes leaves one undo step', () => {
     expect(readHistoryState(db).undo).toEqual({ kind: 'project.delete', args: { name: 'Gate' } });
   });
 
+  it('names the four the first case cannot reach without a second row', () => {
+    // 8 h is cut at the lunch break, so the job owns two rows: enough for a resize to transfer
+    // hours, for a split to have somewhere to go, and for a delete not to be the last row.
+    const door = job('Door', 8);
+    expect(calendar()).toEqual([`${MON} 08:00-14:00 Door`, `${MON} 15:30-17:30 Door`]);
+
+    // Padlocked FIRST, or the resize earns no step at all and the assertion below would be
+    // measuring the wrong thing: on a row the engine lays out, a length inside the periods is
+    // re-derived on the next pass, so the gesture really did change nothing.
+    setBlockLock(door.blocks[0].id, true, { today: MON }, db);
+    resizeBlock(door.blocks[0].id, { durationMinutes: 4 * 60, today: MON }, db);
+    expect(readHistoryState(db).undo).toEqual({ kind: 'block.resize', args: { name: 'Door' } });
+
+    splitBlock(
+      listBlocks(db)[0].id,
+      { durationMinutes: 60, date: SAT, startMinutes: 9 * 60, today: MON },
+      db,
+    );
+    expect(readHistoryState(db).undo).toEqual({ kind: 'block.split', args: { name: 'Door' } });
+
+    deleteBlock(listBlocks(db)[0].id, { today: MON }, db);
+    expect(readHistoryState(db).undo).toEqual({ kind: 'block.delete', args: { name: 'Door' } });
+
+    createGap({ date: WED, startMinutes: 10 * 60, durationMinutes: 60, today: MON }, db);
+    patchGap(listGaps(db)[0].id, { durationMinutes: 120, today: MON }, db);
+    expect(readHistoryState(db).undo).toEqual({ kind: 'gap.update', args: {} });
+
+    // And each of them walks back: the point of naming a step is that it can be undone.
+    const walkedBack: string[] = [];
+    for (let step = 0; step < 5; step += 1) {
+      const outcome = undoLast(db);
+      expect(outcome.changed).toBe(true);
+      walkedBack.push(outcome.step?.kind ?? '?');
+    }
+    expect(walkedBack).toEqual([
+      'gap.update',
+      'gap.create',
+      'block.delete',
+      'block.split',
+      'block.resize',
+    ]);
+    // Five steps back is the padlock press, which is a step of its own and still stands.
+    expect(calendar()).toEqual([`${MON} 08:00-14:00 Door [locked]`, `${MON} 15:30-17:30 Door`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
   it('puts the calendar back exactly, without recomposing it', () => {
     job('Door', 6);
     job('Railing', 4, GREEN);
