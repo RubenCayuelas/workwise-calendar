@@ -323,6 +323,87 @@ describe('creating a job with a start date', () => {
     }
   });
 
+  it('writes a painted band on the minute it was painted on, padlocked', () => {
+    job('Puerta', 20);
+    const created = createProject(
+      {
+        name: 'Barandilla',
+        color: BLUE,
+        totalMinutes: 2 * 60,
+        startDate: WED,
+        startMinutes: 16 * 60,
+        today: MON,
+      },
+      db,
+    );
+
+    expect(
+      created.blocks.map((block) => `${block.date} ${block.startMinutes} ${block.locked}`),
+    ).toEqual([`${WED} ${16 * 60} true`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('previews a painted band exactly as the save then writes it', () => {
+    job('Puerta', 20);
+
+    for (const [startDate, startMinutes] of [
+      [WED, 16 * 60],
+      // Across the comida, so the preview has to carry both rows.
+      [WED, 13 * 60],
+      // Into the bottom margin, which auto-fill never enters.
+      [NEXT_MON, 19 * 60],
+      // More hours than the day can hold: the tail has to match too.
+      [NEXT_TUE, 17 * 60],
+    ] as const) {
+      const totalMinutes = startMinutes === 17 * 60 ? 8 * 60 : 2 * 60;
+      const preview = previewProjectCreation(
+        { startDate, startMinutes, totalMinutes, today: MON },
+        db,
+      );
+      const created = createProject(
+        { name: `Painted ${startDate} ${startMinutes}`, color: BLUE, totalMinutes, startDate, startMinutes, today: MON },
+        db,
+      );
+
+      expect(
+        created.blocks.map((block) => ({
+          date: block.date,
+          startMinutes: block.startMinutes,
+          durationMinutes: block.durationMinutes,
+          locked: block.locked,
+        })),
+        `preview drifted for ${startDate} ${startMinutes}`,
+      ).toEqual(preview.rows);
+
+      deleteProject(created.project.id, { today: MON }, db);
+    }
+  });
+
+  it('refuses a painted band over a padlocked row and writes nothing', () => {
+    const puerta = job('Puerta', 4);
+    const first = listBlocks(db).filter((block) => block.projectId === puerta.project.id)[0];
+    setBlockLock(first.id, true, { today: MON }, db);
+    const before = calendar();
+
+    expect(() =>
+      createProject(
+        {
+          name: 'Barandilla',
+          color: BLUE,
+          totalMinutes: 2 * 60,
+          startDate: first.date,
+          startMinutes: first.startMinutes,
+          today: MON,
+        },
+        db,
+      ),
+    ).toThrow();
+
+    // Nothing at all: not the rows, and not the project row either.
+    expect(calendar()).toEqual(before);
+    expect(listProjects(db).some((project) => project.name === 'Barandilla')).toBe(false);
+  });
+
   it('names the jobs and the days in the way, across the whole span', () => {
     job('Puerta', 20);
     const preview = previewProjectCreation({ startDate: MON, totalMinutes: 20 * 60, today: MON }, db);

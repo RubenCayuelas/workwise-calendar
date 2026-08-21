@@ -135,6 +135,21 @@ describe('summarizing a start-date preview', () => {
     expect([kindOf('auto'), kindOf('past')]).toEqual([null, null]);
   });
 
+  it('says the hours start where the band was drawn, and drops what cannot be true', () => {
+    const summary = summarizeStartDate(
+      preview({ mode: 'painted', autoLock: true, canForce: true, deferred: true }),
+    );
+
+    expect(summary.notes).toContain('painted');
+    // A painted band is on its minute or refused, so none of these describes it: `autoLock` would
+    // claim the engine chose the day, `deferred` that the hours start later, `forced` that the owner
+    // overrode a deferral. Offering to force it would offer to answer a question nobody asked.
+    expect(summary.notes).not.toContain('autoLock');
+    expect(summary.notes).not.toContain('deferred');
+    expect(summary.notes).not.toContain('forced');
+    expect(summary.canForce).toBe(false);
+  });
+
   it('reads the buffer and the weekend off the weekday, with no preview at all', () => {
     // The point of asking the weekday: a preview that failed or has not answered yet must never
     // let a save honour a Friday or a Saturday silently.

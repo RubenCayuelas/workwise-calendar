@@ -1,6 +1,6 @@
 /**
  * GET  -> { projects: Project[] }   in creation order
- * POST    { name, description?, color, totalHours, startDate?, force? }
+ * POST    { name, description?, color, totalHours, startDate?, startMinutes?, force? }
  *      -> { project, blocks, summary, touchedLockedBlockIds, placement? }
  *
  * `totalHours` may also be sent as `totalMinutes`. `color` must be one of the eight
@@ -9,6 +9,9 @@
  * `startDate` is a FLOOR — "not before this day" — and is NOT stored. `force: true` says the
  * owner disagreed with the deferral. `POST /api/projects/preview` answers the same question
  * without writing.
+ *
+ * `startMinutes` turns that floor into a POINT: a band painted on the grid, whose hours start
+ * exactly there and whose rows on that day are padlocked. It needs `startDate` and refuses `force`.
  */
 
 import type { NextRequest } from 'next/server';
@@ -17,7 +20,9 @@ import {
   readDate,
   readFlag,
   readJsonBody,
+  readStartMinutes,
   readText,
+  requirePaintedShape,
   requireProjectColor,
   requireText,
   requireTotalMinutes,
@@ -36,6 +41,10 @@ export async function GET(): Promise<Response> {
 export async function POST(request: NextRequest): Promise<Response> {
   return route(async () => {
     const body = await readJsonBody(request);
+    const startDate = readDate(body, 'startDate');
+    const startMinutes = readStartMinutes(body);
+    const force = readFlag(body, 'force');
+    requirePaintedShape({ startDate, startMinutes, force });
     return createProject({
       name: requireText(body, 'name', {
         maxLength: MAX_NAME_LENGTH,
@@ -46,8 +55,9 @@ export async function POST(request: NextRequest): Promise<Response> {
       }),
       color: requireProjectColor(body),
       totalMinutes: requireTotalMinutes(body),
-      startDate: readDate(body, 'startDate'),
-      force: readFlag(body, 'force'),
+      startDate,
+      force,
+      startMinutes,
     });
   });
 }

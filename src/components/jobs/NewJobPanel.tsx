@@ -454,6 +454,8 @@ function StartDatePreview({
         return t('jobForm.startForced', { date: format.longDate(chosenDate) });
       case 'autoLock':
         return t('jobForm.startAutoLock');
+      case 'painted':
+        return t('jobForm.startPainted');
       case 'buffer':
         return t('jobForm.startBuffer');
       case 'weekend':

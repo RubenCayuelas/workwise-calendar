@@ -31,6 +31,8 @@ export type StartDateNote =
   | 'buffer'
   /** A holiday or a closed week: the day has no hours at all. */
   | 'closed'
+  /** A band drawn on the grid: the hours start on that exact minute, padlocked. */
+  | 'painted'
   /** The queue already runs past that day, so the job starts later. */
   | 'deferred'
   /** Forced: it goes on that day and what follows moves forward. */
@@ -117,10 +119,15 @@ export function summarizeStartDate(
   else if (preview.day === 'buffer') notes.push('buffer');
   else if (preview.day === 'closed') notes.push('closed');
 
-  if (preview.deferred) notes.push('deferred');
+  // A PAINTED band is on the minute it was drawn on or it was refused: it is never deferred, never
+  // forced, and `autoLock` would claim the engine picked the day. `painted` says all of it.
+  const painted = preview.mode === 'painted';
+  if (painted) notes.push('painted');
+
+  if (preview.deferred && !painted) notes.push('deferred');
   if (preview.force && preview.mode === 'forced') notes.push('forced');
   // `past` already says the rows are created locked, and why, so `autoLock` would repeat it.
-  if (preview.autoLock && preview.day !== 'past') notes.push('autoLock');
+  if (preview.autoLock && preview.day !== 'past' && !painted) notes.push('autoLock');
 
   if (collisions.length === 0) {
     if (preview.span !== null) notes.push('clear');
@@ -149,7 +156,7 @@ export function summarizeStartDate(
       preview.day === 'buffer' || preview.day === 'weekend' || preview.day === 'closed'
         ? preview.day
         : null,
-    canForce: preview.canForce,
+    canForce: preview.canForce && !painted,
     forced: preview.force && preview.mode === 'forced',
   };
 }
