@@ -11,8 +11,13 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..');
 const build = path.join(here, 'build');
 
-/** The Node the app is developed and tested against; `better-sqlite3` ships a prebuilt binary for it. */
-const NODE_VERSION = 'v22.23.2';
+/**
+ * The Node that is RUNNING this script, not a constant. `npm ci` fetched better-sqlite3's binary for
+ * THIS runtime, so bundling any other version would package a database binary the shipped `node.exe`
+ * cannot load — and it would only fail on the customer's machine. `scripts/require-node-22.mjs` keeps
+ * this to a version better-sqlite3 actually publishes binaries for.
+ */
+const NODE_VERSION = process.version;
 
 function copyDir(from, to) {
   if (!fs.existsSync(from)) throw new Error(`Missing ${from} — run \`npm run build\` in the repo root first`);
@@ -21,11 +26,15 @@ function copyDir(from, to) {
 
 async function fetchNodeExe() {
   const target = path.join(build, 'node.exe');
-  if (fs.existsSync(target)) return `cached ${path.relative(here, target)}`;
+  const stamp = path.join(build, 'node.exe.version');
+  const cached = fs.existsSync(target) && fs.existsSync(stamp)
+    && fs.readFileSync(stamp, 'utf8').trim() === NODE_VERSION;
+  if (cached) return `cached ${NODE_VERSION} win-x64`;
   const url = `https://nodejs.org/dist/${NODE_VERSION}/win-x64/node.exe`;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Could not download ${url}: ${response.status}`);
   fs.writeFileSync(target, Buffer.from(await response.arrayBuffer()));
+  fs.writeFileSync(stamp, NODE_VERSION);
   return `downloaded ${NODE_VERSION} win-x64`;
 }
 

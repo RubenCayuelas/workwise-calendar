@@ -24,8 +24,14 @@ path is the thing most likely to stop a fix from shipping months later.
 
 ## Building it
 
-Requires **Node 22 on Windows** (`winget install OpenJS.NodeJS.LTS`) and a clone on the Windows
-filesystem — not `\\wsl$`, where npm and native modules are slow and permission-flaky.
+**Node 22 exactly**, and a clone on the Windows filesystem — not `\\wsl$`, where npm and native
+modules are slow and permission-flaky.
+
+> `winget install OpenJS.NodeJS.LTS` is the WRONG command: today's LTS is Node 24, and
+> `better-sqlite3` 11.x publishes no binary for its ABI, so npm falls through to `node-gyp` and fails
+> with hundreds of lines that never name the real problem. `scripts/require-node-22.mjs` now refuses
+> the install up front instead. Take the x64 `.msi` from
+> <https://nodejs.org/dist/latest-v22.x/>, or `nvm install 22`.
 
 ```
 npm ci                        # in the repository root

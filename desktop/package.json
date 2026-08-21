@@ -6,6 +6,7 @@
   "type": "module",
   "main": "main.mjs",
   "scripts": {
+    "preinstall": "node ../scripts/require-node-22.mjs",
     "prepare-payload": "node prepare.mjs",
     "start": "electron .",
     "dist": "npm run prepare-payload && electron-builder --win --x64"
@@ -55,5 +56,8 @@
       "shortcutName": "Workwise",
       "deleteAppDataOnUninstall": false
     }
+  },
+  "engines": {
+    "node": "22.x"
   }
 }

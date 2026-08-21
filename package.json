@@ -4,6 +4,7 @@
   "description": "Interactive calendar app for tracking and distributing work hours across projects",
   "private": true,
   "scripts": {
+    "preinstall": "node scripts/require-node-22.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -30,5 +31,8 @@
     "eslint-config-next": "^16.3.1",
     "typescript": "^5.3.0",
     "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }
