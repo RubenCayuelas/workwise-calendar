@@ -203,6 +203,13 @@ the one rule, and none of them needs a mark on the calendar:
   **renamed to `Feria Real de Priego de Córdoba` by a later check**, silently: no work moves, no hours
   shift, a label simply gets better. Without this the generic name would be permanent, since the
   pretty one never exists on the day the date does.
+
+  **A rename EDITS the day. It never reopens it and writes it again.** One `UPDATE` of
+  `day_overrides.note`, no reflow, no preview, nothing else on the row altered — `is_closed` and
+  `capacity_hours` included. Reopening and rewriting would land on the same date with the same state
+  and look identical afterwards, while in between it releases the day, runs a pass that shuffles the
+  queue, and asks again about work whose *displace or keep* answer was already given and paid for. A
+  better label must not be able to move a single hour.
 - **A date is corrected.** A cached date that is no longer a holiday, is still in the future, and is
   still closed with the app's own note is **reopened**, and the new date is written. A town moving its
   local holiday therefore does not leave a phantom closed day behind.
@@ -347,6 +354,10 @@ other is the difference between what can be known and what cannot.
   while it still carries the app's own note; nothing before today moves in any of those cases. The
   comparison must read the cache **before** it is replaced — a test that replaces first will pass
   while renaming everything the owner ever typed.
+- **A rename moves no hours.** Assert it over a day carrying padlocked work and a day carrying work
+  that was displaced: after the rename the blocks are byte-for-byte where they were, `is_closed` is
+  untouched, and no history step is recorded beyond the note. A rename implemented as reopen-and-
+  rewrite passes a naive *"the day is closed and named right"* assertion and fails this one.
 - The panel: displace, keep-and-padlock, unanswered, and a day whose work is already padlocked.
 - `assertDayCanClose`: the past still refuses, the other three no longer do.
 - Municipality change: the old town's future days reopen, hand-closed days survive, a shared date does
