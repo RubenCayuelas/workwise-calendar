@@ -58,16 +58,23 @@
 
 /* Project colors for calendar blocks.
    Amber is reserved for the brand, so it is not in this list — a job painted
-   amber would be indistinguishable from the app's own accent. */
+   amber would be indistinguishable from the app's own accent. Every value here
+   also clears amber, and the gap fill, by dE >= 30 for the same reason.
+
+   All eight hold >= 3:1 against BOTH surfaces, which is what a block needs: the
+   saturated value is drawn as a hairline border and as the padlock mark, over a
+   fill of itself at 12% on white and 26% on the dark surface. The band that
+   satisfies both is a narrow one (relative luminance 0.14..0.30), and it is why
+   none of these is either a pastel or a deep tone. */
 :root {
-  --ww-project-1: #185fa5;
-  --ww-project-2: #1d9e75;
-  --ww-project-3: #d85a30;
-  --ww-project-4: #534ab7;
-  --ww-project-5: #a32d2d;
-  --ww-project-6: #0f6e56;
-  --ww-project-7: #d4537e;
-  --ww-project-8: #5f5e5a;
+  --ww-project-1: #249e30;
+  --ww-project-2: #3787d7;
+  --ww-project-3: #c93136;
+  --ww-project-4: #9b8508;
+  --ww-project-5: #e86417;
+  --ww-project-6: #8e5dc6;
+  --ww-project-7: #847b6c;
+  --ww-project-8: #d62988;
 }
 
 /* Logo usage: the SVG files with `currentColor` inherit from --ww-logo-ink. */

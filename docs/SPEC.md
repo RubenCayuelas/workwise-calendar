@@ -990,7 +990,9 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   hardcode a colour in a component; always go through a token so dark stays cheap.
 - Import `public/brand/workwise-tokens.css` before `app/globals.css`.
 - **Project colours** are a fixed swatch picker built from `--ww-project-1..8`. No free hex input —
-  amber is reserved for the app itself.
+  amber is reserved for the app itself. Every swatch holds at least 3:1 against both the light and the
+  dark surface, and clears both amber and the gap fill, so no job reads as the app's own accent or as
+  a hole in the day. Replacing a swatch repaints the jobs already wearing the retired one.
 - Hairline borders (`0.5px`), `--radius` rounded corners, generous whitespace.
 - **Icons**: Tabler (`@tabler/icons-react`), bundled locally — no CDN.
 - **No native `<input type="time">` or `<input type="date">` anywhere.** Both render in the

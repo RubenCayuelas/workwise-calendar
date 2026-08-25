@@ -340,14 +340,14 @@
     "backupDownloaded": "Copia descargada como «{{file}}» en la carpeta de descargas del navegador. Para poder indicar la ubicación, abre la aplicación en «localhost»."
   },
   "colors": {
-    "1": "Azul",
-    "2": "Verde",
-    "3": "Naranja",
-    "4": "Violeta",
-    "5": "Rojo",
-    "6": "Verde oscuro",
-    "7": "Rosa",
-    "8": "Gris",
+    "1": "Verde",
+    "2": "Azul",
+    "3": "Rojo",
+    "4": "Amarillo",
+    "5": "Naranja",
+    "6": "Morado",
+    "7": "Gris",
+    "8": "Rosa",
     "groupLabel": "Color del trabajo"
   },
   "notices": {

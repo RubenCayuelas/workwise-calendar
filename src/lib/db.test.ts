@@ -80,7 +80,7 @@ describe('the migration meets a database that already holds work', () => {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
-      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#1D9E75', 2);
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#249E30', 2);
       INSERT INTO blocks (id, project_id, date, start_time, duration)
         VALUES ('b1', 'p1', '2026-08-10', '08:00', 2);
     `);
@@ -131,8 +131,8 @@ describe('the migration meets a database that already holds work', () => {
       BEGIN
         UPDATE blocks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
       END;
-      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#1D9E75', 6);
-      INSERT INTO projects (id, name, color, total_hours) VALUES ('p2', 'Door', '#1D9E75', 4);
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#249E30', 6);
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p2', 'Door', '#249E30', 4);
       INSERT INTO blocks (id, project_id, date, start_time, duration, locked, manual_duration, hand_placed)
         VALUES ('viernes',   'p1', '2026-08-14', '10:00', 2, 0, 0, 1),
                ('bloqueado', 'p1', '2026-08-13', '08:00', 2, 1, 1, 0),
@@ -174,7 +174,7 @@ describe('the migration meets a database that already holds work', () => {
 
     const first = openDatabase(dbPath);
     first.exec(`
-      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#1D9E75', 2);
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#249E30', 2);
       INSERT INTO blocks (id, project_id, date, start_time, duration, locked)
         VALUES ('libre', 'p1', '2026-08-12', '08:00', 2, 0);
     `);
@@ -275,6 +275,7 @@ describe('the gap migration: a duration that used to be clock minutes', () => {
     expect(again.prepare('SELECT name FROM data_migrations ORDER BY name').all()).toEqual([
       { name: '2026-08-19-gap-duration-is-net-minutes' },
       { name: '2026-08-19-gap-unit-ids' },
+      { name: '2026-08-25-repaint-projects-onto-the-new-palette' },
     ]);
     again.close();
   });
@@ -349,9 +350,9 @@ describe('the gap migration: a duration that used to be clock minutes', () => {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
     const first = openDatabase(dbPath);
-    // Nothing to migrate on a brand-new file; both migrations are still recorded, so neither runs
+    // Nothing to migrate on a brand-new file; every migration is still recorded, so none runs
     // again against a shift the owner may have changed in the meantime.
-    expect(first.prepare('SELECT COUNT(*) AS n FROM data_migrations').get()).toEqual({ n: 2 });
+    expect(first.prepare('SELECT COUNT(*) AS n FROM data_migrations').get()).toEqual({ n: 3 });
     first.exec("INSERT INTO gaps (id, date, start_time, duration, reason) VALUES ('g1', '2026-08-24', '09:00', 1, 'Errands')");
     first.close();
 
@@ -361,11 +362,92 @@ describe('the gap migration: a duration that used to be clock minutes', () => {
   });
 });
 
+describe('the palette migration: a job painted from the retired swatch set', () => {
+  const colours = (db: ReturnType<typeof openDatabase>): string[] =>
+    (db.prepare('SELECT color FROM projects ORDER BY id').all() as Array<{ color: string }>).map(
+      (row) => row.color,
+    );
+
+  it('repaints every job onto the new palette without ever merging two of them', () => {
+    const dbPath = path.join(scratch, 'palette', 'calendar.db');
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE projects (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, color TEXT NOT NULL,
+        total_hours REAL NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO projects (id, name, color, total_hours) VALUES
+        ('p1', 'Railing',   '#185FA5', 2),
+        ('p2', 'Staircase', '#1D9E75', 2),
+        ('p3', 'Door',      '#D85A30', 2),
+        ('p4', 'Shutter',   '#534AB7', 2),
+        ('p5', 'Grille',    '#A32D2D', 2),
+        ('p6', 'Shed',      '#0F6E56', 2),
+        ('p7', 'Casing',    '#D4537E', 2),
+        ('p8', 'Capping',   '#5F5E5A', 2);
+    `);
+    legacy.close();
+
+    const db = openDatabase(dbPath);
+    // Each old value takes its own new one. The eight jobs the owner could tell apart before are
+    // still eight the owner can tell apart, which a per-colour nearest lookup would have broken:
+    // both retired greens would have found the single green there is now.
+    expect(colours(db)).toEqual([
+      '#3787D7',
+      '#249E30',
+      '#E86417',
+      '#8E5DC6',
+      '#C93136',
+      '#9B8508',
+      '#D62988',
+      '#847B6C',
+    ]);
+    expect(new Set(colours(db)).size).toBe(8);
+    db.close();
+
+    // Recorded, so a job the owner has since repainted by hand is never repainted again — and a
+    // value that is in BOTH palettes could not be double-mapped even if it were.
+    const again = openDatabase(dbPath);
+    again.prepare("UPDATE projects SET color = '#3787D7' WHERE id = 'p2'").run();
+    again.close();
+    const third = openDatabase(dbPath);
+    expect(third.prepare("SELECT color FROM projects WHERE id = 'p2'").get()).toEqual({
+      color: '#3787D7',
+    });
+    third.close();
+  });
+
+  it('leaves a colour it does not recognise exactly as it found it', () => {
+    // Not the app's to guess at: an arbitrary hex reached the column some other way, and the
+    // migration names the eight it retired and nothing else.
+    const dbPath = path.join(scratch, 'palette-unknown', 'calendar.db');
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE projects (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, color TEXT NOT NULL,
+        total_hours REAL NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Railing', '#123456', 2);
+    `);
+    legacy.close();
+
+    const db = openDatabase(dbPath);
+    expect(colours(db)).toEqual(['#123456']);
+    db.close();
+  });
+});
+
 describe('openDatabase', () => {
   it('hands out an isolated, already-migrated database for tests', () => {
     const a = openDatabase(':memory:');
     const b = openDatabase(':memory:');
-    a.prepare("INSERT INTO projects (id, name, color) VALUES ('p1', 'Staircase', '#1D9E75')").run();
+    a.prepare("INSERT INTO projects (id, name, color) VALUES ('p1', 'Staircase', '#249E30')").run();
 
     expect(a.prepare('SELECT COUNT(*) AS n FROM projects').get()).toEqual({ n: 1 });
     expect(b.prepare('SELECT COUNT(*) AS n FROM projects').get()).toEqual({ n: 0 });

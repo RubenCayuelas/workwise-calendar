@@ -9,6 +9,24 @@ never moves without the owner asking.
 
 ---
 
+## 0.21.0 — a new set of job colours
+
+**The eight colours a job can be painted are new**: green, blue, red, yellow, orange, purple, grey
+and pink. The set the client asked for is seven; the eighth is there because the app has eight slots
+and a job more that can be told apart is worth having.
+
+**Two jobs no longer end up looking alike.** The old set held a green and a dark green whose blocks
+were, in the tint the grid actually paints, the same colour — and its blue, violet, red, dark green
+and grey all went murky against a dark background. Every new value is legible on both, and every pair
+is kept apart in the pale fill, which is where two jobs start to blur long before their borders do.
+
+**Jobs already on the calendar are repainted when the app next starts**, each to the nearest colour in
+the new set, and no two jobs that were different colours come out the same. The one that visibly moves
+is a job that was dark green: there is a single green now, so it takes the colour nothing else claims.
+The padlock, the hours and the position of every block are untouched.
+
+---
+
 ## 0.20.1 — the new-job form closes when the job is created
 
 **Creating a job no longer leaves the form open.** It used to stay on screen with every field greyed

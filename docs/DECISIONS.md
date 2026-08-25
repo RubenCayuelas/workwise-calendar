@@ -671,3 +671,25 @@ second row. Two jobs with the same name is what the owner does today, and *añad
 a second entry with the name and colour pre-filled — is the whole of what was agreed.
 
 ---
+
+## The Job Palette Is Chosen Against the Fill, Not the Swatch
+
+**Rule** — SPEC § *Visual Design*. The eight job colours each hold at least 3:1 against both the light and the
+dark surface, clear the brand amber and the gap fill by dE 30, and are kept apart from one another in the 12%
+fill rather than at full strength.
+
+**Why** — a block is its colour twice over: a hairline border and the padlock mark at full strength, over a fill
+of itself mixed 12% into the surface. The fill is most of what the eye sees, and eight saturated values collapse
+into eight very close washes there — so a set chosen by looking at swatches can hold two jobs that are plainly
+different in the picker and the same colour on the grid. The retired set did exactly that: its green and its dark
+green sat at dE 2.1 in the fill, no difference at all, and its blue, violet, red, dark green and grey all fell
+below 3:1 on the dark surface, where the border that identifies a job goes murky. The band that satisfies both
+surfaces is relative luminance 0.14 to 0.30, which is why none of the eight is a pastel or a deep tone — "light
+green" and "light blue" are the lightest members of their hue the dark surface still allows, not washes.
+
+**Rejected** — repainting stored jobs by nearest colour, one at a time. Both retired greens find the single green
+there is now, so two jobs the owner had told apart come out identical — the whole complaint, reintroduced by the
+fix for it. The mapping is the whole-set assignment with the smallest total distance instead, which is a
+bijection; the one visible jump is the old dark green, which takes the slot nothing else claims.
+
+---

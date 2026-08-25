@@ -340,14 +340,14 @@
     "backupDownloaded": "Copy downloaded as “{{file}}” to the browser’s downloads folder. Open the app on “localhost” to be able to choose a location."
   },
   "colors": {
-    "1": "Blue",
-    "2": "Green",
-    "3": "Orange",
-    "4": "Violet",
-    "5": "Red",
-    "6": "Dark green",
-    "7": "Pink",
-    "8": "Grey",
+    "1": "Green",
+    "2": "Blue",
+    "3": "Red",
+    "4": "Yellow",
+    "5": "Orange",
+    "6": "Purple",
+    "7": "Grey",
+    "8": "Pink",
     "groupLabel": "Job colour"
   },
   "notices": {

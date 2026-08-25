@@ -61,7 +61,7 @@ describe('taking a copy', () => {
     const dbPath = path.join(root, 'calendar.db');
     const db = openDatabase(dbPath);
     // Straight to SQL: the point is the storage layer, not the engine.
-    db.prepare("INSERT INTO projects (id, name, color, total_hours) VALUES ('p', 'Railing', '#1D9E75', 4)").run();
+    db.prepare("INSERT INTO projects (id, name, color, total_hours) VALUES ('p', 'Railing', '#249E30', 4)").run();
 
     const walBytes = fs.statSync(`${dbPath}-wal`).size;
     expect(walBytes).toBeGreaterThan(0);
