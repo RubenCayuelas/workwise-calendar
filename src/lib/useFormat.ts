@@ -9,14 +9,17 @@
 
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isoWeekNumber } from './dates';
 import {
   formatHourNumber,
   formatLongDate,
   formatMediumDate,
   formatMonthShort,
+  formatMonthYear,
   formatDayOfMonth,
   formatTime,
   formatWeekdayLong,
+  formatWeekdayNarrow,
   formatWeekdayShort,
   weekRangeLabel,
 } from './format';
@@ -39,12 +42,16 @@ export interface Formatter {
 
   /** "Mié" */
   weekdayShort(date: string): string;
+  /** "L" — the single letter a month grid heads its columns with. */
+  weekdayNarrow(date: string): string;
   /** "miércoles" */
   weekdayLong(date: string): string;
   /** "12" */
   dayOfMonth(date: string): string;
   /** "ago" */
   monthShort(date: string): string;
+  /** "agosto 2026" */
+  monthYear(date: string): string;
   /** The day-header label: "Mié 12". */
   dayHeader(date: string): string;
   /** "Mié 12 ago" — a whole day, short enough for a form control's option. */
@@ -55,6 +62,8 @@ export interface Formatter {
   longDate(date: string): string;
   /** "27 ago 2026" — for lists and confirmations. */
   mediumDate(date: string): string;
+  /** "miércoles 12 de agosto · Semana 33" — the line a date field carries under itself. */
+  dayLine(date: string): string;
 
   /**
    * "4 h el Mié 12" — an amount of work and the day it lands on. One phrase for the ghost
@@ -110,14 +119,20 @@ export function useFormat(): Formatter {
       timeRange,
 
       weekdayShort: (date) => formatWeekdayShort(date, language),
+      weekdayNarrow: (date) => formatWeekdayNarrow(date, language),
       weekdayLong: (date) => formatWeekdayLong(date, language),
       dayOfMonth: formatDayOfMonth,
       monthShort: (date) => formatMonthShort(date, language),
+      monthYear: (date) => formatMonthYear(date, language),
       dayHeader,
       dayOption,
       todayOption: (date) => t('units.dayOptionToday', { date: dayOption(date) }),
       longDate: (date) => formatLongDate(date, language),
       mediumDate: (date) => formatMediumDate(date, language),
+      dayLine: (date) =>
+        [formatLongDate(date, language), t('units.week', { week: isoWeekNumber(date) })].join(
+          t('units.listSeparator'),
+        ),
 
       hoursOnDay: (date, minutes) =>
         t('units.hoursOnDay', { hours: hourNumber(minutes), day: dayHeader(date) }),

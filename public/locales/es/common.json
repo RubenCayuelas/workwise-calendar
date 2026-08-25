@@ -29,6 +29,7 @@
     "listSeparator": " · ",
     "dayOption": "{{weekday}} {{day}} {{month}}",
     "dayOptionToday": "{{date}} · hoy",
+    "week": "Semana {{week}}",
     "blocks_one": "{{count}} tramo",
     "blocks_other": "{{count}} tramos"
   },
