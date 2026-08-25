@@ -1,452 +1,461 @@
-# Los selectores de día y hora, y los placeholders — diseño
+# The day and time pickers, and the placeholders — design
 
-**Rama** `feat/pickers-and-placeholders`, sacada de `dev` en `a3920c7`.
+**Branch** `feat/pickers-and-placeholders`, cut from `dev` at `a3920c7`.
 
-## Qué cambia para quien usa la app
+## What changes for whoever uses the app
 
-Tres cosas.
+Three things.
 
-**Los placeholders dejan de parecer valores escritos.** Hoy tres de los cuatro son ejemplos —
-`Puerta metálica`, `Avería del torno`, `Feria` — en campos que ya tienen su etiqueta encima. Pasan a
-decir qué escribir.
+**The placeholders stop looking like typed values.** Today three of the four are examples —
+`Puerta metálica`, `Avería del torno`, `Feria` — in fields that already carry their label above them.
+They become a statement of what to type.
 
-**El día se elige en un calendario, no en una lista.** El desplegable ofrece hoy entre 84 y 140
-opciones seguidas. Pasa a ser un botón con el día elegido que abre la rejilla del mes.
+**The day is chosen on a calendar, not from a list.** The dropdown offers between 84 and 140 options
+in a row today. It becomes a button holding the chosen day, which opens the month grid.
 
-**La hora se escribe.** El desplegable ofrece hoy 96 cuartos de hora, de `00:00` a `23:45`. Pasa a ser
-un campo `HH:mm` que se teclea, con `−`/`+` y `↑`/`↓` moviendo un cuarto de hora y `Mayús` una hora.
+**The time is typed.** The dropdown offers 96 quarter-hours today, from `00:00` to `23:45`. It becomes
+an `HH:mm` field that is typed into, with `−`/`+` and `↑`/`↓` moving by a quarter of an hour and
+`Shift` by an hour.
 
-Nada de esto cambia una regla del motor. Ningún dato se guarda distinto.
+None of this changes an engine rule. No datum is stored differently.
 
-## Lo que decidió el dueño
+## What the owner decided
 
-Cerrado en la conversación del 2026-08-25. **No se vuelve a preguntar.**
+Settled in the conversation of 2026-08-25. **It is not asked again.**
 
-| pregunta | respuesta |
+| question | answer |
 |---|---|
-| Qué dice un placeholder | **Instruye** qué escribir. Ni ejemplo, ni `p. ej. X` |
-| Cuál de las dos tandas de texto | La **segunda** (las órdenes, más cortas) |
-| Cambiar además la etiqueta `Motivo` al cerrar días | **No**. Una etiqueta, no dos que mantener a la par |
-| Cómo se elige el día | **Calendario del mes en un popover** sobre un botón |
-| Hasta dónde navega | **Lo mismo que hoy**: 4 semanas atrás, el horizonte adelante, tope 16 semanas |
-| Qué se marca en la rejilla | **Hoy**, **fin de semana**, **días cerrados** y **los que ya están llenos** |
-| Cómo se ve un día cerrado | **El gris de la cuadrícula**, y su motivo guardado al posar el ratón |
-| Qué significa el punto | **Nada que haya que explicar**: hay hueco. Al posar el ratón, las horas libres |
-| `Desde` / `Hasta` de una ausencia | **Un solo calendario de rango** |
-| El rótulo de semana | **Bajo el campo**, si sale simple y seguro |
-| Cómo se elige la hora | **Se escribe**, con `−`/`+` y `↑`/`↓` |
-| Cuándo hace efecto lo escrito | **Al pulsar Intro o al salir del campo.** Los botones y las flechas, al instante |
+| What a placeholder says | **It instructs** what to type. Not an example, not `p. ej. X` |
+| Which of the two rounds of wording | The **second** (the imperatives, shorter) |
+| Changing the `Motivo` label as well when closing days | **No**. One label, not two to keep in step |
+| How the day is chosen | **The month calendar in a popover** over a button |
+| How far it navigates | **The same as today**: 4 weeks back, the horizon forward, capped at 16 weeks |
+| What is marked on the grid | **Today**, **the weekend**, **closed days**, and **which days still have room** |
+| How a closed day looks | **The grid's grey**, and its stored reason on hover |
+| What the dot means | **Nothing that has to be explained**: there is room. On hover, the free hours |
+| An absence's `Desde` / `Hasta` | **A single range calendar** |
+| The week label | **Under the field**, if it comes out simple and safe |
+| How the time is chosen | **It is typed**, with `−`/`+` and `↑`/`↓` |
+| When what is typed takes effect | **On Enter or on leaving the field.** The buttons and the arrows, at once |
 
-Dos de estas respuestas corrigen un dibujo mío: el rayado para los días cerrados **no** se usa, y el
-punto de hueco **no** lleva definición en pantalla.
+Two of these answers correct a sketch of mine: hatching for closed days is **not** used, and the room
+dot carries **no** definition on screen.
 
-Sobre el rayado, la razón cambió a mitad de camino y a mejor. Esta rama se rebasó sobre `origin/dev`
-en `8669fea` mientras se escribía el plan, y ese `dev` trae una regla nueva: **un hueco sí se raya**
-(SPEC § *Calendar View*, DECISIONS § *A Gap Is Hatched, the Lunch-Break Band Is Not*). Lejos de
-contradecir esto, lo afila — la propia decisión dice por qué: un hueco se raya porque es **un
-rectángulo dentro de un carril que hay que distinguir del bloque de al lado**, mientras que la banda de
-la comida se deja lisa porque **cruza las siete columnas en la parte del día que no lleva
-información**, y decorada se convertía en lo primero que encontraba el ojo. Las 42 celdas del selector
-son el segundo caso, no el primero: no tienen un vecino con el que confundirse y son muchas. Y un día
-cerrado en la cuadrícula ya es un gris (`.columnClosed`), no un rayado. Así que el selector dice
-«cerrado» con el mismo gris, y el rayado se queda para lo que significa: un hueco.
+On the hatching, the reason changed halfway through, and for the better. This branch was rebased onto
+`origin/dev` at `8669fea` while the plan was being written, and that `dev` brings a new rule: **a gap
+IS hatched** (SPEC § *Calendar View*, DECISIONS § *A Gap Is Hatched, the Lunch-Break Band Is Not*). Far
+from contradicting this, it sharpens it — the decision itself says why: a gap is hatched because it is
+**a rectangle inside a lane that has to be told apart from the block beside it**, while the lunch band
+is left plain because **it crosses all seven columns in the part of the day that carries no
+information**, and decorated it became the first thing the eye found. The picker's 42 cells are the
+second case, not the first: they have no neighbour to be confused with, and there are many of them. And
+a closed day on the grid is already a grey (`.columnClosed`), not a hatch. So the picker says
+«cerrado» with that same grey, and hatching stays for what it means: a gap.
 
-## El tono: mínimo, limpio, y de la misma familia
+## The tone: minimal, clean, and of the same family
 
-Pedido por el dueño el 2026-08-25: *«lo quiero minimalista, limpio y que encaje con el diseño general
-de la app»*. Eso no es decoración del documento, decide cosas:
+Asked for by the owner on 2026-08-25: *«lo quiero minimalista, limpio y que encaje con el diseño
+general de la app»* — minimal, clean, and fitting the app's general design. That is not decoration of
+the document; it decides things:
 
-- **Ni un color a mano**: todo por un token de `public/brand/workwise-tokens.css`, como manda CLAUDE.md,
-  para que el tema oscuro siga saliendo gratis. Iconos de Tabler, los que ya usa el resto.
-- **Bordes de medio píxel y esquinas `--radius`**, como cualquier tarjeta o panel de la app.
-- **Nada de leyenda y nada de rótulos explicativos.** Lo que un día tenga que decir lo dice al posar
-  el ratón, que es como ya funciona la cabecera de cada día en la cuadrícula. Y nada de rayados: el
-  rayado ya significa «un hueco» en esta app, y significarlo aquí de otra forma sería un idioma nuevo.
-- **Una sola línea de ayuda bajo el campo**, nunca dos.
-- **El texto en minúscula donde el idioma la pide**: `agosto 2026`, no `Agosto 2026`. Los días de la
-  semana en su letra sola —`L M X J V S D`—, por `Intl` y no por una lista escrita a mano.
-- **Ningún estado nuevo que haya que aprender.** Las seis marcas son las que el dueño pidió y ni una
-  más, y todas se pueden pulsar.
+- **Not one colour by hand**: everything through a token from `public/brand/workwise-tokens.css`, as
+  CLAUDE.md requires, so the dark theme keeps coming out free. Tabler icons, the ones the rest already
+  uses.
+- **Half-pixel borders and `--radius` corners**, like any card or panel in the app.
+- **No legend and no explanatory labels.** Whatever a day has to say, it says on hover, which is how
+  each day's header on the grid already works. And no hatching: the hatch already means «un hueco» — a
+  gap — in this app, and meaning it here in another way would be a new language.
+- **One single help line under the field**, never two.
+- **Lower case where the language asks for it**: `agosto 2026`, not `Agosto 2026`. The weekdays as
+  their single letter — `L M X J V S D` — from `Intl` and not from a hand-written list.
+- **No new state to learn.** The six marks are the ones the owner asked for and not one more, and every
+  one of them can be clicked.
 
-## Los cuatro placeholders
+## The four placeholders
 
-| clave | hoy | pasa a decir |
+| key | today | becomes |
 |---|---|---|
 | `jobPanel.namePlaceholder` | `Puerta metálica` / `Metal door` | `Ponle un nombre que reconozcas` / `Give it a name you will recognise` |
-| `jobPanel.descriptionPlaceholder` | `Notas, medidas, material…` | **igual**: ya nombra categorías, no un valor |
+| `jobPanel.descriptionPlaceholder` | `Notas, medidas, material…` | **unchanged**: it already names categories, not a value |
 | `gapForm.reasonPlaceholder` | `Avería del torno` / `Lathe breakdown` | `Qué ocupa esas horas` / `What takes up those hours` |
 | `absenceForm.notePlaceholder` | `Feria` / `Fair` | `Por qué cierras esos días` / `Why you are closing those days` |
 
-`gapForm.reasonPlaceholder` es el texto de tres formularios a la vez — editar una ausencia, cerrar el
-día aquí, y el modo *Un hueco* — así que no puede nombrar «el día»: sería mentira en dos de los tres.
-`absenceForm.notePlaceholder` solo aparece en *Cerrar días*, donde el texto va a `day_overrides.note` y
-la cabecera del día lo imprime en lugar de la palabra `cerrado`.
+`gapForm.reasonPlaceholder` is the text of three forms at once — editing an absence, closing the day
+here, and the *Un hueco* mode — so it cannot name «the day»: it would be a lie in two of the three.
+`absenceForm.notePlaceholder` appears only in *Cerrar días*, where the text goes to
+`day_overrides.note` and the day header prints it in place of the word `cerrado`.
 
-**Una consecuencia que se verá**: los ejemplos siguen en pantalla en las tarjetas de modo
-(`absenceForm.modeGapHint` = «Unas horas del día: una avería, gestiones, media tarde.» y
+**A consequence that will be seen**: the examples stay on screen on the mode cards
+(`absenceForm.modeGapHint` = «Unas horas del día: una avería, gestiones, media tarde.» and
 `absenceForm.modeClosedHint` = «Vacaciones, feria, festivo: el día entero, sin horas planificables.»),
-pero **esas tarjetas solo se dibujan en el modo múltiple**. En el formulario de una sola ausencia y en
-el de cerrar el día no quedará ningún ejemplo. Se juzga aceptable: los dos ya se explican en tres
-líneas de ayuda propias.
+but **those cards are only drawn in the multiple mode**. In the single-absence form and in the
+close-the-day form no example will be left. Judged acceptable: both already explain themselves in three
+help lines of their own.
 
-## `DayPicker` — el selector de día
+## `DayPicker` — the day picker
 
-Sustituye a `DateSelect` en sus cuatro sitios: `NewJobPanel:393`, `AbsencePanel:571` (`Desde`),
-`AbsencePanel:619` (`Hasta`) y `SplitBlockPanel:236`.
+Replaces `DateSelect` in its four places: `NewJobPanel:393`, `AbsencePanel:571` (`Desde`),
+`AbsencePanel:619` (`Hasta`) and `SplitBlockPanel:236`.
 
-### El disparador
+### The trigger
 
-Un `<button type="button">` con el día ya escrito por `format.dayOption(value)` — `Mié 12 ago`, la
-misma cadena que hoy — y el galón de `Field`. Hereda de `Field` el id generado, el `aria-describedby`
-y el aro de inválido, y respeta `disabled`.
+A `<button type="button">` with the day already written by `format.dayOption(value)` — `Mié 12 ago`,
+the same string as today — and `Field`'s chevron. It inherits the generated id, the `aria-describedby`
+and the invalid ring from `Field`, and it respects `disabled`.
 
-**No lleva `aria-label`.** Para un botón el nombre accesible sale del `aria-label` antes que de su
-contenido, y `<label for>` no entra en ese cálculo: un `aria-label` borraría a la vez el nombre del
-campo y la fecha elegida. Lleva `aria-labelledby` apuntando a la etiqueta del `Field` y a su propio id
-—«Desde, Mié 12 ago»—, `aria-haspopup="dialog"`, `aria-expanded`, y `dayPicker.open` solo como `title`.
-El galón va `aria-hidden`, como el de `Select`.
+**It carries no `aria-label`.** For a button the accessible name comes from `aria-label` before its
+content, and `<label for>` does not enter that calculation: an `aria-label` would erase both the
+field's name and the chosen date at once. It carries `aria-labelledby` pointing at the `Field`'s label
+and at its own id — «Desde, Mié 12 ago» —, `aria-haspopup="dialog"`, `aria-expanded`, and
+`dayPicker.open` as `title` only. The chevron is `aria-hidden`, like `Select`'s.
 
-Igual que `ColorSwatches` recibe `label={t('jobPanel.color')}` porque un `radiogroup` no puede llevar
-el id generado, `DayPicker` recibe el id de la etiqueta desde el sitio que lo usa.
+Just as `ColorSwatches` receives `label={t('jobPanel.color')}` because a `radiogroup` cannot carry the
+generated id, `DayPicker` receives the label's id from the place that uses it.
 
-### La línea bajo el campo
+### The line under the field
 
-**Una sola línea**, no dos: `miércoles 12 de agosto · Semana 33`, unida con `units.listSeparator`
-—« · »— como la cabecera de un día compone hoy la suya. Sale de `format.longDate`, del número que ya
-calcula `isoWeekNumber`, y de **una clave nueva** `units.week` = «Semana {{week}}»: la que existe,
-`header.week`, lleva el rango de fechas dentro y aquí sobra, porque la fecha larga ya lo dice.
+**One single line**, not two: `miércoles 12 de agosto · Semana 33`, joined with `units.listSeparator`
+— « · » — the way a day's header composes its own today. It comes out of `format.longDate`, out of the
+number `isoWeekNumber` already computes, and out of **one new key** `units.week` = «Semana {{week}}»:
+the one that exists, `header.week`, carries the date range inside it and is redundant here, because the
+long date already says it.
 
-Lo que hace es lo único que se perdía al dejar la lista: el desplegable agrupaba los días bajo el
-rótulo de la semana **exactamente igual** que la cabecera de la cuadrícula, para que un formulario y la
-cuadrícula no pudieran llamar de dos maneras a un mismo día. `Semana 33` lo conserva sin repetir el
-rango de fechas, que la fecha larga ya dice.
+What it does is the one thing that was lost by dropping the list: the dropdown grouped the days under
+the week label **exactly as** the grid header does, so that a form and the grid could not call one and
+the same day two different things. `Semana 33` keeps that without repeating the date range, which the
+long date already says.
 
-Va en los tres selectores de un día. En el rango, no: ese hueco lleva la cuenta de días. Y `Field`
-sustituye la ayuda por el error cuando hay error, así que la línea desaparece justo cuando una fecha se
-está rechazando — que es lo correcto y lo que ya hace el resto de la app.
+It goes in the three single-day pickers. Not in the range: that slot carries the day count. And `Field`
+replaces the help with the error when there is an error, so the line disappears exactly when a date is
+being refused — which is right, and what the rest of the app already does.
 
-### La rejilla
+### The grid
 
-Seis filas de siete celdas, **siempre seis**, lunes primero. Cabecera de días de la semana en
-`Intl` a través de `format`. Título del mes y año. `‹` y `›` para cambiar de mes. Un botón `Hoy` que
-**elige hoy y cierra**, como cualquier otra celda — no solo navega.
+Six rows of seven cells, **always six**, Monday first. A weekday header from `Intl` through `format`.
+The month and the year as the title. `‹` and `›` to change month. A `Hoy` button that **picks today and
+closes**, like any other cell — it does not merely navigate.
 
-Seis filas fijas y no cinco o seis según el mes: así la altura del popover es una constante y el
-recorte contra la ventana es aritmética pura y con test, en vez de una medición.
+Six fixed rows and not five or six depending on the month: that way the popover's height is a constant
+and the clamping against the window is pure arithmetic with a test, instead of a measurement.
 
-### Las marcas
+### The marks
 
-| día | cómo se ve | de dónde sale |
+| day | how it looks | where it comes from |
 |---|---|---|
-| el elegido | la celda rellena | del propio valor |
-| hoy | un aro alrededor del número | `today`, que ya llega a los tres paneles |
-| sábado y domingo | el número atenuado | `isWeekend`, en el cliente |
-| pasado | el número atenuado, igual que el fin de semana | `compareDates(date, today) < 0`, en el cliente |
-| cerrado | el **fondo** de la celda en gris, el mismo `--ww-surface-alt` con el que la cuadrícula pinta una columna cerrada | del servidor |
-| con hueco libre | un punto bajo el número | del servidor |
+| the chosen one | the cell filled | from the value itself |
+| today | a ring around the number | `today`, which already reaches the three panels |
+| Saturday and Sunday | the number dimmed | `isWeekend`, on the client |
+| the past | the number dimmed, the same as the weekend | `compareDates(date, today) < 0`, on the client |
+| closed | the cell's **background** in grey, the same `--ww-surface-alt` the grid paints a closed column with | from the server |
+| with room free | a dot under the number | from the server |
 
-Dos canales y no tres: el **número** se atenúa cuando el motor no trabaja ese día por el calendario
-(fin de semana, pasado), y el **fondo** se apaga cuando el taller está cerrado por decisión del dueño.
-Un sábado cerrado lleva las dos cosas, que es la verdad.
+Two channels and not three: the **number** dims when the engine does not work that day because of the
+calendar (weekend, past), and the **background** goes dull when the shop is closed by the owner's
+decision. A closed Saturday carries both, which is the truth.
 
-**Todas se pueden elegir.** Ninguna marca deshabilita nada: DECISIONS § *A Closed Day Chosen As A
-Start Date Is Honoured* recoge la decisión del dueño, «Dejar elegirlo, pero cumplirlo de verdad».
+**Every one of them can be chosen.** No mark disables anything: DECISIONS § *A Closed Day Chosen As A
+Start Date Is Honoured* records the owner's decision, «Dejar elegirlo, pero cumplirlo de verdad» — let
+them choose it, but honour it for real.
 
-**Al posar el ratón, la celda dice lo que ese día tenga que decir**, compuesto con
-`units.listSeparator` a partir de claves que ya existen: `format.dayOption`, y luego `day.today`,
-`day.weekend`, `day.closed` o el motivo guardado del día, y `day.freeHours` = «{{hours}} h libres» o
-`day.full` = «Día completo». Es exactamente como `DayHeader` compone hoy su propio `title`.
+**On hover, the cell says whatever that day has to say**, composed with `units.listSeparator` out of
+keys that already exist: `format.dayOption`, and then `day.today`, `day.weekend`, `day.closed` or the
+day's stored reason, and `day.freeHours` = «{{hours}} h libres» or `day.full` = «Día completo». It is
+exactly how `DayHeader` composes its own `title` today.
 
-**No hay leyenda.** El dueño no la pidió, y el `title` de cada celda enseña las marcas mejor que una
-línea de letra pequeña en un popover estrecho.
+**There is no legend.** The owner did not ask for one, and each cell's `title` teaches the marks better
+than a line of small print in a narrow popover.
 
-### El punto, y por qué esta aritmética y no otra
+### The dot, and why this arithmetic and not another
 
-El punto significa una sola cosa: **aquí el motor todavía coloca horas**. Su ausencia no afirma nada.
+The dot means one thing only: **the engine still places hours here**. Its absence asserts nothing.
 
-Las dos cifras que ya existen en `WeekDay` no sirven, y su propio comentario dice por qué responden a
-preguntas distintas: `plannableMinutes` no resta el trabajo suelto, así que pondría un punto en un
-martes que la cuadrícula dibuja lleno; `bookedMinutes` diría «lleno» en un día que el motor va a
-despejar en la siguiente escritura, o sea un estado que el dueño no eligió. Por date, dentro de la
-operación nueva:
+The two figures that already exist on `WeekDay` are no use, and their own comment says why they answer
+different questions: `plannableMinutes` does not subtract the work already sitting there, so it would
+put a dot on a Tuesday the grid draws full; `bookedMinutes` would say «full» about a day the engine is
+going to clear on the next write, which is a state the owner did not choose. Per date, inside the new
+operation:
 
 ```
 freeMinutes = max(0, plannableMinutesOf(snapshot, date)
-                     − Σ durationMinutes de los bloques movibles de ese día)
-longestRun  = max(freeStretchesFrom(config.periods, huecos y bloques de ese día))
+                     − Σ durationMinutes of that day's movable blocks)
+longestRun  = max(freeStretchesFrom(config.periods, that day's gaps and blocks))
 hasRoom     = date <= horizonEndDate(...) && min(freeMinutes, longestRun) >= MIN_ROW_MINUTES
 ```
 
-Cada término tiene su razón. Restar los minutos movibles es la aritmética del propio motor: `openDay`
-arranca el día en `plannableMinutes` y `planTake` va descontando, y las filas movibles del día son
-justo en lo que la última pasada gastó ese presupuesto. El suelo del cuarto de hora es SPEC § *Fill and
-Overflow, Always*: un día cuyos 40 minutos libres son cuatro agujeros de diez no tiene hueco que el
-motor vaya a usar. Y el horizonte hay que comprobarlo aparte porque `buildDayPlan` no lo conoce: sin
-eso, un día más allá del horizonte declara todos sus minutos planificables y el punto prometería sitio
-justo en los días que producen el rechazo `horizon-exceeded`.
+Every term has its reason. Subtracting the movable minutes is the engine's own arithmetic: `openDay`
+starts the day at `plannableMinutes` and `planTake` draws it down, and the day's movable rows are
+exactly what the last pass spent that budget on. The quarter-hour floor is SPEC § *Fill and Overflow,
+Always*: a day whose 40 free minutes are four holes of ten has no room the engine is going to use. And
+the horizon has to be checked separately because `buildDayPlan` does not know it: without that, a day
+beyond the horizon declares all of its minutes plannable and the dot would promise space in exactly the
+days that produce the `horizon-exceeded` refusal.
 
-De regalo, la consistencia de las marcas sale de una sola línea: `buildDayPlan` devuelve cero minutos
-planificables por cuatro motivos a la vez —fecha pasada, día cerrado, día `manual`, jornada de cero
-minutos—, así que **un fin de semana, un día cerrado y un día pasado se quedan sin punto sin más
-código**, y el punto no puede contradecir al gris que ya llevan.
+As a bonus, the marks' consistency comes out of a single line: `buildDayPlan` returns zero plannable
+minutes for four reasons at once — a past date, a closed day, a `manual` day, a shift of zero minutes —
+so **a weekend, a closed day and a past day are left without a dot with no further code**, and the dot
+cannot contradict the grey they already carry.
 
-### Hasta dónde llega
+### How far it reaches
 
-`planningWindow` sigue mandando: 4 semanas atrás desde el lunes de esta semana, el horizonte adelante,
-tope 16 semanas. Las flechas `‹ ›` se apagan en los bordes de esa ventana.
+`planningWindow` still rules: 4 weeks back from this week's Monday, the horizon forward, capped at 16
+weeks. The `‹ ›` arrows go dead at that window's edges.
 
-La ventana cae casi siempre a mitad de mes, así que la rejilla dibuja días que la ventana no ofrece
-—para hoy 2026-08-12 con horizonte 8, la ventana es 2026-07-13 … 2026-10-04, y julio tiene doce días
-fuera—. **Esos días se dibujan apagados y no se pueden pulsar.** Es exactamente el conjunto de días
-alcanzable hoy: si se pudieran pulsar, hacia delante el guardado responde 409 `horizon-exceeded`, y
-hacia atrás la fecha de inicio de un trabajo escribe filas pasadas y bloqueadas que el dueño no quiso.
+The window almost always falls mid-month, so the grid draws days the window does not offer — for a
+today of 2026-08-12 with horizon 8, the window is 2026-07-13 … 2026-10-04, and July has twelve days
+outside it. **Those days are drawn dull and cannot be clicked.** It is exactly the set of days
+reachable today: if they could be clicked, forward the save answers 409 `horizon-exceeded`, and
+backward a job's start date writes past, locked rows the owner did not want.
 
-Un valor guardado **fuera** de la ventana se conserva, como hoy: el popover abre en su mes y esa celda
-sí se puede pulsar; el resto de ese mes, no.
+A stored value **outside** the window is kept, as today: the popover opens on its month and that cell
+can be clicked; the rest of that month cannot.
 
-### El modo rango
+### The range mode
 
-Solo en el modo múltiple del panel de ausencias, donde hoy hay dos campos. Un `Field` con un
-calendario, y con su propio hueco de error.
+Only in the absences panel's multiple mode, where there are two fields today. One `Field` with one
+calendar, and with an error slot of its own.
 
-Cuatro cosas que hay que respetar, cada una con su defecto detrás:
+Four things that have to be respected, each with its defect behind it:
 
-1. **El error necesita sitio.** `localError` no se dibuja en ningún lado salvo en el `error=` de los
-   cinco `Field`. Al juntar `Desde` y `Hasta` desaparecería el único hueco donde aparecen
-   `errors.rangeBackwards` y el 400 `invalid-range` del servidor — y `Guardar` se quedaría callado, sin
-   escribir nada y sin decir nada. El `Field` del rango lleva `error={errorFor('date') ??
-   errorFor('endDate')}`, y `API_FIELD` sigue mapeando `from → date` y `to → endDate`.
-2. **El servidor se salta sábados y domingos** dentro del rango, salvo que el rango entero sea fin de
-   semana. Un tramo pintado de lunes a domingo pintaría siete celdas mientras la escritura hace cinco.
-   Las celdas de fin de semana **dentro del tramo se pintan excluidas**, y eso se decide con la misma
-   función pura que usa el servidor (`absenceRange`), nunca rederivada en el componente.
-3. **La cuenta de días se queda donde está**, bajo el campo: no es la cuenta de celdas del tramo, es la
-   que la vista previa dice que se va a escribir. Por eso el rótulo de semana **no** va en el modo
-   rango — ese hueco ya tiene trabajo. Mientras falte el segundo extremo, el popover dice
-   `dayPicker.rangePending` dentro de sí mismo, no en el formulario.
-4. **El primer clic no sale del calendario.** El popover se guarda el extremo pendiente y solo llama a
-   `onChange` cuando tiene los dos. Si el primer clic escribiera `date` y `endDate`, cada clic de
-   paseo por el mes lanzaría `previewAbsence`, que es una escritura real dentro de una transacción que
-   se deshace, anunciando trabajo desplazado de un rango a medio elegir. Y si dejara `endDate` sin
-   poner, `rangeValid` se caería, con ella la vista previa, y el botón `Reabrir` desaparecería a media
-   selección.
+1. **The error needs somewhere to go.** `localError` is drawn nowhere except in the `error=` of the
+   five `Field`s. Merging `Desde` and `Hasta` would remove the only slot where `errors.rangeBackwards`
+   and the server's 400 `invalid-range` appear — and `Guardar` would go silent, writing nothing and
+   saying nothing. The range's `Field` carries `error={errorFor('date') ?? errorFor('endDate')}`, and
+   `API_FIELD` still maps `from → date` and `to → endDate`.
+2. **The server skips Saturdays and Sundays** inside the range, unless the whole range is a weekend. A
+   stretch painted Monday to Sunday would paint seven cells while the write makes five. Weekend cells
+   **inside the stretch are painted as excluded**, and that is decided with the same pure function the
+   server uses (`absenceRange`), never re-derived in the component.
+3. **The day count stays where it is**, under the field: it is not the count of cells in the stretch,
+   it is the one the preview says is going to be written. That is why the week label does **not** go in
+   the range mode — that slot already has a job. While the second end is missing, the popover says
+   `dayPicker.rangePending` inside itself, not in the form.
+4. **The first click does not leave the calendar.** The popover keeps the pending end and only calls
+   `onChange` when it has both. If the first click wrote `date` and `endDate`, every click while
+   browsing the month would fire `previewAbsence`, which is a real write inside a transaction that is
+   rolled back, announcing displaced work for a half-chosen range. And if it left `endDate` unset,
+   `rangeValid` would fall over, the preview with it, and the `Reabrir` button would disappear
+   mid-selection.
 
-El segundo clic cierra el popover. Los dos extremos salen siempre ordenados, así que
-`compareDates(endDate, date) >= 0` no se puede romper desde aquí y `errors.rangeBackwards` queda
-inalcanzable por el calendario — el hueco de error se queda para el 400 del servidor, que sí se alcanza
-en dos clics (`MAX_ABSENCE_DAYS` = 120).
+The second click closes the popover. The two ends always come out ordered, so
+`compareDates(endDate, date) >= 0` cannot be broken from here and `errors.rangeBackwards` becomes
+unreachable through the calendar — the error slot stays for the server's 400, which two clicks do
+reach (`MAX_ABSENCE_DAYS` = 120).
 
-### Cuándo avisa al formulario
+### When it tells the form
 
-**En el clic, inmediatamente**, en los tres selectores de un día. No al cerrar el popover: los paneles
-fijan la fecha de forma optimista porque la banda pintada en la cuadrícula tiene que seguir al campo, y
-un campo congelado detrás de una pregunta congelaría la banda a media edición. Se conservan intactos
-los cuatro contratos que hay alrededor: el apunte de `lastVisible` para el aviso de semana, el
-`setForce(false)` de `NewJobPanel`, el `Hasta` que se arrastra hacia delante en `AbsencePanel`, y el
-`disabled` mientras se guarda.
+**On the click, immediately**, in the three single-day pickers. Not on closing the popover: the panels
+set the date optimistically because the band painted on the grid has to follow the field, and a field
+frozen behind a question would freeze the band mid-edit. The four contracts around it are kept intact:
+the `lastVisible` note for the week warning, `NewJobPanel`'s `setForce(false)`, the `Hasta` that is
+dragged forward in `AbsencePanel`, and the `disabled` while a save is in flight.
 
-El modo rango es la excepción justificada del punto 4 de arriba: ahí no hay banda pintada — el pintado
-solo abre el formulario de una ausencia, nunca el rango.
+The range mode is the justified exception of point 4 above: there is no painted band there — painting
+only opens the single-absence form, never the range.
 
-### El teclado
+### The keyboard
 
-Flechas mueven la celda enfocada; `Inicio` y `Fin`, a los extremos de la semana; `PáginaArriba` y
-`PáginaAbajo`, de mes; `Intro` elige; `Escape` cierra y devuelve el foco al disparador. Al abrir, el
-foco va a la celda seleccionada.
+The arrows move the focused cell; `Home` and `End`, to the ends of the week; `Page Up` and `Page Down`,
+by month; `Enter` chooses; `Escape` closes and returns the focus to the trigger. On opening, the focus
+goes to the selected cell.
 
-**Las flechas se tragan.** El disparador pasa a ser un `<button>`, y `isTypingTarget` solo reconoce
-`INPUT`, `TEXTAREA`, `SELECT` y `contenteditable` — con un `<select>` el paginador de semana lo
-saltaba dos veces; con un botón, lo único que hoy impediría que la semana girase bajo un calendario
-abierto es que `CalendarScreen` mire si hay un panel abierto, que es casualidad y no contrato.
+**The arrows are swallowed.** The trigger becomes a `<button>`, and `isTypingTarget` only recognises
+`INPUT`, `TEXTAREA`, `SELECT` and `contenteditable` — with a `<select>` the week pager skipped it
+twice; with a button, the only thing that would stop the week turning under an open calendar today is
+`CalendarScreen` looking at whether a panel is open, which is coincidence and not contract.
 
-## `TimeField` — el selector de hora
+## `TimeField` — the time picker
 
-Sustituye a `TimeSelect` en sus siete sitios: las cuatro filas de horario de Ajustes, la hora de inicio
-de una ausencia, el momento de cerrar el día, y la hora de las tijeras. Se construye sobre el `Input`
-que ya existe, así que hereda el cableado de `Field` sin tocar nada.
+Replaces `TimeSelect` in its seven places: the four shift rows in Settings, an absence's start time,
+the moment of closing the day, and the scissors' time. It is built on the `Input` that already exists,
+so it inherits `Field`'s wiring without touching anything.
 
-### Cómo se comporta
+### How it behaves
 
-- **Dibuja su propia cadena**, no el resultado de `format.time`. Pasar cada tecla por
-  parse→format reescribiría `8:00` a `08:00` bajo el cursor, y `formatTime` falla suave: fuera de
-  rango escribe un diagnóstico en la consola y devuelve `--:--`, que es justo lo contrario de «lo que
-  no se entiende se queda a la vista». `format.time` se usa solo donde se parte de minutos: el valor
-  inicial y el resultado de los botones y las flechas.
-- **Lo escrito hace efecto al pulsar `Intro` o al salir del campo.** `−`/`+` y `↑`/`↓` hacen efecto al
-  instante, un cuarto de hora, y con `Mayús` una hora.
-- **Solo se cuadra al cuarto lo que se haya cambiado de verdad**, comparando contra el valor que había
-  al entrar en el campo. Cuadrar en cada salida movería un `08:10` guardado a mano con solo tabular por
-  encima: `changedFields` compara cadenas, así que `08:10` → `08:15` entraría en el parche, y un
-  guardado de Ajustes recompone el calendario y vacía la línea de deshacer. Es el defecto exacto que el
-  comentario de `timeOptionMinutes` existe para evitar.
-- **Un valor ilegible se queda a la vista** con el aro de inválido y `errors.invalidTimeFormat`, nunca
-  reemplazado.
-- **El tope de arriba es `23:45`**, el último cuarto, que es lo que el desplegable podía emitir.
-  `hhmmToMinutes` interpreta `24:00` como 1440 y con eso la banda se deja de dibujar sin explicación
-  mientras el campo parece legal.
-- **Los límites rechazan a la vista, no recortan en silencio.** El único sitio que pasa límites es el
-  momento de cerrar el día, y son las franjas de trabajo: recortar convertiría un `18:00` escrito en
-  `17:45` — un valor cambiando bajo el dueño, que es lo que la regla del valor fuera de rejilla prohíbe.
-  No recortar dejaría escribir `23:00` y llegar a un callejón sin salida con `Guardar` apagado. Se
-  rechaza con `errors.timeOutOfBounds`, que dice entre qué horas tiene que estar.
-- **`Escape` dentro del campo llega al panel y lo cierra**, igual que hoy dentro del `Input` del nombre.
-  No hay estado que revertir: un búfer oculto de «lo que había antes» sería un tercer estado que
-  explicar.
+- **It draws its own string**, not the result of `format.time`. Putting every keystroke through
+  parse→format would rewrite `8:00` to `08:00` under the cursor, and `formatTime` fails soft: out of
+  range it writes a diagnostic to the console and returns `--:--`, which is the exact opposite of
+  «whatever is not understood stays in sight». `format.time` is used only where the starting point is
+  minutes: the initial value and the result of the buttons and the arrows.
+- **What is typed takes effect on `Enter` or on leaving the field.** `−`/`+` and `↑`/`↓` take effect at
+  once, by a quarter of an hour, and with `Shift` by an hour.
+- **Only what has actually been changed is snapped to the quarter**, comparing against the value that
+  was there on entering the field. Snapping on every exit would move an `08:10` saved by hand with
+  nothing more than a tab across it: `changedFields` compares strings, so `08:10` → `08:15` would enter
+  the patch, and a Settings save recomposes the calendar and empties the undo line. It is the exact
+  defect `timeOptionMinutes`'s comment exists to prevent.
+- **An unreadable value stays in sight** with the invalid ring and `errors.invalidTimeFormat`, never
+  replaced.
+- **The ceiling is `23:45`**, the last quarter, which is what the dropdown could emit.
+  `hhmmToMinutes` reads `24:00` as 1440, and with that the band stops being drawn with no explanation
+  while the field looks legal.
+- **The bounds refuse in sight; they do not clip in silence.** The only place that passes bounds is the
+  moment of closing the day, and they are the working periods: clipping would turn an `18:00` that was
+  typed into `17:45` — a value changing under the owner, which is what the off-grid-value rule forbids.
+  Not clipping would let `23:00` be typed and reach a dead end with `Guardar` disabled. It is refused
+  with `errors.timeOutOfBounds`, which says between which hours it has to be.
+- **`Escape` inside the field reaches the panel and closes it**, just as it does today inside the name's
+  `Input`. There is no state to revert: a hidden buffer of «what was there before» would be a third
+  state to explain.
 
-Nada de esto toca la rejilla del cuarto de hora: `TIME_STEP_MINUTES` sigue siendo 15 y sigue atado por
-test a `SNAP_MINUTES` y a `MIN_ROW_MINUTES`.
+None of this touches the quarter-hour grid: `TIME_STEP_MINUTES` is still 15 and is still tied by test
+to `SNAP_MINUTES` and to `MIN_ROW_MINUTES`.
 
-## La ruta nueva de lectura
+## The new read route
 
-Las dos marcas que el cliente no puede deducir —cerrado y hueco libre— solo las sabe el servidor, y hoy
-llegan únicamente para los siete días de la semana en pantalla.
+The two marks the client cannot deduce — closed, and room free — only the server knows, and today they
+arrive only for the seven days of the week on screen.
 
-- **`GET /api/days?from=&to=`**, en `app/api/days/route.ts`, envuelta como la del calendario y
-  `dynamic = 'force-dynamic'` como todas sus hermanas.
-- **`readDays(from, to, db)`** en `src/lib/operations/views.ts`, al lado de `readWeek`, para que la
-  lógica esté donde se puede probar. Reutiliza `listDayOverridesBetween`, que ya existe y ya es la
-  fuente de los motivos de `readWeek`, y `createDayConfigResolver`, para que el gris del selector no
-  pueda discrepar del de la cuadrícula.
-- **Devuelve por día lo que el cliente no puede deducir**: `date`, `isClosed`, `note` y `freeMinutes`
-  (más `hasRoom` derivado de la fórmula de arriba). Ni el fin de semana ni el pasado viajan: se
-  calculan en el cliente.
-- **Un tope propio**, `MAX_DAY_MARK_DAYS = 200`, ni el de las ausencias ni el de las opciones.
-- **Una sola petición al abrir el popover**, cubriendo la ventana navegable entera, no una por flecha
-  de mes.
-- **Se tira con la revisión de la semana.** `useWeek` ya recarga tras cualquier escritura porque una
-  recomposición reescribe filas en semanas que la respuesta ni menciona; las marcas cuelgan de ese
-  mismo contador, con su `AbortController`.
+- **`GET /api/days?from=&to=`**, in `app/api/days/route.ts`, wrapped like the calendar's and
+  `dynamic = 'force-dynamic'` like all its sisters.
+- **`readDays(from, to, db)`** in `src/lib/operations/views.ts`, beside `readWeek`, so the logic sits
+  where it can be tested. It reuses `listDayOverridesBetween`, which already exists and is already the
+  source of `readWeek`'s reasons, and `createDayConfigResolver`, so the picker's grey cannot disagree
+  with the grid's.
+- **It returns per day what the client cannot deduce**: `date`, `isClosed`, `note` and `freeMinutes`
+  (plus `hasRoom`, derived from the formula above). Neither the weekend nor the past travels: they are
+  computed on the client.
+- **A cap of its own**, `MAX_DAY_MARK_DAYS = 200`, neither the absences' nor the options'.
+- **One single request when the popover opens**, covering the whole navigable window, not one per month
+  arrow.
+- **It is fired off the week's revision.** `useWeek` already reloads after any write because a
+  recomposition rewrites rows in weeks the response does not even mention; the marks hang off that same
+  counter, with their own `AbortController`.
 
-**Coste**, contado sobre `readWeek`: un `readSnapshot` y un `listDayOverridesBetween`, igual que la
-semana, y luego 42 `getDayConfig` y 42 `plannableMinutesOf` donde la semana hace 7 — cada
-`plannableMinutesOf` es un `buildDayPlan` sobre el snapshot. A cambio no construye nada de lo demás que
-la semana sí: los bloques con sus etiquetas, los proyectos, los huecos, el resumen y el estado del
-deshacer. Aceptable para un SQLite local de un solo usuario, y CLAUDE.md pide simplicidad antes que
-optimización. Si alguna vez se midiera lento, lo que hay que recortar es el rango, no la fórmula.
+**Cost**, counted against `readWeek`: one `readSnapshot` and one `listDayOverridesBetween`, the same as
+the week, and then 42 `getDayConfig` and 42 `plannableMinutesOf` where the week does 7 — each
+`plannableMinutesOf` is a `buildDayPlan` over the snapshot. In exchange it builds none of the rest the
+week does: the blocks with their labels, the projects, the gaps, the summary and the undo state.
+Acceptable for a local single-user SQLite, and CLAUDE.md asks for simplicity before optimisation. If it
+is ever measured slow, what has to be cut is the range, not the formula.
 
-**Riesgo aceptado**: es un segundo snapshot. El panel no tiene velo a propósito —el dueño edita
-mirando el calendario—, así que entre una escritura detrás del panel y su recarga el punto puede ir un
-instante por detrás de la columna que tiene al lado. El dueño lo aprobó sabiéndolo.
+**Accepted risk**: it is a second snapshot. The panel has no scrim on purpose — the owner edits while
+looking at the calendar — so between a write behind the panel and its reload the dot can be an instant
+behind the column beside it. The owner approved it knowing that.
 
-**Pensada para los festivos automáticos** que se están haciendo en otra rama: mandar `note` desde el
-principio es lo que permitirá que el gris nombre el festivo sin cambiar la ruta, y mantenerla por rango
-es lo que la hace servir para festivos escritos mucho más allá del tope de 16 semanas.
+**Designed for the automatic public holidays** being built on another branch: sending `note` from the
+start is what will let the grey name the holiday without changing the route, and keeping it by range is
+what makes it serve holidays written far beyond the 16-week cap.
 
-## Los módulos puros, y qué se prueba
+## The pure modules, and what is tested
 
-Los tests corren en Node sin DOM (`environment: 'node'`, solo `src/**/*.test.ts`) y en este repositorio
-nunca se renderiza nada. El patrón ya establecido es un módulo hermano en `.ts` —`dateOptions.ts`,
-`timeOptions.ts`, `stepper.ts`, `offWeek.ts`, `draftBand.ts`, todos abren diciendo «para poder probarlo
-sin un DOM»— y hasta el arrastre se prueba por funciones puras exportadas.
+The tests run in Node with no DOM (`environment: 'node'`, only `src/**/*.test.ts`) and nothing is ever
+rendered in this repository. The pattern already established is a sibling module in `.ts` —
+`dateOptions.ts`, `timeOptions.ts`, `stepper.ts`, `offWeek.ts`, `draftBand.ts`, all of which open by
+saying «so it can be tested without a DOM» — and even the drag is tested through exported pure
+functions.
 
-| módulo nuevo | qué decide |
+| new module | what it decides |
 |---|---|
-| `monthGrid.ts` | qué 42 fechas tiene la rejilla de un mes, lunes primero, y qué marcas salen sin servidor |
-| `monthReach.ts` | en qué mes abre el popover y hasta dónde llegan las flechas |
-| `dayPickerKeys.ts` | el movimiento con el teclado, sobre un evento estructural y no del DOM |
-| `dayRange.ts` | la máquina de estados del rango, con la forma de `paintSession.ts` |
-| `pickerDays.ts` | el gris y el punto a partir de las dos cifras del servidor |
-| `timeField.ts` | interpretar, cuadrar, mover, y qué guarda cada uno de los tres momentos |
-| `popoverBox.ts` | el recorte contra la ventana, con la altura constante de las seis filas |
+| `monthGrid.ts` | which 42 dates a month's grid holds, Monday first, and which marks come out without the server |
+| `monthReach.ts` | which month the popover opens on, and how far the arrows reach |
+| `dayPickerKeys.ts` | the keyboard movement, over a structural event and not a DOM one |
+| `dayRange.ts` | the range's state machine, in the shape of `paintSession.ts` |
+| `pickerDays.ts` | the grey and the dot out of the server's two figures |
+| `timeField.ts` | parsing, snapping, stepping, and what each of the three moments stores |
+| `popoverBox.ts` | the clamping against the window, with the six rows' constant height |
 
-En `src/lib/dates.ts` hacen falta cuatro ayudas de mes que hoy no existen —principio de mes, días del
-mes, sumar meses, y el mes de una fecha—; van ahí porque ese módulo es el único al que se le permite
-convertir partes en un instante, y ya tiene la palanca: `formatDate({year, month, day: 0})` normaliza
-las partes fuera de rango. En `src/lib/format.ts` y `useFormat`, el mes largo y el día de la semana
-corto para la cabecera, por `Intl` y nunca por una lista escrita a mano.
+`src/lib/dates.ts` needs four month helpers that do not exist today — the start of a month, the days in
+a month, adding months, and the month of a date; they go there because that module is the only one
+allowed to turn parts into an instant, and it already has the lever: `formatDate({year, month, day: 0})`
+normalises out-of-range parts. In `src/lib/format.ts` and `useFormat`, the long month and the short
+weekday for the header, from `Intl` and never from a hand-written list.
 
-**Lo que se queda sin test, y se dice en vez de suponerse**: abrir y cerrar el popover, el `Escape`, el
-clic fuera, el orden del foco, el portal y su capa, el cableado de accesibilidad y el aro de inválido.
-Hoy `DateSelect` y `TimeSelect` tampoco tienen ni un test de componente, así que no es una regresión —
-pero es bastante más superficie sin cubrir, y por eso todo lo decidible sale a un módulo.
+**What is left without a test, said rather than assumed**: opening and closing the popover, the
+`Escape`, the click outside, the focus order, the portal and its layer, the accessibility wiring and the
+invalid ring. `DateSelect` and `TimeSelect` have not one component test today either, so it is not a
+regression — but it is a good deal more surface uncovered, and that is why everything decidable comes
+out into a module.
 
-## La mecánica del popover
+## The popover mechanics
 
-Sería el primer popover compartido de la app, así que cada pieza es una elección.
+It would be the app's first shared popover, so every piece is a choice.
 
-- **Portal a `document.body`**, como `SidePanel`: la cuadrícula tiene `overflow: auto`, la columna
-  `overflow-x: clip` mientras desliza, y la animación de cambio de semana aplica un `transform`, que
-  crea un contexto de apilamiento y un bloque contenedor para cualquier `position: fixed` de dentro
-  durante sus 180 ms.
-- **Token nuevo, `--ww-z-popover: 45`**, junto a los otros tres. Reutilizar el 40 del panel sería un
-  empate que resuelve el orden de montaje: hoy gana el popover por casualidad, y se invertiría en
-  cuanto algo montase un portal entre medias. El 45 dice las dos ordenaciones que hacen falta: el
-  calendario pinta sobre el panel en el que está, y una confirmación pinta sobre el calendario.
-- **`Escape` en `window`, en fase de captura, con `stopPropagation`.** `SidePanel` escucha en
-  `document` en burbuja, y dos oyentes del mismo nodo y la misma fase no se pueden ordenar — por eso
-  existe `closeOnEscape={!confirmOpen}`, que hubo que enhebrar a mano en tres paneles. Capturar en
-  `window` corre antes de que el evento baje, así que el panel no ve la tecla. Es la forma que ya usan
-  `PaintChooser` y los dos hooks de gesto. **Coste en los once sitios: cero.**
-- **`pointerdown` en `window`, en captura, tragado.** El defecto está medido en `PaintChooser`: «sin
-  esto la pulsación que descarta esto cae en la columna de debajo y empieza una segunda banda». Y la
-  rejilla sigue viva detrás del panel a propósito, así que también podría abrir el panel de otro
-  trabajo. Cinco ramas: dentro del popover, pasa; en el disparador, se traga y se cierra (portalado, si
-  se dejara pasar el `click` volvería a abrir y el popover parecería no cerrarse nunca); en la
-  cuadrícula, se traga; en otro campo del mismo panel, se traga —una pulsación cierra, la siguiente
-  hace lo que dice—; y no se filtra por botón, que un clic derecho también descarta.
-- **Salir con el tabulador** no dispara ningún evento de puntero: se cubre con un `focusout` sobre la
-  caja, cerrando cuando el destino no está ni dentro ni en el disparador.
-- **Fijo a la ventana y recortado ahí**, como `.paintChooser`, para no tapar la banda que el campo está
-  moviendo — el popover se abre a la izquierda del panel, encima de las columnas, que es justo donde
-  está la banda. Con seis filas fijas la altura es una constante y el recorte es aritmética pura.
-- **El foco** va a la celda seleccionada al abrir y vuelve al disparador al cerrar, siempre explícito:
-  `preventDefault()` en el `pointerdown` suprime el movimiento implícito del foco. No hay trampa de
-  foco en ningún sitio de la app, y eso es deliberado.
-- **Exportar `useFieldBinding`** desde `Field.tsx` y desde `ui/index.ts`: hoy es privado del módulo, y
-  `DateSelect`/`TimeSelect` heredan el cableado solo porque renderizan el `Select` que vive ahí mismo.
+- **A portal to `document.body`**, like `SidePanel`: the grid has `overflow: auto`, the column
+  `overflow-x: clip` while it slides, and the week-change animation applies a `transform`, which
+  creates a stacking context and a containing block for any `position: fixed` inside it for its 180 ms.
+- **A new token, `--ww-z-popover: 45`**, beside the other three. Reusing the panel's 40 would be a tie
+  that mount order resolves: today the popover wins by luck, and it would invert as soon as something
+  mounted a portal in between. The 45 states the two orderings that are needed: the calendar paints
+  over the panel it sits in, and a confirmation paints over the calendar.
+- **`Escape` on `window`, in the capture phase, with `stopPropagation`.** `SidePanel` listens on
+  `document` in the bubble phase, and two listeners on the same node in the same phase cannot be
+  ordered — which is why `closeOnEscape={!confirmOpen}` exists, and had to be threaded by hand through
+  three panels. Capturing on `window` runs before the event descends, so the panel never sees the key.
+  It is the shape `PaintChooser` and the two gesture hooks already use. **Cost across the eleven
+  places: zero.**
+- **`pointerdown` on `window`, in capture, swallowed.** The defect is measured in `PaintChooser`:
+  «without this, the press that dismisses this lands on the column underneath and starts a second
+  band». And the grid stays alive behind the panel on purpose, so it could also open another job's
+  panel. Five branches: inside the popover, it passes; on the trigger, it is swallowed and the popover
+  closes (portalled, letting the `click` through would reopen it and the popover would look as if it
+  never closes); on the grid, swallowed; on another field of the same panel, swallowed — one press
+  closes, the next does what it says; and it is not filtered by button, since a right click dismisses
+  too.
+- **Leaving by tab** fires no pointer event: it is covered with a `focusout` on the box, closing when
+  the destination is neither inside it nor on the trigger.
+- **Fixed to the window and clamped there**, like `.paintChooser`, so as not to cover the band the
+  field is moving — the popover opens to the left of the panel, over the columns, which is exactly
+  where the band is. With six fixed rows the height is a constant and the clamping is pure arithmetic.
+- **The focus** goes to the selected cell on opening and returns to the trigger on closing, always
+  explicitly: `preventDefault()` on the `pointerdown` suppresses the implicit focus move. There is no
+  focus trap anywhere in the app, and that is deliberate.
+- **Export `useFieldBinding`** from `Field.tsx` and from `ui/index.ts`: today it is private to the
+  module, and `DateSelect`/`TimeSelect` inherit the wiring only because they render the `Select` that
+  lives right there.
 
-## Qué muere y qué sobrevive
+## What dies and what survives
 
-| pieza | qué le pasa |
+| piece | what happens to it |
 |---|---|
-| `DateSelect.tsx`, `TimeSelect.tsx` | mueren, y salen de `ui/index.ts` |
-| `dateOptions.ts` | `planningWindow` y las cuatro constantes siguen igual; `dayOptionDates` y `groupDaysByWeek` mueren |
-| `timeOptions.ts` | `TIME_STEP_MINUTES` y `clockMinutes` siguen; `timeOptionMinutes` muere y sus dos propiedades reales se mudan a `timeField.ts` |
-| `Field.tsx` | `Select` sigue; `SelectOptionGroup` y la prop `groups` se quedan sin ningún usuario |
-| `dateOptions.test.ts` | lo de `planningWindow` sigue; lo de las listas se muda a `monthGrid`/`monthReach` |
-| `timeOptions.test.ts` | **el test que ata `TIME_STEP_MINUTES` a `SNAP_MINUTES` y a `MIN_ROW_MINUTES` no se toca**: es lo único que sujeta la rejilla del cuarto de hora |
+| `DateSelect.tsx`, `TimeSelect.tsx` | they die, and leave `ui/index.ts` |
+| `dateOptions.ts` | `planningWindow` and the four constants stay as they are; `dayOptionDates` and `groupDaysByWeek` die |
+| `timeOptions.ts` | `TIME_STEP_MINUTES` and `clockMinutes` stay; `timeOptionMinutes` dies and its two real properties move to `timeField.ts` |
+| `Field.tsx` | `Select` stays; `SelectOptionGroup` and the `groups` prop are left with no user at all |
+| `dateOptions.test.ts` | the `planningWindow` part stays; the lists part moves to `monthGrid`/`monthReach` |
+| `timeOptions.test.ts` | **the test that ties `TIME_STEP_MINUTES` to `SNAP_MINUTES` and to `MIN_ROW_MINUTES` is not touched**: it is the only thing holding the quarter-hour grid |
 
-`TIME_STEP_MINUTES` no se puede renombrar ni borrar con el resto: eso desataría la rejilla en silencio.
+`TIME_STEP_MINUTES` cannot be renamed or deleted with the rest: that would untie the grid in silence.
 
-## Las claves nuevas
+## The new keys
 
-Un bloque `dayPicker` con `open`, `previousMonth`, `nextMonth`, `today`, `todayHint`, `rangeStart` y
-`rangePending`; un bloque `timeField` con `earlier`, `later` y `hint`; `units.week`; `day.weekend` junto
-a las otras palabras de estado del día; y en `errors`, `invalidTimeFormat` y `timeOutOfBounds`. Las dos
-tandas se mantienen idénticas por test, interpolaciones incluidas.
+A `dayPicker` block with `open`, `previousMonth`, `nextMonth`, `today`, `todayHint`, `rangeStart` and
+`rangePending`; a `timeField` block with `earlier`, `later` and `hint`; `units.week`; `day.weekend`
+beside the day's other state words; and in `errors`, `invalidTimeFormat` and `timeOutOfBounds`. The two
+key sets are held identical by test, interpolations included.
 
-`timeField.hint` —«Escríbela, o muévela con ↑ y ↓ de cuarto en cuarto; con Mayús, de hora en hora.»—
-se dibuja como el `title` del campo, **no** como ayuda del `Field`: cuatro de los siete sitios son las
-filas de horario de Ajustes, que van en línea, y ahí la ayuda ocupa una fila entera para ella — cuatro
-copias idénticas añadirían cuatro líneas a esa pantalla. Se dice una vez.
+`timeField.hint` — «Escríbela, o muévela con ↑ y ↓ de cuarto en cuarto; con Mayús, de hora en hora.» —
+is drawn as the field's `title`, **not** as the `Field`'s help: four of the seven places are the shift
+rows in Settings, which sit inline, and there the help takes a whole row to itself — four identical
+copies would add four lines to that screen. It is said once.
 
-No hacen falta más: el `title` de una celda se compone de `format.dayOption`, `day.today`,
-`day.weekend`, `day.closed`, `day.freeHours` y `day.full`, que ya existen, y el resto de la línea bajo
-el campo sale de `format.longDate` e `isoWeekNumber`.
+No more are needed: a cell's `title` is composed of `format.dayOption`, `day.today`, `day.weekend`,
+`day.closed`, `day.freeHours` and `day.full`, which already exist, and the rest of the line under the
+field comes out of `format.longDate` and `isoWeekNumber`.
 
-## Lo que se le debe a los documentos
+## What is owed to the documents
 
-- **SPEC § *Visual Design*** se reescribe: hoy nombra los dos controles y su mecánica. La prohibición
-  de encima —«No native `<input type="time">` or `<input type="date">` anywhere»— se queda tal cual,
-  porque es la razón por la que esto se construye a mano.
-- **SPEC § *The Absences Screen — One Place, Two Modes***: dice que los dos modos comparten
-  `Desde`/`Hasta`. Ahora comparten un calendario de rango.
-- **SPEC § *Settings***: las filas de horario se escriben.
-- **SPEC § *Calendar View***: las marcas nuevas del selector.
-- **SPEC § *A Date That Leaves the Week On Screen***: la fecha sigue fijándose de forma optimista, y
-  tiene que seguir siendo verdad del control nuevo.
-- **DECISIONS**: una entrada por decisión, cada una con la forma que exige el test —la primera línea no
-  vacía tras el título empieza `**Rule** — ` con raya, y hay un `**Why**`—. Son cuatro: la hora que se
-  escribe (ahí va «Permite escribir para no hacer 2000 clicks para ir de 00:00 a 23:45»), el calendario
-  de mes con su alcance, las marcas y el punto, y el rango de una sola vez.
-- **CLAUDE.md**: el *Implementer Default* del alcance del selector sigue siendo verdad y no se toca.
-- **Versión**: es una funcionalidad, así que `0.21.1` → `0.22.0` en `package.json` y en
-  `desktop/package.json`, con su entrada `## 0.22.0 — …` arriba del CHANGELOG, escrita en términos de
-  qué es distinto de usar.
-- `npx vitest run src/lib/docs.test.ts` después de tocar cualquiera de ellos.
+- **SPEC § *Visual Design*** is rewritten: today it names the two controls and their mechanics. The
+  prohibition above it — «No native `<input type="time">` or `<input type="date">` anywhere» — stays
+  exactly as it is, because it is the reason this is built by hand.
+- **SPEC § *The Absences Screen — One Place, Two Modes***: it says the two modes share
+  `Desde`/`Hasta`. Now they share one range calendar.
+- **SPEC § *Settings***: the shift rows are typed.
+- **SPEC § *Calendar View***: the picker's new marks.
+- **SPEC § *A Date That Leaves the Week On Screen***: the date is still set optimistically, and that
+  has to stay true of the new control.
+- **DECISIONS**: one entry per decision, each in the shape the test demands — the first non-empty line
+  after the title starts `**Rule** — ` with an em dash, and there is a `**Why**`. There are four: the
+  time that is typed (that is where «Permite escribir para no hacer 2000 clicks para ir de 00:00 a
+  23:45» goes), the month calendar with its reach, the marks and the dot, and the range chosen in one
+  go.
+- **CLAUDE.md**: the *Implementer Default* for the picker's reach is still true and is not touched.
+- **Version**: it is a feature, so `0.21.1` → `0.22.0` in `package.json` and in
+  `desktop/package.json`, with its `## 0.22.0 — …` entry at the top of the CHANGELOG, written in terms
+  of what is different to use.
+- `npx vitest run src/lib/docs.test.ts` after touching any of them.
 
-## Los cuatro portones
+## The four gates
 
-`tsc --noEmit`, `vitest run`, `eslint .` y `next build`, todos en verde antes de cualquier commit.
-Base de partida de esta rama, medida tras el rebase sobre `origin/dev` en `8669fea`: 44 archivos,
-1178 tests, 0 fallos.
+`tsc --noEmit`, `vitest run`, `eslint .` and `next build`, all green before any commit. This branch's
+starting baseline, measured after the rebase onto `origin/dev` at `8669fea`: 44 files,
+1178 tests, 0 failures.
