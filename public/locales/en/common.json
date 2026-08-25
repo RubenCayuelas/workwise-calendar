@@ -280,6 +280,17 @@
     "noHalfDay": "There is no half day: if the shop works fewer hours that day, that is a gap.",
     "notePlaceholder": "Fair"
   },
+  "holidayPanel": {
+    "title": "Public holidays with work on them",
+    "body": "These days are public holidays and there is work on them. Choose what to do with each; the rest have been closed already.",
+    "hours": "{{hours}} of {{jobs}}",
+    "displace": "Move it on",
+    "keep": "Keep it here",
+    "keepHint": "stays where it is, padlocked",
+    "fixed": "The day closes with the work where it is: it is padlocked, and only you can unlock it.",
+    "save": "Save",
+    "done": "{{count}} holidays closed"
+  },
   "settings": {
     "title": "Settings",
     "subtitle": "Shift, auto-fill and the look of the calendar.",

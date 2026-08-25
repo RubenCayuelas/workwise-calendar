@@ -129,9 +129,11 @@ export function HolidaysSection({
               )}
             </p>
           )}
-          <Button variant="secondary" onClick={() => void checkNow()} disabled={busy}>
-            {t('settings.holidaysCheckNow')}
-          </Button>
+          <div className={styles.backupActions}>
+            <Button variant="secondary" onClick={() => void checkNow()} disabled={busy}>
+              {t('settings.holidaysCheckNow')}
+            </Button>
+          </div>
           {outcome === undefined ? null : <p className={styles.note}>{outcome}</p>}
           {failure === undefined ? null : (
             <InlineBanner tone="error">{apiErrorMessage(failure, t)}</InlineBanner>

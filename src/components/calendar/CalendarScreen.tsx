@@ -23,13 +23,16 @@ import {
   redoChange as apiRedoChange,
   resizeBlock as apiResizeBlock,
   resizeGap as apiResizeGap,
+  answerHolidays,
   runAutomaticBackup,
+  runHolidayCheck,
   setBlockLock as apiSetBlockLock,
   splitBlock as apiSplitBlock,
   type AbsenceKind,
   type BlockMutation,
   type FreedHoursChoice,
   type HistoryStep,
+  type PendingHoliday,
   type ScheduleSummary,
   type UndoKind,
   type WeekBlock,
@@ -51,6 +54,7 @@ import { SummaryStrip } from './SummaryStrip';
 import { WeekHeader } from './WeekHeader';
 import { WeekGrid, type PlacingFragment, type SettleRequest } from './WeekGrid';
 import { MIN_SPLITTABLE_MINUTES, SplitBlockDialog } from './SplitBlockDialog';
+import { HolidayPanel } from './HolidayPanel';
 import { ResizeChoiceDialog } from './ResizeChoiceDialog';
 import {
   useBlockDrag,
@@ -857,6 +861,48 @@ export function CalendarScreen({
     return () => controller.abort();
   }, []);
 
+  // The holidays, asked for the same way and on the same terms: once per visit, at most once a week
+  // inside the server. The ones with nothing on them are already closed by the time this resolves;
+  // `pending` is only the days that have work on them, for which nothing has been written.
+  const [pendingHolidays, setPendingHolidays] = useState<readonly PendingHoliday[]>([]);
+  const [holidaysBusy, setHolidaysBusy] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    runHolidayCheck(false, { signal: controller.signal })
+      .then((result) => {
+        setPendingHolidays(result.pending);
+        if (result.closed.length > 0 || result.reopened.length > 0) week.reload();
+      })
+      .catch((error: unknown) => {
+        if (!isAbortError(error)) setBackupFailure(error);
+      });
+    return () => controller.abort();
+    // Once per visit: `week.reload` is stable enough to leave out, and re-running on every week
+    // change would ask the server again on each arrow press.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const saveHolidayAnswers = useCallback(
+    async (answers: Array<{ date: string; keep: boolean }>) => {
+      setHolidaysBusy(true);
+      try {
+        const result = await answerHolidays(answers);
+        setPendingHolidays([]);
+        // A reflow rewrites rows in weeks the response never mentions.
+        week.reload();
+        if (result.closed.length > 0) {
+          toast.success(t('holidayPanel.done', { count: result.closed.length }));
+        }
+      } catch (error) {
+        setBackupFailure(error);
+      } finally {
+        setHolidaysBusy(false);
+      }
+    },
+    [t, toast, week],
+  );
+
   useEffect(() => {
     if (placing === null) return;
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -940,6 +986,13 @@ export function CalendarScreen({
               {week.actionError}
             </InlineBanner>
           )}
+
+          <HolidayPanel
+            pending={pendingHolidays}
+            busy={holidaysBusy}
+            onSave={(answers) => void saveHolidayAnswers(answers)}
+            onDismiss={() => setPendingHolidays([])}
+          />
 
           {backupFailure === undefined ? null : (
             <InlineBanner

@@ -280,6 +280,17 @@
     "noHalfDay": "No hay medio día: si el taller trabaja menos horas ese día, eso es un hueco.",
     "notePlaceholder": "Feria"
   },
+  "holidayPanel": {
+    "title": "Festivos con trabajo encima",
+    "body": "Estos días son festivo y hay trabajo en ellos. Elige qué hacer con cada uno; los demás ya se han cerrado.",
+    "hours": "{{hours}} de {{jobs}}",
+    "displace": "Desplazar",
+    "keep": "Mantener aquí",
+    "keepHint": "se queda donde está, con candado",
+    "fixed": "El día se cierra con el trabajo donde está: lleva candado, y el candado solo lo quitas tú.",
+    "save": "Guardar",
+    "done": "{{count}} festivos cerrados"
+  },
   "settings": {
     "title": "Configuración",
     "subtitle": "Jornada, relleno automático y apariencia del calendario.",
