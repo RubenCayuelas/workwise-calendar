@@ -9,6 +9,15 @@ never moves without the owner asking.
 
 ---
 
+## 0.21.1 — the week arrows are easier to hit
+
+**The two arrows either side of the week are wider.** They were the same 28-pixel square as every
+other icon button in the header, and they are the ones pressed most — every week turned goes through
+one of them. They keep their height, so the header sits exactly where it did, and the arrow inside is
+unchanged: what grew is only the room there is to miss by.
+
+---
+
 ## 0.21.0 — a new set of job colours
 
 **The eight colours a job can be painted are new**: green, blue, red, yellow, orange, purple, pink

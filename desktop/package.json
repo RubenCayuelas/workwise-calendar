@@ -1,6 +1,6 @@
 {
   "name": "workwise-desktop",
-  "version": "0.21.0",
+  "version": "0.21.1",
   "description": "Workwise as a Windows application: an Electron window around the app's own server",
   "private": true,
   "type": "module",

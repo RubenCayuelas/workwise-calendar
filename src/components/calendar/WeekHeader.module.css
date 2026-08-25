@@ -6,6 +6,20 @@
   gap: var(--ww-space-2);
 }
 
+/*
+ * The two chevrons are a target the mouse has to acquire before every page turn, and at the
+ * shared 28px square they were the smallest thing in the header that gets used the most. Only
+ * the WIDTH grows: the height sets the header's rhythm, and the glyph stays where it was, so
+ * what changes is how much room there is to miss by.
+ *
+ * Scoped under `.pager` on purpose. `IconButton`'s own `.md` sets a width too, and both are
+ * single-class selectors — which of them won would come down to the order the two CSS modules
+ * happen to land in the bundle. Two classes settles it outright.
+ */
+.pager .pagerButton {
+  width: 44px;
+}
+
 .weekLabel {
   display: block;
   min-width: 15rem;

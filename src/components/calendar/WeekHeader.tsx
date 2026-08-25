@@ -69,6 +69,7 @@ export function WeekHeader({
         <IconButton
           icon={<IconChevronLeft size={18} stroke={1.75} />}
           label={t('header.previousWeek')}
+          className={styles.pagerButton}
           disabled={disabled}
           onClick={onPrevious}
         />
@@ -84,6 +85,7 @@ export function WeekHeader({
         <IconButton
           icon={<IconChevronRight size={18} stroke={1.75} />}
           label={t('header.nextWeek')}
+          className={styles.pagerButton}
           disabled={disabled}
           onClick={onNext}
         />
