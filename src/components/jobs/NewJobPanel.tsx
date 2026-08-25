@@ -17,13 +17,13 @@ import {
   Field,
   InlineBanner,
   SidePanel,
+  useToast,
 } from '../ui';
 import {
   apiErrorMessage,
   createProject,
   isAbortError,
   previewProjectCreation,
-  type Block,
   type CreationOutcome,
   type CreationPreview,
   type Project,
@@ -34,8 +34,9 @@ import { MIN_ROW_MINUTES } from '../../lib/validation';
 import { PROJECT_COLORS } from '../../lib/projectColors';
 import { useFormat, type Formatter } from '../../lib/useFormat';
 import { JobFields, jobFieldErrors, type JobFieldName, type JobFormValues } from './JobFields';
-import { PlacementNotice } from './PlacementNotice';
+import { PlacementLines } from './PlacementNotice';
 import { describePlacement, type PlacementOutcome } from './placement';
+import { announceCreation } from './created';
 import {
   confirmKindFor,
   summarizeStartDate,
@@ -54,16 +55,15 @@ const DEFAULT_HOURS = 8;
 /** The hours stepper fires on every click, and a preview per click is a request per click. */
 const PREVIEW_DELAY_MS = 220;
 
+/** Longer than a toast's own default: this one carries the rows AND the padlock sentence. */
+const CREATED_TOAST_MS = 9000;
+
 export interface NewJobPanelProps {
   open: boolean;
   onClose: () => void;
   /** Fired on success. The parent MUST refetch the week. */
   onChanged?: JobsMutationHandler;
-  /**
-   * The job that was created. The panel stays OPEN afterwards, showing where the hours
-   * landed, so a parent wanting to open the job panel next must wait for `onClose` — two
-   * panels share the same slot on the right.
-   */
+  /** The job that was created, announced just before the panel closes itself. */
   onCreated?: (project: Project) => void;
   /** `WeekView.summary`: where the queue ends, and so where this job starts. */
   summary?: ScheduleSummary;
@@ -104,18 +104,13 @@ export function NewJobPanel({
 }: NewJobPanelProps): React.JSX.Element {
   const { t } = useTranslation();
   const format = useFormat();
+  const toast = useToast();
   const reference = today ?? todayLocal();
 
   const [values, setValues] = useState<JobFormValues>(() => blankJob(defaultHours, defaultColor));
   const [localErrors, setLocalErrors] = useState<Partial<Record<JobFieldName, string>>>({});
   const [actionError, setActionError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
-  const [created, setCreated] = useState<{
-    blocks: Block[];
-    outcome: PlacementOutcome;
-    /** Present when the job named a start date: what the date turned out to mean. */
-    placement?: CreationOutcome;
-  } | null>(null);
 
   const [dated, setDated] = useState(false);
   const [startDate, setStartDate] = useState(reference);
@@ -127,12 +122,10 @@ export function NewJobPanel({
   /** The last day chosen that WAS on screen: the honest place to offer going back to. */
   const [lastVisible, setLastVisible] = useState<string | null>(null);
 
-  const done = created !== null;
-
   /**
    * A fresh form on the panel's OPENING EDGE ONLY, never on a change of the defaults:
-   * `defaultColor` is the swatch the calendar shows least of, so creating a job changes it
-   * and the parent's refetch would wipe the notice the owner had just earned.
+   * `defaultColor` is the swatch the calendar shows least of, so any write behind the panel
+   * moves it and the parent's refetch would blank the form mid-edit.
    */
   const initialised = useRef(false);
   useEffect(() => {
@@ -146,7 +139,6 @@ export function NewJobPanel({
     setValues(blankJob(defaultHours, defaultColor));
     setLocalErrors({});
     setActionError(null);
-    setCreated(null);
     // A painted band arrives with its day already chosen, so the date section opens ON it.
     setDated(painted !== undefined);
     setStartDate(painted?.date ?? reference);
@@ -155,7 +147,7 @@ export function NewJobPanel({
     setPreviewError(null);
   }, [open, defaultHours, defaultColor, reference, painted]);
 
-  const previewable = open && !done && dated && isValidDate(startDate) && values.hours > 0;
+  const previewable = open && dated && isValidDate(startDate) && values.hours > 0;
 
   /**
    * The painted minute, but only while the date is still the day it was painted on. Changing the day
@@ -172,11 +164,11 @@ export function NewJobPanel({
       ? null
       : offWeekChoice(startDate, visibleDates, lastVisible);
 
-  // The grid cannot know what this form holds, so the form tells it — on every change, and `null`
-  // once the job is created, where the real rows take the band's place.
+  // The grid cannot know what this form holds, so the form tells it on every change. The band is
+  // taken down by the CLOSE — the parent's own handler — where the real rows take its place.
   useEffect(() => {
     if (onDraft === undefined) return;
-    if (paintedMinutes === undefined || done) {
+    if (paintedMinutes === undefined) {
       onDraft(null);
       return;
     }
@@ -186,7 +178,7 @@ export function NewJobPanel({
       startMinutes: paintedMinutes,
       durationMinutes: hoursToMinutes(values.hours),
     });
-  }, [onDraft, paintedMinutes, startDate, values.hours, done]);
+  }, [onDraft, paintedMinutes, startDate, values.hours]);
 
   useEffect(() => {
     if (!previewable) {
@@ -245,6 +237,29 @@ export function NewJobPanel({
   // without ever asking. A preview that fails leaves this true and `previewMessage` says why.
   const awaitingPreview = previewable && startSummary === null;
 
+  const announce = (outcome: PlacementOutcome, placement?: CreationOutcome): void => {
+    const { tone, rows, hints } = announceCreation(outcome, placement);
+    toast.show({
+      tone,
+      title: t('jobForm.created'),
+      duration: CREATED_TOAST_MS,
+      message: (
+        <>
+          <PlacementLines rows={rows} />
+          {hints.length === 0 ? null : (
+            <span className={styles.previewNotes}>
+              {hints.map((hint) => (
+                <span key={hint} className={styles.hint}>
+                  {t(hint)}
+                </span>
+              ))}
+            </span>
+          )}
+        </>
+      ),
+    });
+  };
+
   const save = async (): Promise<void> => {
     setConfirmOpen(false);
     setSaving(true);
@@ -263,14 +278,13 @@ export function NewJobPanel({
         ...(paintedMinutes === undefined ? {} : { startMinutes: paintedMinutes }),
       });
 
-      // Every row is new, so the diff against nothing is where the engine put it.
-      setCreated({
-        blocks: result.blocks,
-        outcome: describePlacement([], result.blocks, reference),
-        ...(result.placement === undefined ? {} : { placement: result.placement }),
-      });
+      // Every row is new, so the diff against nothing is where the engine put it. It is said in a
+      // TOAST because the form has nothing left to ask and closes on itself; a notice inside it
+      // would be a panel the owner can only shut.
+      announce(describePlacement([], result.blocks, reference), result.placement);
       onChanged?.({ kind: 'job-created', projectId: result.project.id, summary: result.summary });
       onCreated?.(result.project);
+      onClose();
     } catch (error) {
       setActionError(error);
     } finally {
@@ -279,7 +293,7 @@ export function NewJobPanel({
   };
 
   const submit = async (): Promise<void> => {
-    if (saving || done) return;
+    if (saving) return;
 
     if (values.name.trim() === '') {
       setLocalErrors({ name: 'errors.invalidName' });
@@ -319,46 +333,26 @@ export function NewJobPanel({
         title={t('jobForm.title')}
         accent={<ColorDot color={values.color} />}
         footer={
-          done ? (
-            <Button className={styles.grow} variant="primary" onClick={onClose}>
-              {t('common.close')}
+          <>
+            <Button
+              className={styles.grow}
+              variant="primary"
+              icon={<IconPlus size={15} stroke={1.75} />}
+              disabled={saving || awaitingPreview}
+              onClick={submit}
+            >
+              {saving ? t('common.saving') : t('jobForm.submit')}
             </Button>
-          ) : (
-            <>
-              <Button
-                className={styles.grow}
-                variant="primary"
-                icon={<IconPlus size={15} stroke={1.75} />}
-                disabled={saving || awaitingPreview}
-                onClick={submit}
-              >
-                {saving ? t('common.saving') : t('jobForm.submit')}
-              </Button>
-              <Button variant="secondary" disabled={saving} onClick={onClose}>
-                {t('jobForm.cancel')}
-              </Button>
-            </>
-          )
+            <Button variant="secondary" disabled={saving} onClick={onClose}>
+              {t('jobForm.cancel')}
+            </Button>
+          </>
         }
       >
         {actionMessage === undefined ? null : (
           <InlineBanner tone="error" title={t('errors.title')} onDismiss={() => setActionError(null)}>
             {actionMessage}
           </InlineBanner>
-        )}
-
-        {created === null ? null : (
-          <>
-            <PlacementNotice outcome={created.outcome} title={t('jobForm.created')} />
-            {/* The marks the date left on the rows: a padlock nobody asked for is explained
-                where it was decided, not only as a glyph on a calendar off to the side. */}
-            {created.placement?.autoLock === true ? (
-              <p className={styles.hint}>{t('jobForm.createdLocked')}</p>
-            ) : null}
-            {created.placement?.dayLock === true && created.placement.autoLock !== true ? (
-              <p className={styles.hint}>{t('jobForm.createdDayLocked')}</p>
-            ) : null}
-          </>
         )}
 
         <JobFields
@@ -369,106 +363,102 @@ export function NewJobPanel({
             setActionError(null);
           }}
           errors={fieldErrors}
-          disabled={saving || done}
+          disabled={saving}
           // Nothing to LIFO yet: on a new job the hours are simply the estimate.
           hoursHint={null}
           {...(painted === undefined ? {} : { hoursStep: MIN_ROW_MINUTES / 60 })}
         />
 
-        {done ? null : (
+        <Checkbox
+          label={t('jobForm.startLabel')}
+          hint={t('jobForm.startHint')}
+          checked={dated}
+          disabled={saving}
+          onChange={(event) => {
+            setDated(event.target.checked);
+            setForce(false);
+            setPreview(null);
+            setPreviewError(null);
+          }}
+        />
+
+        {!dated ? null : (
           <>
-            <Checkbox
-              label={t('jobForm.startLabel')}
-              hint={t('jobForm.startHint')}
-              checked={dated}
-              disabled={saving}
-              onChange={(event) => {
-                setDated(event.target.checked);
-                setForce(false);
-                setPreview(null);
-                setPreviewError(null);
-              }}
+            {/* Never a native date input. The window reaches
+                back on purpose: a past date records work done but never logged. */}
+            <Field
+              label={t('jobForm.startDate')}
+              hint={isValidDate(startDate) ? format.longDate(startDate) : undefined}
+            >
+              <DateSelect
+                value={startDate}
+                today={reference}
+                horizonWeeks={horizonWeeks}
+                disabled={saving}
+                onChange={(next) => {
+                  // Set OPTIMISTICALLY: the band on the grid has to follow the field, and a
+                  // field frozen behind a question would freeze the band mid-edit.
+                  if (visibleDates?.includes(startDate) === true) setLastVisible(startDate);
+                  setStartDate(next);
+                  // A new day is a new question; the old answer must not carry over.
+                  setForce(false);
+                }}
+              />
+            </Field>
+
+            {offWeek === null ? null : (
+              <InlineBanner tone="info" title={t('jobForm.offWeekTitle')}>
+                {t('jobForm.offWeek', { date: format.longDate(offWeek.goTo) })}
+                <div className={styles.offWeekActions}>
+                  <Button size="sm" onClick={() => onShowWeekOf?.(offWeek.goTo)}>
+                    {t('jobForm.offWeekGo')}
+                  </Button>
+                  {offWeek.backTo === null ? null : (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setStartDate(offWeek.backTo as string)}
+                    >
+                      {t('jobForm.offWeekBack', {
+                        date: format.dayOption(offWeek.backTo),
+                      })}
+                    </Button>
+                  )}
+                </div>
+              </InlineBanner>
+            )}
+
+            <StartDatePreview
+              summary={startSummary}
+              loading={previewing && startSummary === null}
+              message={previewMessage}
+              chosenDate={startDate}
+              lastOccupiedDate={preview?.lastOccupiedDate ?? null}
+              format={format}
+              t={t}
             />
 
-            {!dated ? null : (
-              <>
-                {/* Never a native date input. The window reaches
-                    back on purpose: a past date records work done but never logged. */}
-                <Field
-                  label={t('jobForm.startDate')}
-                  hint={isValidDate(startDate) ? format.longDate(startDate) : undefined}
-                >
-                  <DateSelect
-                    value={startDate}
-                    today={reference}
-                    horizonWeeks={horizonWeeks}
-                    disabled={saving}
-                    onChange={(next) => {
-                      // Set OPTIMISTICALLY: the band on the grid has to follow the field, and a
-                      // field frozen behind a question would freeze the band mid-edit.
-                      if (visibleDates?.includes(startDate) === true) setLastVisible(startDate);
-                      setStartDate(next);
-                      // A new day is a new question; the old answer must not carry over.
-                      setForce(false);
-                    }}
-                  />
-                </Field>
-
-                {offWeek === null ? null : (
-                  <InlineBanner tone="info" title={t('jobForm.offWeekTitle')}>
-                    {t('jobForm.offWeek', { date: format.longDate(offWeek.goTo) })}
-                    <div className={styles.offWeekActions}>
-                      <Button size="sm" onClick={() => onShowWeekOf?.(offWeek.goTo)}>
-                        {t('jobForm.offWeekGo')}
-                      </Button>
-                      {offWeek.backTo === null ? null : (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => setStartDate(offWeek.backTo as string)}
-                        >
-                          {t('jobForm.offWeekBack', {
-                            date: format.dayOption(offWeek.backTo),
-                          })}
-                        </Button>
-                      )}
-                    </div>
-                  </InlineBanner>
-                )}
-
-                <StartDatePreview
-                  summary={startSummary}
-                  loading={previewing && startSummary === null}
-                  message={previewMessage}
-                  chosenDate={startDate}
-                  lastOccupiedDate={preview?.lastOccupiedDate ?? null}
-                  format={format}
-                  t={t}
-                />
-
-                {startSummary?.canForce === true || force ? (
-                  <Checkbox
-                    label={t('jobForm.startForce')}
-                    hint={t('jobForm.startForceHint')}
-                    checked={force}
-                    disabled={saving}
-                    onChange={(event) => setForce(event.target.checked)}
-                  />
-                ) : null}
-              </>
-            )}
-
-            {summary === undefined ? null : (
-              <div className={styles.context}>
-                <span className={styles.contextLabel}>{t('summary.label')}</span>
-                <span className={styles.contextValue}>
-                  {scheduleSummaryMessage(summary, t, format)}
-                </span>
-              </div>
-            )}
-            <p className={styles.hint}>{t('jobForm.hint')}</p>
+            {startSummary?.canForce === true || force ? (
+              <Checkbox
+                label={t('jobForm.startForce')}
+                hint={t('jobForm.startForceHint')}
+                checked={force}
+                disabled={saving}
+                onChange={(event) => setForce(event.target.checked)}
+              />
+            ) : null}
           </>
         )}
+
+        {summary === undefined ? null : (
+          <div className={styles.context}>
+            <span className={styles.contextLabel}>{t('summary.label')}</span>
+            <span className={styles.contextValue}>
+              {scheduleSummaryMessage(summary, t, format)}
+            </span>
+          </div>
+        )}
+        <p className={styles.hint}>{t('jobForm.hint')}</p>
       </SidePanel>
 
       <ConfirmDialog

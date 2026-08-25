@@ -6,6 +6,7 @@
 
 import { FRIDAY, compareDates, startOfWeek, weekdayOf } from '../../lib/dates';
 import type { Block } from '../../types';
+import type { BannerTone } from '../ui';
 
 /** How one row differs from the way it was before the write. */
 export type PlacementKind = 'new' | 'grown' | 'shrunk' | 'moved';
@@ -91,6 +92,11 @@ export function placementHighlights(outcome: PlacementOutcome, limit = 6): Place
   const gained = outcome.changes.filter((change) => change.kind === 'new' || change.kind === 'grown');
   const chosen = gained.length > 0 ? gained : outcome.changes;
   return chosen.slice(0, limit);
+}
+
+/** A day the shop did not expect to use earns a warning colour, not a confirmation. */
+export function placementTone(outcome: PlacementOutcome): BannerTone {
+  return outcome.usedBuffer || outcome.spilledToLaterWeek ? 'warning' : 'success';
 }
 
 // ---------------------------------------------------------------------------

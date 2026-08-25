@@ -9,6 +9,15 @@ never moves without the owner asking.
 
 ---
 
+## 0.20.1 — the new-job form closes when the job is created
+
+**Creating a job no longer leaves the form open.** It used to stay on screen with every field greyed
+out and one `Cerrar` button, and until it was shut nothing else could be done: no second band could be
+painted on the grid, and undo was off. The form now closes on the save, and what the engine did with
+the hours — the days and times they were born on, and the sentence explaining a padlock the chosen
+date left behind — is said in a notice at the corner of the calendar, the same way saving an absence
+already answered.
+
 ## 0.20.0 — the first release
 
 Everything below 0.20.0 was development; nothing had been published. This is the first version anyone
