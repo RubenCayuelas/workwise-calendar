@@ -30,6 +30,8 @@ export const DEFAULT_SETTINGS: Settings = {
   backupsEnabled: true,
   backupEveryDays: 7,
   backupsKept: 3,
+  holidaysEnabled: true,
+  holidaysMunicipality: '14055',
 };
 
 /** Visual margins are 0-2 hours each: enough for an exceptional early start, not a second shift. */
@@ -45,6 +47,9 @@ export const MIN_HORIZON_WEEKS = 1;
 export const MAX_HORIZON_WEEKS = 104;
 
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+
+/** An INE municipality code. Five digits, leading zero included: Almería's start `04`. */
+const INE_CODE_PATTERN = /^\d{5}$/;
 
 /** Thrown by `writeSettings`; `field` is the key the Settings form should highlight. */
 export class SettingsValidationError extends Error {
@@ -106,6 +111,8 @@ export function serializeSettings(settings: Settings): Record<keyof Settings, st
     backupsEnabled: settings.backupsEnabled ? 'true' : 'false',
     backupEveryDays: String(settings.backupEveryDays),
     backupsKept: String(settings.backupsKept),
+    holidaysEnabled: settings.holidaysEnabled ? 'true' : 'false',
+    holidaysMunicipality: settings.holidaysMunicipality,
   };
 }
 
@@ -151,6 +158,11 @@ export function normalizeSettings(raw: Partial<Record<keyof Settings, string>>):
       Math.round(parseNumber(raw.backupsKept, DEFAULT_SETTINGS.backupsKept)),
       MIN_BACKUPS_KEPT,
       MAX_BACKUPS_KEPT,
+    ),
+    holidaysEnabled: parseBoolean(raw.holidaysEnabled, DEFAULT_SETTINGS.holidaysEnabled),
+    holidaysMunicipality: parseIneCode(
+      raw.holidaysMunicipality,
+      DEFAULT_SETTINGS.holidaysMunicipality,
     ),
   };
 
@@ -260,6 +272,13 @@ export function validateSettings(settings: Settings): Settings {
 
   if (!HEX_COLOR_PATTERN.test(settings.gapColor)) {
     throw new SettingsValidationError('gapColor', 'The gap colour must be a #RRGGBB hex value');
+  }
+
+  if (!INE_CODE_PATTERN.test(settings.holidaysMunicipality)) {
+    throw new SettingsValidationError(
+      'holidaysMunicipality',
+      `"${settings.holidaysMunicipality}" is not a five-digit INE municipality code`,
+    );
   }
 
   return { ...settings, gapColor: settings.gapColor.toUpperCase() };
@@ -393,6 +412,12 @@ function parseColor(value: string | undefined, fallback: string): string {
   if (value === undefined) return fallback;
   const trimmed = value.trim();
   return HEX_COLOR_PATTERN.test(trimmed) ? trimmed.toUpperCase() : fallback;
+}
+
+function parseIneCode(value: string | undefined, fallback: string): string {
+  if (value === undefined) return fallback;
+  const trimmed = value.trim();
+  return INE_CODE_PATTERN.test(trimmed) ? trimmed : fallback;
 }
 
 function requireTime(settings: Settings, field: keyof Settings): number {

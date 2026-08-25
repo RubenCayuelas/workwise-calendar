@@ -271,3 +271,27 @@ describe('serialization', () => {
     expect(validateSettings({ ...DEFAULT_SETTINGS, gapColor: '#d3d1c7' }).gapColor).toBe('#D3D1C7');
   });
 });
+
+describe('the holiday settings', () => {
+  it('default to Priego de Córdoba, switched on', () => {
+    expect(DEFAULT_SETTINGS.holidaysEnabled).toBe(true);
+    expect(DEFAULT_SETTINGS.holidaysMunicipality).toBe('14055');
+  });
+
+  it('repairs a corrupt municipality on the way IN', () => {
+    expect(normalizeSettings({ holidaysMunicipality: 'Priego' }).holidaysMunicipality).toBe('14055');
+    expect(normalizeSettings({ holidaysMunicipality: '1405' }).holidaysMunicipality).toBe('14055');
+    expect(normalizeSettings({ holidaysMunicipality: '04003' }).holidaysMunicipality).toBe('04003');
+  });
+
+  it('REFUSES on the way out what the read path would have repaired', () => {
+    expect(() => validateSettings({ ...DEFAULT_SETTINGS, holidaysMunicipality: 'Priego' })).toThrow(
+      SettingsValidationError,
+    );
+  });
+
+  it('round-trips: what writeSettings returns is what readSettings gives back', () => {
+    const written = writeSettings({ holidaysEnabled: false, holidaysMunicipality: '41091' }, db);
+    expect(readSettings(db)).toEqual(written);
+  });
+});
