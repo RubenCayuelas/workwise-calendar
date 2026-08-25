@@ -291,6 +291,22 @@
     "save": "Guardar",
     "done": "{{count}} festivos cerrados"
   },
+  "holidayNames": {
+    "localHoliday": "Fiesta local",
+    "regionalHoliday": "Fiesta laboral",
+    "newYear": "Año Nuevo",
+    "epiphany": "Epifanía del Señor",
+    "andalusiaDay": "Día de Andalucía",
+    "maundyThursday": "Jueves Santo",
+    "goodFriday": "Viernes Santo",
+    "labourDay": "Fiesta del Trabajo",
+    "assumption": "Asunción de la Virgen",
+    "nationalDay": "Fiesta Nacional de España",
+    "allSaints": "Todos los Santos",
+    "constitutionDay": "Día de la Constitución Española",
+    "immaculateConception": "Inmaculada Concepción",
+    "christmas": "Natividad del Señor"
+  },
   "settings": {
     "title": "Configuración",
     "subtitle": "Jornada, relleno automático y apariencia del calendario.",

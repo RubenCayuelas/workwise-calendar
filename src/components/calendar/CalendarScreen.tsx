@@ -168,7 +168,7 @@ export function CalendarScreen({
   renderAbsenceForm,
   settingsHref = '/settings',
 }: CalendarScreenProps): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const format = useFormat();
   const toast = useToast();
   const week = useWeek();
@@ -869,7 +869,7 @@ export function CalendarScreen({
 
   useEffect(() => {
     const controller = new AbortController();
-    runHolidayCheck(false, { signal: controller.signal })
+    runHolidayCheck(false, { signal: controller.signal, language: i18n.language })
       .then((result) => {
         setPendingHolidays(result.pending);
         if (result.closed.length > 0 || result.reopened.length > 0) week.reload();

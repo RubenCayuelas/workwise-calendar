@@ -13,10 +13,9 @@ never moves without the owner asking.
 
 **The holidays no longer have to be typed in by hand.** Settings has a new block for them, with the
 municipality — Priego de Córdoba to begin with, and any Andalusian town if it is ever needed. From
-there the app reads the official labour calendar, closes each holiday with its name in the day header
-— *Jue 3 · Feria Real de Priego de Córdoba* — and looks again once a week, with a button for when it
-cannot wait. Underneath it always says how many holidays it holds, how far ahead they reach, and when
-it last looked.
+there the app reads the official labour calendar, closes each holiday and writes its name in the day
+header, and looks again once a week, with a button for when it cannot wait. Underneath it always says
+how many holidays it holds, how far ahead they reach, and when it last looked.
 
 **A holiday with work on it asks before it moves anything.** Opening the app brings up a list of those
 days with two answers each: move the work on, which is what closing a day has always done, or keep it
@@ -24,15 +23,15 @@ where it is, which padlocks it and closes the day around it. Work that already c
 nothing to choose: the day closes around it and says so. Closing the list without answering writes
 nothing.
 
-**Closing a day is no longer refused because there is work on it**, neither here nor from the
-absences screen: what can be moved is moved, and what cannot stays with the day closed around it,
-exactly as a Saturday already works. Only the past still refuses to be touched.
+**Closing a day is no longer refused because there is work on it**, neither here nor from the absences
+screen: what can be moved is moved, and what cannot stays with the day closed around it, exactly as a
+Saturday already works. Only the past still refuses to be touched.
 
 **What you write wins.** Change a holiday's reason, or close a day yourself, and the app never touches
 that day again. It only corrects the ones it wrote and nobody has touched since: it gives them their
-real name once it is published — a local holiday is stored as *Fiesta local* until anyone knows what
-it is called — and reopens them if they stop being holidays. With no connection nothing is lost: it
-keeps what it already knew and tells you when it last tried.
+real name once it is published — a local holiday gets a generic one until anyone knows what it is
+called — and reopens them if they stop being holidays. With no connection nothing is lost: it keeps
+what it already knew and tells you when it last tried.
 
 Data: Junta de Andalucía and festivos.io (CC BY 4.0).
 

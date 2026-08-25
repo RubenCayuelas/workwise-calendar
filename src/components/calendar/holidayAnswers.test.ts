@@ -8,7 +8,7 @@ function row(name: string, minutes: number, locked = false): DayWorkRow {
 }
 
 function day(date: string, rows: DayWorkRow[]): PendingHoliday {
-  return { date, name: 'Año Nuevo', rows };
+  return { date, name: 'New Year’s Day', rows };
 }
 
 describe('a day with no choice to offer', () => {

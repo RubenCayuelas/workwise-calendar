@@ -82,6 +82,11 @@ export interface HolidayCheckOptions {
   /** The "check now" button: skips the weekly wait, never the switch. */
   force?: boolean;
   source?: HolidaySource;
+  /**
+   * The language the owner is READING. A holiday's name becomes the day's stored note, so it cannot
+   * be re-translated afterwards — the same reason a deleted job's reason takes one.
+   */
+  language?: string;
 }
 
 export function readHolidayState(db: Db = getDb()): HolidayState {
@@ -140,7 +145,7 @@ export async function runHolidayCheck(
   }
 
   const names = await namesFor(source, ine, yearsOf(dates));
-  const holidays = composeHolidays(dates, names);
+  const holidays = composeHolidays(dates, names, options.language);
 
   return runTransaction(db, () => {
     // BEFORE anything replaces it: the cache is the only record of what the app wrote where.

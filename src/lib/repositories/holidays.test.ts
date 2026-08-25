@@ -28,7 +28,7 @@ describe('the holiday cache', () => {
   it('stores holidays in date order and finds one by its day', () => {
     replaceCachedHolidays(
       [
-        { date: '2026-12-25', name: 'Natividad del Señor', level: 'national' },
+        { date: '2026-12-25', name: 'Christmas Day', level: 'national' },
         { date: '2026-09-03', name: 'Feria Real de Priego de Córdoba', level: 'local' },
       ],
       db,
@@ -40,8 +40,8 @@ describe('the holiday cache', () => {
   });
 
   it('REPLACES rather than merges, so a date that stopped being a holiday leaves the cache', () => {
-    replaceCachedHolidays([{ date: '2026-06-04', name: 'Fiesta local', level: 'local' }], db);
-    replaceCachedHolidays([{ date: '2026-06-11', name: 'Fiesta local', level: 'local' }], db);
+    replaceCachedHolidays([{ date: '2026-06-04', name: 'Local holiday', level: 'local' }], db);
+    replaceCachedHolidays([{ date: '2026-06-11', name: 'Local holiday', level: 'local' }], db);
 
     expect(listCachedHolidays(db).map((holiday) => holiday.date)).toEqual(['2026-06-11']);
   });

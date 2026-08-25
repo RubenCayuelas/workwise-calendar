@@ -1,38 +1,38 @@
 /**
- * The dataset writes every name in upper case and gives a local holiday no name at all. Spanish
- * title-casing is not an algorithm — `DÍA DE LA CONSTITUCIÓN ESPAÑOLA` keeps two words lower and
- * capitalises a third — so the strings the calendar actually uses are written out.
+ * The dataset writes every name in upper case and gives a local holiday no name at all. This maps its
+ * strings onto the keys under `holidayNames.*` in the locale files, which is where the wording lives —
+ * a holiday's note is prose the data layer produces, so it is composed in the language the owner is
+ * READING rather than hard-coded here.
  *
- * Three of them appear in two spellings: 2026 says `FESTIVIDAD DE ASUNCIÓN DE LA VIRGEN` where 2027
- * says `ASUNCIÓN DE LA VIRGEN`. That is why the key is the exact string and never the date.
- *
- * The list is every distinct `LABORAL` description in the published dataset, measured over 2023-2027.
- * An unknown one is not an error — it is passed through as it came, upper case and all.
+ * Three of the strings appear in two spellings: 2026 says `FESTIVIDAD DE ASUNCIÓN DE LA VIRGEN` where
+ * 2027 says `ASUNCIÓN DE LA VIRGEN`. That is why the map is keyed by the exact string and never by the
+ * date. The list is every distinct `LABORAL` description published between 2023 and 2027; an unknown
+ * one is not an error, and reads through as it came.
  */
 
 /** What a local holiday is called until festivos.io publishes its real name. */
-export const GENERIC_LOCAL_NAME = 'Fiesta local';
+export const LOCAL_HOLIDAY_KEY = 'localHoliday';
 
-const NAMES: Readonly<Record<string, string>> = {
-  'AÑO NUEVO': 'Año Nuevo',
-  'EPIFANÍA DEL SEÑOR': 'Epifanía del Señor',
-  'DÍA DE ANDALUCÍA': 'Día de Andalucía',
-  'JUEVES SANTO': 'Jueves Santo',
-  'VIERNES SANTO': 'Viernes Santo',
-  'FIESTA DEL TRABAJO': 'Fiesta del Trabajo',
-  'ASUNCIÓN DE LA VIRGEN': 'Asunción de la Virgen',
-  'FESTIVIDAD DE ASUNCIÓN DE LA VIRGEN': 'Asunción de la Virgen',
-  'FIESTA NACIONAL DE ESPAÑA': 'Fiesta Nacional de España',
-  'TODOS LOS SANTOS': 'Todos los Santos',
-  'FIESTA DE TODOS LOS SANTOS': 'Todos los Santos',
-  'DÍA DE LA CONSTITUCIÓN ESPAÑOLA': 'Día de la Constitución Española',
-  'INMACULADA CONCEPCIÓN': 'Inmaculada Concepción',
-  'DÍA DE LA INMACULADA CONCEPCIÓN': 'Inmaculada Concepción',
-  'NATIVIDAD DEL SEÑOR': 'Natividad del Señor',
+const KEYS: Readonly<Record<string, string>> = {
+  'AÑO NUEVO': 'newYear',
+  'EPIFANÍA DEL SEÑOR': 'epiphany',
+  'DÍA DE ANDALUCÍA': 'andalusiaDay',
+  'JUEVES SANTO': 'maundyThursday',
+  'VIERNES SANTO': 'goodFriday',
+  'FIESTA DEL TRABAJO': 'labourDay',
+  'ASUNCIÓN DE LA VIRGEN': 'assumption',
+  'FESTIVIDAD DE ASUNCIÓN DE LA VIRGEN': 'assumption',
+  'FIESTA NACIONAL DE ESPAÑA': 'nationalDay',
+  'TODOS LOS SANTOS': 'allSaints',
+  'FIESTA DE TODOS LOS SANTOS': 'allSaints',
+  'DÍA DE LA CONSTITUCIÓN ESPAÑOLA': 'constitutionDay',
+  'INMACULADA CONCEPCIÓN': 'immaculateConception',
+  'DÍA DE LA INMACULADA CONCEPCIÓN': 'immaculateConception',
+  'NATIVIDAD DEL SEÑOR': 'christmas',
   // The 2023 rows carry no name of their own, only the category.
-  'FIESTA LABORAL PARA ANDALUCÍA': 'Fiesta laboral',
+  'FIESTA LABORAL PARA ANDALUCÍA': 'regionalHoliday',
 };
 
-export function readableOfficialName(upperCase: string): string | undefined {
-  return NAMES[upperCase.trim()];
+export function officialNameKey(published: string): string | undefined {
+  return KEYS[published.trim()];
 }

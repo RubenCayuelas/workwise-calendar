@@ -208,6 +208,16 @@ describe('the holiday check', () => {
     expect(noteOn(TUE)).toBe('Fiesta local');
   });
 
+  it('writes the note in the language the owner is READING', async () => {
+    await runHolidayCheck(
+      { today: MON, now: NOW, language: 'en', source: sourceWith([{ date: TUE, type: 'LABORAL' }]) },
+      db,
+    );
+
+    // Stored user data from the moment it is written, so it is composed once, in their language.
+    expect(noteOn(TUE)).toBe("New Year's Day");
+  });
+
   it('does not write a holiday that has work on it — it ASKS', async () => {
     job('Railing', 6);
 

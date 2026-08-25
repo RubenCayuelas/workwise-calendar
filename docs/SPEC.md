@@ -1468,8 +1468,14 @@ gesture.
 - **The dates are the Junta de Andalucía's open data** (`datos.juntadeandalucia.es`, CC BY 4.0, no
   key), which answers a 302 the fetch must follow and ignores every query parameter — the whole 1.4 MB
   file, every time. **The names come from festivos.io** (CC BY 4.0), a naming layer over that same
-  official data. A name that cannot be had is not a failure: a regional day falls back to a written
-  table of proper Spanish, and a local one to `Fiesta local`.
+  official data, and are stored as they came: they are the source's own words.
+- **A name that cannot be had is not a failure.** The dataset's own upper-case strings are mapped onto
+  keys under `holidayNames.*`, and a local day with no published name falls back to a generic one.
+  **Those fallbacks are composed from the LOCALE FILES in the language the owner is reading**, the
+  same way a deleted job's gap reason is, and for the same reason: the name becomes the day's stored
+  note the moment it is written, and stored user data cannot be re-translated afterwards. Switching
+  the interface language renames the days the app still owns, on the next check, and leaves every day
+  the owner has touched alone.
 - **The horizon is the source's, not a number of ours.** Local holidays for a year are published in
   the October before it, so the app never knows more than about fifteen months ahead and Settings says
   how far it reaches. It writes **every holiday it knows, from today onwards**, the past excluded.

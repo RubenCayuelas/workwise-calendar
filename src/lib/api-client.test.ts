@@ -123,6 +123,12 @@ describe('requests', () => {
     expect(calls.every((call) => call.url === '/api/holidays' && call.method === 'POST')).toBe(true);
   });
 
+  it('sends the reading language, because a holiday name becomes stored user data', async () => {
+    const { calls } = stubFetch({ body: { closed: [], pending: [] } });
+    await runHolidayCheck(true, { language: 'en' });
+    expect(calls[0].url).toBe('/api/holidays?lang=en');
+  });
+
   it('posts the panel’s answers as one list, to its own route', async () => {
     const { calls } = stubFetch({ body: { closed: [], pending: [] } });
     await answerHolidays([

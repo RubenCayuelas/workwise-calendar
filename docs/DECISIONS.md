@@ -576,6 +576,12 @@ evidence, and the cache must be read before it is replaced.
 **Why a day whose work is padlocked is stated and not asked about** — the only other answer would clear a
 padlock, and the padlock is cleared by the padlock and nothing else.
 
+**Why the fallback names come out of the locale files** — a holiday's note is the SECOND piece of prose the
+data layer produces, after a deleted job's gap reason, and it obeys the same rule: composed from the bundles
+in the language the owner is reading, because it is stored user data from the moment it is written. Written
+into the module as Spanish literals first, which put untranslatable wording in the data layer and made the
+English interface print Spanish.
+
 **Rejected** — bundling the holiday table in the installer, so the app never touches the network. It matches
 everything else about this app, but a year's holidays would then arrive only with a new release, and the owner
 asked for the check instead. Also rejected: extending beyond Andalucía, which means seventeen regional

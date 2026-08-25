@@ -42,7 +42,7 @@ export function HolidaysSection({
   patchDraft,
   errorFor,
 }: HolidaysSectionProps): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const format = useFormat();
 
   const [state, setState] = useState<HolidayState | undefined>(undefined);
@@ -69,7 +69,7 @@ export function HolidaysSection({
     setFailure(undefined);
     setOutcome(undefined);
     try {
-      const result = await runHolidayCheck(true);
+      const result = await runHolidayCheck(true, { language: i18n.language });
       setState(result.state);
       setOutcome(
         result.closed.length === 0
@@ -81,7 +81,7 @@ export function HolidaysSection({
     } finally {
       setBusy(false);
     }
-  }, [t]);
+  }, [i18n.language, t]);
 
   return (
     <section className={`ww-card ${styles.section}`}>

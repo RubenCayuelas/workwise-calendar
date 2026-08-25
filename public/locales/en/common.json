@@ -291,6 +291,22 @@
     "save": "Save",
     "done": "{{count}} holidays closed"
   },
+  "holidayNames": {
+    "localHoliday": "Local holiday",
+    "regionalHoliday": "Regional holiday",
+    "newYear": "New Year's Day",
+    "epiphany": "Epiphany",
+    "andalusiaDay": "Andalusia Day",
+    "maundyThursday": "Maundy Thursday",
+    "goodFriday": "Good Friday",
+    "labourDay": "Labour Day",
+    "assumption": "Assumption of Mary",
+    "nationalDay": "National Day of Spain",
+    "allSaints": "All Saints' Day",
+    "constitutionDay": "Constitution Day",
+    "immaculateConception": "Immaculate Conception",
+    "christmas": "Christmas Day"
+  },
   "settings": {
     "title": "Settings",
     "subtitle": "Shift, auto-fill and the look of the calendar.",

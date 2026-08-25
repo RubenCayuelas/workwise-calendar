@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { composeHolidays } from './compose';
 import { parseFestivosIo } from './festivosIo';
-import { GENERIC_LOCAL_NAME, readableOfficialName } from './officialNames';
+import { LOCAL_HOLIDAY_KEY, officialNameKey } from './officialNames';
+import { publicHolidayName } from '../text';
 import type { JuntaHoliday } from './juntaDataset';
 
 const DATES: JuntaHoliday[] = [
@@ -58,12 +59,28 @@ describe('composing a holiday', () => {
     ]);
   });
 
-  it('falls back to the written table for a regional day', () => {
+  it('falls back to the locale files for a regional day', () => {
     expect(composeHolidays(DATES, new Map())[0].name).toBe('Día de Andalucía');
   });
 
   it('falls back to a GENERIC name for a local day, which is the normal first state', () => {
-    expect(composeHolidays(DATES, new Map())[1].name).toBe(GENERIC_LOCAL_NAME);
+    expect(composeHolidays(DATES, new Map())[1].name).toBe('Fiesta local');
+  });
+
+  it('writes the fallback in the language the owner is READING', () => {
+    const english = composeHolidays(DATES, new Map(), 'en');
+    expect(english[0].name).toBe('Andalusia Day');
+    expect(english[1].name).toBe('Local holiday');
+  });
+
+  it('passes a name the SOURCE supplied through as it came, in either language', () => {
+    const names = new Map([['2026-09-03', 'Feria Real de Priego de Córdoba']]);
+    // It is the source's own words, not ours: there is nothing to translate it into.
+    expect(composeHolidays(DATES, names, 'en')[1].name).toBe('Feria Real de Priego de Córdoba');
+  });
+
+  it('falls back to Spanish for a language it does not have', () => {
+    expect(composeHolidays(DATES, new Map(), 'fr')[0].name).toBe('Día de Andalucía');
   });
 
   it('falls back to the dataset’s own words for a regional string nobody has written down', () => {
@@ -72,7 +89,7 @@ describe('composing a holiday', () => {
   });
 });
 
-describe('the written name table', () => {
+describe('the published name table', () => {
   // Every distinct LABORAL description in the published dataset, measured over 2023-2027. A year
   // that adds a seventeenth is not a failure — it reads through as it came — but it should be seen.
   const PUBLISHED = [
@@ -95,13 +112,19 @@ describe('the written name table', () => {
   ];
 
   it('covers every string the dataset has ever used', () => {
-    const missing = PUBLISHED.filter((name) => readableOfficialName(name) === undefined);
+    const missing = PUBLISHED.filter((name) => officialNameKey(name) === undefined);
     expect(missing).toEqual([]);
   });
 
-  it('never hands back an upper-case name for one it knows', () => {
-    for (const name of PUBLISHED) {
-      expect(readableOfficialName(name)).not.toBe(name);
+  it('maps every one onto a key BOTH locale files answer', () => {
+    for (const published of [...PUBLISHED, LOCAL_HOLIDAY_KEY]) {
+      const key = officialNameKey(published) ?? published;
+      for (const language of ['es', 'en']) {
+        const name = publicHolidayName(key, language);
+        // `lookup` returns the key itself when it is missing, which is the failure to catch.
+        expect(name, `${key} in ${language}`).not.toBe(`holidayNames.${key}`);
+        expect(name).not.toBe(published);
+      }
     }
   });
 });

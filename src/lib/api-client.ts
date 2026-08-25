@@ -819,9 +819,17 @@ export function getHolidayState(options?: RequestOptions): Promise<HolidayState>
 /**
  * Called once when the app opens, and by the "check now" button with `force`. `pending` comes back
  * with the days that have work on them, for which NOTHING has been written yet.
+ *
+ * PASS THE LANGUAGE THE OWNER IS READING (`i18n.language`): a holiday's name becomes the day's stored
+ * note, and stored user data cannot be re-translated afterwards.
  */
-export function runHolidayCheck(force = false, options?: RequestOptions): Promise<HolidayCheckResult> {
-  return send<HolidayCheckResult>('POST', '/holidays', { force }, options);
+export function runHolidayCheck(
+  force = false,
+  options: RequestOptions & { language?: string } = {},
+): Promise<HolidayCheckResult> {
+  const { language, ...rest } = options;
+  const query = language === undefined ? '' : `?lang=${encodeURIComponent(language)}`;
+  return send<HolidayCheckResult>('POST', `/holidays${query}`, { force }, rest);
 }
 
 /** The panel's answers. Refetch the week afterwards: a reflow rewrites rows it never mentions. */
