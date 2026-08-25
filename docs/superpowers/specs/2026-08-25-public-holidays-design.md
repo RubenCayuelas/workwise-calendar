@@ -123,6 +123,10 @@ It is **the cache of the last successful check**, and it is what lets Settings a
 and how far it reaches* without a network call, what lets the app work offline, and what lets a change
 of municipality know which closed days were its own (§7).
 
+`name` carries a second job that is easy to lose in a refactor: it is **the app's record of what it
+last wrote on that day**, and comparing it against the day's note is the whole of §6.1. Replacing the
+cache before that comparison is made destroys the only evidence of who owns the day.
+
 Plus one settings key, `holidaysCheckedAt`, because a **failed** check leaves no row and must still
 stop the app retrying on every open.
 
@@ -148,6 +152,10 @@ For each year from the current one to the last the Junta dataset carries:
      opens `Cerrar días` on that day with its note pre-filled.
 4. Step 2 failing is never a failure of the check. The dates are what matter; the name is decoration.
 
+**A fallback name is provisional, not final.** For a local holiday it is the *expected* first state,
+because the date is published months before anyone names it — see §6.1, where a later check replaces
+it.
+
 ---
 
 ## 6. The pass
@@ -164,7 +172,7 @@ The check is skipped entirely while `holidaysEnabled` is OFF.
 
 - **A holiday with nothing on that day is closed silently.** No question, no notice; it is the boring
   majority of them.
-- **A holiday with work on that day opens the panel** in §6.1 and nothing is written for it until the
+- **A holiday with work on that day opens the panel** in §6.2 and nothing is written for it until the
   panel is answered.
 
 **One transaction.** The silent days and the answered days are written together with one reflow at the
@@ -177,11 +185,33 @@ Saturdays and Sundays, and this pass writes them. The one change that buys it is
 write take the dates it was given instead of deriving them — the public `POST /api/absences` keeps the
 range it has.
 
-**Never before today**, and a day already carrying a `day_overrides` row is never touched — its
-`is_closed`, its `note` and its hand-entered `capacity_hours` are all left exactly as they are. Running
-the pass twice therefore changes nothing.
+**Never before today.** Running the pass twice changes nothing.
 
-### 6.1 The panel: displace, or keep it here
+### 6.1 What it maintains, and what it must never touch
+
+> **The app keeps only what it wrote and nobody has touched since. A future day whose note still reads
+> EXACTLY what the app last wrote there is the app's to correct. The moment the owner edits that note,
+> closes the day themselves, or reopens it, the day is theirs and the app never writes on it again.**
+
+The test is a string comparison between `day_overrides.note` and the `name` the `holidays` cache holds
+for that date — which is why the cache must be read **before** it is replaced. Three cases fall out of
+the one rule, and none of them needs a mark on the calendar:
+
+- **The name arrives late, which is the normal case and not an edge one.** A local holiday is
+  published by the Junta in the October before its year, and festivos.io — a naming layer over that
+  same data — catches up weeks later. So a 2027 local day is first written as `Fiesta local` and
+  **renamed to `Feria Real de Priego de Córdoba` by a later check**, silently: no work moves, no hours
+  shift, a label simply gets better. Without this the generic name would be permanent, since the
+  pretty one never exists on the day the date does.
+- **A date is corrected.** A cached date that is no longer a holiday, is still in the future, and is
+  still closed with the app's own note is **reopened**, and the new date is written. A town moving its
+  local holiday therefore does not leave a phantom closed day behind.
+- **A change of municipality** is the same operation with the whole cache invalidated at once (§7).
+
+**Everything else is left exactly as it stands**: a day the owner closed by hand, a day whose note they
+rewrote, a `capacity_hours` they entered, and any date before today.
+
+### 6.2 The panel: displace, or keep it here
 
 One panel at app open, listing every holiday that has work on it, one line each:
 
@@ -213,13 +243,16 @@ One panel at app open, listing every holiday that has work on it, one line each:
 
 The owner's answer, 2026-08-25: the old town's holidays go.
 
-On a save that changes `holidaysMunicipality`, in one transaction: every **future** date in the
-`holidays` cache belonging to the old municipality is reopened through the existing `reopenDays` path,
-the cache is emptied, and a check for the new town runs immediately. Days the owner had closed by hand
-are untouched, because they are not in the cache.
+It is §6.1's rule with the whole cache invalidated at once, not a mechanism of its own. On a save that
+changes `holidaysMunicipality`, in one transaction: every **future** cached date **still carrying the
+app's own note** is reopened through the existing `reopenDays` path, the cache is emptied, and a check
+for the new town runs immediately.
 
-A holiday of the old town that is also a holiday of the new one is reopened and then written again
-with the new town's name for it. Same day, same closed state, so nothing flickers on the calendar.
+So a day the owner closed by hand survives, because it was never in the cache, and so does one whose
+note they rewrote — they claimed it, and a change of town does not unclaim it.
+
+A holiday of the old town that is also a holiday of the new one is reopened and written again with the
+new town's name for it, in the same transaction, so nothing flickers on the calendar.
 
 ---
 
@@ -276,6 +309,12 @@ next check closes it again; the app has no way to tell that reopening from a day
 written.* The `holidays` table is where the answer will live when it is wanted — a column saying the
 day was dismissed — so the fix stays cheap.
 
+**The asymmetry with §6.1 is deliberate and worth stating**, because it looks like an oversight and is
+not: an edited note is evidence that survives — the row is still there and it no longer matches — so
+the app can see the day was claimed and back off. A reopened day leaves no evidence at all; the row is
+gone, and *never written* and *written and undone* are the same picture. Respecting one and not the
+other is the difference between what can be known and what cannot.
+
 ---
 
 ## 11. Out of scope
@@ -300,8 +339,14 @@ day was dismissed — so the fix stays cheap.
   accents; a truncated body discarded whole.
 - Composition: festivos.io present, absent, and returning a year it does not have; the upper-case name
   table.
-- The pass: idempotent over two runs; skips a day with any `day_overrides` row; skips the past; writes
-  a weekend holiday; one transaction with one reflow; a horizon failure on one day sparing the others.
+- The pass: idempotent over two runs; skips the past; writes a weekend holiday; one transaction with
+  one reflow; a horizon failure on one day sparing the others.
+- **What it maintains (§6.1), which is where a careless change will do damage.** A `Fiesta local`
+  written by an earlier check is renamed when the name arrives; a note the owner rewrote is NOT; a day
+  the owner closed by hand is NOT; a cached date that stops being a holiday is reopened, but only
+  while it still carries the app's own note; nothing before today moves in any of those cases. The
+  comparison must read the cache **before** it is replaced — a test that replaces first will pass
+  while renaming everything the owner ever typed.
 - The panel: displace, keep-and-padlock, unanswered, and a day whose work is already padlocked.
 - `assertDayCanClose`: the past still refuses, the other three no longer do.
 - Municipality change: the old town's future days reopen, hand-closed days survive, a shared date does
