@@ -35,6 +35,10 @@ what it already knew and tells you when it last tried.
 
 Data: Junta de Andalucía and festivos.io (CC BY 4.0).
 
+**The working agreement now says it in so many words**: everything written is in English — code, the
+documents, commit subjects and a pull request — and any wording the server produces is composed from
+the locale files in the language being read, never written into a module.
+
 ## 0.21.1 — the week arrows are easier to hit
 
 **The two arrows either side of the week are wider.** They were the same 28-pixel square as every
