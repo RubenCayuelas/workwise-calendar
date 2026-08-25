@@ -76,8 +76,8 @@ afterEach(() => {
 describe('requests', () => {
   it('always sends minutes, never hours, so 2.5 h cannot drift', async () => {
     const { calls } = stubFetch({ body: { project: {}, blocks: [], summary: {}, touchedLockedBlockIds: [] } });
-    await createProject({ name: 'Door', color: '#3787D7', totalMinutes: 150 });
-    expect(calls[0].body).toEqual({ name: 'Door', color: '#3787D7', totalMinutes: 150 });
+    await createProject({ name: 'Door', color: '#3087DF', totalMinutes: 150 });
+    expect(calls[0].body).toEqual({ name: 'Door', color: '#3087DF', totalMinutes: 150 });
     expect(JSON.stringify(calls[0].body)).not.toContain('totalHours');
   });
 

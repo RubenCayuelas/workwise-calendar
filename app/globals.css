@@ -135,7 +135,7 @@
    * A component that needs the fill declares the `color-mix` on the same element it
    * sets `--ww-block-color` on; see CalendarBlock.module.css and WeekGrid.module.css.
    */
-  --ww-block-tint-strength: 12%;
+  --ww-block-tint-strength: 15%;
 }
 
 /* Dark values, dormant while <html data-theme="light">. Same shape as the brand

@@ -675,11 +675,11 @@ a second entry with the name and colour pre-filled — is the whole of what was 
 ## The Job Palette Is Chosen Against the Fill, Not the Swatch
 
 **Rule** — SPEC § *Visual Design*. The eight job colours each hold at least 3:1 against both the light and the
-dark surface, clear the brand amber and the gap fill by dE 30, and are kept apart from one another in the 12%
-fill rather than at full strength.
+dark surface, clear the brand amber and the gap fill by dE 30, and are kept apart from one another in the fill
+they are drawn with rather than at full strength.
 
 **Why** — a block is its colour twice over: a hairline border and the padlock mark at full strength, over a fill
-of itself mixed 12% into the surface. The fill is most of what the eye sees, and eight saturated values collapse
+of itself mixed into the surface at `--ww-block-tint-strength`. The fill is most of what the eye sees, and eight saturated values collapse
 into eight very close washes there — so a set chosen by looking at swatches can hold two jobs that are plainly
 different in the picker and the same colour on the grid. The retired set did exactly that: its green and its dark
 green sat at dE 2.1 in the fill, no difference at all, and its blue, violet, red, dark green and grey all fell

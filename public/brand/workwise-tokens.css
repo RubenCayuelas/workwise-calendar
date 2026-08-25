@@ -67,14 +67,14 @@
    satisfies both is a narrow one (relative luminance 0.14..0.30), and it is why
    none of these is either a pastel or a deep tone. */
 :root {
-  --ww-project-1: #249e30;
-  --ww-project-2: #3787d7;
-  --ww-project-3: #c93136;
+  --ww-project-1: #1ea42b;
+  --ww-project-2: #3087df;
+  --ww-project-3: #d1292f;
   --ww-project-4: #9b8508;
-  --ww-project-5: #e86417;
-  --ww-project-6: #8e5dc6;
-  --ww-project-7: #847b6c;
-  --ww-project-8: #d62988;
+  --ww-project-5: #ed6212;
+  --ww-project-6: #8d56cd;
+  --ww-project-7: #de2189;
+  --ww-project-8: #867b69;
 }
 
 /* Logo usage: the SVG files with `currentColor` inherit from --ww-logo-ink. */

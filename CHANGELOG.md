@@ -11,9 +11,13 @@ never moves without the owner asking.
 
 ## 0.21.0 — a new set of job colours
 
-**The eight colours a job can be painted are new**: green, blue, red, yellow, orange, purple, grey
-and pink. The set the client asked for is seven; the eighth is there because the app has eight slots
-and a job more that can be told apart is worth having.
+**The eight colours a job can be painted are new**: green, blue, red, yellow, orange, purple, pink
+and grey, in that order in the picker. The set the client asked for is seven; the eighth is there
+because the app has eight slots and a job more that can be told apart is worth having.
+
+**Blocks carry their colour a little more strongly.** The fill behind a job was a very pale wash of
+it; it is a touch stronger now, and the colours themselves are slightly more saturated, so a block
+reads as its job from further away without the grid turning loud.
 
 **Two jobs no longer end up looking alike.** The old set held a green and a dark green whose blocks
 were, in the tint the grid actually paints, the same colour — and its blue, violet, red, dark green

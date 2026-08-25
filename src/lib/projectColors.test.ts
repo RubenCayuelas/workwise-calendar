@@ -71,11 +71,19 @@ describe('the job swatches', () => {
   });
 
   it('keeps every pair apart in the pale fill, which is the hardest read', () => {
-    // The fill is the swatch at 12% into white, so eight saturated values collapse into eight very
-    // close washes — this is where two jobs start looking alike long before their borders do. The
-    // pair that retired with the old palette sat at 2.1 here, which is no difference at all.
+    // The fill is the swatch mixed into the surface at `--ww-block-tint-strength`, so eight
+    // saturated values collapse into eight very close washes — this is where two jobs start looking
+    // alike long before their borders do. The pair that retired with the old palette sat at 2.1
+    // here, which is no difference at all. The strength is READ rather than written down: raising
+    // it is how a block is made to show more, and a copy here would stop testing the real fill.
+    const globals = fs.readFileSync(path.join(process.cwd(), 'app', 'globals.css'), 'utf8');
+    const strength = Number(globals.match(/--ww-block-tint-strength:\s*(\d+)%/)?.[1]) / 100;
+    expect(strength).toBeGreaterThan(0);
+
     const wash = (color: string): string => {
-      const mixed = channels(color).map((value, at) => Math.round(value * 0.12 + channels(LIGHT_SURFACE)[at] * 0.88));
+      const mixed = channels(color).map((value, at) =>
+        Math.round(value * strength + channels(LIGHT_SURFACE)[at] * (1 - strength)),
+      );
       return `#${mixed.map((value) => value.toString(16).padStart(2, '0')).join('')}`;
     };
     for (const [at, color] of PROJECT_COLORS.entries()) {

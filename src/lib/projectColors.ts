@@ -6,14 +6,14 @@
  * so the swatch picker can import the same constant and the two cannot drift.
  */
 export const PROJECT_COLORS = [
-  '#249E30',
-  '#3787D7',
-  '#C93136',
+  '#1EA42B',
+  '#3087DF',
+  '#D1292F',
   '#9B8508',
-  '#E86417',
-  '#8E5DC6',
-  '#847B6C',
-  '#D62988',
+  '#ED6212',
+  '#8D56CD',
+  '#DE2189',
+  '#867B69',
 ] as const;
 
 export type ProjectColor = (typeof PROJECT_COLORS)[number];

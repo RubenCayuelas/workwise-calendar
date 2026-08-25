@@ -395,14 +395,14 @@ function assignGapUnitIds(db: Db): void {
  */
 function repaintProjectColors(db: Db): void {
   const PAIRS: ReadonlyArray<readonly [string, string]> = [
-    ['#185FA5', '#3787D7'],
-    ['#1D9E75', '#249E30'],
-    ['#D85A30', '#E86417'],
-    ['#534AB7', '#8E5DC6'],
-    ['#A32D2D', '#C93136'],
+    ['#185FA5', '#3087DF'],
+    ['#1D9E75', '#1EA42B'],
+    ['#D85A30', '#ED6212'],
+    ['#534AB7', '#8D56CD'],
+    ['#A32D2D', '#D1292F'],
     ['#0F6E56', '#9B8508'],
-    ['#D4537E', '#D62988'],
-    ['#5F5E5A', '#847B6C'],
+    ['#D4537E', '#DE2189'],
+    ['#5F5E5A', '#867B69'],
   ];
 
   const cases = PAIRS.map(() => 'WHEN UPPER(color) = ? THEN ?').join(' ');

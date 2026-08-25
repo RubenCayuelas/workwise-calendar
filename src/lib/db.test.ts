@@ -80,7 +80,7 @@ describe('the migration meets a database that already holds work', () => {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
-      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#249E30', 2);
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#1EA42B', 2);
       INSERT INTO blocks (id, project_id, date, start_time, duration)
         VALUES ('b1', 'p1', '2026-08-10', '08:00', 2);
     `);
@@ -131,8 +131,8 @@ describe('the migration meets a database that already holds work', () => {
       BEGIN
         UPDATE blocks SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
       END;
-      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#249E30', 6);
-      INSERT INTO projects (id, name, color, total_hours) VALUES ('p2', 'Door', '#249E30', 4);
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#1EA42B', 6);
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p2', 'Door', '#1EA42B', 4);
       INSERT INTO blocks (id, project_id, date, start_time, duration, locked, manual_duration, hand_placed)
         VALUES ('viernes',   'p1', '2026-08-14', '10:00', 2, 0, 0, 1),
                ('bloqueado', 'p1', '2026-08-13', '08:00', 2, 1, 1, 0),
@@ -174,7 +174,7 @@ describe('the migration meets a database that already holds work', () => {
 
     const first = openDatabase(dbPath);
     first.exec(`
-      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#249E30', 2);
+      INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Staircase', '#1EA42B', 2);
       INSERT INTO blocks (id, project_id, date, start_time, duration, locked)
         VALUES ('libre', 'p1', '2026-08-12', '08:00', 2, 0);
     `);
@@ -396,14 +396,14 @@ describe('the palette migration: a job painted from the retired swatch set', () 
     // still eight the owner can tell apart, which a per-colour nearest lookup would have broken:
     // both retired greens would have found the single green there is now.
     expect(colours(db)).toEqual([
-      '#3787D7',
-      '#249E30',
-      '#E86417',
-      '#8E5DC6',
-      '#C93136',
+      '#3087DF',
+      '#1EA42B',
+      '#ED6212',
+      '#8D56CD',
+      '#D1292F',
       '#9B8508',
-      '#D62988',
-      '#847B6C',
+      '#DE2189',
+      '#867B69',
     ]);
     expect(new Set(colours(db)).size).toBe(8);
     db.close();
@@ -411,11 +411,11 @@ describe('the palette migration: a job painted from the retired swatch set', () 
     // Recorded, so a job the owner has since repainted by hand is never repainted again — and a
     // value that is in BOTH palettes could not be double-mapped even if it were.
     const again = openDatabase(dbPath);
-    again.prepare("UPDATE projects SET color = '#3787D7' WHERE id = 'p2'").run();
+    again.prepare("UPDATE projects SET color = '#3087DF' WHERE id = 'p2'").run();
     again.close();
     const third = openDatabase(dbPath);
     expect(third.prepare("SELECT color FROM projects WHERE id = 'p2'").get()).toEqual({
-      color: '#3787D7',
+      color: '#3087DF',
     });
     third.close();
   });
@@ -447,7 +447,7 @@ describe('openDatabase', () => {
   it('hands out an isolated, already-migrated database for tests', () => {
     const a = openDatabase(':memory:');
     const b = openDatabase(':memory:');
-    a.prepare("INSERT INTO projects (id, name, color) VALUES ('p1', 'Staircase', '#249E30')").run();
+    a.prepare("INSERT INTO projects (id, name, color) VALUES ('p1', 'Staircase', '#1EA42B')").run();
 
     expect(a.prepare('SELECT COUNT(*) AS n FROM projects').get()).toEqual({ n: 1 });
     expect(b.prepare('SELECT COUNT(*) AS n FROM projects').get()).toEqual({ n: 0 });

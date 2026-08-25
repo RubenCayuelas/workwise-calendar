@@ -31,7 +31,7 @@ describe('the schema', () => {
   });
 
   it('cascades blocks when their project is deleted', () => {
-    db.prepare("INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Railing', '#3787D7', 4)").run();
+    db.prepare("INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Railing', '#3087DF', 4)").run();
     db.prepare(
       "INSERT INTO blocks (id, project_id, date, start_time, duration) VALUES ('b1', 'p1', '2026-08-11', '08:00', 4)",
     ).run();
@@ -42,7 +42,7 @@ describe('the schema', () => {
   });
 
   it('touches updated_at on UPDATE, which a column default never does', () => {
-    db.prepare("INSERT INTO projects (id, name, color, total_hours, created_at, updated_at) VALUES ('p1', 'Shutter', '#E86417', 6, '2020-01-01 00:00:00', '2020-01-01 00:00:00')").run();
+    db.prepare("INSERT INTO projects (id, name, color, total_hours, created_at, updated_at) VALUES ('p1', 'Shutter', '#ED6212', 6, '2020-01-01 00:00:00', '2020-01-01 00:00:00')").run();
 
     db.prepare("UPDATE projects SET name = 'Wide shutter' WHERE id = 'p1'").run();
 
@@ -51,7 +51,7 @@ describe('the schema', () => {
   });
 
   it('refuses a block with no duration and a locked flag that is not 0 or 1', () => {
-    db.prepare("INSERT INTO projects (id, name, color) VALUES ('p1', 'Staircase', '#249E30')").run();
+    db.prepare("INSERT INTO projects (id, name, color) VALUES ('p1', 'Staircase', '#1EA42B')").run();
     expect(() =>
       db.prepare("INSERT INTO blocks (id, project_id, date, start_time, duration) VALUES ('b1', 'p1', '2026-08-11', '08:00', 0)").run(),
     ).toThrow();
