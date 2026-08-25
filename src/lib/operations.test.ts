@@ -2978,20 +2978,71 @@ describe('closing a range of days', () => {
     ]);
   });
 
-  it('is refused, writing nothing, when the day holds a row the engine cannot move', () => {
+  it('CLOSES AROUND a row the engine cannot move, instead of refusing', () => {
     const door = job('Door', 4);
     setBlockLock(door.blocks[0].id, true, { today: MON }, db);
 
+    const result = saveAbsence(
+      { kind: 'closed-days', from: MON, to: WED, reason: 'Fair', today: MON },
+      db,
+    );
+
+    // A closed day is a weekend to the engine, and a weekend has always held padlocked work.
+    expect(result.dates).toEqual([MON, TUE, WED]);
+    expect(listBlocks(db).filter((block) => block.date === MON)).toHaveLength(1);
+  });
+
+  it('still refuses over the PAST, which stays frozen', () => {
+    // MOVED into the past rather than inserted, so the job's hours stay conserved. A padlocked past
+    // row is classified `locked`, so this is also the case a filter on the conflict's reason misses.
+    const door = job('Door', 4);
+    updateBlock({ ...door.blocks[0], date: LAST_FRI, startMinutes: 8 * 60, locked: true }, db);
+
     const error = refusal(() =>
-      saveAbsence({ kind: 'closed-days', from: MON, to: WED, reason: 'Fair', today: MON }, db),
+      saveAbsence({ kind: 'closed-days', from: LAST_FRI, to: LAST_FRI, today: MON }, db),
     );
 
     expect(error.code).toBe('closed-day-over-fixed-block');
-    // Its own sentence, about the DAY: reusing the gap's said «ese hueco pisa…» about a closed day.
-    expect(error.messageKey).toBe('errors.closedDayOverLockedBlock');
-    expect(error.details?.projectName).toBe('Door');
-    // The whole range rolls back, Wednesday included: one gesture, one transaction.
+    expect(error.messageKey).toBe('errors.closedDayOverPastBlock');
     expect(listDayOverrides(db)).toEqual([]);
+  });
+
+  it('displaces movable work by default', () => {
+    job('Railing', 6);
+
+    saveAbsence({ kind: 'closed-days', from: MON, to: MON, today: MON }, db);
+
+    expect(listBlocks(db).some((block) => block.date === MON)).toBe(false);
+  });
+
+  it('KEEPS the work and padlocks it when the date is named in keepWork', () => {
+    job('Railing', 6);
+
+    saveAbsence({ kind: 'closed-days', from: MON, to: MON, keepWork: [MON], today: MON }, db);
+
+    const onMonday = listBlocks(db).filter((block) => block.date === MON);
+    expect(onMonday).toHaveLength(1);
+    // The padlock is the only thing that holds a row on a day the engine plans nothing on.
+    expect(onMonday[0].locked).toBe(true);
+  });
+
+  it('keepWork never touches a day it does not name', () => {
+    job('Railing', 16);
+
+    saveAbsence({ kind: 'closed-days', from: MON, to: TUE, keepWork: [MON], today: MON }, db);
+
+    expect(listBlocks(db).filter((block) => block.date === MON)[0]?.locked).toBe(true);
+    expect(listBlocks(db).filter((block) => block.date === TUE)).toHaveLength(0);
+  });
+
+  it('keepWork never reaches a day before today', () => {
+    const railing = job('Railing', 6);
+    const pastRow = railing.blocks[0].id;
+    updateBlock({ ...railing.blocks[0], date: LAST_FRI, startMinutes: 8 * 60 }, db);
+
+    saveAbsence({ kind: 'closed-days', from: TUE, to: TUE, keepWork: [LAST_FRI], today: MON }, db);
+
+    expect(listBlocks(db).find((block) => block.id === pastRow)?.locked).toBe(false);
   });
 
   it('rolls the whole range back when the hours no longer fit the horizon', () => {
@@ -3135,10 +3186,10 @@ describe('the absence preview', () => {
 
   it('refuses exactly as the save would, so the screen never offers an impossible save', () => {
     const door = job('Door', 4);
-    setBlockLock(door.blocks[0].id, true, { today: MON }, db);
+    updateBlock({ ...door.blocks[0], date: LAST_FRI, startMinutes: 8 * 60, locked: true }, db);
 
     const error = refusal(() =>
-      previewAbsence({ kind: 'closed-days', from: MON, to: MON, today: MON }, db),
+      previewAbsence({ kind: 'closed-days', from: LAST_FRI, to: LAST_FRI, today: MON }, db),
     );
 
     expect(error.code).toBe('closed-day-over-fixed-block');

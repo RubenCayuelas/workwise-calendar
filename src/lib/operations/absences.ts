@@ -12,11 +12,11 @@
 import { getDb, type Db } from '../db';
 import { MINUTES_PER_DAY, compareDates, daysBetween, minutesToHHmm, todayLocal } from '../dates';
 import { absenceRange, MAX_ABSENCE_DAYS } from '../absences';
-import { findGapConflicts, type GapConflict, type ScheduleSummary } from '../composition';
+import { findGapConflicts, type ScheduleSummary } from '../composition';
 import { badRequest, conflict, ERROR_MESSAGE_KEYS } from '../errors';
 import { withHistory } from '../history';
 import { readSummary, recompose } from '../scheduler';
-import { listBlocks } from '../repositories/blocks';
+import { listBlocks, updateBlock } from '../repositories/blocks';
 import {
   deleteDayOverride,
   findDayOverride,
@@ -45,6 +45,12 @@ export interface AbsenceInput {
   startMinutes?: number;
   durationMinutes?: number;
   today?: string;
+  /**
+   * Dates whose work stays where it is instead of being displaced. Every movable row on such a day is
+   * PADLOCKED, because the padlock is the only thing that holds a row on a day the engine plans
+   * nothing on. `closed-days` only; a date outside the range is ignored.
+   */
+  keepWork?: readonly string[];
 }
 
 /** A job the write pushed forward, and where its hours ended up. */
@@ -193,6 +199,7 @@ function writeAbsence(input: AbsenceInput, today: string, db: Db): AbsenceMutati
       gaps.push(...insertAbsence({ date, startMinutes, durationMinutes, reason: input.reason }, today, db));
     }
   } else {
+    keepWorkOn(input.keepWork ?? [], today, db);
     for (const date of range.dates) {
       assertDayCanClose(date, today, db);
       const stored = findDayOverride(date, db);
@@ -244,19 +251,17 @@ function resolveRange(input: { from: string; to?: string }): { dates: string[]; 
   return absenceRange(input.from, to);
 }
 
-/** A closed day's own sentences: the same three reasons, about the DAY rather than about a gap. */
-const CONFLICT_KEYS: Record<GapConflict['reason'], string> = {
-  locked: ERROR_MESSAGE_KEYS.closedDayOverLockedBlock,
-  past: ERROR_MESSAGE_KEYS.closedDayOverPastBlock,
-  weekend: ERROR_MESSAGE_KEYS.closedDayOverWeekendBlock,
-};
-
 /**
- * A day the engine cannot empty may not be closed. Same question a gap asks over its own footprint,
- * asked over the WHOLE day, and refused with the same three sentences: the alternative is a day that
- * says "closed" while work nothing will move sits on it, reporting no capacity at all.
+ * Only the PAST refuses a close. A closed day is a weekend to the engine, and a weekend has always
+ * held padlocked work without complaint: work that can move is moved, work that cannot stays and the
+ * day closes around it. A past day is different in kind — nothing may be written there at all.
  */
 function assertDayCanClose(date: string, today: string, db: Db): void {
+  // Asked of the DATE and not of the conflict's `reason`: a padlocked row on a past day is classified
+  // `locked`, because the reason names the block's own state first, so filtering on `past` would let
+  // exactly the row that matters most through.
+  if (compareDates(date, today) >= 0) return;
+
   const conflicts = findGapConflicts(
     listBlocks(db),
     { date, startMinutes: 0, durationMinutes: MINUTES_PER_DAY },
@@ -265,8 +270,8 @@ function assertDayCanClose(date: string, today: string, db: Db): void {
   if (conflicts.length === 0) return;
 
   const names = new Map(listProjects(db).map((project) => [project.id, project.name]));
-  const headline = conflicts.find((item) => item.reason === 'locked') ?? conflicts[0];
-  throw conflict('closed-day-over-fixed-block', CONFLICT_KEYS[headline.reason], {
+  const headline = conflicts[0];
+  throw conflict('closed-day-over-fixed-block', ERROR_MESSAGE_KEYS.closedDayOverPastBlock, {
     details: {
       projectName: names.get(headline.projectId) ?? '',
       date: headline.date,
@@ -279,6 +284,20 @@ function assertDayCanClose(date: string, today: string, db: Db): void {
       })),
     },
   });
+}
+
+/**
+ * Padlocks the movable rows of a day the caller asked to KEEP, so the reflow leaves them where they
+ * are. Never a day before today, and never a row that carries a padlock already.
+ */
+function keepWorkOn(dates: readonly string[], today: string, db: Db): void {
+  const wanted = new Set(dates.filter((date) => compareDates(date, today) >= 0));
+  if (wanted.size === 0) return;
+
+  for (const block of listBlocks(db)) {
+    if (!wanted.has(block.date) || block.locked) continue;
+    updateBlock({ ...block, locked: true }, db);
+  }
 }
 
 /**
