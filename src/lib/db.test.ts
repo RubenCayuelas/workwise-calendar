@@ -401,7 +401,7 @@ describe('the palette migration: a job painted from the retired swatch set', () 
       '#ED6212',
       '#8D56CD',
       '#D1292F',
-      '#9B8508',
+      '#C0B002',
       '#DE2189',
       '#867B69',
     ]);

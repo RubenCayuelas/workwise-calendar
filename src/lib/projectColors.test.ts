@@ -57,12 +57,33 @@ describe('the job swatches', () => {
     for (const color of PROJECT_COLORS) expect(color).toMatch(/^#[0-9A-F]{6}$/);
   });
 
+  /**
+   * The yellow, which the owner asked to be a true yellow and not the gold that the rule below
+   * produces: `Es más bien dorado, hazlo un poco más amarillo aún, que desencaje un poco con la
+   * lógica de colores`. Yellow carries more luminance than any other hue at the same saturation, so
+   * one bright enough to read as yellow cannot also be dark enough to clear 3:1 on white — the two
+   * are the same dial. The exception is theirs and it is named, not widened: the other seven still
+   * hold the rule, this one still holds it against the dark surface, and the floor here keeps a
+   * later nudge from quietly walking it down to a border nobody can see.
+   */
+  const TRUE_YELLOW = '#C0B002';
+  const YELLOW_FLOOR_ON_WHITE = 2.2;
+
   it.each(PROJECT_COLORS)('%s stays visible on both surfaces', (color) => {
     // 3:1, the floor for a graphic that carries meaning. The border and the padlock mark are drawn
     // in the swatch itself, so a value that fails here is a job whose colour cannot be read at all
     // on that theme — which is what five of the previous eight did against the dark surface.
-    expect(contrast(color, LIGHT_SURFACE)).toBeGreaterThanOrEqual(3);
+    const floor = color === TRUE_YELLOW ? YELLOW_FLOOR_ON_WHITE : 3;
+    expect(contrast(color, LIGHT_SURFACE)).toBeGreaterThanOrEqual(floor);
     expect(contrast(color, DARK_SURFACE)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('takes the exception on the yellow and nowhere else', () => {
+    // Guards the exception itself: it is spent on the swatch it was granted for, and the day the
+    // yellow is retired or repainted this fails rather than silently covering its replacement.
+    expect(PROJECT_COLORS).toContain(TRUE_YELLOW);
+    const below = PROJECT_COLORS.filter((color) => contrast(color, LIGHT_SURFACE) < 3);
+    expect(below).toEqual([TRUE_YELLOW]);
   });
 
   it.each(PROJECT_COLORS)('%s is not mistakable for the accent or for a gap', (color) => {

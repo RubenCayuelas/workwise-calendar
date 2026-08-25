@@ -400,7 +400,7 @@ function repaintProjectColors(db: Db): void {
     ['#D85A30', '#ED6212'],
     ['#534AB7', '#8D56CD'],
     ['#A32D2D', '#D1292F'],
-    ['#0F6E56', '#9B8508'],
+    ['#0F6E56', '#C0B002'],
     ['#D4537E', '#DE2189'],
     ['#5F5E5A', '#867B69'],
   ];

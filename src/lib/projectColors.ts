@@ -9,7 +9,7 @@ export const PROJECT_COLORS = [
   '#1EA42B',
   '#3087DF',
   '#D1292F',
-  '#9B8508',
+  '#C0B002',
   '#ED6212',
   '#8D56CD',
   '#DE2189',

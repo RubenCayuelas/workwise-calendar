@@ -15,6 +15,10 @@ never moves without the owner asking.
 and grey, in that order in the picker. The set the client asked for is seven; the eighth is there
 because the app has eight slots and a job more that can be told apart is worth having.
 
+**The yellow is a yellow, not a gold.** It runs a little fainter on a light background than the other
+seven do — a yellow bright enough to read as one cannot also be dark enough to hold its border — and
+that trade was made deliberately.
+
 **Blocks carry their colour a little more strongly.** The fill behind a job was a very pale wash of
 it; it is a touch stronger now, and the colours themselves are slightly more saturated, so a block
 reads as its job from further away without the grid turning loud.

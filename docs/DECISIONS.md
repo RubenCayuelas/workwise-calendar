@@ -676,7 +676,7 @@ a second entry with the name and colour pre-filled — is the whole of what was 
 
 **Rule** — SPEC § *Visual Design*. The eight job colours each hold at least 3:1 against both the light and the
 dark surface, clear the brand amber and the gap fill by dE 30, and are kept apart from one another in the fill
-they are drawn with rather than at full strength.
+they are drawn with rather than at full strength. The yellow is the one exception, at 2.2 on white.
 
 **Why** — a block is its colour twice over: a hairline border and the padlock mark at full strength, over a fill
 of itself mixed into the surface at `--ww-block-tint-strength`. The fill is most of what the eye sees, and eight saturated values collapse
@@ -686,6 +686,13 @@ green sat at dE 2.1 in the fill, no difference at all, and its blue, violet, red
 below 3:1 on the dark surface, where the border that identifies a job goes murky. The band that satisfies both
 surfaces is relative luminance 0.14 to 0.30, which is why none of the eight is a pastel or a deep tone — "light
 green" and "light blue" are the lightest members of their hue the dark surface still allows, not washes.
+
+**The yellow is the owner's exception, and they made it knowing the cost.** The rule produces a gold, because
+yellow carries more luminance than any hue at the same saturation and the dial that makes it read yellow is the
+same one that makes it fail on white. Shown the gold they asked for a true yellow anyway — *hazlo un poco más
+amarillo aún, que desencaje un poco con la lógica de colores* — so it sits at 2.2 against white and keeps the
+full 3:1 against the dark surface. It is named in the test rather than the floor being lowered, so the other
+seven still hold the rule and the exception cannot spread to a swatch nobody weighed it for.
 
 **Rejected** — repainting stored jobs by nearest colour, one at a time. Both retired greens find the single green
 there is now, so two jobs the owner had told apart come out identical — the whole complaint, reintroduced by the
