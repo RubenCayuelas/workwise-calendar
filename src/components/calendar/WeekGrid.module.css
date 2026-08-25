@@ -481,7 +481,7 @@
  * lives here" without any decoration at all:
  *
  * - THE FILL IS THE MARGINS' FILL, inherited from `.band` above. All non-working time on the
- *   grid is now one grey, which is honest — a margin and the comida are the same kind of
+ *   grid is now one grey, which is honest — a margin and the lunch break are the same kind of
  *   nothing — and it is the fill the owner already reads as "no trabajamos aquí".
  * - IT SPANS THE WEEK. Every block is inset 2 px inside its lane with rounded corners and a
  *   saturated border; this runs edge to edge, square, across seven columns. Nothing else on
@@ -558,14 +558,44 @@
   gap: 4px;
   padding: 5px 7px;
   border: var(--ww-hairline) solid var(--ww-border-strong);
-  /* Squared by default and rounded per unit, exactly like a block: a gap cut at the comida is two
+  /* Squared by default and rounded per unit, exactly like a block: a gap cut at the lunch break is two
      rows, and rounding the inner corners would draw them as two gaps. */
   border-radius: 0;
-  background: var(--ww-gap-color, var(--ww-gap-fill));
+  background-color: var(--ww-gap-color, var(--ww-gap-fill));
   color: var(--ww-text);
   font-size: var(--ww-text-md);
   text-align: left;
   line-height: var(--ww-line-tight);
+}
+
+/*
+ * WHAT SAYS A GAP IS NOT A JOB. Both are a rectangle in a lane, and with a flat fill the only
+ * difference was which colour it happened to be — so an absence read as a job painted grey.
+ *
+ * The stripe is MIXED FROM THE FILL, not a colour of its own, so it follows `gapColor` wherever
+ * the owner takes it and there is no second setting to keep in step. 65% of the fill toward the
+ * surface: enough to see at a glance, and deliberately short of the 45-degree hatch that was
+ * tried on the lunch-break band on 2026-08-17 and taken straight back out for being the loudest thing
+ * on the calendar in the one part of the day that carries no information.
+ *
+ * 135deg, so the lines lean `/`. The lengths are measured along the gradient's own axis, which at
+ * this angle IS the perpendicular thickness — 3px of stripe every 7px.
+ *
+ * IT CANNOT BE HOISTED INTO A TOKEN. `--ww-gap-color` is set inline on these two elements, and a
+ * `var()` inside a custom property is substituted where the property is DECLARED — at `:root` it
+ * would resolve against an unset value, and every gap on the grid would wear the default grey
+ * instead of the colour that was chosen. It stays on the elements that carry the colour.
+ *
+ * An engine with no `color-mix` drops the declaration whole and gets the flat fill back, which is
+ * what a gap looked like before this.
+ */
+.gap,
+.paintBand {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--ww-gap-color, var(--ww-gap-fill)) 65%, var(--ww-surface)) 0 3px,
+    transparent 3px 7px
+  );
 }
 
 .gapFirst {
@@ -854,7 +884,7 @@
 /*
  * The band a paint draws on empty grid space: the gap colour, dashed, because nothing has been
  * written — the release opens the form and the owner presses Guardar. One rectangle per row the
- * absence will really be stored as, so it is cut at the comida like every other ghost here.
+ * absence will really be stored as, so it is cut at the lunch break like every other ghost here.
  */
 .paintBand {
   position: absolute;
@@ -867,7 +897,7 @@
   padding: 4px 7px;
   border: 1px dashed var(--ww-border-strong);
   border-radius: var(--ww-radius);
-  background: var(--ww-gap-color, var(--ww-gap-fill));
+  background-color: var(--ww-gap-color, var(--ww-gap-fill));
   font-size: var(--ww-text-sm);
   line-height: var(--ww-line-tight);
   pointer-events: none;

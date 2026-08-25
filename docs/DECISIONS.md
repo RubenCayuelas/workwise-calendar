@@ -700,3 +700,27 @@ fix for it. The mapping is the whole-set assignment with the smallest total dist
 bijection; the one visible jump is the old dark green, which takes the slot nothing else claims.
 
 ---
+
+## A Gap Is Hatched, the Lunch-Break Band Is Not
+
+**Rule** — SPEC § *Calendar View*. A gap is drawn hatched: `gapColor` under `/`-leaning stripes mixed from
+that fill toward the surface. The band between two work periods stays undecorated.
+
+**Why** — a gap and a block are the same shape in the same lane, and with a flat fill the only thing telling
+them apart was which colour one happened to be, so an absence read as a job painted grey. Mixing the stripe
+from the fill rather than giving it a colour of its own is what lets it follow `gapColor` anywhere the owner
+takes it without a second setting to keep in step. At 65% of the fill toward the surface the stripe sits
+about dE 6 from its own fill on the default grey — visible at a glance, and an order of magnitude below the
+dE 73 a job's border stands at against its own tint, so a gap never outshouts the work around it.
+
+**The lunch-break band keeps none of this, and the difference is the point.** A 45-degree hatch was tried there
+on 2026-08-17 and taken back out the same day: that band spans all seven columns in the part of the day that
+carries no information, and decorated it became the first thing the eye found. A gap is the opposite case —
+it is a rectangle inside one lane, it is time the shop has actually lost, and it has a neighbour it must not
+be confused with. The band is told apart by being a band; a gap has to be told apart from a block.
+
+**Rejected** — a fixed translucent veil rather than a mix of the fill. Measured across the colours `gapColor`
+can hold, it drifts from dE 4.8 on the default grey to dE 30.8 on a dark one — the same runaway contrast the
+lunch-break hatch was removed for, reappearing the moment the owner changes a setting.
+
+---

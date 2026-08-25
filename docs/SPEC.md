@@ -1062,6 +1062,11 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
 - **Visual blocks**: tinted fill with a saturated border in the project colour, name + hours. A unit
   cut at the lunch break is marked at both ends. Engine-placed Friday blocks read `desborde 2 h` and
   get a distinct border so an overrun week is visible at a glance.
+- **A gap is HATCHED, and that is what separates it from a job at a glance.** Its fill is `gapColor`
+  under `/`-leaning diagonal stripes mixed from that same fill toward the surface, so the stripes
+  follow the colour wherever the owner takes it and there is no second setting. The band a paint
+  draws carries the same hatch, so the preview looks like what it will store. Purely visual: no
+  gesture, rule or engine decision reads it.
 - **The mark.** One, and a row either carries it or does not:
 
   | mark | what it fixes | drawn as |

@@ -18,11 +18,16 @@ unchanged: what grew is only the room there is to miss by.
 
 ---
 
-## 0.21.0 — a new set of job colours
+## 0.21.0 — new job colours, and absences that no longer look like jobs
 
 **The eight colours a job can be painted are new**: green, blue, red, yellow, orange, purple, pink
 and grey, in that order in the picker. The set the client asked for is seven; the eighth is there
 because the app has eight slots and a job more that can be told apart is worth having.
+
+**Two jobs no longer end up looking alike.** The old set held a green and a dark green whose blocks
+were, in the tint the grid actually paints, the same colour — and its blue, violet, red, dark green
+and grey all went murky against a dark background. Every new value is legible on both, and every pair
+is kept apart in the pale fill, which is where two jobs start to blur long before their borders do.
 
 **The yellow is a yellow, not a gold.** It runs a little fainter on a light background than the other
 seven do — a yellow bright enough to read as one cannot also be dark enough to hold its border — and
@@ -32,15 +37,18 @@ that trade was made deliberately.
 it; it is a touch stronger now, and the colours themselves are slightly more saturated, so a block
 reads as its job from further away without the grid turning loud.
 
-**Two jobs no longer end up looking alike.** The old set held a green and a dark green whose blocks
-were, in the tint the grid actually paints, the same colour — and its blue, violet, red, dark green
-and grey all went murky against a dark background. Every new value is legible on both, and every pair
-is kept apart in the pale fill, which is where two jobs start to blur long before their borders do.
-
 **Jobs already on the calendar are repainted when the app next starts**, each to the nearest colour in
 the new set, and no two jobs that were different colours come out the same. The one that visibly moves
 is a job that was dark green: there is a single green now, so it takes the colour nothing else claims.
 The padlock, the hours and the position of every block are untouched.
+
+**An absence is now drawn with diagonal stripes** instead of a flat colour. A gap and a job were the
+same rectangle in the same lane, and the only thing separating them was which colour one happened to
+be — so an absence read as a job that had been painted grey. The stripes come from the gap colour
+itself, a lighter version of whatever is set in Ajustes, so changing that colour carries them with it
+and there is nothing extra to configure. The band drawn while painting a new absence is hatched too,
+so what is previewed looks like what gets saved. It is only a way of drawing: nothing about how a gap
+behaves has changed.
 
 ---
 
