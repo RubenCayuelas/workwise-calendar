@@ -5,7 +5,12 @@
 import { useTranslation } from 'react-i18next';
 import { InlineBanner } from '../ui';
 import { useFormat, type Formatter } from '../../lib/useFormat';
-import { placementHighlights, type PlacementChange, type PlacementOutcome } from './placement';
+import {
+  placementHighlights,
+  placementTone,
+  type PlacementChange,
+  type PlacementOutcome,
+} from './placement';
 import styles from './jobs.module.css';
 
 export interface PlacementNoticeProps {
@@ -24,32 +29,20 @@ export function PlacementNotice({
   onDismiss,
 }: PlacementNoticeProps): React.JSX.Element {
   const { t } = useTranslation();
-  const format = useFormat();
 
-  const lines = placementHighlights(outcome);
-  const detailed = lines.length > 0;
-  // A day the shop did not expect to use earns a warning colour, not a confirmation.
-  const tone = outcome.usedBuffer || outcome.spilledToLaterWeek ? 'warning' : 'success';
+  const rows = placementHighlights(outcome);
+  const detailed = rows.length > 0;
 
   return (
     <div className={styles.notices}>
       <InlineBanner
-        tone={tone}
+        tone={placementTone(outcome)}
         title={detailed ? title : undefined}
         onDismiss={onDismiss}
       >
         {detailed ? (
           <>
-            <span className={styles.noticeList}>
-              {lines.map((change) => (
-                <span key={change.block.id} className={styles.noticeLine}>
-                  <span className={styles.noticeLabel}>{placementLabel(change, format, t)}</span>
-                  {change.isBuffer ? (
-                    <span className={styles.blockTag}>{t('day.buffer')}</span>
-                  ) : null}
-                </span>
-              ))}
-            </span>
+            <PlacementLines rows={rows} />
             {outcome.usedBuffer ? <span className={styles.hint}>{t('day.bufferHint')}</span> : null}
           </>
         ) : (
@@ -63,6 +56,23 @@ export function PlacementNotice({
         </InlineBanner>
       ) : null}
     </div>
+  );
+}
+
+/** The rows themselves, for a banner that is not this one — the creation's toast lists the same lines. */
+export function PlacementLines({ rows }: { rows: readonly PlacementChange[] }): React.JSX.Element {
+  const { t } = useTranslation();
+  const format = useFormat();
+
+  return (
+    <span className={styles.noticeList}>
+      {rows.map((change) => (
+        <span key={change.block.id} className={styles.noticeLine}>
+          <span className={styles.noticeLabel}>{placementLabel(change, format, t)}</span>
+          {change.isBuffer ? <span className={styles.blockTag}>{t('day.buffer')}</span> : null}
+        </span>
+      ))}
+    </span>
   );
 }
 

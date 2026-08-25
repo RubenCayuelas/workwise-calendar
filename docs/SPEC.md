@@ -386,6 +386,11 @@ straddling the lunch break; the remainder goes back to `compose` from the follow
 nothing): where the hours really start, the rows they would occupy, what is already sitting across
 the whole span, whether every row would come back locked, and which days are free instead.
 
+**The form CLOSES on the save, and the placement is said in a TOAST**: the rows the hours were born as,
+and the sentence for a padlock the date left behind (`announceCreation`).
+See § *A Form Closes On The Write That Ends It* in DECISIONS. A refusal is the other way round — the
+form stays, its fields stay editable, and the banner says what was refused.
+
 ### The Past is Frozen — And Read-Only To The GRID Gestures
 > **The past is the RECORD of what the shop did. The engine never writes there, and neither does a
 > grid gesture: no drag, no resize, no split, no delete, and the padlock stops meaning anything. A
@@ -1318,7 +1323,8 @@ minute by minute, at several fitted scales — never at sample points.
 
 ### Job Management
 - **Create**: Name + Description + Color + Hours, appended to the end of the queue (Mon-Thu, never
-  Friday); or an optional **start date**. The form previews the placement before saving.
+  Friday); or an optional **start date**. The form previews the placement before saving, and closes
+  on the save, which names where the hours landed in a toast.
 - **Edit**: name, description, colour, total hours (LIFO). This is the way to change a job whose work
   is already behind it.
 - **Delete**: requires confirmation. FUTURE blocks deleted and the calendar recomposes; PAST blocks

@@ -194,6 +194,26 @@ thing holding it there, and a half-locked job comes apart on the next reflow.
 
 ---
 
+## A Form Closes On The Write That Ends It
+
+**Rule** — SPEC § *Creating a Job With a Start Date*. A form whose question the write has answered
+closes itself, and what the write DID is said in a toast. A refusal is the opposite: the form stays and
+stays editable, because there is still something to fix.
+
+**Why** — the new-job form used to remain on screen with every field disabled behind a single *Cerrar*,
+and it read as the app having hung. It also held the grid: `enabled` and `nothingOpen` both count an open
+panel, so no second band could be painted and undo stayed off until it was shut.
+
+**Why the placement is not simply dropped** — `autoLock` and `dayLock` are padlocks nobody asked for,
+and a mark that appears behind the owner's back is a defect. The toast carries the same rows and the
+same sentence; `announceCreation` decides both, and it runs longer than a toast's default because it is
+more than a confirmation.
+
+**Rejected** — closing with `Trabajo creado.` alone. The calendar does show the new rows, but the
+padlock arrives as a glyph with nothing anywhere saying why it is there.
+
+---
+
 ## The Past is Frozen
 
 **Rule** — SPEC § *The Past is Frozen*. The engine never writes before today, and no grid gesture reaches
