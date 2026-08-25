@@ -9,8 +9,8 @@
 
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { isoWeekNumber } from './dates';
 import {
+  formatDayLine,
   formatHourNumber,
   formatLongDate,
   formatMediumDate,
@@ -129,10 +129,7 @@ export function useFormat(): Formatter {
       todayOption: (date) => t('units.dayOptionToday', { date: dayOption(date) }),
       longDate: (date) => formatLongDate(date, language),
       mediumDate: (date) => formatMediumDate(date, language),
-      dayLine: (date) =>
-        [formatLongDate(date, language), t('units.week', { week: isoWeekNumber(date) })].join(
-          t('units.listSeparator'),
-        ),
+      dayLine: (date) => formatDayLine(date, language, t),
 
       hoursOnDay: (date, minutes) =>
         t('units.hoursOnDay', { hours: hourNumber(minutes), day: dayHeader(date) }),

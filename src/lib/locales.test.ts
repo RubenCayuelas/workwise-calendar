@@ -2,9 +2,8 @@ import { describe, expect, it } from 'vitest';
 import es from '../../public/locales/es/common.json';
 import en from '../../public/locales/en/common.json';
 import { EDIT_MESSAGE_KEYS, HORIZON_EXCEEDED_KEY, MANUAL_PLACEMENT_MESSAGE_KEYS } from './composition';
-import { isoWeekNumber } from './dates';
 import { ERROR_MESSAGE_KEYS } from './errors';
-import { formatLongDate } from './format';
+import { formatDayLine } from './format';
 import i18next, { SUPPORTED_LANGUAGES, type Language } from './i18n';
 import { deletedJobGapReason, textLanguages } from './text';
 import { WED } from '../testing/fixtures';
@@ -108,14 +107,11 @@ describe('locale files', () => {
   });
 
   it('composes the day line a date field shows under itself', () => {
-    // `useFormat().dayLine` is a hook and this suite renders nothing, so the pieces it joins are
-    // composed here: the sentence is what a reworded key must not break.
-    const dayLine = (language: Language): string => {
-      const t = i18next.getFixedT(language);
-      return [formatLongDate(WED, language), t('units.week', { week: isoWeekNumber(WED) })].join(
-        t('units.listSeparator'),
-      );
-    };
+    // `useFormat().dayLine` is a hook and this suite renders nothing, so it calls the real
+    // `formatDayLine` directly with a fixed `t`, rather than re-deriving its formula — a swapped
+    // join order, a typo'd key or a hardcoded separator in `formatDayLine` fails this test.
+    const dayLine = (language: Language): string =>
+      formatDayLine(WED, language, i18next.getFixedT(language));
     expect(dayLine('es')).toBe('miércoles 12 de agosto · Semana 33');
     expect(dayLine('en')).toBe('Wednesday 12 August · Week 33');
   });
