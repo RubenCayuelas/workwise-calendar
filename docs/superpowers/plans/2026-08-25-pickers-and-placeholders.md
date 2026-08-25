@@ -3341,9 +3341,15 @@ In `public/locales/en/common.json`, the same two places:
 Run: `npx vitest run src/lib/locales.test.ts`
 Expected: PASS
 
-- [ ] **Step 8: Give the popover its own stacking level**
+- [ ] **Step 8: Confirm the popover's stacking level is already there**
 
-In `app/globals.css`, between `--ww-z-panel` and `--ww-z-dialog` (lines 72-74):
+**Task 15 owns `--ww-z-popover`; do not add it a second time.** Both slices of the plan were drafted
+against it and this step is the reconciliation: verify it, and only add it if Task 15 was skipped.
+
+Run: `grep -n "ww-z-popover" app/globals.css`
+Expected: one hit, `--ww-z-popover: 45;`, between `--ww-z-panel: 40;` and `--ww-z-dialog: 50;`.
+
+If the grep is empty, Task 15 did not run: add it there now, with the reason as its comment —
 
 ```css
   --ww-z-panel: 40;
@@ -3352,6 +3358,8 @@ In `app/globals.css`, between `--ww-z-panel` and `--ww-z-dialog` (lines 72-74):
   --ww-z-popover: 45;
   --ww-z-dialog: 50;
 ```
+
+If the grep prints two hits, one of them is this step run twice: delete the duplicate line.
 
 - [ ] **Step 9: Let a control take the `Field`'s label id**
 
