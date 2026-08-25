@@ -694,6 +694,11 @@ export interface SaveAbsenceInput {
   /** Net working minutes, cut at the lunch break on the way in, exactly like a single gap. */
   startMinutes?: number;
   durationMinutes?: number;
+  /**
+   * `closed-days` only: the dates whose work stays where it is instead of being displaced, which
+   * PADLOCKS it. The answer to the question the form asks before a close moves anything.
+   */
+  keepWork?: readonly string[];
 }
 
 /** One transaction over the whole range: a refusal on any day of it writes nothing. */

@@ -9,12 +9,17 @@
  *
  * `startMinutes` and `durationMinutes` belong to `gap` and are required there. Closing a day takes no
  * hours: a short day is a gap, and `capacity_hours` deliberately has no screen.
+ *
+ * `keepWork` belongs to `closed-days`: the dates whose work stays where it is instead of being
+ * displaced, which PADLOCKS it. It is the answer to the question the form asks before a close moves
+ * anything, and the holiday check asks the same one.
  */
 
 import type { NextRequest } from 'next/server';
 import {
   MAX_TEXT_LENGTH,
   readDate,
+  readDateList,
   readDurationMinutes,
   readJsonBody,
   readStartMinutes,
@@ -41,6 +46,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       }),
       startMinutes: readStartMinutes(body),
       durationMinutes: readDurationMinutes(body),
+      keepWork: readDateList(body, 'keepWork'),
     });
   });
 }

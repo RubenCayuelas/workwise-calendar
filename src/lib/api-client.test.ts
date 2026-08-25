@@ -109,6 +109,25 @@ describe('requests', () => {
     expect(calls.every((call) => call.method === 'PATCH')).toBe(true);
   });
 
+  it('sends keepWork only when a day is being kept, so a plain close is unchanged', async () => {
+    const { calls } = stubFetch({ body: { dates: [], gaps: [], days: [] } });
+    await saveAbsence({ kind: 'closed-days', from: '2026-08-11', to: '2026-08-12' });
+    await saveAbsence({
+      kind: 'closed-days',
+      from: '2026-08-11',
+      to: '2026-08-12',
+      keepWork: ['2026-08-11'],
+    });
+
+    expect(calls[0].body).toEqual({ kind: 'closed-days', from: '2026-08-11', to: '2026-08-12' });
+    expect(calls[1].body).toEqual({
+      kind: 'closed-days',
+      from: '2026-08-11',
+      to: '2026-08-12',
+      keepWork: ['2026-08-11'],
+    });
+  });
+
   it('asks for the holiday state with a plain GET', async () => {
     const { calls } = stubFetch({ body: { enabled: true, count: 0 } });
     await getHolidayState();

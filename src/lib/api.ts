@@ -223,6 +223,24 @@ export function readIdList(body: JsonBody, key: string, max = 64): string[] | un
 }
 
 /**
+ * A list of local `YYYY-MM-DD` days, such as the dates of a range whose work is to be kept. Bounded
+ * by the same cap a range is: a payload longer than that is a mistyped year, not an intention.
+ */
+export function readDateList(body: JsonBody, key: string, max = 120): string[] | undefined {
+  if (!hasField(body, key)) return undefined;
+  const value = body[key];
+  if (!Array.isArray(value) || value.length > max) {
+    throw badRequest('invalid-field', ERROR_MESSAGE_KEYS.invalidPayload, { field: key });
+  }
+  return value.map((entry) => {
+    if (typeof entry !== 'string' || !isValidDate(entry)) {
+      throw badRequest('invalid-field', ERROR_MESSAGE_KEYS.invalidDate, { field: key });
+    }
+    return entry;
+  });
+}
+
+/**
  * An OPTIONAL member of a fixed set, such as `freedHours` on a resize. Present and wrong is a 400: a
  * misspelled answer must never be read as "no answer" and quietly asked again.
  */

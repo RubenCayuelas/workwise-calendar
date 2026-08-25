@@ -538,6 +538,11 @@ was that nothing could be ASKED at the moment of closing. Now something can. A c
 engine, and a weekend has always held padlocked work without complaint; the refusal was protecting against a
 state that was never wrong. Only the past still refuses, because nothing may be written there at all.
 
+**Why BOTH doors ask, and out of one module** — the refusal was removed from both and the question added to
+only one, so the absences form went from refusing loudly to closing in silence, which is worse than what it
+replaced. The decision now lives in one place and the wording in one set of keys: the same situation reached
+by two routes must not have two answers.
+
 **Why painting only ever opens the form** — the app never creates an absence by itself. That also dissolved the
 gap-versus-closed-day threshold: painting a whole column gives a 12 h gap in two rows, which looks like a
 closed day and is not one. Do not add a threshold.

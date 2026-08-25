@@ -9,6 +9,17 @@ never moves without the owner asking.
 
 ---
 
+## 0.22.1 — closing a day by hand asks the same question
+
+**The absences screen now asks before a close moves any work**, the way the automatic holiday check
+already did. One line per day of the range that has work on it, with the hours and the jobs named, and
+the same two answers in the same words: move the work on, which stays the default, or keep it where it
+is, which padlocks it and closes the day around it. A day whose work is already padlocked has nothing
+to choose and says so.
+
+Until now that screen had stopped refusing but had not started asking, so a close from there moved
+work — or closed around work it could not move — without a word.
+
 ## 0.22.0 — the town's public holidays close the shop by themselves
 
 **The holidays no longer have to be typed in by hand.** Settings has a new block for them, with the

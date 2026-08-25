@@ -1443,14 +1443,22 @@ gesture.
 - **It behaves like a weekend**, and that is the whole of its definition: the engine plans nothing
   there, a drop by hand LANDS LITERALLY and padlocks (*The Padlock Is the Only Pin*), and nothing is
   ever auto-recovered from it.
-- **Closing a day with work on it ASKS; it does not refuse.** Work the engine can move is moved,
-  unless the caller names that date in `keepWork`, which PADLOCKS the day's movable rows and closes
-  the day around them. Work the engine cannot move — a padlock, a weekend — simply stays, and the day
-  closes around it: a closed day is a weekend to the engine, and a weekend has always held padlocked
-  work. **Only the PAST still refuses**, 409 `closed-day-over-fixed-block` with
-  `closedDayOverPastBlock`, because nothing may be written there at all. The question is asked of the
-  DATE and never of `findGapConflicts`'s `reason`: a padlocked past row is classified `locked`, so a
-  filter on `past` would let the one case that matters through.
+- **Closing a day with work on it ASKS; it does not refuse — and it asks THROUGH BOTH DOORS**, the
+  absences form and the automatic holiday check. One line per day of the range that has work on it,
+  with the hours and the jobs named, and two answers: **move the work on**, which is the default and
+  what closing a day has always done, or **keep it here**, which padlocks the day's movable rows and
+  closes the day around them. The answer travels as `keepWork`, a list of dates, on the same request
+  as the close. **Both doors ask the same question in the same words** (`dayWork.*` in the locale
+  files, decided once in `src/components/calendar/dayWork.ts`): one situation with two answers
+  depending on the way in is the drift this rule exists to stop.
+- **A day whose work the engine CANNOT move is stated, not asked about.** Moving it on would have to
+  clear a padlock, and the padlock is cleared by the padlock and nothing else, so the line says the
+  day will close around it and offers no choice — and the request keeps it whatever a control shows.
+  A closed day is a weekend to the engine, and a weekend has always held padlocked work.
+- **Only the PAST still refuses**, 409 `closed-day-over-fixed-block` with `closedDayOverPastBlock`,
+  because nothing may be written there at all. The refusal is asked of the DATE and never of
+  `findGapConflicts`'s `reason`: a padlocked past row is classified `locked`, so a filter on `past`
+  would let the one case that matters through.
 - **Reopening is `DELETE /api/absences/closed-days?from=&to=`** — a range too, so undoing a Feria week
   is also one gesture — and the queue fills those days again on the same pass. The ROW is dropped, note
   and all, **except** where it carries a hand-entered `capacity_hours`: that column has no screen and

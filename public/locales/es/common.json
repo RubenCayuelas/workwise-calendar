@@ -283,13 +283,16 @@
   "holidayPanel": {
     "title": "Festivos con trabajo encima",
     "body": "Estos días son festivo y hay trabajo en ellos. Elige qué hacer con cada uno; los demás ya se han cerrado.",
+    "save": "Guardar",
+    "done": "{{count}} festivos cerrados"
+  },
+  "dayWork": {
+    "title": "Estos días tienen trabajo encima",
     "hours": "{{hours}} de {{jobs}}",
     "displace": "Desplazar",
     "keep": "Mantener aquí",
     "keepHint": "se queda donde está, con candado",
-    "fixed": "El día se cierra con el trabajo donde está: lleva candado, y el candado solo lo quitas tú.",
-    "save": "Guardar",
-    "done": "{{count}} festivos cerrados"
+    "fixed": "El día se cierra con el trabajo donde está: lleva candado, y el candado solo lo quitas tú."
   },
   "holidayNames": {
     "localHoliday": "Fiesta local",

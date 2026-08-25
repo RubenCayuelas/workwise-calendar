@@ -4,7 +4,7 @@
  * The holidays a check found with work already on them. Nothing has been written for these days: the
  * quiet ones were closed silently and these are waiting for an answer.
  *
- * A day whose work carries a padlock is STATED rather than asked about — see `holidayAnswers.ts`.
+ * A day whose work carries a padlock is STATED rather than asked about — see `dayWork.ts`.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -13,7 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, useMounted } from '../ui';
 import { useFormat } from '../../lib/useFormat';
 import type { PendingHoliday } from '../../lib/api-client';
-import { answersFrom, dayIsForced, dayMinutes } from './holidayAnswers';
+import { answersFrom, dayIsForced, dayMinutes } from './dayWork';
 import styles from './HolidayPanel.module.css';
 
 export interface HolidayPanelProps {
@@ -77,14 +77,14 @@ export function HolidayPanel({
                 </div>
 
                 <p className={styles.work}>
-                  {t('holidayPanel.hours', {
+                  {t('dayWork.hours', {
                     hours: format.hours(dayMinutes(day.rows)),
                     jobs: day.rows.map((row) => row.name).join(', '),
                   })}
                 </p>
 
                 {forced ? (
-                  <p className={styles.forced}>{t('holidayPanel.fixed')}</p>
+                  <p className={styles.forced}>{t('dayWork.fixed')}</p>
                 ) : (
                   <div className={styles.choices}>
                     <label className={styles.choice}>
@@ -95,7 +95,7 @@ export function HolidayPanel({
                         disabled={busy}
                         onChange={() => setChosen((current) => next(current, day.date, false))}
                       />
-                      {t('holidayPanel.displace')}
+                      {t('dayWork.displace')}
                     </label>
                     <label className={styles.choice}>
                       <input
@@ -105,8 +105,8 @@ export function HolidayPanel({
                         disabled={busy}
                         onChange={() => setChosen((current) => next(current, day.date, true))}
                       />
-                      {t('holidayPanel.keep')}
-                      <span className={styles.choiceHint}>{t('holidayPanel.keepHint')}</span>
+                      {t('dayWork.keep')}
+                      <span className={styles.choiceHint}>{t('dayWork.keepHint')}</span>
                     </label>
                   </div>
                 )}

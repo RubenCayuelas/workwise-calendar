@@ -283,13 +283,16 @@
   "holidayPanel": {
     "title": "Public holidays with work on them",
     "body": "These days are public holidays and there is work on them. Choose what to do with each; the rest have been closed already.",
+    "save": "Save",
+    "done": "{{count}} holidays closed"
+  },
+  "dayWork": {
+    "title": "These days have work on them",
     "hours": "{{hours}} of {{jobs}}",
     "displace": "Move it on",
     "keep": "Keep it here",
     "keepHint": "stays where it is, padlocked",
-    "fixed": "The day closes with the work where it is: it is padlocked, and only you can unlock it.",
-    "save": "Save",
-    "done": "{{count}} holidays closed"
+    "fixed": "The day closes with the work where it is: it is padlocked, and only you can unlock it."
   },
   "holidayNames": {
     "localHoliday": "Local holiday",

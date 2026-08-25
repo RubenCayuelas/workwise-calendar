@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answersFrom, dayIsForced, dayMinutes } from './holidayAnswers';
+import { answersFrom, dayIsForced, dayMinutes, keepWorkDates } from './dayWork';
 import type { DayWorkRow, PendingHoliday } from '../../lib/api-client';
 import { MON, TUE, WED } from '../../testing/fixtures';
 
@@ -65,5 +65,30 @@ describe('the answers the panel sends', () => {
 
   it('sends nothing when nothing is pending', () => {
     expect(answersFrom([], new Map())).toEqual([]);
+  });
+});
+
+describe('the dates the absences form keeps', () => {
+  const days = [
+    { date: MON, rows: [row('Railing', 360)] },
+    { date: TUE, rows: [row('Door', 240)] },
+    { date: WED, rows: [row('Shed', 120, true)] },
+  ];
+
+  it('is empty when nothing was chosen, because displacing is the default', () => {
+    // A forced day is still in it: its work cannot be moved, so it stays whatever the form shows.
+    expect(keepWorkDates(days, new Map())).toEqual([WED]);
+  });
+
+  it('carries the days the owner chose to keep', () => {
+    expect(keepWorkDates(days, new Map([[MON, true]]))).toEqual([MON, WED]);
+  });
+
+  it('IGNORES a choice made against a forced day, so no answer can clear a padlock', () => {
+    expect(keepWorkDates(days, new Map([[WED, false]]))).toEqual([WED]);
+  });
+
+  it('sends nothing for a range with no work on it', () => {
+    expect(keepWorkDates([], new Map())).toEqual([]);
   });
 });
