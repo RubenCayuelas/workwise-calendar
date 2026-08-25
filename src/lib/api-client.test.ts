@@ -12,8 +12,10 @@ import {
   apiErrorMessage,
   apiErrorMessageKey,
   apiErrorValues,
+  answerHolidays,
   createGap,
   createProject,
+  getHolidayState,
   getWeek,
   isApiError,
   isNetworkError,
@@ -24,6 +26,7 @@ import {
   reopenDays,
   resizeBlock,
   resizeGap,
+  runHolidayCheck,
   saveAbsence,
   setBlockLock,
   updateProject,
@@ -104,6 +107,35 @@ describe('requests', () => {
       { action: 'lock', locked: true },
     ]);
     expect(calls.every((call) => call.method === 'PATCH')).toBe(true);
+  });
+
+  it('asks for the holiday state with a plain GET', async () => {
+    const { calls } = stubFetch({ body: { enabled: true, count: 0 } });
+    await getHolidayState();
+    expect(calls[0]).toMatchObject({ url: '/api/holidays', method: 'GET' });
+  });
+
+  it('says whether a holiday check was asked for by the button', async () => {
+    const { calls } = stubFetch({ body: { closed: [], pending: [] } });
+    await runHolidayCheck();
+    await runHolidayCheck(true);
+    expect(calls.map((call) => call.body)).toEqual([{ force: false }, { force: true }]);
+    expect(calls.every((call) => call.url === '/api/holidays' && call.method === 'POST')).toBe(true);
+  });
+
+  it('posts the panel’s answers as one list, to its own route', async () => {
+    const { calls } = stubFetch({ body: { closed: [], pending: [] } });
+    await answerHolidays([
+      { date: '2026-09-03', keep: true },
+      { date: '2026-12-08', keep: false },
+    ]);
+    expect(calls[0].url).toBe('/api/holidays/apply');
+    expect(calls[0].body).toEqual({
+      answers: [
+        { date: '2026-09-03', keep: true },
+        { date: '2026-12-08', keep: false },
+      ],
+    });
   });
 
   it('sends a JSON content type only when there is a body', async () => {

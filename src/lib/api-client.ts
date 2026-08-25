@@ -32,13 +32,22 @@ export type {
   AbsenceMutation,
   AbsencePreview,
   AbsencePreviewRow,
+  DayWork,
+  DayWorkRow,
   DisplacedWork,
 } from './operations/absences';
+export type {
+  HolidayCheckResult,
+  HolidayState,
+  PendingHoliday,
+  RefusedHoliday,
+} from './operations/holidays';
 
 import type { WeekView } from './operations/views';
 import type { HistoryMutation } from './operations/history';
 import type { CreationOutcome, CreationPreview } from './operations/projects';
 import type { AbsenceKind, AbsenceMutation, AbsencePreview } from './operations/absences';
+import type { HolidayCheckResult, HolidayState } from './operations/holidays';
 import type { AutomaticBackupResult, BackupList, RestoreResult } from './operations/backups';
 
 // ---------------------------------------------------------------------------
@@ -800,6 +809,27 @@ export function listBackups(options?: RequestOptions): Promise<BackupList> {
 /** Called once when the app opens. Answers what it did, so the UI can stay quiet when nothing was due. */
 export function runAutomaticBackup(options?: RequestOptions): Promise<AutomaticBackupResult> {
   return send<AutomaticBackupResult>('POST', '/backups/auto', undefined, options);
+}
+
+/** What Settings prints under the municipality picker. */
+export function getHolidayState(options?: RequestOptions): Promise<HolidayState> {
+  return get<HolidayState>('/holidays', options);
+}
+
+/**
+ * Called once when the app opens, and by the "check now" button with `force`. `pending` comes back
+ * with the days that have work on them, for which NOTHING has been written yet.
+ */
+export function runHolidayCheck(force = false, options?: RequestOptions): Promise<HolidayCheckResult> {
+  return send<HolidayCheckResult>('POST', '/holidays', { force }, options);
+}
+
+/** The panel's answers. Refetch the week afterwards: a reflow rewrites rows it never mentions. */
+export function answerHolidays(
+  answers: ReadonlyArray<{ date: string; keep: boolean }>,
+  options?: RequestOptions,
+): Promise<HolidayCheckResult> {
+  return send<HolidayCheckResult>('POST', '/holidays/apply', { answers }, options);
 }
 
 export function restoreBackupByName(name: string, options?: RequestOptions): Promise<RestoreResult> {
