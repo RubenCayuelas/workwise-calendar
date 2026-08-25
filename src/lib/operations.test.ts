@@ -3196,6 +3196,41 @@ describe('the absence preview', () => {
     expect(listDayOverrides(db)).toEqual([]);
   });
 
+  it('names the work sitting on each day of the range, summed per job', () => {
+    job('Railing', 6);
+    job('Staircase', 4, GREEN);
+
+    const preview = previewAbsence({ kind: 'closed-days', from: MON, to: TUE, today: MON }, db);
+
+    expect(preview.daysWithWork.map((day) => day.date)).toEqual([MON]);
+    expect(preview.daysWithWork[0].rows.map((row) => row.name)).toEqual(['Railing', 'Staircase']);
+    expect(preview.daysWithWork[0].rows[0].minutes).toBe(6 * 60);
+    expect(preview.daysWithWork[0].rows[0].locked).toBe(false);
+  });
+
+  it('omits a day with nothing on it', () => {
+    const preview = previewAbsence({ kind: 'closed-days', from: MON, to: TUE, today: MON }, db);
+    expect(preview.daysWithWork).toEqual([]);
+  });
+
+  it('sums a job cut at the lunch break into ONE line', () => {
+    job('Shed', 10);
+
+    const preview = previewAbsence({ kind: 'closed-days', from: MON, to: MON, today: MON }, db);
+
+    expect(preview.daysWithWork[0].rows).toHaveLength(1);
+    expect(preview.daysWithWork[0].rows[0].minutes).toBe(10 * 60);
+  });
+
+  it('says a row is padlocked, so the panel can offer no choice about it', () => {
+    const door = job('Door', 4);
+    setBlockLock(door.blocks[0].id, true, { today: MON }, db);
+
+    const preview = previewAbsence({ kind: 'closed-days', from: MON, to: MON, today: MON }, db);
+
+    expect(preview.daysWithWork[0].rows[0].locked).toBe(true);
+  });
+
   it('says which days of the range are already closed', () => {
     saveAbsence({ kind: 'closed-days', from: TUE, to: TUE, reason: 'Fair', today: MON }, db);
 

@@ -77,6 +77,21 @@ export interface AbsenceMutation {
   summary: ScheduleSummary;
 }
 
+/** One job's presence on one day, as the panel that asks about it needs to name it. */
+export interface DayWorkRow {
+  projectId: string;
+  name: string;
+  /** Net working minutes of this job on this day, summed across its rows. */
+  minutes: number;
+  /** True when ANY of its rows carries a padlock: one is enough to make the day's work unmovable. */
+  locked: boolean;
+}
+
+export interface DayWork {
+  date: string;
+  rows: DayWorkRow[];
+}
+
 /** One row of an absence as the preview reports it: geometry only, because it has no id. */
 export interface AbsencePreviewRow {
   date: string;
@@ -97,6 +112,8 @@ export interface AbsencePreview {
   rows: AbsencePreviewRow[];
   /** Days of the range that are already closed, so the screen offers to reopen them. */
   alreadyClosedDates: string[];
+  /** Work sitting on each day of the range BEFORE the write. A day with nothing on it is omitted. */
+  daysWithWork: DayWork[];
   displaced: DisplacedWork[];
   /** The calendar's furthest day before and after, which is the range's cost in one number. */
   lastOccupiedBefore: string | null;
@@ -118,6 +135,9 @@ export function previewAbsence(input: AbsenceInput, db: Db = getDb()): AbsencePr
   const today = input.today ?? todayLocal();
   const before = readSummary(db, today).lastOccupiedDate;
   const closed = new Set<string>();
+  // Read BEFORE the dry run, so it describes the calendar the owner is looking at rather than the
+  // one the rolled-back write briefly made.
+  const daysWithWork = workByDay(resolveRange(input).dates, db);
 
   const mutation = dryRun(db, () => {
     for (const date of resolveRange(input).dates) {
@@ -137,6 +157,7 @@ export function previewAbsence(input: AbsenceInput, db: Db = getDb()): AbsencePr
       durationMinutes: gap.durationMinutes,
     })),
     alreadyClosedDates: mutation.dates.filter((date) => closed.has(date)),
+    daysWithWork,
     displaced: mutation.displaced,
     lastOccupiedBefore: before,
     lastOccupiedAfter: mutation.summary.lastOccupiedDate,
@@ -298,6 +319,41 @@ function keepWorkOn(dates: readonly string[], today: string, db: Db): void {
     if (!wanted.has(block.date) || block.locked) continue;
     updateBlock({ ...block, locked: true }, db);
   }
+}
+
+/**
+ * What sits on each of these days as the calendar stands now, one line per job. Summed per project,
+ * so a job cut at the lunch break is one line and not two.
+ */
+export function workByDay(dates: readonly string[], db: Db): DayWork[] {
+  const names = new Map(listProjects(db).map((project) => [project.id, project.name]));
+  const wanted = new Set(dates);
+  const byDate = new Map<string, Map<string, DayWorkRow>>();
+
+  for (const block of listBlocks(db)) {
+    if (!wanted.has(block.date)) continue;
+    let rows = byDate.get(block.date);
+    if (rows === undefined) {
+      rows = new Map<string, DayWorkRow>();
+      byDate.set(block.date, rows);
+    }
+    const existing = rows.get(block.projectId);
+    if (existing === undefined) {
+      rows.set(block.projectId, {
+        projectId: block.projectId,
+        name: names.get(block.projectId) ?? '',
+        minutes: block.durationMinutes,
+        locked: block.locked,
+      });
+    } else {
+      existing.minutes += block.durationMinutes;
+      existing.locked = existing.locked || block.locked;
+    }
+  }
+
+  return dates
+    .filter((date) => byDate.has(date))
+    .map((date) => ({ date, rows: [...(byDate.get(date) ?? new Map<string, DayWorkRow>()).values()] }));
 }
 
 /**
