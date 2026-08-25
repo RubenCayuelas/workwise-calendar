@@ -1476,11 +1476,11 @@ gesture.
 - **A holiday on a Saturday or a Sunday IS written.** It changes nothing for the engine; the header
   naming the day is the point.
 - **The check runs once when the app is opened and at most once every 7 days** — elapsed time and not
-  a schedule, the shape the automatic backup already uses — plus *Consultar ahora* in Settings.
+  a schedule, the shape the automatic backup already uses — plus `Consultar ahora` in Settings.
   Changing the municipality checks straight away. `holidaysEnabled` OFF stops future writes and
   removes nothing already written.
 - **A holiday with nothing on that day is closed silently. One with work on it opens the panel** and
-  nothing is written for it until the panel is answered: *Desplazar* (the default) or *Mantener aquí*,
+  nothing is written for it until the panel is answered: `Desplazar` (the default) or `Mantener aquí`,
   which padlocks the work and closes the day around it. A day whose work already carries a padlock is
   STATED and not asked about — displacing it would have to clear a padlock. Closing the panel writes
   nothing and the next check asks again.
