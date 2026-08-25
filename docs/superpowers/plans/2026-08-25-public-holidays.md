@@ -1327,11 +1327,17 @@ In `src/lib/operations/absences.ts`:
  * even if the owner asked for it.
  */
 function assertDayCanClose(date: string, today: string, db: Db): void {
+  // Asked of the DATE and NOT of the conflict's `reason`. A padlocked row on a past day is
+  // classified `locked`, because the reason names the block's own state first, so
+  // `.filter((c) => c.reason === 'past')` lets exactly the case that matters through and a past
+  // day becomes closeable. Measured: the test for the frozen past is what catches it.
+  if (compareDates(date, today) >= 0) return;
+
   const conflicts = findGapConflicts(
     listBlocks(db),
     { date, startMinutes: 0, durationMinutes: MINUTES_PER_DAY },
     today,
-  ).filter((conflict) => conflict.reason === 'past');
+  );
   if (conflicts.length === 0) return;
 
   const names = new Map(listProjects(db).map((project) => [project.id, project.name]));

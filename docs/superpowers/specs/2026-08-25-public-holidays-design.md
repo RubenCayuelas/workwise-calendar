@@ -283,6 +283,10 @@ What replaces it:
 | work on a weekend day | **409** | closes around it; the panel says so |
 | work in the PAST | 409 | **409, unchanged** — the past is frozen and stays frozen |
 
+The refusal is asked of the DATE and never of `findGapConflicts`'s `reason`: a padlocked row on a past
+day is classified `locked`, because the reason names the block's own state first, so filtering on
+`past` would let the one case that matters through and a past day would become closeable.
+
 The justification, which belongs in DECISIONS.md when this ships: a closed day *is* a weekend to the
 engine, and a weekend has always held padlocked work without complaint. The refusal existed because
 nothing could be asked at the moment of closing, not because the state was wrong. Now something can.
