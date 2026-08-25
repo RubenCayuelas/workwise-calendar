@@ -280,3 +280,23 @@ describe('the ranges the form offers', () => {
     expect(draftIssues(DEFAULT_SETTINGS)).toEqual({});
   });
 });
+
+describe('the holiday municipality', () => {
+  it('flags anything that is not a five-digit INE code', () => {
+    expect(draftIssues({ ...DEFAULT_SETTINGS, holidaysMunicipality: 'Priego' }).holidaysMunicipality).toBe(
+      'range',
+    );
+    expect(draftIssues({ ...DEFAULT_SETTINGS, holidaysMunicipality: '1405' }).holidaysMunicipality).toBe(
+      'range',
+    );
+  });
+
+  it('accepts a five-digit code, leading zero included', () => {
+    expect(
+      draftIssues({ ...DEFAULT_SETTINGS, holidaysMunicipality: '14055' }).holidaysMunicipality,
+    ).toBeUndefined();
+    expect(
+      draftIssues({ ...DEFAULT_SETTINGS, holidaysMunicipality: '04003' }).holidaysMunicipality,
+    ).toBeUndefined();
+  });
+});

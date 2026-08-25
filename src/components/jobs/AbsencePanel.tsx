@@ -46,6 +46,7 @@ import {
   updateGap,
   type AbsenceKind,
   type AbsencePreview,
+  type DayWork,
   type DayShape,
   type GapUnit,
 } from '../../lib/api-client';
@@ -65,6 +66,7 @@ import { useFormat, type Formatter } from '../../lib/useFormat';
 /** An absence is drawn on the same quarter-hour grid the calendar snaps to, so the field is too. */
 const ABSENCE_HOUR_STEP = TIME_STEP_MINUTES / 60;
 import type { GridDraft } from '../calendar/draftBand';
+import { dayIsForced, dayMinutes, keepWorkDates } from '../calendar/dayWork';
 import { offWeekChoice } from './offWeek';
 import { otherGapConflicts } from './placement';
 import {
@@ -168,6 +170,15 @@ export function AbsencePanel({
   const [deleting, setDeleting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [preview, setPreview] = useState<AbsencePreview | null>(null);
+  /** Displace or keep, per day, for the days the preview says have work on them. Absent = displace. */
+  const [keepChoice, setKeepChoice] = useState<Map<string, boolean>>(new Map());
+  /** The answers as they stand, joined so the preview effect can depend on their VALUE. */
+  const keptKey = [...keepChoice.entries()]
+    .filter(([, keep]) => keep)
+    .map(([day]) => day)
+    .sort()
+    .join(',');
+  const keptDates = keptKey === '' ? [] : keptKey.split(',');
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<unknown>(null);
   /** The last day chosen that WAS on screen: the honest place to offer going back to. */
@@ -277,6 +288,9 @@ export function AbsencePanel({
           from: date,
           to: endDate,
           ...(kind === 'gap' ? { startMinutes, durationMinutes } : {}),
+          // The answers travel with it: without them the preview reports the displacement of a save
+          // nobody is about to make, and the two notices would disagree about the same hours.
+          ...(keptKey === '' ? {} : { keepWork: keptKey.split(',') }),
         },
         { signal: controller.signal },
       )
@@ -300,7 +314,7 @@ export function AbsencePanel({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [previewable, kind, date, endDate, startMinutes, durationMinutes]);
+  }, [previewable, kind, date, endDate, startMinutes, durationMinutes, keptKey]);
 
   const summary: AbsenceSummary | null = preview === null ? null : summarizeAbsence(preview);
 
@@ -370,12 +384,17 @@ export function AbsencePanel({
         onChanged?.({ kind: 'gap-created', gapId: result.gap.id, summary: result.summary });
         toast.success(t('gapForm.saved'));
       } else {
+        const keepWork =
+          kind === 'closed-days' && preview !== null
+            ? keepWorkDates(preview.daysWithWork, keepChoice)
+            : [];
         const result = await saveAbsence({
           kind,
           from: date,
           to: endDate,
           ...(trimmed === '' ? {} : { reason: trimmed }),
           ...(kind === 'gap' ? { startMinutes: start, durationMinutes: minutes } : {}),
+          ...(keepWork.length === 0 ? {} : { keepWork }),
         });
         onChanged?.({
           kind: kind === 'gap' ? 'gap-created' : 'days-closed',
@@ -728,6 +747,12 @@ export function AbsencePanel({
             loading={previewing && summary === null}
             message={previewMessage}
             conflicts={previewConflicts}
+            daysWithWork={kind === 'closed-days' ? (preview?.daysWithWork ?? []) : []}
+            keepChoice={keepChoice}
+            onKeepChoice={(day, keep) =>
+              setKeepChoice((current) => new Map(current).set(day, keep))
+            }
+            busy={busy}
             format={format}
             t={t}
           />
@@ -782,6 +807,11 @@ interface AbsencePreviewNoticeProps {
   /** A failed preview request, already translated. It is the save's refusal, arriving early. */
   message?: string;
   conflicts: ReturnType<typeof otherGapConflicts>;
+  /** `closed-days` only: the days of the range that already have work on them. */
+  daysWithWork: readonly DayWork[];
+  keepChoice: ReadonlyMap<string, boolean>;
+  onKeepChoice: (date: string, keep: boolean) => void;
+  busy: boolean;
   format: Formatter;
   t: (key: string, values?: Record<string, unknown>) => string;
 }
@@ -795,9 +825,18 @@ function AbsencePreviewNotice({
   loading,
   message,
   conflicts,
+  daysWithWork,
+  keepChoice,
+  onKeepChoice,
+  busy,
   format,
   t,
 }: AbsencePreviewNoticeProps): React.JSX.Element | null {
+  // Where each job's hours land, from the preview that ran with the answers as they stand. A job
+  // absent from it is not being moved, which is what «stays here» means.
+  const displacedTo = new Map(
+    (summary?.displaced ?? []).map((job) => [job.projectId, job.landsOn]),
+  );
   if (message !== undefined) {
     return (
       <InlineBanner tone="error" title={t('errors.title')}>
@@ -842,6 +881,60 @@ function AbsencePreviewNotice({
 
   return (
     <div className={styles.notices}>
+      {daysWithWork.length === 0 ? null : (
+        <InlineBanner tone="warning" title={t('dayWork.title')}>
+          <span className={styles.noticeList}>
+            {daysWithWork.map((day) => {
+              const forced = dayIsForced(day.rows);
+              const keep = keepChoice.get(day.date) ?? false;
+              return (
+                <span key={day.date} className={styles.noticeLine}>
+                  <span className={styles.noticeLabel}>{format.dayOption(day.date)}</span>
+                  {day.rows.map((job) => {
+                    const lands = displacedTo.get(job.projectId);
+                    return (
+                      <span key={job.projectId} className={styles.hint}>
+                        {t('dayWork.hours', { hours: format.hours(job.minutes), jobs: job.name })}{' '}
+                        {lands === undefined
+                          ? t('dayWork.staysHere')
+                          : t('dayWork.movesTo', { day: format.mediumDate(lands) })}
+                      </span>
+                    );
+                  })}
+                  {forced ? (
+                    <span className={styles.hint}>{t('dayWork.fixed')}</span>
+                  ) : (
+                    <span className={styles.keepChoice}>
+                      <label className={styles.keepOption}>
+                        <input
+                          type="radio"
+                          name={`keep-${day.date}`}
+                          checked={!keep}
+                          disabled={busy}
+                          onChange={() => onKeepChoice(day.date, false)}
+                        />
+                        {t('dayWork.displace')}
+                      </label>
+                      <label className={styles.keepOption}>
+                        <input
+                          type="radio"
+                          name={`keep-${day.date}`}
+                          checked={keep}
+                          disabled={busy}
+                          onChange={() => onKeepChoice(day.date, true)}
+                        />
+                        {t('dayWork.keep')}
+                        <span className={styles.hint}>{t('dayWork.keepHint')}</span>
+                      </label>
+                    </span>
+                  )}
+                </span>
+              );
+            })}
+          </span>
+        </InlineBanner>
+      )}
+
       <InlineBanner tone={summary.tone} title={t('absenceForm.previewTitle')}>
         {summary.rowsPerDay.length === 0 ? null : (
           <span className={styles.noticeList}>
@@ -864,31 +957,6 @@ function AbsencePreviewNotice({
           ))}
         </span>
 
-        {summary.displaced.length === 0 ? null : (
-          <>
-            <span className={styles.previewNotes}>
-              <span className={styles.hint}>
-                {t('absenceForm.movesHours', {
-                  count: summary.displaced.length,
-                  hours: format.hourNumber(summary.displacedMinutes),
-                })}
-              </span>
-            </span>
-            <span className={styles.noticeList}>
-              {summary.displaced.map((job) => (
-                <span key={job.projectId} className={styles.noticeLine}>
-                  <span className={styles.noticeLabel}>
-                    {t('absenceForm.movesRow', {
-                      hours: format.hourNumber(job.minutes),
-                      day: format.mediumDate(job.landsOn),
-                    })}
-                  </span>
-                  <span className={styles.blockTag}>{job.name}</span>
-                </span>
-              ))}
-            </span>
-          </>
-        )}
       </InlineBanner>
     </div>
   );

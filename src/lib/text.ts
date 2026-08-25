@@ -27,6 +27,16 @@ export function deletedJobGapReason(name: string, language?: string): string {
   return interpolate(lookup('gapForm.deletedJobReason', language), { name });
 }
 
+/**
+ * The note stored on a day the holiday check closes. Composed here for the same reason a deleted job's
+ * reason is: it is prose the DATA LAYER produces, it becomes stored user data the moment it is
+ * written, and it cannot be re-translated afterwards — so callers pass the language the owner is
+ * READING. `key` is one of `holidayNames.*`; an unknown one comes back as the key rather than throwing.
+ */
+export function publicHolidayName(key: string, language?: string): string {
+  return lookup(`holidayNames.${key}`, language);
+}
+
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------

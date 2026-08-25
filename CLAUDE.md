@@ -227,18 +227,32 @@ rather than buried in the code.
 - **WHO DECIDED WHAT MATTERS.** Never write *"decided with the owner"* about something inferred from
   what they said. That exact overstatement stood for two days about the resize precondition and cost a
   round to undo. If it was an inference, say so, and name what they actually decided.
-- **All code, comments and identifiers in English. UI strings only in
-  `public/locales/{es,en}/common.json`**, with the two key sets held identical by a test. That includes
+- **EVERYTHING WRITTEN IS IN ENGLISH** — code, comments and identifiers, the four documents, commit
+  subjects, and a pull request's title and body. That the app's default language is Spanish reaches
+  none of it: the app is Spanish *and* English, and its wording lives only in
+  `public/locales/{es,en}/common.json`, with the two key sets held identical by a test. That includes
   **test data**: jobs are `Railing`, `Staircase`, `Door`, `Shutter`, `Grille`, `Shed`, `Casing`,
   `Capping`; gap reasons are `Fair`, `Breakdown`, `Errands` and the rest.
-  **Four kinds of Spanish are correct and must survive a sweep**, all four found by one that did not
-  spare them:
-  1. an assertion of an `es` locale VALUE (`locales.test.ts`, `summary.test.ts`, the
-     `apiErrorMessage(…, 'es')` cases);
-  2. a UI label the spec NAMES, so the document describes the screen that exists — `Ausencias`,
-     `Cerrar días`, `Un hueco`, `desborde 2 h`;
-  3. the owner's own words, quoted;
-  4. a reason STORED in the shop's database, where `Feria` is the datum and `Fair` would be a lie.
+  **PROSE THE DATA LAYER PRODUCES IS COMPOSED FROM THE LOCALE FILES** (`src/lib/text.ts`), in the
+  language the owner is READING, never from a literal in a module. There are two — a deleted job's gap
+  reason and a public holiday's name — and both become stored user data the moment they are written, so
+  neither can be re-translated afterwards. A Spanish literal in a module makes the English app print
+  Spanish, which is what a holiday name table did.
+  **A SCREEN IS DESCRIBED IN ENGLISH, NEVER QUOTED IN SPANISH** — in every document, a commit and a
+  pull request alike. *the absences screen*, not `Ausencias`; *a gap*, not `Un hueco`; *the lunch
+  break*, not *la comida*; *close the day here*, not *cerrar el día aquí*. The Spanish is one lookup
+  away in the locale files, and quoting it is how a document ends up half-translated. **That we talk
+  in Spanish is not a reason for any of it**: the conversation is not the repository.
+
+  **Exactly three kinds of Spanish are correct and must survive a sweep**, and nothing else is:
+  1. **an assertion of an `es` locale VALUE** (`locales.test.ts`, `summary.test.ts`, the
+     `apiErrorMessage(…, 'es')` cases) — the Spanish bundle cannot be tested without the Spanish
+     string;
+  2. **the owner's own words, quoted verbatim** in DECISIONS.md — a citation of what they decided, and
+     translating it would destroy the record it exists to be;
+  3. **a datum that arrives or is stored in Spanish**, where `Feria` is the datum and `Fair` would be
+     a lie — a reason the owner typed, and the exact strings a Spanish source returns, which a test
+     must use verbatim or it stops testing the real payload.
 
   A fifth trap has no Spanish in it: **`taller` is the English comparative**, and a map that translates
   it turns *"made the grid taller than its box"* into nonsense.

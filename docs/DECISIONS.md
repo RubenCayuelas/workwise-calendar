@@ -39,7 +39,7 @@ overlaps that did not already, and recomposing twice changes nothing.
 
   `findGapConflicts` and `otherJobOverlaps` already exist — the drop path's two halves — so this is
   wiring, not a new mechanism.
-- ***Añadir otra parte*** on the job panel *(decided 2026-08-14)*: a second job entry with the name and
+- **An *add another part* action** on the job panel *(decided 2026-08-14)*: a second job entry with the name and
   colour pre-filled. § *Two Parts of One Job* below.
 
 ### STILL OPEN — ask before inventing an answer
@@ -70,6 +70,14 @@ overlaps that did not already, and recomposing twice changes nothing.
 - **The hover action bar still covers a tall block's NAME on a narrow column.** Fixed for short and
   narrow blocks (the bar docks outside); on a ~150 px weekday column a tall block still has its top
   ~28 px covered. The drag is safe there and a click still lands on a button.
+- **A reopened holiday comes back on the next check.** The owner reopens an automatic holiday because
+  the shop is working that day; seven days later the check closes it again. The app cannot tell that
+  reopening from a day that was never written — the row is gone, and the two leave the same picture.
+  Chosen deliberately on 2026-08-25 as the simplest behaviour available, with the failure named rather
+  than hidden: *«posible bug donde el usuario sí que quiere mantenerlo eliminado»*. The `holidays`
+  table is where the answer goes when it is wanted — a column saying the day was dismissed — so the
+  fix stays cheap. **Ask before building it.**
+
 - **Two gaps may overlap each OTHER on the fixed side** — refused on create and on edit since
   2026-08-19 (`gap-over-gap`), but a BLOCK resize can still be grown over a gap, which is Decision 4
   above.
@@ -365,7 +373,7 @@ footprint would run past the end of its day lands on the next day the calendar w
 
 **Why a drop that is only a queue rank is neither rolled nor clamped** — it has no footprint to fit. Rolling
 it was the owner's own defect: the row moved to a day it was already on and the request answered 200 with
-nothing changed. Clamping said *«6 h no pueden empezar después de las …»* about a release that works
+nothing changed. Clamping said *6 h cannot start after …* about a release that works
 perfectly well.
 
 **Why it never leaves the weekend, a closed day or the past** — there the drop is a literal placement on a
@@ -452,7 +460,7 @@ the ghost the owner was looking at, to the minute.
 **Rule** — SPEC § *A Week Change Says Which Way It Went*. A new week slides in from the side it came from.
 The first week never slides, and a refetch of the same week never slides.
 
-**Why the direction is derived and not passed in** — the header buttons, the arrow keys, `Hoy` and the edge
+**Why the direction is derived and not passed in** — the header buttons, the arrow keys, the today button and the edge
 hold all get it for free, and none of them can get it wrong.
 
 **Why the column clips sideways only while its contents travel** — `translateX` past the last column's edge
@@ -510,7 +518,7 @@ the afternoon. Four hours destroyed by a save that changed nothing.
 
 ## A Long Absence Is One Gesture, and a Closed Day Has a Screen
 
-**Rule** — SPEC § *Gap Management*. `Ausencias` has two modes over one date range, and a range is one
+**Rule** — SPEC § *Gap Management*. The absences screen has two modes over one date range, and a range is one
 transaction.
 
 **Why** — the evidence was in the shop's own database: four gaps of `08:00 +11,5 h` reason "Feria", typed one
@@ -525,12 +533,64 @@ refuses whatever the save would refuse.
 could not absorb stayed on disk and **every later write answered the same 409**, including the deletion of the
 job that would not fit.
 
+**Why closing a day no longer refuses over work it cannot move** — it used to, in both doors, and the reason
+was that nothing could be ASKED at the moment of closing. Now something can. A closed day is a weekend to the
+engine, and a weekend has always held padlocked work without complaint; the refusal was protecting against a
+state that was never wrong. Only the past still refuses, because nothing may be written there at all.
+
+**Why BOTH doors ask, and out of one module** — the refusal was removed from both and the question added to
+only one, so the absences form went from refusing loudly to closing in silence, which is worse than what it
+replaced. The decision now lives in one place and the wording in one set of keys: the same situation reached
+by two routes must not have two answers.
+
 **Why painting only ever opens the form** — the app never creates an absence by itself. That also dissolved the
 gap-versus-closed-day threshold: painting a whole column gives a 12 h gap in two rows, which looks like a
 closed day and is not one. Do not add a threshold.
 
 **Why there is no half-day** — the owner was asked and said no: a short day is a gap. `capacity_hours` stays
 without a screen.
+
+---
+
+## Public Holidays Are The App's Until You Touch Them
+
+**Rule** — SPEC § *Public Holidays Close The Shop By Themselves*. The municipality's holidays become closed
+days written by the app. A future day whose note is exactly what the last check wrote there stays the app's to
+rename or reopen; the moment the owner edits it, closes it themselves or reopens it, the day is theirs.
+
+**Why the dates and the names come from different places** — the Junta de Andalucía's open data is official,
+covers every Andalusian municipality and already carries a year that festivos.io has not published; but it
+names a local holiday nothing at all, only `FIESTA LOCAL EN <municipio>`. festivos.io names them, and its own
+`source.ref` on those rows points back at the Junta dataset, so it is a naming layer over the same official
+data rather than a second opinion about the dates. A missing name is never a failed check.
+
+**Why the horizon is not a number we chose** — local holidays for a year are published in the October before
+it, so no source can know more than about fifteen months ahead. *How far do we write?* has an answer already:
+everything known, from today onwards, with Settings saying how far that reaches.
+
+**Why a rename EDITS the day instead of rewriting it** — a local holiday's date exists months before anyone
+names it, so `Fiesta local` becoming *Feria Real de Priego de Córdoba* on a later check is the normal case, not
+an edge one. Reopening and rewriting would land on the same date looking identical afterwards while, in
+between, releasing the day, shuffling the queue and asking again about work whose displace-or-keep answer had
+already been given. A better label must not be able to move an hour.
+
+**Why the ownership test is a string comparison against the cache** — it needs no mark on any calendar row.
+The `holidays` cache already records what the app last wrote on each day, so the day itself carries the
+evidence, and the cache must be read before it is replaced.
+
+**Why a day whose work is padlocked is stated and not asked about** — the only other answer would clear a
+padlock, and the padlock is cleared by the padlock and nothing else.
+
+**Why the fallback names come out of the locale files** — a holiday's note is the SECOND piece of prose the
+data layer produces, after a deleted job's gap reason, and it obeys the same rule: composed from the bundles
+in the language the owner is reading, because it is stored user data from the moment it is written. Written
+into the module as Spanish literals first, which put untranslatable wording in the data layer and made the
+English interface print Spanish.
+
+**Rejected** — bundling the holiday table in the installer, so the app never touches the network. It matches
+everything else about this app, but a year's holidays would then arrive only with a new release, and the owner
+asked for the check instead. Also rejected: extending beyond Andalucía, which means seventeen regional
+calendars, 8,132 municipalities and abandoning the official source for an aggregator.
 
 ---
 
@@ -667,7 +727,7 @@ installation being part of the job.
 
 **Why not** — modelled as one job it would need a dependency between two spans, a lead time between them, and a
 warning when the fabrication slips and the installation no longer follows. That is a scheduling feature, not a
-second row. Two jobs with the same name is what the owner does today, and *añadir otra parte* on the job panel —
+second row. Two jobs with the same name is what the owner does today, and *add another part* on the job panel —
 a second entry with the name and colour pre-filled — is the whole of what was agreed.
 
 ---

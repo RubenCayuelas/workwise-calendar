@@ -124,6 +124,27 @@ CREATE TABLE IF NOT EXISTS day_overrides (
   note           TEXT
 );
 
+-- The last successful holiday check: which dates are public holidays and what each
+-- one is called. A CACHE and never the calendar itself -- the calendar is
+-- day_overrides. 'name' doubles as the app's record of what it last wrote on that
+-- day, which is how a later check tells a day the owner has since renamed from one
+-- that is still the app's to correct.
+CREATE TABLE IF NOT EXISTS holidays (
+  date  TEXT PRIMARY KEY,
+  name  TEXT NOT NULL,
+  level TEXT NOT NULL
+);
+
+-- When the app last tried to fetch them, and whether it worked. A FAILED check
+-- writes no holiday rows, so this is the only place it can be recorded, and
+-- Settings has to be able to say when the last attempt was. One row, by the CHECK.
+CREATE TABLE IF NOT EXISTS holiday_checks (
+  id           INTEGER PRIMARY KEY CHECK (id = 1),
+  municipality TEXT NOT NULL,
+  checked_at   TEXT NOT NULL,
+  succeeded    INTEGER NOT NULL CHECK (succeeded IN (0, 1))
+);
+
 -- The engine reads a week at a time in calendar order; the queue order IS
 -- (date, start_time), so this index serves both the read and the sort.
 CREATE INDEX IF NOT EXISTS idx_blocks_date_start_time ON blocks (date, start_time);

@@ -245,3 +245,21 @@
   gap: 6px;
   margin-top: 6px;
 }
+
+/*
+ * Displace or keep, per day, inside the preview notice. Stacked under the day's line rather than
+ * beside it: the hint that a kept row is padlocked is a sentence, not a word, and it wraps.
+ */
+.keepChoice {
+  display: flex;
+  gap: var(--ww-space-3);
+  flex-wrap: wrap;
+}
+
+.keepOption {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-1);
+  font-size: var(--ww-text-sm);
+  cursor: pointer;
+}

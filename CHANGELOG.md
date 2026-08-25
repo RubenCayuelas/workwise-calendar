@@ -9,14 +9,58 @@ never moves without the owner asking.
 
 ---
 
+## 0.22.1 — closing a day by hand asks the same question
+
+**The absences screen now asks before a close moves any work**, the way the automatic holiday check
+already did. One line per day of the range that has work on it, with the hours and the jobs named, and
+the same two answers in the same words: move the work on, which stays the default, or keep it where it
+is, which padlocks it and closes the day around it. A day whose work is already padlocked has nothing
+to choose and says so.
+
+**And the notice says it once.** Each day's line now names where its hours go — the date they land on
+when they move, or that they stay put when they do not — and the list of pushed jobs underneath is
+gone, because it was saying the same thing a second time. The answer travels with the preview too, so
+the sentence about how far the workshop reaches follows what you actually chose.
+
+Until now that screen had stopped refusing but had not started asking, so a close from there moved
+work — or closed around work it could not move — without a word.
+
+## 0.22.0 — the town's public holidays close the shop by themselves
+
+**The holidays no longer have to be typed in by hand.** Settings has a new block for them, with the
+municipality — Priego de Córdoba to begin with, and any Andalusian town if it is ever needed. From
+there the app reads the official labour calendar, closes each holiday and writes its name in the day
+header, and looks again once a week, with a button for when it cannot wait. Underneath it always says
+how many holidays it holds, how far ahead they reach, and when it last looked.
+
+**A holiday with work on it asks before it moves anything.** Opening the app brings up a list of those
+days with two answers each: move the work on, which is what closing a day has always done, or keep it
+where it is, which padlocks it and closes the day around it. Work that already carries a padlock has
+nothing to choose: the day closes around it and says so. Closing the list without answering writes
+nothing.
+
+**Closing a day is no longer refused because there is work on it**, neither here nor from the absences
+screen: what can be moved is moved, and what cannot stays with the day closed around it, exactly as a
+Saturday already works. Only the past still refuses to be touched.
+
+**What you write wins.** Change a holiday's reason, or close a day yourself, and the app never touches
+that day again. It only corrects the ones it wrote and nobody has touched since: it gives them their
+real name once it is published — a local holiday gets a generic one until anyone knows what it is
+called — and reopens them if they stop being holidays. With no connection nothing is lost: it keeps
+what it already knew and tells you when it last tried.
+
+Data: Junta de Andalucía and festivos.io (CC BY 4.0).
+
+**The working agreement now says it in so many words**: everything written is in English — code, the
+documents, commit subjects and a pull request — and any wording the server produces is composed from
+the locale files in the language being read, never written into a module.
+
 ## 0.21.1 — the week arrows are easier to hit
 
 **The two arrows either side of the week are wider.** They were the same 28-pixel square as every
 other icon button in the header, and they are the ones pressed most — every week turned goes through
 one of them. They keep their height, so the header sits exactly where it did, and the arrow inside is
 unchanged: what grew is only the room there is to miss by.
-
----
 
 ## 0.21.0 — new job colours, and absences that no longer look like jobs
 
@@ -49,8 +93,6 @@ itself, a lighter version of whatever is set in Ajustes, so changing that colour
 and there is nothing extra to configure. The band drawn while painting a new absence is hatched too,
 so what is previewed looks like what gets saved. It is only a way of drawing: nothing about how a gap
 behaves has changed.
-
----
 
 ## 0.20.1 — the new-job form closes when the job is created
 
@@ -98,7 +140,7 @@ estimate, the way shrinking already asked where freed hours should go.
 
 ## 0.17.0 — a long absence is one gesture
 
-`Ausencias` closes a range of days, or repeats the same gap across it, in one save — a holiday week used
+The absences screen closes a range of days, or repeats the same gap across it, in one save — a holiday week used
 to be one gap typed per day. It previews the hours it will push and which jobs they belong to before
 anything is written. A closed day has a screen at last, and its reason shows in the day header.
 
