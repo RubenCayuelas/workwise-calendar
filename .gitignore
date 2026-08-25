@@ -50,3 +50,6 @@ documents/*
 
 # Worktrees (isolated checkouts live inside the repo; never committed)
 /.claude/worktrees/
+
+# An agent's own scratch while it works through a plan: ledger, briefs, diffs
+/.superpowers/
