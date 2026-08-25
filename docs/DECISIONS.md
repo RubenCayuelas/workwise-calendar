@@ -39,7 +39,7 @@ overlaps that did not already, and recomposing twice changes nothing.
 
   `findGapConflicts` and `otherJobOverlaps` already exist — the drop path's two halves — so this is
   wiring, not a new mechanism.
-- ***Añadir otra parte*** on the job panel *(decided 2026-08-14)*: a second job entry with the name and
+- **An *add another part* action** on the job panel *(decided 2026-08-14)*: a second job entry with the name and
   colour pre-filled. § *Two Parts of One Job* below.
 
 ### STILL OPEN — ask before inventing an answer
@@ -373,7 +373,7 @@ footprint would run past the end of its day lands on the next day the calendar w
 
 **Why a drop that is only a queue rank is neither rolled nor clamped** — it has no footprint to fit. Rolling
 it was the owner's own defect: the row moved to a day it was already on and the request answered 200 with
-nothing changed. Clamping said *«6 h no pueden empezar después de las …»* about a release that works
+nothing changed. Clamping said *6 h cannot start after …* about a release that works
 perfectly well.
 
 **Why it never leaves the weekend, a closed day or the past** — there the drop is a literal placement on a
@@ -460,7 +460,7 @@ the ghost the owner was looking at, to the minute.
 **Rule** — SPEC § *A Week Change Says Which Way It Went*. A new week slides in from the side it came from.
 The first week never slides, and a refetch of the same week never slides.
 
-**Why the direction is derived and not passed in** — the header buttons, the arrow keys, `Hoy` and the edge
+**Why the direction is derived and not passed in** — the header buttons, the arrow keys, the today button and the edge
 hold all get it for free, and none of them can get it wrong.
 
 **Why the column clips sideways only while its contents travel** — `translateX` past the last column's edge
@@ -518,7 +518,7 @@ the afternoon. Four hours destroyed by a save that changed nothing.
 
 ## A Long Absence Is One Gesture, and a Closed Day Has a Screen
 
-**Rule** — SPEC § *Gap Management*. `Ausencias` has two modes over one date range, and a range is one
+**Rule** — SPEC § *Gap Management*. The absences screen has two modes over one date range, and a range is one
 transaction.
 
 **Why** — the evidence was in the shop's own database: four gaps of `08:00 +11,5 h` reason "Feria", typed one
@@ -722,7 +722,7 @@ installation being part of the job.
 
 **Why not** — modelled as one job it would need a dependency between two spans, a lead time between them, and a
 warning when the fabrication slips and the installation no longer follows. That is a scheduling feature, not a
-second row. Two jobs with the same name is what the owner does today, and *añadir otra parte* on the job panel —
+second row. Two jobs with the same name is what the owner does today, and *add another part* on the job panel —
 a second entry with the name and colour pre-filled — is the whole of what was agreed.
 
 ---

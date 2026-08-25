@@ -197,7 +197,7 @@ three readers: the write path (`pinsTheRow`), the ghost (`dropPins`) and the lan
 | Monday-Thursday inside the periods | **no** — it re-ranks the queue and the row settles contiguously |
 
 **THIS TABLE IS ABOUT A DROP, and one gesture is deliberately not in it.** A band PAINTED on empty
-grid space and answered `Un trabajo` padlocks its head on **every** day, Monday to Thursday included —
+grid space and answered *a job* padlocks its head on **every** day, Monday to Thursday included —
 the only pin inside the working week. It is not an exception to `dropLandsLiterally`, which is
 untouched and still says no there: it is a different gesture, whose whole content is a minute the
 owner drew. *«Padlock everything the user drags»* was considered and rejected on 2026-08-12 for
@@ -492,7 +492,7 @@ end is a QUESTION, asked once and answered in the same request shape:
 | **Cancelar** | nothing is written; the client simply does not ask again | unchanged |
 | **Quitar las horas del total** (`freedHours: "reduce-total"`) | the job becomes smaller by those hours | **decreases** |
 | **Dividir** (`freedHours: "new-block"`) | the hours become a block of their own, ranked after the job's last row | unchanged |
-| **Añadir las horas al total** (`freedHours: "add-to-total"`) | answers a GROW: the job becomes bigger by the shortfall | **increases** |
+| **Add the hours to the total** (`freedHours: "add-to-total"`) | answers a GROW: the job becomes bigger by the shortfall | **increases** |
 
 Unanswered, the request is **409 `shrink-needs-choice`** or **409 `grow-needs-choice`**, writing
 nothing and carrying `freedMinutes` and `choices` — the answers that really exist, so the dialog is
@@ -789,7 +789,7 @@ ENGINE off the row, it does not stop the owner aiming it.
 
 The codes, all 409 and all writing nothing: `overlaps-gap`, `overlaps-locked-block`,
 `merge-exceeds-day`, `displaced-hours-unplaceable`. Their sentences name the reason rather than
-opening with *«Ahí no cabe»*.
+opening with a bare *it does not fit there*.
 
 ### Aiming Below What A Day Holds Means The Next Day
 > **A drop that LANDS LITERALLY and whose footprint would run past the end of its day is not refused
@@ -801,7 +801,7 @@ released inside the working periods of Monday to Thursday. It has no footprint t
 takes what the day has left and carries the rest to the next day it can use (*Fill and Overflow,
 Always*), so 6 h released into a 4 h afternoon is 4 h there and 2 h the day after. Rolling it was
 the owner's own defect — the row moved to a day it was already on and the request answered 200 with
-nothing changed — and clamping it said «6 h no pueden empezar después de las …» about a release that
+nothing changed — and clamping it said *6 h cannot start after …* about a release that
 works perfectly well. Both sides ask `dropLandsLiterally`, so the ghost and the write agree, and what
 the ghost draws in their place is the division itself — see *The Ghost of a Rank Is the Division*.
 
@@ -854,7 +854,7 @@ will really be. The slide is **not implemented twice**: `firstClearStart` lives 
 
 ### Deleting a Job Leaves Its Past Intact
 > **Deleting a job removes its FUTURE rows and recomposes. Its PAST rows become GAPS, so nothing on
-> those days moves, and each gap says what it replaced: `Trabajo «Barandilla» eliminado`.**
+> those days moves, and each gap says what it replaced, naming the job that was there.**
 
 A gap holds the time exactly where the work was — same date, same start, same duration, the same
 fixed occupancy — so the day keeps its shape and nothing later is pulled backwards into the hole.
@@ -954,8 +954,8 @@ of sitting grey and mute.
 - **`Ctrl+Z` undoes; `Ctrl+Y` and `Ctrl+Shift+Z` both redo.** On `window` in the BUBBLE phase: the
   grid's two capture-phase listeners — the drag and the paint — match only Escape and the arrows, so
   there is nothing to fight over and Escape stays theirs.
-- **Two discreet ghost icon buttons** before `Hoy`, whose tooltip names the step: *«Deshacer: mover
-  «Barandilla»»*. The keyboard is the normal route; the buttons are how the gesture is discovered.
+- **Two discreet ghost icon buttons** before the today button, whose tooltip names the step —
+  *undo: move "Railing"*, with the job's own name in it. The keyboard is the normal route; the buttons are how the gesture is discovered.
 - **ONE predicate decides the buttons AND the keys.** Inert while any panel, form or dialog is open,
   while a gesture is in the air, and while a save is in flight. That is what keeps a restore from
   leaving an open panel, a pending scissors fragment or a held band pointing at a row it has just
@@ -1056,7 +1056,8 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   **`GET /api/summary` is API surface, not dead code**, even though the week view reads the same
   object out of `GET /api/week`: it is the one place the strip's arithmetic is reachable on its own.
   An audit called it unused on 2026-08-20; it is unused BY THIS APP, which is a different thing.
-- **Header**: logo, `‹ Semana 33 · 10–16 ago 2026 ›`, and two discreet undo/redo icons, `Hoy`,
+- **Header**: logo, the week label between two arrows — `‹ Week 33 · 10–16 Aug 2026 ›` — two discreet
+  undo/redo icons, the today button,
   `+ Nuevo trabajo`, language, overflow menu. The icons are ghost-styled and their tooltip names the
   step — see *The Two Controls and the Two Keys*.
 - **Visual blocks**: tinted fill with a saturated border in the project colour, name + hours. A unit
@@ -1110,9 +1111,8 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
 
 #### The Ghost of a Rank Is the Division, Across Columns
 > **A drop that is only a queue RANK is drawn as the ROWS the reflow will store: what this day has
-> left, and the remainder on the day it carries to. The label names the days —
-> «4 h el Mié 19 · 2 h el Jue 20» — and the hours line is replaced by it, because the total is the
-> sum of the parts.**
+> left, and the remainder on the day it carries to. The label names the days — *4 h on Wed 19 · 2 h
+> on Thu 20* — and the hours line is replaced by it, because the total is the sum of the parts.**
 
 Since *Fill and Overflow, Always* a drop on a day the engine lays out is never "it fits" or "it does
 not", so one rectangle at the pointer could only ever be half the answer. `planDropSpill`
@@ -1132,8 +1132,8 @@ release day and the days after it exactly as `compose` does, and the grid draws 
   to hold a row is drawn as what it is — nothing here — and the whole gesture appears on the next
   column, label and all.
 - **The heavy rule is drawn once**, on the drop's own first row: there is one insertion point however
-  many rectangles the hours land in. The continuation carries `…sigue aquí · 2 h`.
-- **The clamp, the roll and «no caben en un solo día» are drawn only for a drop that lands
+  many rectangles the hours land in. The continuation is labelled as a continuation, with its hours.
+- **The clamp, the roll and *these hours do not fit in one day* are drawn only for a drop that lands
   LITERALLY** — the buffer, the weekend, a margin, a padlocked row — where they are true.
 - **The scissors' second click reads the same plan** (`placingGhost`), for the same reason: a
   fragment is a drop. Its own row does not leave the calendar, so it stays in front of the fragment
@@ -1150,7 +1150,7 @@ Answers For Itself* is for — `unchanged` and `settled` now always fire.
   across days, so `start + duration` is an end-of-day reading only while the day can hold every one
   of them (`footprintEnd`, `src/components/calendar/dropEffect.ts`). Where it cannot, the ghost names
   the START and the hours — both true — and says the run is longer than the day holds
-  (`grid.dropLongerThanDay`) instead of the clamp's «no pueden empezar después de…», which claims a
+  (`grid.dropLongerThanDay`) instead of the clamp's *cannot start after …*, which claims a
   start that would work. **Both sentences are for a drop that lands LITERALLY only** (2026-08-17): on
   a day the engine reflows, "these hours do not fit in one day" is the deleted rule speaking, and what
   is said instead is the division — see *The Ghost of a Rank Is the Division*. A RESIZE keeps them,
@@ -1165,7 +1165,7 @@ Answers For Itself* is for — `unchanged` and `settled` now always fire.
 |---|---|---|
 | `unchanged` | the server wrote **nothing** (`changed === false`) | admits the drag changed nothing, and **teaches the route in order: padlock first, then move**. Decided from the field, never from geometry, and asked before every other branch — a vanished id is the only thing that cannot co-occur with it |
 | `pinned` | the drop PADLOCKED the row and it did not have one before | it stays there, and names the padlock as the way out. A row that was already padlocked says nothing |
-| `filled` | the hours ended up on **more than one day** (`placedBlockIds`, grouped by day) | «llena lo que quedaba del día y sigue en el siguiente: 4 h el Mié 19 · 2 h el Jue 20» — the same words the ghost used. It outranks every sentence about where the ROW went, because those describe one row and this describes all of them |
+| `filled` | the hours ended up on **more than one day** (`placedBlockIds`, grouped by day) | *fills what was left of the day and carries on into the next: 4 h on Wed 19 · 2 h on Thu 20* — the same words the ghost used. It outranks every sentence about where the ROW went, because those describe one row and this describes all of them |
 | `settled` | the reflow put it well away from the drop point | a drop is a rank; lock it to pin it |
 | `leftWeek` | it landed AFTER the week on screen | names the date its hours carry on from |
 | `pulledBack` | it landed BEFORE the week on screen | the queue laid it out where there was room; **padlock first, or drop on a day that keeps the minute** |
@@ -1180,7 +1180,7 @@ happened.
 
 **A DIVISION INSIDE ONE DAY IS SILENT, and that is what the table above actually does** (measured
 2026-08-18, said out loud here because the spec has to describe the code): `filled` counts DAYS, so a
-6 h drop cut into `Mié 08:00-10:00` + `Mié 15:30-19:30` around a padlocked row answers `changed:
+6 h drop cut into `Wed 08:00-10:00` + `Wed 15:30-19:30` around a padlocked row answers `changed:
 true`, `placedBlockIds` two long — and no branch fires, because the row is visible at the minute it
 was released. Four of the six hours are five and a half hours below the pointer and nothing is said.
 It is defensible (the ghost drew both rectangles before the release, and `block` genuinely is at the
@@ -1255,7 +1255,7 @@ mutation, added because neither is derivable from geometry:
 > one.**
 
 - **The direction is DERIVED, not passed in** (`useWeekSlide`, by comparing this week's Monday with
-  the last one), so the header buttons, the arrow keys, `Hoy` and the edge hold all get it for free
+  the last one), so the header buttons, the arrow keys, the today button and the edge hold all get it for free
   and none of them can get it wrong.
 - **What moves is what belongs to the WEEK**: each column's blocks, gaps and `libre` pill, inside a
   `.columnBody` wrapper, and each day header's WORDS. Moving the header's BOX instead puts its border
@@ -1322,8 +1322,9 @@ minute by minute, at several fitted scales — never at sample points.
 
 ### Job Panel (side panel)
 - Colour dot + job name + close.
-- Fields: `Nombre`, `Descripción`, `Horas totales` (stepper), `Color` (swatches).
-- `Bloques · 11 h en 4 tramos`: the job's blocks listed as `Mié 12 · 08:00–14:00 · 6 h` with a
+- Fields: name, description, total hours (stepper) and colour (swatches).
+- A blocks header counting the hours and the pieces, then the job's blocks listed one per line as
+  `Wed 12 · 08:00–14:00 · 6 h`, with a
   per-block padlock toggle. It is the only place a row in another week can be unlocked. **On a PAST
   row the padlock and the scissors are absent**, and the padlock is drawn as a read-only state icon.
 - The two halves around lunch are listed as two separate rows — that is the segment model, confirmed
@@ -1411,8 +1412,8 @@ of this one.)*
   frozen to the gestures while staying open to the form.
 
 #### The Absences Screen — One Place, Two Modes
-> **`Ausencias`, reached from the calendar's overflow menu and from the grid itself, with a selector:
-> **Un hueco** / **Cerrar días**. Both modes share `Desde` / `Hasta` and a reason, so there is one
+> **The ABSENCES SCREEN, reached from the calendar's overflow menu and from the grid itself, with a
+> selector: ONE GAP / CLOSE DAYS. Both modes share a from and a to date and a reason, so there is one
 > screen to learn and the decision is made INSIDE it.**
 
 The evidence it was built on, from the shop's own database: `2026-09-01` … `09-04`, four gaps of
@@ -1431,7 +1432,7 @@ gesture.
   unit id per day, each cut at the lunch break by the very function a single gap uses (`insertAbsence`).
 - **The rows are written first and the reflow runs ONCE**, at the end, so the hours are displaced by one
   pass and reported once. A refusal on ANY day of the range rolls the whole thing back.
-- **The two OLD shapes of the form are untouched**: editing one absence and *cerrar el día aquí* still
+- **The two OLD shapes of the form are untouched**: editing one absence and *stop the day here* still
   write through `/api/gaps`, still reach the past, and keep every refusal they had.
 
 #### Closing Days — the mechanism that was wired engine-deep and had no way in
@@ -1455,7 +1456,7 @@ gesture.
   and all, **except** where it carries a hand-entered `capacity_hours`: that column has no screen and
   nothing could put it back, so there only `is_closed` is cleared.
 - **The way IN to a closed day is its own column.** Pressing a dimmed column opens this screen in
-  `Cerrar días` mode on that day, with its note pre-filled — otherwise a mistyped reason would be
+  CLOSE DAYS mode on that day, with its note pre-filled — otherwise a mistyped reason would be
   unreachable, since a closed day is not an object on the grid.
 - **NO HALF-DAY.** `capacity_hours` stays without a screen: the owner was asked and said no, because a
   short day is a GAP. Do not offer it.
@@ -1482,12 +1483,12 @@ gesture.
 - **A holiday on a Saturday or a Sunday IS written.** It changes nothing for the engine; the header
   naming the day is the point.
 - **The check runs once when the app is opened and at most once every 7 days** — elapsed time and not
-  a schedule, the shape the automatic backup already uses — plus `Consultar ahora` in Settings.
+  a schedule, the shape the automatic backup already uses — plus the check-now button in Settings.
   Changing the municipality checks straight away. `holidaysEnabled` OFF stops future writes and
   removes nothing already written.
 - **A holiday with nothing on that day is closed silently. One with work on it opens the panel** and
-  nothing is written for it until the panel is answered: `Desplazar` (the default) or `Mantener aquí`,
-  which padlocks the work and closes the day around it. A day whose work already carries a padlock is
+  nothing is written for it until the panel is answered: move the work on (the default) or keep it
+  where it is, which padlocks it and closes the day around it. A day whose work already carries a padlock is
   STATED and not asked about — displacing it would have to clear a padlock. Closing the panel writes
   nothing and the next check asks again.
 - **THE OWNERSHIP RULE.** A future day whose note is EXACTLY what the last check wrote there is the
@@ -1504,19 +1505,19 @@ gesture.
 
 #### Painting on Empty Grid Space — a Gap or a Job
 > **A drag on empty grid space paints a band. ON RELEASE the band STAYS DRAWN and two buttons appear
-> at the pointer — `Un trabajo` / `Un hueco` — and whichever is pressed OPENS A FORM PRE-FILLED with
+> at the pointer — A JOB / A GAP — and whichever is pressed OPENS A FORM PRE-FILLED with
 > the day, the start and the net duration. IT WRITES NOTHING either way — the owner presses Guardar.**
-> That is the rule they set on 2026-08-18 about *cerrar el día aquí* and it holds for both: the app
+> That is the rule they set on 2026-08-18 about *stop the day here* and it holds for both: the app
 > never creates work or an absence by itself.
 
 - **ONE COLUMN per paint** (`usePaintAbsence` over the `paintSession` reducer). Several days go through
   the form's range; cross-column painting does not exist.
 - **THE BAND NO LONGER MEANS ONE THING, so it is ASKED rather than guessed.** *«GAPS ONLY»* was
   deleted on 2026-08-21 — but the half of it that forbade a THRESHOLD is now stronger, not weaker: the
-  kind is never inferred from the band's size, its day or anything else. `Un trabajo` is focused, so
+  kind is never inferred from the band's size, its day or anything else. The job button is focused, so
   Enter is the common answer; there is no memory of the last choice, and **no modifier key, ever**.
-- **A `Trabajo` is a job created at the painted MINUTE, padlocked** — see *Creating a Job With a Start
-  Date*, mode `painted`. **A `Hueco` is the absence it always was**, and it opens ONE absence rather
+- **The job answer creates a job at the painted MINUTE, padlocked** — see *Creating a Job With a Start
+  Date*, mode `painted`. **The gap answer is the absence it always was**, and it opens ONE absence rather
   than the `Desde`/`Hasta` range screen, which a one-column gesture had no use for.
 - **The band draws the rows the gesture will really be stored as**, cut at the lunch break
   (`segmentDroppedRow`), like every other ghost on this grid, and it is measured in NET working

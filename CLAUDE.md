@@ -238,17 +238,20 @@ rather than buried in the code.
   reason and a public holiday's name — and both become stored user data the moment they are written, so
   neither can be re-translated afterwards. A Spanish literal in a module makes the English app print
   Spanish, which is what a holiday name table did.
-  **Four kinds of Spanish are correct and must survive a sweep**, all four found by one that did not
-  spare them:
-  1. an assertion of an `es` locale VALUE (`locales.test.ts`, `summary.test.ts`, the
-     `apiErrorMessage(…, 'es')` cases);
-  2. a UI label named in SPEC.md or DECISIONS.md, so the document describes the screen that exists —
-     `Ausencias`, `Cerrar días`, `Un hueco`, `desborde 2 h`. **Never in CHANGELOG.md or a pull
-     request**: those say what CHANGED, in English, and reaching for the Spanish button name is how a
-     whole entry ends up half-translated;
-  3. the owner's own words, quoted;
-  4. a datum that arrives or is stored in Spanish, where `Feria` is the datum and `Fair` would be a
-     lie — a gap reason the owner typed, and the exact strings a Spanish source returns, which a test
+  **A SCREEN IS DESCRIBED IN ENGLISH, NEVER QUOTED IN SPANISH** — in every document, a commit and a
+  pull request alike. *the absences screen*, not `Ausencias`; *a gap*, not `Un hueco`; *the lunch
+  break*, not *la comida*; *close the day here*, not *cerrar el día aquí*. The Spanish is one lookup
+  away in the locale files, and quoting it is how a document ends up half-translated. **That we talk
+  in Spanish is not a reason for any of it**: the conversation is not the repository.
+
+  **Exactly three kinds of Spanish are correct and must survive a sweep**, and nothing else is:
+  1. **an assertion of an `es` locale VALUE** (`locales.test.ts`, `summary.test.ts`, the
+     `apiErrorMessage(…, 'es')` cases) — the Spanish bundle cannot be tested without the Spanish
+     string;
+  2. **the owner's own words, quoted verbatim** in DECISIONS.md — a citation of what they decided, and
+     translating it would destroy the record it exists to be;
+  3. **a datum that arrives or is stored in Spanish**, where `Feria` is the datum and `Fair` would be
+     a lie — a reason the owner typed, and the exact strings a Spanish source returns, which a test
      must use verbatim or it stops testing the real payload.
 
   A fifth trap has no Spanish in it: **`taller` is the English comparative**, and a map that translates

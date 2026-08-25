@@ -124,7 +124,7 @@ estimate, the way shrinking already asked where freed hours should go.
 
 ## 0.17.0 — a long absence is one gesture
 
-`Ausencias` closes a range of days, or repeats the same gap across it, in one save — a holiday week used
+The absences screen closes a range of days, or repeats the same gap across it, in one save — a holiday week used
 to be one gap typed per day. It previews the hours it will push and which jobs they belong to before
 anything is written. A closed day has a screen at last, and its reason shows in the day header.
 
