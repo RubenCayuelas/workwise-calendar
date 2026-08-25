@@ -28,8 +28,8 @@ Settings holds the interval, how many to keep, and the folder they live in.
 conventions, the data model, the invariants, and where to look. The behaviour specification is
 `docs/SPEC.md`, the reasoning `docs/DECISIONS.md`, and this file records the versions.
 
-**`main` only receives releases.** Work happens on `develop`; a pull request into `main` has to come from
-`develop` or a `hotfix/*` branch, and `main` cannot be force-pushed or deleted.
+**`main` only receives releases.** Work happens on `dev`; a pull request into `main` has to come from
+`dev` or a `hotfix/*` branch, and `main` cannot be force-pushed or deleted.
 
 ## 0.19.0 — undo and redo
 

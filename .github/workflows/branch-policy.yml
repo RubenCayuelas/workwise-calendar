@@ -3,6 +3,10 @@ name: Branch policy
 # GitHub's branch protection cannot restrict which branch a pull request comes FROM — there is no such
 # setting, in the classic rules or in rulesets. This check is the mechanism: make it required on `main`
 # and a pull request from anywhere else cannot be merged.
+#
+# TRAP until this file reaches `main`: the copy sitting there still names `develop`, which no longer
+# exists. Open the first release after the rename from a `hotfix/*` branch — both copies accept that —
+# and merging it puts this one on `main`, after which `dev` opens releases normally.
 on:
   pull_request:
     branches: [main]
@@ -11,13 +15,15 @@ jobs:
   source-branch:
     runs-on: ubuntu-latest
     steps:
-      - name: Only develop or a hotfix may open a pull request into main
+      - name: Only dev or a hotfix may open a pull request into main
         env:
           SOURCE: ${{ github.head_ref }}
         run: |
-          if [ "$SOURCE" = "develop" ] || case "$SOURCE" in hotfix/*) true ;; *) false ;; esac; then
-            echo "$SOURCE may merge into main."
-            exit 0
-          fi
-          echo "::error::'$SOURCE' cannot merge into main. Merge it into develop first, or name it hotfix/<something>."
+          case "$SOURCE" in
+            dev | hotfix/*)
+              echo "$SOURCE may merge into main."
+              exit 0
+              ;;
+          esac
+          echo "::error::'$SOURCE' cannot merge into main. Merge it into dev first, or name it hotfix/<something>."
           exit 1

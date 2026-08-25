@@ -88,8 +88,8 @@ prebuilt binary for other ABIs and npm would fall through to a compiler.
 
 ## Branches, versions and releases
 
-- **Work on `develop`.** `main` only receives releases, through a pull request from `develop` or a
-  `hotfix/*` branch. `main` cannot be force-pushed or deleted.
+- **Work on `dev`.** `main` only receives releases, through a pull request from `dev` or a
+  `hotfix/*` branch. Neither branch can be deleted, and `main` cannot be force-pushed.
 - Versions are `EPIC.FEATURE.FIX`. **You may move the middle number for a feature and the last for a
   fix. Never the first** — that is the owner's call alone.
 - **A change that ships bumps the version and adds its CHANGELOG.md entry**, written in terms of what
