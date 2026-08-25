@@ -78,6 +78,13 @@ export function formatWeekdayShort(date: string, language: string): string {
   );
 }
 
+/** The single-letter weekday a month grid heads its columns with: "L", "M". */
+export function formatWeekdayNarrow(date: string, language: string): string {
+  return new Intl.DateTimeFormat(intlLocaleOf(language), { weekday: 'narrow' }).format(
+    localDateOf(date),
+  );
+}
+
 /** Full weekday name, lower case as Spanish prose wants it: "jueves". */
 export function formatWeekdayLong(date: string, language: string): string {
   return new Intl.DateTimeFormat(intlLocaleOf(language), { weekday: 'long' }).format(
@@ -95,6 +102,19 @@ export function formatMonthShort(date: string, language: string): string {
   return new Intl.DateTimeFormat(intlLocaleOf(language), { month: 'short' })
     .format(localDateOf(date))
     .replace(/\.$/, '');
+}
+
+/**
+ * The month and year a month grid is titled with: "agosto 2026", "August 2026". Joined from Intl's
+ * PARTS rather than its string, which for es-ES is "agosto de 2026" — dropping the literal parts
+ * removes a connector that reads as prose in a heading, and does it without a Spanish word here.
+ */
+export function formatMonthYear(date: string, language: string): string {
+  return new Intl.DateTimeFormat(intlLocaleOf(language), { month: 'long', year: 'numeric' })
+    .formatToParts(localDateOf(date))
+    .filter((part) => part.type === 'month' || part.type === 'year')
+    .map((part) => part.value)
+    .join(' ');
 }
 
 /**
