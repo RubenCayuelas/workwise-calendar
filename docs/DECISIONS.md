@@ -70,6 +70,14 @@ overlaps that did not already, and recomposing twice changes nothing.
 - **The hover action bar still covers a tall block's NAME on a narrow column.** Fixed for short and
   narrow blocks (the bar docks outside); on a ~150 px weekday column a tall block still has its top
   ~28 px covered. The drag is safe there and a click still lands on a button.
+- **A reopened holiday comes back on the next check.** The owner reopens an automatic holiday because
+  the shop is working that day; seven days later the check closes it again. The app cannot tell that
+  reopening from a day that was never written — the row is gone, and the two leave the same picture.
+  Chosen deliberately on 2026-08-25 as the simplest behaviour available, with the failure named rather
+  than hidden: *«posible bug donde el usuario sí que quiere mantenerlo eliminado»*. The `holidays`
+  table is where the answer goes when it is wanted — a column saying the day was dismissed — so the
+  fix stays cheap. **Ask before building it.**
+
 - **Two gaps may overlap each OTHER on the fixed side** — refused on create and on edit since
   2026-08-19 (`gap-over-gap`), but a BLOCK resize can still be grown over a gap, which is Decision 4
   above.
@@ -525,12 +533,53 @@ refuses whatever the save would refuse.
 could not absorb stayed on disk and **every later write answered the same 409**, including the deletion of the
 job that would not fit.
 
+**Why closing a day no longer refuses over work it cannot move** — it used to, in both doors, and the reason
+was that nothing could be ASKED at the moment of closing. Now something can. A closed day is a weekend to the
+engine, and a weekend has always held padlocked work without complaint; the refusal was protecting against a
+state that was never wrong. Only the past still refuses, because nothing may be written there at all.
+
 **Why painting only ever opens the form** — the app never creates an absence by itself. That also dissolved the
 gap-versus-closed-day threshold: painting a whole column gives a 12 h gap in two rows, which looks like a
 closed day and is not one. Do not add a threshold.
 
 **Why there is no half-day** — the owner was asked and said no: a short day is a gap. `capacity_hours` stays
 without a screen.
+
+---
+
+## Public Holidays Are The App's Until You Touch Them
+
+**Rule** — SPEC § *Public Holidays Close The Shop By Themselves*. The municipality's holidays become closed
+days written by the app. A future day whose note is exactly what the last check wrote there stays the app's to
+rename or reopen; the moment the owner edits it, closes it themselves or reopens it, the day is theirs.
+
+**Why the dates and the names come from different places** — the Junta de Andalucía's open data is official,
+covers every Andalusian municipality and already carries a year that festivos.io has not published; but it
+names a local holiday nothing at all, only `FIESTA LOCAL EN <municipio>`. festivos.io names them, and its own
+`source.ref` on those rows points back at the Junta dataset, so it is a naming layer over the same official
+data rather than a second opinion about the dates. A missing name is never a failed check.
+
+**Why the horizon is not a number we chose** — local holidays for a year are published in the October before
+it, so no source can know more than about fifteen months ahead. *How far do we write?* has an answer already:
+everything known, from today onwards, with Settings saying how far that reaches.
+
+**Why a rename EDITS the day instead of rewriting it** — a local holiday's date exists months before anyone
+names it, so `Fiesta local` becoming *Feria Real de Priego de Córdoba* on a later check is the normal case, not
+an edge one. Reopening and rewriting would land on the same date looking identical afterwards while, in
+between, releasing the day, shuffling the queue and asking again about work whose displace-or-keep answer had
+already been given. A better label must not be able to move an hour.
+
+**Why the ownership test is a string comparison against the cache** — it needs no mark on any calendar row.
+The `holidays` cache already records what the app last wrote on each day, so the day itself carries the
+evidence, and the cache must be read before it is replaced.
+
+**Why a day whose work is padlocked is stated and not asked about** — the only other answer would clear a
+padlock, and the padlock is cleared by the padlock and nothing else.
+
+**Rejected** — bundling the holiday table in the installer, so the app never touches the network. It matches
+everything else about this app, but a year's holidays would then arrive only with a new release, and the owner
+asked for the check instead. Also rejected: extending beyond Andalucía, which means seventeen regional
+calendars, 8,132 municipalities and abandoning the official source for an aggregator.
 
 ---
 

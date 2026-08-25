@@ -1442,12 +1442,14 @@ gesture.
 - **It behaves like a weekend**, and that is the whole of its definition: the engine plans nothing
   there, a drop by hand LANDS LITERALLY and padlocks (*The Padlock Is the Only Pin*), and nothing is
   ever auto-recovered from it.
-- **Closing a day the engine cannot empty is REFUSED, naming what is in the way** — 409
-  `closed-day-over-fixed-block`, with its own three sentences (`closedDayOverLockedBlock` /
-  `…PastBlock` / `…WeekendBlock`) because "that gap steps on…" is not what a closed day does. Same
-  question a gap asks over its footprint, asked over the whole day (`findGapConflicts`). The
-  alternative is a day that says *cerrado* while work nothing will move sits on it, reporting no
-  capacity at all.
+- **Closing a day with work on it ASKS; it does not refuse.** Work the engine can move is moved,
+  unless the caller names that date in `keepWork`, which PADLOCKS the day's movable rows and closes
+  the day around them. Work the engine cannot move — a padlock, a weekend — simply stays, and the day
+  closes around it: a closed day is a weekend to the engine, and a weekend has always held padlocked
+  work. **Only the PAST still refuses**, 409 `closed-day-over-fixed-block` with
+  `closedDayOverPastBlock`, because nothing may be written there at all. The question is asked of the
+  DATE and never of `findGapConflicts`'s `reason`: a padlocked past row is classified `locked`, so a
+  filter on `past` would let the one case that matters through.
 - **Reopening is `DELETE /api/absences/closed-days?from=&to=`** — a range too, so undoing a Feria week
   is also one gesture — and the queue fills those days again on the same pass. The ROW is dropped, note
   and all, **except** where it carries a hand-entered `capacity_hours`: that column has no screen and
@@ -1457,6 +1459,42 @@ gesture.
   unreachable, since a closed day is not an object on the grid.
 - **NO HALF-DAY.** `capacity_hours` stays without a screen: the owner was asked and said no, because a
   short day is a GAP. Do not offer it.
+
+#### Public Holidays Close The Shop By Themselves
+> **The shop's municipality is set in Settings. Every public holiday it has — national, Andalusian and
+> the two local ones — becomes a CLOSED DAY named after the holiday, written by the app. A holiday
+> with work on it ASKS before it moves anything.**
+
+- **The dates are the Junta de Andalucía's open data** (`datos.juntadeandalucia.es`, CC BY 4.0, no
+  key), which answers a 302 the fetch must follow and ignores every query parameter — the whole 1.4 MB
+  file, every time. **The names come from festivos.io** (CC BY 4.0), a naming layer over that same
+  official data. A name that cannot be had is not a failure: a regional day falls back to a written
+  table of proper Spanish, and a local one to `Fiesta local`.
+- **The horizon is the source's, not a number of ours.** Local holidays for a year are published in
+  the October before it, so the app never knows more than about fifteen months ahead and Settings says
+  how far it reaches. It writes **every holiday it knows, from today onwards**, the past excluded.
+- **A holiday on a Saturday or a Sunday IS written.** It changes nothing for the engine; the header
+  naming the day is the point.
+- **The check runs once when the app is opened and at most once every 7 days** — elapsed time and not
+  a schedule, the shape the automatic backup already uses — plus *Consultar ahora* in Settings.
+  Changing the municipality checks straight away. `holidaysEnabled` OFF stops future writes and
+  removes nothing already written.
+- **A holiday with nothing on that day is closed silently. One with work on it opens the panel** and
+  nothing is written for it until the panel is answered: *Desplazar* (the default) or *Mantener aquí*,
+  which padlocks the work and closes the day around it. A day whose work already carries a padlock is
+  STATED and not asked about — displacing it would have to clear a padlock. Closing the panel writes
+  nothing and the next check asks again.
+- **THE OWNERSHIP RULE.** A future day whose note is EXACTLY what the last check wrote there is the
+  app's to correct: **renamed in place** when a better name arrives — one write of the note, no reflow,
+  nothing else on the row touched — and **reopened** when the date stops being a holiday. The moment
+  the owner edits that note, closes the day themselves or reopens it, the day is theirs and the app
+  never writes on it again. Changing the municipality is the same rule with the whole cache
+  invalidated at once.
+- **Offline, nothing is written and nothing is lost**: the cache stays, the failed attempt is recorded
+  so the next open does not retry, and Settings says when it was. A malformed or truncated body is
+  discarded WHOLE — a partial list would close some days and leave others open with no way to tell
+  which. A day the write refuses is skipped and named; the rest of the pass still runs.
+- **Andalucía only**, 785 municipalities, the list bundled so the picker works with no network.
 
 #### Painting on Empty Grid Space — a Gap or a Job
 > **A drag on empty grid space paints a band. ON RELEASE the band STAYS DRAWN and two buttons appear
