@@ -172,6 +172,13 @@ export function AbsencePanel({
   const [preview, setPreview] = useState<AbsencePreview | null>(null);
   /** Displace or keep, per day, for the days the preview says have work on them. Absent = displace. */
   const [keepChoice, setKeepChoice] = useState<Map<string, boolean>>(new Map());
+  /** The answers as they stand, joined so the preview effect can depend on their VALUE. */
+  const keptKey = [...keepChoice.entries()]
+    .filter(([, keep]) => keep)
+    .map(([day]) => day)
+    .sort()
+    .join(',');
+  const keptDates = keptKey === '' ? [] : keptKey.split(',');
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<unknown>(null);
   /** The last day chosen that WAS on screen: the honest place to offer going back to. */
@@ -281,6 +288,9 @@ export function AbsencePanel({
           from: date,
           to: endDate,
           ...(kind === 'gap' ? { startMinutes, durationMinutes } : {}),
+          // The answers travel with it: without them the preview reports the displacement of a save
+          // nobody is about to make, and the two notices would disagree about the same hours.
+          ...(keptKey === '' ? {} : { keepWork: keptKey.split(',') }),
         },
         { signal: controller.signal },
       )
@@ -304,7 +314,7 @@ export function AbsencePanel({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [previewable, kind, date, endDate, startMinutes, durationMinutes]);
+  }, [previewable, kind, date, endDate, startMinutes, durationMinutes, keptKey]);
 
   const summary: AbsenceSummary | null = preview === null ? null : summarizeAbsence(preview);
 
@@ -822,6 +832,11 @@ function AbsencePreviewNotice({
   format,
   t,
 }: AbsencePreviewNoticeProps): React.JSX.Element | null {
+  // Where each job's hours land, from the preview that ran with the answers as they stand. A job
+  // absent from it is not being moved, which is what «stays here» means.
+  const displacedTo = new Map(
+    (summary?.displaced ?? []).map((job) => [job.projectId, job.landsOn]),
+  );
   if (message !== undefined) {
     return (
       <InlineBanner tone="error" title={t('errors.title')}>
@@ -875,12 +890,17 @@ function AbsencePreviewNotice({
               return (
                 <span key={day.date} className={styles.noticeLine}>
                   <span className={styles.noticeLabel}>{format.dayOption(day.date)}</span>
-                  <span className={styles.hint}>
-                    {t('dayWork.hours', {
-                      hours: format.hours(dayMinutes(day.rows)),
-                      jobs: day.rows.map((row) => row.name).join(', '),
-                    })}
-                  </span>
+                  {day.rows.map((job) => {
+                    const lands = displacedTo.get(job.projectId);
+                    return (
+                      <span key={job.projectId} className={styles.hint}>
+                        {t('dayWork.hours', { hours: format.hours(job.minutes), jobs: job.name })}{' '}
+                        {lands === undefined
+                          ? t('dayWork.staysHere')
+                          : t('dayWork.movesTo', { day: format.mediumDate(lands) })}
+                      </span>
+                    );
+                  })}
                   {forced ? (
                     <span className={styles.hint}>{t('dayWork.fixed')}</span>
                   ) : (
@@ -937,31 +957,6 @@ function AbsencePreviewNotice({
           ))}
         </span>
 
-        {summary.displaced.length === 0 ? null : (
-          <>
-            <span className={styles.previewNotes}>
-              <span className={styles.hint}>
-                {t('absenceForm.movesHours', {
-                  count: summary.displaced.length,
-                  hours: format.hourNumber(summary.displacedMinutes),
-                })}
-              </span>
-            </span>
-            <span className={styles.noticeList}>
-              {summary.displaced.map((job) => (
-                <span key={job.projectId} className={styles.noticeLine}>
-                  <span className={styles.noticeLabel}>
-                    {t('absenceForm.movesRow', {
-                      hours: format.hourNumber(job.minutes),
-                      day: format.mediumDate(job.landsOn),
-                    })}
-                  </span>
-                  <span className={styles.blockTag}>{job.name}</span>
-                </span>
-              ))}
-            </span>
-          </>
-        )}
       </InlineBanner>
     </div>
   );

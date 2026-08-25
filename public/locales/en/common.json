@@ -266,9 +266,6 @@
     "skippedWeekend": "The weekend is skipped ({{days}}): it is outside the engine.",
     "movesNothing": "It moves no work at all.",
     "reachesFurther": "The workshop will then be booked until {{date}}.",
-    "movesHours_one": "{{hours}} h of one job is pushed forward:",
-    "movesHours_other": "{{hours}} h across {{count}} jobs is pushed forward:",
-    "movesRow": "{{hours}} h → {{day}}",
     "reopen": "Reopen",
     "reopened_one": "Day reopened: the queue fills it again.",
     "reopened_other": "{{count}} days reopened: the queue fills them again.",
@@ -292,7 +289,9 @@
     "displace": "Move it on",
     "keep": "Keep it here",
     "keepHint": "stays where it is, padlocked",
-    "fixed": "The day closes with the work where it is: it is padlocked, and only you can unlock it."
+    "fixed": "The day closes with the work where it is: it is padlocked, and only you can unlock it.",
+    "movesTo": "→ {{day}}",
+    "staysHere": "stays here"
   },
   "holidayNames": {
     "localHoliday": "Local holiday",

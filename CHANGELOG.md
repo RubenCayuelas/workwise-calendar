@@ -17,6 +17,11 @@ the same two answers in the same words: move the work on, which stays the defaul
 is, which padlocks it and closes the day around it. A day whose work is already padlocked has nothing
 to choose and says so.
 
+**And the notice says it once.** Each day's line now names where its hours go — the date they land on
+when they move, or that they stay put when they do not — and the list of pushed jobs underneath is
+gone, because it was saying the same thing a second time. The answer travels with the preview too, so
+the sentence about how far the workshop reaches follows what you actually chose.
+
 Until now that screen had stopped refusing but had not started asking, so a close from there moved
 work — or closed around work it could not move — without a word.
 

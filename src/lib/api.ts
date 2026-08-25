@@ -223,6 +223,37 @@ export function readIdList(body: JsonBody, key: string, max = 64): string[] | un
 }
 
 /**
+ * The body BOTH absence routes read, in one place. The preview runs the real write and rolls it back,
+ * so a field the save honours and the preview drops is a preview that lies — which is what happened
+ * when `keepWork` was added to one of them.
+ */
+export function readAbsenceInput<K extends string>(
+  body: JsonBody,
+  kinds: readonly K[],
+): {
+  kind: K;
+  from: string;
+  to: string | undefined;
+  reason: string | undefined;
+  startMinutes: number | undefined;
+  durationMinutes: number | undefined;
+  keepWork: string[] | undefined;
+} {
+  return {
+    kind: requireOneOf(body, 'kind', kinds),
+    from: requireDate(body, 'from'),
+    to: readDate(body, 'to'),
+    reason: readText(body, 'reason', {
+      maxLength: MAX_TEXT_LENGTH,
+      messageKey: ERROR_MESSAGE_KEYS.invalidReason,
+    }),
+    startMinutes: readStartMinutes(body),
+    durationMinutes: readDurationMinutes(body),
+    keepWork: readDateList(body, 'keepWork'),
+  };
+}
+
+/**
  * A list of local `YYYY-MM-DD` days, such as the dates of a range whose work is to be kept. Bounded
  * by the same cap a range is: a payload longer than that is a mistyped year, not an intention.
  */

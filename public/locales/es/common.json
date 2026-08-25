@@ -266,9 +266,6 @@
     "skippedWeekend": "Se salta el fin de semana ({{days}}): está fuera del motor.",
     "movesNothing": "No mueve ninguna hora de trabajo.",
     "reachesFurther": "El taller pasará a estar ocupado hasta el {{date}}.",
-    "movesHours_one": "Se aparta {{hours}} h de un trabajo:",
-    "movesHours_other": "Se apartan {{hours}} h de {{count}} trabajos:",
-    "movesRow": "{{hours}} h → {{day}}",
     "reopen": "Reabrir",
     "reopened_one": "Día reabierto: la cola vuelve a llenarlo.",
     "reopened_other": "{{count}} días reabiertos: la cola vuelve a llenarlos.",
@@ -292,7 +289,9 @@
     "displace": "Desplazar",
     "keep": "Mantener aquí",
     "keepHint": "se queda donde está, con candado",
-    "fixed": "El día se cierra con el trabajo donde está: lleva candado, y el candado solo lo quitas tú."
+    "fixed": "El día se cierra con el trabajo donde está: lleva candado, y el candado solo lo quitas tú.",
+    "movesTo": "→ {{day}}",
+    "staysHere": "se queda aquí"
   },
   "holidayNames": {
     "localHoliday": "Fiesta local",
