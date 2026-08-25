@@ -37,9 +37,19 @@ Cerrado en la conversación del 2026-08-25. **No se vuelve a preguntar.**
 | Cómo se elige la hora | **Se escribe**, con `−`/`+` y `↑`/`↓` |
 | Cuándo hace efecto lo escrito | **Al pulsar Intro o al salir del campo.** Los botones y las flechas, al instante |
 
-Dos de estas respuestas corrigen un dibujo mío: el rayado para los días cerrados **no** se usa (estuvo
-en el calendario y se retiró el 2026-08-17 a petición del dueño, y SPEC § *Calendar View* lo dice en
-positivo — «No hatch, no heavy rules»), y el punto de hueco **no** lleva definición en pantalla.
+Dos de estas respuestas corrigen un dibujo mío: el rayado para los días cerrados **no** se usa, y el
+punto de hueco **no** lleva definición en pantalla.
+
+Sobre el rayado, la razón cambió a mitad de camino y a mejor. Esta rama se rebasó sobre `origin/dev`
+en `8669fea` mientras se escribía el plan, y ese `dev` trae una regla nueva: **un hueco sí se raya**
+(SPEC § *Calendar View*, DECISIONS § *A Gap Is Hatched, the Lunch-Break Band Is Not*). Lejos de
+contradecir esto, lo afila — la propia decisión dice por qué: un hueco se raya porque es **un
+rectángulo dentro de un carril que hay que distinguir del bloque de al lado**, mientras que la banda de
+la comida se deja lisa porque **cruza las siete columnas en la parte del día que no lleva
+información**, y decorada se convertía en lo primero que encontraba el ojo. Las 42 celdas del selector
+son el segundo caso, no el primero: no tienen un vecino con el que confundirse y son muchas. Y un día
+cerrado en la cuadrícula ya es un gris (`.columnClosed`), no un rayado. Así que el selector dice
+«cerrado» con el mismo gris, y el rayado se queda para lo que significa: un hueco.
 
 ## El tono: mínimo, limpio, y de la misma familia
 
@@ -49,8 +59,9 @@ de la app»*. Eso no es decoración del documento, decide cosas:
 - **Ni un color a mano**: todo por un token de `public/brand/workwise-tokens.css`, como manda CLAUDE.md,
   para que el tema oscuro siga saliendo gratis. Iconos de Tabler, los que ya usa el resto.
 - **Bordes de medio píxel y esquinas `--radius`**, como cualquier tarjeta o panel de la app.
-- **Nada de leyenda, nada de rótulos explicativos, nada de rayados.** Lo que un día tenga que decir lo
-  dice al posar el ratón, que es como ya funciona la cabecera de cada día en la cuadrícula.
+- **Nada de leyenda y nada de rótulos explicativos.** Lo que un día tenga que decir lo dice al posar
+  el ratón, que es como ya funciona la cabecera de cada día en la cuadrícula. Y nada de rayados: el
+  rayado ya significa «un hueco» en esta app, y significarlo aquí de otra forma sería un idioma nuevo.
 - **Una sola línea de ayuda bajo el campo**, nunca dos.
 - **El texto en minúscula donde el idioma la pide**: `agosto 2026`, no `Agosto 2026`. Los días de la
   semana en su letra sola —`L M X J V S D`—, por `Intl` y no por una lista escrita a mano.
@@ -429,12 +440,13 @@ el campo sale de `format.longDate` e `isoWeekNumber`.
   escribe (ahí va «Permite escribir para no hacer 2000 clicks para ir de 00:00 a 23:45»), el calendario
   de mes con su alcance, las marcas y el punto, y el rango de una sola vez.
 - **CLAUDE.md**: el *Implementer Default* del alcance del selector sigue siendo verdad y no se toca.
-- **Versión**: es una funcionalidad, así que `0.20.1` → `0.21.0` en `package.json` y en
-  `desktop/package.json`, con su entrada `## 0.21.0 — …` arriba del CHANGELOG, escrita en términos de
+- **Versión**: es una funcionalidad, así que `0.21.1` → `0.22.0` en `package.json` y en
+  `desktop/package.json`, con su entrada `## 0.22.0 — …` arriba del CHANGELOG, escrita en términos de
   qué es distinto de usar.
 - `npx vitest run src/lib/docs.test.ts` después de tocar cualquiera de ellos.
 
 ## Los cuatro portones
 
 `tsc --noEmit`, `vitest run`, `eslint .` y `next build`, todos en verde antes de cualquier commit.
-Base de partida de esta rama, medida: 43 archivos, 1154 tests, 0 fallos.
+Base de partida de esta rama, medida tras el rebase sobre `origin/dev` en `8669fea`: 44 archivos,
+1178 tests, 0 fallos.
