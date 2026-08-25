@@ -150,7 +150,7 @@
   "jobPanel": {
     "title": "Trabajo",
     "name": "Nombre",
-    "namePlaceholder": "Puerta metálica",
+    "namePlaceholder": "Ponle un nombre que reconozcas",
     "description": "Descripción",
     "descriptionPlaceholder": "Notas, medidas, material…",
     "totalHours": "Horas totales",
@@ -221,7 +221,7 @@
     "startTime": "Hora de inicio",
     "duration": "Duración",
     "reason": "Motivo",
-    "reasonPlaceholder": "Avería del torno",
+    "reasonPlaceholder": "Qué ocupa esas horas",
     "deletedJobReason": "Trabajo «{{name}}» eliminado",
     "submit": "Guardar hueco",
     "delete": "Eliminar hueco",
@@ -276,7 +276,7 @@
     "savedClosed_other": "{{count}} días cerrados.",
     "closedHint": "Un día cerrado se comporta como un fin de semana: el motor no planifica nada en él, pero puedes dejarle trabajo a mano arrastrándolo, y ahí se queda.",
     "noHalfDay": "No hay medio día: si el taller trabaja menos horas ese día, eso es un hueco.",
-    "notePlaceholder": "Feria"
+    "notePlaceholder": "Por qué cierras esos días"
   },
   "holidayPanel": {
     "title": "Festivos con trabajo encima",

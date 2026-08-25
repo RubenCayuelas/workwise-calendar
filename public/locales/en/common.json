@@ -150,7 +150,7 @@
   "jobPanel": {
     "title": "Job",
     "name": "Name",
-    "namePlaceholder": "Metal door",
+    "namePlaceholder": "Give it a name you will recognise",
     "description": "Description",
     "descriptionPlaceholder": "Notes, measurements, material…",
     "totalHours": "Total hours",
@@ -221,7 +221,7 @@
     "startTime": "Start time",
     "duration": "Duration",
     "reason": "Reason",
-    "reasonPlaceholder": "Lathe breakdown",
+    "reasonPlaceholder": "What takes up those hours",
     "deletedJobReason": "Job «{{name}}» deleted",
     "submit": "Save gap",
     "delete": "Delete gap",
@@ -276,7 +276,7 @@
     "savedClosed_other": "{{count}} days closed.",
     "closedHint": "A closed day behaves like a weekend: the engine plans nothing there, but you can still drop work on it by hand, and it stays.",
     "noHalfDay": "There is no half day: if the shop works fewer hours that day, that is a gap.",
-    "notePlaceholder": "Fair"
+    "notePlaceholder": "Why you are closing those days"
   },
   "holidayPanel": {
     "title": "Public holidays with work on them",
