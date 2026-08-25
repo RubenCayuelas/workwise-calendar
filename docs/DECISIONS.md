@@ -671,3 +671,56 @@ second row. Two jobs with the same name is what the owner does today, and *añad
 a second entry with the name and colour pre-filled — is the whole of what was agreed.
 
 ---
+
+## The Job Palette Is Chosen Against the Fill, Not the Swatch
+
+**Rule** — SPEC § *Visual Design*. The eight job colours each hold at least 3:1 against both the light and the
+dark surface, clear the brand amber and the gap fill by dE 30, and are kept apart from one another in the fill
+they are drawn with rather than at full strength. The yellow is the one exception, at 2.2 on white.
+
+**Why** — a block is its colour twice over: a hairline border and the padlock mark at full strength, over a fill
+of itself mixed into the surface at `--ww-block-tint-strength`. The fill is most of what the eye sees, and eight saturated values collapse
+into eight very close washes there — so a set chosen by looking at swatches can hold two jobs that are plainly
+different in the picker and the same colour on the grid. The retired set did exactly that: its green and its dark
+green sat at dE 2.1 in the fill, no difference at all, and its blue, violet, red, dark green and grey all fell
+below 3:1 on the dark surface, where the border that identifies a job goes murky. The band that satisfies both
+surfaces is relative luminance 0.14 to 0.30, which is why none of the eight is a pastel or a deep tone — "light
+green" and "light blue" are the lightest members of their hue the dark surface still allows, not washes.
+
+**The yellow is the owner's exception, and they made it knowing the cost.** The rule produces a gold, because
+yellow carries more luminance than any hue at the same saturation and the dial that makes it read yellow is the
+same one that makes it fail on white. Shown the gold they asked for a true yellow anyway — *hazlo un poco más
+amarillo aún, que desencaje un poco con la lógica de colores* — so it sits at 2.2 against white and keeps the
+full 3:1 against the dark surface. It is named in the test rather than the floor being lowered, so the other
+seven still hold the rule and the exception cannot spread to a swatch nobody weighed it for.
+
+**Rejected** — repainting stored jobs by nearest colour, one at a time. Both retired greens find the single green
+there is now, so two jobs the owner had told apart come out identical — the whole complaint, reintroduced by the
+fix for it. The mapping is the whole-set assignment with the smallest total distance instead, which is a
+bijection; the one visible jump is the old dark green, which takes the slot nothing else claims.
+
+---
+
+## A Gap Is Hatched, the Lunch-Break Band Is Not
+
+**Rule** — SPEC § *Calendar View*. A gap is drawn hatched: `gapColor` under `/`-leaning stripes mixed from
+that fill toward the surface. The band between two work periods stays undecorated.
+
+**Why** — a gap and a block are the same shape in the same lane, and with a flat fill the only thing telling
+them apart was which colour one happened to be, so an absence read as a job painted grey. Mixing the stripe
+from the fill rather than giving it a colour of its own is what lets it follow `gapColor` anywhere the owner
+takes it without a second setting to keep in step. At 65% of the fill toward the surface the stripe sits
+about dE 6 from its own fill on the default grey — visible at a glance, and an order of magnitude below the
+dE 73 a job's border stands at against its own tint, so a gap never outshouts the work around it.
+
+**The lunch-break band keeps none of this, and the difference is the point.** A 45-degree hatch was tried there
+on 2026-08-17 and taken back out the same day: that band spans all seven columns in the part of the day that
+carries no information, and decorated it became the first thing the eye found. A gap is the opposite case —
+it is a rectangle inside one lane, it is time the shop has actually lost, and it has a neighbour it must not
+be confused with. The band is told apart by being a band; a gap has to be told apart from a block.
+
+**Rejected** — a fixed translucent veil rather than a mix of the fill. Measured across the colours `gapColor`
+can hold, it drifts from dE 4.8 on the default grey to dE 30.8 on a dark one — the same runaway contrast the
+lunch-break hatch was removed for, reappearing the moment the owner changes a setting.
+
+---

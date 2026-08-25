@@ -990,7 +990,11 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   hardcode a colour in a component; always go through a token so dark stays cheap.
 - Import `public/brand/workwise-tokens.css` before `app/globals.css`.
 - **Project colours** are a fixed swatch picker built from `--ww-project-1..8`. No free hex input —
-  amber is reserved for the app itself.
+  amber is reserved for the app itself. Every swatch holds at least 3:1 against both the light and the
+  dark surface — the yellow excepted, which the owner asked to be a true yellow and which therefore
+  runs fainter on white — and clears both amber and the gap fill, so no job reads as the app's own
+  accent or as a hole in the day. Replacing a swatch repaints the jobs already wearing the retired
+  one.
 - Hairline borders (`0.5px`), `--radius` rounded corners, generous whitespace.
 - **Icons**: Tabler (`@tabler/icons-react`), bundled locally — no CDN.
 - **No native `<input type="time">` or `<input type="date">` anywhere.** Both render in the
@@ -1058,6 +1062,11 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
 - **Visual blocks**: tinted fill with a saturated border in the project colour, name + hours. A unit
   cut at the lunch break is marked at both ends. Engine-placed Friday blocks read `desborde 2 h` and
   get a distinct border so an overrun week is visible at a glance.
+- **A gap is HATCHED, and that is what separates it from a job at a glance.** Its fill is `gapColor`
+  under `/`-leaning diagonal stripes mixed from that same fill toward the surface, so the stripes
+  follow the colour wherever the owner takes it and there is no second setting. The band a paint
+  draws carries the same hatch, so the preview looks like what it will store. Purely visual: no
+  gesture, rule or engine decision reads it.
 - **The mark.** One, and a row either carries it or does not:
 
   | mark | what it fixes | drawn as |

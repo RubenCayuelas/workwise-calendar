@@ -86,14 +86,18 @@
   --ww-border-strong: var(--ww-graphite-soft);
 
   /* The one genuinely new hue in the app. The brand palette has no danger colour
-     and reusing --ww-project-5 would make "delete" look like a job painted red. */
+     and reusing the palette's own red would make "delete" look like a job painted red. */
   --ww-danger: #a32d2d;
 
-  /* Tones for banners and toasts. Reused palette hues rather than new hexes:
-     amber-ink is the app's own accent, and the two greens/blues already exist. */
+  /* Tones for banners and toasts, where they are the TEXT ink (`--ww-tone-ink` in
+     InlineBanner). They are their own hexes rather than `--ww-project-*` because the two
+     jobs are different ones: a swatch has to stay visible as a hairline over its own pale
+     fill, which caps how dark it may be, and banner ink has to clear 4.5:1 as body text,
+     which sets a floor. No project colour satisfies both, so pointing at one would have
+     had the job palette decide whether a notice is readable. */
   --ww-warning: var(--ww-amber-ink);
-  --ww-ok: var(--ww-project-6);
-  --ww-info: var(--ww-project-1);
+  --ww-ok: #0f6e56;
+  --ww-info: #185fa5;
 
   --ww-focus-color: var(--ww-amber-ink);
 
@@ -131,7 +135,7 @@
    * A component that needs the fill declares the `color-mix` on the same element it
    * sets `--ww-block-color` on; see CalendarBlock.module.css and WeekGrid.module.css.
    */
-  --ww-block-tint-strength: 12%;
+  --ww-block-tint-strength: 15%;
 }
 
 /* Dark values, dormant while <html data-theme="light">. Same shape as the brand

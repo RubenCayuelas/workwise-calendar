@@ -92,7 +92,7 @@ function target(over: Partial<BlockDragTarget> = {}): BlockDragTarget {
     groupId: 'grille',
     projectId: 'p-grille',
     name: 'Grille',
-    color: '#1D9E75',
+    color: '#1EA42B',
     date: '2026-08-13',
     startMinutes: 10 * 60,
     durationMinutes: 4 * 60,
@@ -541,7 +541,7 @@ describe('previewMove after the week has paged', () => {
     session.preview = {
       kind: 'move',
       groupId: 'grille',
-      color: '#1D9E75',
+      color: '#1EA42B',
       date: '2026-08-13',
       startMinutes: 10 * 60,
       durationMinutes: 240,

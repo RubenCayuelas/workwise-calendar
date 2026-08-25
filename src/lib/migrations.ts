@@ -224,6 +224,7 @@ function dropRemovedColumns(db: Db): void {
 const DATA_MIGRATIONS: ReadonlyArray<{ name: string; run: (db: Db) => void }> = [
   { name: '2026-08-19-gap-duration-is-net-minutes', run: splitGapsAtBreaks },
   { name: '2026-08-19-gap-unit-ids', run: assignGapUnitIds },
+  { name: '2026-08-25-repaint-projects-onto-the-new-palette', run: repaintProjectColors },
 ];
 
 function runDataMigrations(db: Db): void {
@@ -375,6 +376,40 @@ function assignGapUnitIds(db: Db): void {
     restore.run(row.updated_at, row.id);
     previous = { row, unitId, endMinutes };
   }
+}
+
+/**
+ * The swatch set was replaced wholesale, so every stored `projects.color` names a value the picker no
+ * longer offers: the grid would go on painting the old hex while the swatch strip showed nothing
+ * selected, and the two would disagree about a job until someone repainted it by hand.
+ *
+ * Each old value moves to the nearest new one in CIE Lab, and the mapping is a BIJECTION — the
+ * assignment with the smallest total distance, not a nearest-neighbour lookup per colour. Two jobs the
+ * owner had told apart must not come out the same colour, which is what a per-colour lookup does when
+ * the two greens both find the one green there is now. That pair is the one visible jump: the old dark
+ * green has no counterpart in a palette with a single green, so it takes the slot nothing else claims.
+ *
+ * One UPDATE with one CASE, so every row is matched against the OLD values exactly once. Applying the
+ * pairs one at a time would chain — a row repainted by an early pair being matched again by a later
+ * one — and it is only safe here because no new value is also an old one.
+ */
+function repaintProjectColors(db: Db): void {
+  const PAIRS: ReadonlyArray<readonly [string, string]> = [
+    ['#185FA5', '#3087DF'],
+    ['#1D9E75', '#1EA42B'],
+    ['#D85A30', '#ED6212'],
+    ['#534AB7', '#8D56CD'],
+    ['#A32D2D', '#D1292F'],
+    ['#0F6E56', '#C0B002'],
+    ['#D4537E', '#DE2189'],
+    ['#5F5E5A', '#867B69'],
+  ];
+
+  const cases = PAIRS.map(() => 'WHEN UPPER(color) = ? THEN ?').join(' ');
+  db.prepare(
+    `UPDATE projects SET color = CASE ${cases} ELSE color END
+     WHERE UPPER(color) IN (${PAIRS.map(() => '?').join(', ')})`,
+  ).run(...PAIRS.flat(), ...PAIRS.map(([from]) => from));
 }
 
 function hasColumn(db: Db, table: string, column: string): boolean {
