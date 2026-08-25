@@ -337,7 +337,21 @@
     "backupsRestoreFileBody": "The calendar as it is now is replaced by the one in “{{file}}”. A copy of the current one is taken first, so this can be undone.",
     "backupsRestoreConfirm": "Restore",
     "backupSaved": "Copy saved as “{{file}}” in the chosen location.",
-    "backupDownloaded": "Copy downloaded as “{{file}}” to the browser’s downloads folder. Open the app on “localhost” to be able to choose a location."
+    "backupDownloaded": "Copy downloaded as “{{file}}” to the browser’s downloads folder. Open the app on “localhost” to be able to choose a location.",
+    "holidaysSection": "Public holidays",
+    "holidaysHint": "The workshop closes on its municipality's public holidays. The app brings them in; the ones with work on them ask before moving anything.",
+    "holidaysEnabled": "Close public holidays automatically",
+    "holidaysEnabledHint": "Switching it off removes none of the days already closed.",
+    "holidaysMunicipality": "Municipality",
+    "holidaysMunicipalityHint": "Andalusia only, for now.",
+    "holidaysLoaded": "{{count}} holidays · through {{through}}",
+    "holidaysLoadedNone": "No holidays loaded yet",
+    "holidaysCheckedAt": "Checked on {{date}}",
+    "holidaysCheckFailed": "They could not be checked. Last attempt on {{date}}",
+    "holidaysCheckNow": "Check now",
+    "holidaysCheckedNothing": "Everything was already up to date",
+    "holidaysCheckedClosed": "{{count}} holidays closed",
+    "holidaysAttribution": "Data: Junta de Andalucía and festivos.io (CC BY 4.0)"
   },
   "colors": {
     "1": "Green",
