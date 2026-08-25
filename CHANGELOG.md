@@ -36,16 +36,12 @@ what it already knew and tells you when it last tried.
 
 Data: Junta de Andalucía and festivos.io (CC BY 4.0).
 
----
-
 ## 0.21.1 — the week arrows are easier to hit
 
 **The two arrows either side of the week are wider.** They were the same 28-pixel square as every
 other icon button in the header, and they are the ones pressed most — every week turned goes through
 one of them. They keep their height, so the header sits exactly where it did, and the arrow inside is
 unchanged: what grew is only the room there is to miss by.
-
----
 
 ## 0.21.0 — new job colours, and absences that no longer look like jobs
 
@@ -78,8 +74,6 @@ itself, a lighter version of whatever is set in Ajustes, so changing that colour
 and there is nothing extra to configure. The band drawn while painting a new absence is hatched too,
 so what is previewed looks like what gets saved. It is only a way of drawing: nothing about how a gap
 behaves has changed.
-
----
 
 ## 0.20.1 — the new-job form closes when the job is created
 
