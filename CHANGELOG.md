@@ -9,6 +9,19 @@ never moves without the owner asking.
 
 ---
 
+## 0.24.1 — one click is one day
+
+**Choosing a single day for an absence takes one click.** The calendar that picks an absence's days
+wanted two even when the answer was one day — the same day, clicked twice. A click now answers with that
+day, and only an absence that runs longer needs a second one, which stretches it to the day it lands on.
+
+**And the press that closes the calendar is no longer spent closing it.** Pick the day and go straight to
+the save button: that press saves. Before, it only shut the calendar and the button had to be pressed
+again. Over the week grid it still only closes, because a stray press there starts painting a band.
+
+**The ring around today is a circle again.** It was drawn around the number itself, so it sat tight
+against the digits and came out a different shape on the 9th than on the 26th.
+
 ## 0.24.0 — the day comes from a calendar, the hour is typed
 
 **Choosing a day is a calendar now, not a list.** Every form that asks for one — a new job, the scissors,
