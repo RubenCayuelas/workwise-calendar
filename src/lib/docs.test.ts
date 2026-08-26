@@ -181,6 +181,23 @@ describe('CHANGELOG.md answers for the version that is shipping', () => {
     }
   });
 
+  it('rules off the preamble and nothing else', () => {
+    // Every entry below 0.22.1 is separated from the next by a blank line alone, and the one `---` in
+    // the file sits between the preamble and the newest version. Seven crept in above it — one of them
+    // written by an agent reordering the file — and nothing caught them, because shape is only a rule
+    // here when it is a test.
+    const rules = read(CHANGELOG)
+      .split('\n')
+      .flatMap((line, index) => (line.trim() === '---' ? [index + 1] : []));
+    const firstEntry =
+      read(CHANGELOG)
+        .split('\n')
+        .findIndex((line) => line.startsWith('## ')) + 1;
+
+    expect(rules).toHaveLength(1);
+    expect(rules[0]).toBeLessThan(firstEntry);
+  });
+
   it('lists its versions newest first', () => {
     const versions = headings(CHANGELOG)
       .map((heading) => /^(\d+)\.(\d+)\.(\d+)/.exec(heading))

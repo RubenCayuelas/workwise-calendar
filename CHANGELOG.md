@@ -51,8 +51,6 @@ calendar, or with the button that offers the week you came from — used to save
 from the new day to the day it had been on, three days for a band drawn on one, and push work out of
 all of them.
 
----
-
 ## 0.23.5 — the buttons' outlines are quieter
 
 **Every button and icon button rests on a soft grey outline now instead of a near-black one** — 3.2:1
@@ -63,8 +61,6 @@ a block's hover actions all follow: it is one value for every control.
 The firm line is still there wherever it does work — a text field's edge under the pointer, and the
 dashed marks a drag draws.
 
----
-
 ## 0.23.4 — the calendar reaches closer to the bottom of the window
 
 **The dead space under the grid is down from 24 px to 8 px, and the calendar has taken the
@@ -73,16 +69,12 @@ what was there was holding a gap open in front of a box with no height in it, wh
 The rest came off the page's bottom padding. Nothing is cut: the last hour of the axis still ends
 inside the frame at every window size.
 
----
-
 ## 0.23.3 — the week sits in the middle of the window
 
 **The week label and its two arrows are centred on the window now**, instead of in the middle of
 whatever room was left between the logo and the buttons — which put them 166 px to the left of centre,
 at every window size. On a narrow window, where the row of buttons is wider than its half, the pager
 stops 35 px short rather than crowd it; nothing is ever cut.
-
----
 
 ## 0.23.2 — the amber button has an edge, like every other control
 
@@ -95,8 +87,6 @@ changes only its fill.
 This reaches every amber button, not just the header: the save button on each panel, the paint chooser
 and settings.
 
----
-
 ## 0.23.1 — the absences screen is a button, not a menu item
 
 **The `…` menu is gone, and both things it held are on the header.** Absences now sits beside the new
@@ -107,8 +97,6 @@ That menu was costing more than a click. With nothing on screen saying the shop'
 of its own, days off were being entered as jobs instead — which counts hours nobody is going to work,
 pushes the *booked until* date further out than the shop really is, and leaves the calendar planning
 work into days the shop is shut.
-
----
 
 ## 0.23.0 — a gap or a job can be started in the middle of a job
 
@@ -130,8 +118,6 @@ work into days the shop is shut.
 - **The two lines of small print under the grid are gone, and the calendar is 38 px taller for it.** A
   gesture's hint still appears in that corner while the gesture lasts; it no longer holds a strip of
   every screen open to say what the grey bands mean.
-
----
 
 ## 0.22.1 — closing a day by hand asks the same question
 
