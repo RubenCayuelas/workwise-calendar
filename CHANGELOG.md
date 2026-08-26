@@ -39,8 +39,9 @@ was before.
 **The days a form cannot reach now look unreachable.** They are drawn faint and will not take a press,
 instead of accepting one and coming back with a refusal after the save.
 
-**Under the field the day is spelled out in full**: `miércoles 12 de agosto · Semana 33`. The old list
-grouped its days by week, and this is what keeps a form and the calendar calling one day by one name.
+**Under the field the day is spelled out in full**: the weekday, the day, the month, and the week number
+after them. The old list grouped its days by week, and this is what keeps a form and the calendar calling
+one day by one name.
 
 **An absence over several days is one calendar.** It used to ask for the first day and the last in two
 separate fields; they are one range now, picked in two clicks, and the Saturdays and Sundays the save is
@@ -57,8 +58,8 @@ An hour the field refuses also holds the save: the message appears under the fie
 waits, so what is stored can never be the hour the screen stopped showing.
 
 **The placeholders say what to write.** The name of a job, the reason for a gap and the note on a closed
-day each showed an example — `Puerta metálica`, `Avería del torno`, `Feria` — which reads like a value
-already filled in. They now say what the field is for.
+day each showed a made-up value of the kind the field expects, which reads like something already filled
+in. They now say what the field is for.
 
 **An absence stays on the one day it names.** Moving a gap's day back to an earlier one — in the
 calendar, or with the button that offers the week you came from — used to save it on every weekday
@@ -221,7 +222,7 @@ behaves has changed.
 ## 0.20.1 — the new-job form closes when the job is created
 
 **Creating a job no longer leaves the form open.** It used to stay on screen with every field greyed
-out and one `Cerrar` button, and until it was shut nothing else could be done: no second band could be
+out and one button to close it, and until it was shut nothing else could be done: no second band could be
 painted on the grid, and undo was off. The form now closes on the save, and what the engine did with
 the hours — the days and times they were born on, and the sentence explaining a padlock the chosen
 date left behind — is said in a notice at the corner of the calendar, the same way saving an absence

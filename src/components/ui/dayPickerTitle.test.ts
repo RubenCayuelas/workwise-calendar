@@ -59,8 +59,8 @@ describe("a day picker cell's notes", () => {
   });
 
   it('reports the free hours of a day beyond the horizon, where the dot is off', () => {
-    // Past the horizon `hasRoom` is false while the minutes are genuinely free, and "Día completo"
-    // is the one thing that would not be true there.
+    // Past the horizon `hasRoom` is false while the minutes are genuinely free, and `full` is the
+    // one kind that would not be true there.
     expect(
       dayCellNotes(cellOf(FAR_MON), { isClosed: false, hasRoom: false, freeMinutes: 300 }),
     ).toEqual(['freeHours']);

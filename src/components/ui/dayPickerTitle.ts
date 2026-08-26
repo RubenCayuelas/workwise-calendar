@@ -17,7 +17,7 @@ export function dayCellNotes(cell: MonthCell, mark: DayMark | undefined): DayCel
 
   if (mark === undefined) return notes;
 
-  // The owner's own words are the state of a closed day: the grey cell already says "cerrado",
+  // The owner's own words are the state of a closed day: the grey cell already says it is closed,
   // and the reason is the only thing it cannot say.
   if (mark.isClosed) notes.push(mark.note === undefined ? 'closed' : 'note');
 

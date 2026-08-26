@@ -1006,16 +1006,17 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   BROWSER's locale, not the page's. Every time and every day goes through `useFormat()`:
   - times are TYPED into `TimeField`, an `HH:mm` field with `−`/`+` beside it, whose quarter-hour step
     is held equal to `SNAP_MINUTES` by a test — see *The Hour Is Typed*;
-  - days are chosen on `DayPicker`'s month grid, the day itself spelled "Mié 12 ago" on the button
-    that opens it — see *The Day Is Picked From a Month, Never From a List*.
+  - days are chosen on `DayPicker`'s month grid, the day itself spelled short on the button that
+    opens it — abbreviated weekday, day, abbreviated month — see *The Day Is Picked From a Month,
+    Never From a List*.
 
 #### The Day Is Picked From a Month, Never From a List
-> **A day is chosen on `DayPicker`: a button carrying the day it already holds — `Mié 12 ago` — that
+> **A day is chosen on `DayPicker`: a button carrying the day it already holds, spelled short, that
 > opens a month grid in a popover. Six rows of seven, ALWAYS six, Monday first, `‹ ›` to change month,
-> and a `Hoy` that CHOOSES today and closes like any other cell. The form is told on the click.**
+> and a Today button that CHOOSES today and closes like any other cell. The form is told on the click.**
 
-- **One line under the field, never two**: `miércoles 12 de agosto · Semana 33`, joined with
-  `units.listSeparator`. The list this replaces grouped its days under the very week label the header
+- **One line under the field, never two**: the day written out in full and the week number, joined
+  with `units.listSeparator`. The list this replaces grouped its days under the very week label the header
   carries, so a form and the grid could not name one day two ways; `units.week` keeps that number
   without the date range the long date already spells out. `Field` shows the error in its place when
   there is one, so the line goes away exactly when a date is being refused.
@@ -1049,8 +1050,9 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   requires the day's longest free stretch to hold `MIN_ROW_MINUTES` and the day to fall inside the
   horizon.
 - **Hovering a cell says what that day has to say**, composed with `units.listSeparator` exactly as a
-  day header composes its own: the day, then `hoy`, the weekend, the stored reason or *cerrado*, and
-  either the hours still free or *Día completo*.
+  day header composes its own — `dayCellNotes` returns the KINDS and the component words them: the
+  day, then `today`, `weekend`, the stored `note` or `closed` without one, and either `freeHours` or
+  `full`.
 - **The keyboard**: arrows move the focused cell, `Home`/`End` to the ends of its week,
   `PageUp`/`PageDown` a month, `Enter` chooses, `Escape` closes and gives the focus back to the
   button. Opening puts the focus on the selected cell, and the picker SWALLOWS the arrow keys it uses,

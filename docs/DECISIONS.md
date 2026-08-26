@@ -961,7 +961,7 @@ clipping it against the window is arithmetic with a test rather than a measureme
 **Why a stored day outside the window is still pressable** — a control that drops the day already on disk
 replaces it the moment the form is saved. It was true of the list and it stays true here.
 
-**Why the line under the field says `Semana 33`** — the list grouped its days under the very week label the
+**Why the line under the field carries the week number** — the list grouped its days under the very week label the
 grid's header carries, so a form and the grid could not name one day two ways, and that is the only thing
 leaving the list would have lost. `units.week` keeps the number; `header.week` carries the date range
 inside it, which the long date beside it already says.
