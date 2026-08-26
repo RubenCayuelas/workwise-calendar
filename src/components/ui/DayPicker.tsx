@@ -42,7 +42,8 @@ const DAYS_PER_WEEK = 7;
  * because a chrome that grows must push the box taller, never be clipped by it: the popover then flips
  * above its trigger a little later than ideal, which is the harmless direction.
  */
-const CELL_HEIGHT = 30;
+/** `.cell`'s own height in `DayPicker.module.css`, held to it by `popoverBox.test.ts`. */
+const CELL_HEIGHT = 36;
 const POPOVER_WIDTH = 226;
 /** Everything that is not the six rows: the padding, the month head, the weekday letters, the
     three gaps and the foot's one line. */

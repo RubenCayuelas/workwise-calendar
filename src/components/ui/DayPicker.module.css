@@ -96,7 +96,7 @@
 
 .cell {
   position: relative;
-  height: 30px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -136,15 +136,21 @@
 }
 
 /*
- * A round box of its own, not the glyphs' own edge. Outlined at an offset the ring hugged the text,
- * so it came out tight and a different shape for one digit than for two. Twenty inside a thirty-tall
- * cell leaves five either side, which clears the room dot at the bottom.
+ * A round box of its own, not the glyphs' own edge: outlined at an offset, the ring hugged the text,
+ * so it came out tight and a different shape for one digit than for two. `line-height: 1` is what
+ * makes the centring predictable — left at `normal` the line box carries descender space the digits
+ * never use, and they sit visibly high inside the circle.
+ *
+ * Twenty-four inside a thirty-six-tall cell leaves six either side, and the room dot below it. The
+ * cell's height is also `CELL_HEIGHT` in `DayPicker.tsx`, which the popover's own height is measured
+ * from; `popoverBox.test.ts` reads both numbers and refuses a change to one of them.
  */
 .number {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
+  line-height: 1;
   border-radius: var(--ww-radius-pill);
 }
 
@@ -160,9 +166,15 @@
   color: var(--ww-on-accent);
 }
 
+/*
+ * Centred by hand, not by the cell: an absolutely positioned child of a flex container takes its
+ * static horizontal position from the container's own alignment, which browsers do not agree on.
+ */
 .room {
   position: absolute;
-  bottom: 3px;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
   width: 3px;
   height: 3px;
   border-radius: var(--ww-radius-pill);
@@ -189,8 +201,6 @@
   text-decoration: line-through;
 }
 
-/* The one end already clicked. The second click is what reaches the form, so this is the only sign
-   the popover gives that a range is half chosen. */
 /* Centred and quiet under a hairline: it is a shortcut, not a third answer. */
 .todayButton {
   align-self: stretch;

@@ -20,7 +20,8 @@ the save button: that press saves. Before, it only shut the calendar and the but
 again. Over the week grid it still only closes, because a stray press there starts painting a band.
 
 **The ring around today is a circle again.** It was drawn around the number itself, so it sat tight
-against the digits and came out a different shape on the 9th than on the 26th.
+against the digits and came out a different shape on the 9th than on the 26th. The number now sits
+centred inside a circle of its own, and the calendar's rows are a little taller to give it room.
 
 ## 0.24.0 — the day comes from a calendar, the hour is typed
 
