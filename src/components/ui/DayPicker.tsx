@@ -189,10 +189,13 @@ export function DayPicker({
       if (box.current?.contains(target) === true) return;
       event.preventDefault();
       event.stopPropagation();
-      // A press on the TRIGGER is left to its own `click` to answer. `preventDefault` on a
-      // `pointerdown` does not cancel the click that follows it, so closing here would close the
-      // popover and that click would immediately re-open it: it would look like it never closes.
+      // A press on the TRIGGER — or on the `Field` label that names it, which the browser forwards
+      // a click from to the trigger — is left to that click and the toggle to answer.
+      // `preventDefault` on a `pointerdown` does not cancel the click that follows it, so closing
+      // here would close the popover and that click would immediately re-open it: it would look
+      // like it never closes.
       if (trigger.current?.contains(target) === true) return;
+      if (labelForwards(trigger.current, target)) return;
       dismiss(true);
     };
 
@@ -367,6 +370,19 @@ export function DayPicker({
           )}
     </>
   );
+}
+
+/**
+ * Whether a press landed inside a `<label>` whose click the browser forwards to `button` — the
+ * `Field`'s own label, sitting right beside the trigger in every panel.
+ *
+ * Asked of `HTMLButtonElement.labels` rather than matched by selector: that is the association the
+ * browser will actually act on, it needs no id to escape and no id to exist, and `contains` answers
+ * for a text node inside the label just as well as for an element.
+ */
+function labelForwards(button: HTMLButtonElement | null, target: Node): boolean {
+  if (button === null) return false;
+  return Array.from(button.labels).some((label) => label.contains(target));
 }
 
 /** The route's rows keyed by day, which is how a cell asks for its own. */
