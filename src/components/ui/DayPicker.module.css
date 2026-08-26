@@ -27,7 +27,11 @@
   cursor: default;
 }
 
-.invalid {
+/* After the hover rule, and repeating its `:hover` to match its (0,3,0): `.invalid` alone is (0,1,0),
+   so hovering a field that is being refused turned its red border grey — with the pointer on it, which
+   is exactly where it is when the owner goes to fix it. */
+.invalid,
+.trigger.invalid:hover {
   border-color: var(--ww-danger);
 }
 
