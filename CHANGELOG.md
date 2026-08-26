@@ -9,6 +9,19 @@ never moves without the owner asking.
 
 ---
 
+## 0.23.1 — the absences screen is a button, not a menu item
+
+**The `…` menu is gone, and both things it held are on the header.** Absences now sits beside the new
+job button with its name on it, and settings is the gear at the end of the row. Nothing else in the
+header moved.
+
+That menu was costing more than a click. With nothing on screen saying the shop's time off had a screen
+of its own, days off were being entered as jobs instead — which counts hours nobody is going to work,
+pushes the *booked until* date further out than the shop really is, and leaves the calendar planning
+work into days the shop is shut.
+
+---
+
 ## 0.23.0 — a gap or a job can be started in the middle of a job
 
 - **The leftmost 21 px of a day now CREATE, whatever is drawn there.** A gap of a quarter of an hour at

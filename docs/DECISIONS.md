@@ -827,3 +827,31 @@ can hold, it drifts from dE 4.8 on the default grey to dE 30.8 on a dark one —
 lunch-break hatch was removed for, reappearing the moment the owner changes a setting.
 
 ---
+
+## The Header Hides Nothing
+
+**Rule** — SPEC § *Calendar View*. Every action in the calendar header is its own control: undo, redo,
+today, new job, absences, language, settings. There is no overflow menu. The absences button carries its
+name; the settings gear does not need one.
+
+**Why** — the absences screen is the only way to say the shop is not working, and behind a `…` it was not
+found. What the calendar filled up with instead was JOBS: hours entered as work to stand in for a gap, and
+whole days off entered as a job covering the day. The loss is not cosmetic. `projects.total_hours` then
+counts hours nobody is going to work, the summary strip says the workshop is booked further out than it
+is, and `day_overrides` stays empty — so the engine keeps planning into days the shop is shut, and every
+one of those days has to be argued with by hand. Reported by the owner on 2026-08-26, and it is the second
+time this same screen has been reached for and not found:
+§ *A Long Absence Is One Gesture, and a Closed Day Has a Screen* was built on the first.
+
+**A NAME is what the menu was costing, not the click.** Measured at 1280 px, the narrowest desktop the app
+supports: the absences button is a 113 px control, the right-hand toolbar goes from 347 px to 466 px, and
+the flexible space either side of the week label from 178 px to 119 px. Nothing overflows, nothing had to
+be shortened, and the label was measured in Spanish, the longer of the two. The width a menu saves here
+was never needed. Which of the two carries a label is the owner's choice: absences, because no calendar
+glyph says *the shop is shut*, while a gear reads as settings everywhere.
+
+**Rejected** — the `…` overflow menu that held both. One click is cheap; what it cost was that neither
+action had a name anywhere on screen, and an owner who cannot see the absences button does not go hunting
+for it behind a glyph — they reach for the tool they can see, which is the new job button.
+
+---

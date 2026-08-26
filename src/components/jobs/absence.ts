@@ -9,7 +9,7 @@ import type { AbsencePreview, AbsencePreviewRow, DisplacedWork } from '../../lib
 import type { BannerTone } from '../ui';
 
 /** Which gesture opened the absences form. It decides the SHAPE, never the contents. */
-export type AbsenceOrigin = 'menu' | 'closed-column' | 'paint' | 'gap' | 'close-day';
+export type AbsenceOrigin = 'header' | 'closed-column' | 'paint' | 'gap' | 'close-day';
 
 /**
  * `range` is the whole screen — the two mode cards, `Desde`/`Hasta`, the server preview — and it is
@@ -18,7 +18,7 @@ export type AbsenceOrigin = 'menu' | 'closed-column' | 'paint' | 'gap' | 'close-
  * pre-filled on a single day until 2026-08-21.
  */
 export function absenceFormMode(origin: AbsenceOrigin): 'range' | 'single' {
-  return origin === 'menu' || origin === 'closed-column' ? 'range' : 'single';
+  return origin === 'header' || origin === 'closed-column' ? 'range' : 'single';
 }
 
 /** One line under the row list. A KIND, so the panel's switch is the only place a string is chosen. */
