@@ -167,9 +167,7 @@ export function DayPicker(props: DayPickerProps): React.JSX.Element {
 
     const click = rangeClick(pending, date);
     setPending(click.state);
-    // NEVER on the first click: it would run `previewAbsence` — a real write inside a transaction
-    // that is rolled back — on every click of a walk through the month, and would blink `Reabrir`
-    // out of the footer mid-selection.
+    // NEVER on the first click, for the reasons `onChangeRange` states.
     if (click.committed === undefined) return;
     // Not clamped to `MAX_ABSENCE_DAYS`: the refusal is the server's 400 `invalid-range`, drawn in
     // the field's own error slot. Clamped here, the owner would never learn why it was refused.
