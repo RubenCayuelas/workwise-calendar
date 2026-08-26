@@ -21,7 +21,7 @@ import {
 } from './composition';
 import { paintedSegments } from './paintedJob';
 
-/** How many free days the preview offers as alternatives. A dropdown is one click away. */
+/** Bounds the free days shown in the creation preview. */
 const MAX_FREE_DATES = 8;
 
 // ---------------------------------------------------------------------------

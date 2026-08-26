@@ -35,7 +35,7 @@ describe('planningWindow', () => {
     expect(window.maxDate).toBe(addDays(monday, 7 * 8 - 1));
   });
 
-  it('caps a very long horizon so the list stays scannable', () => {
+  it('bounds the month picker forward reach to its maximum', () => {
     const window = planningWindow(TODAY, MAX_HORIZON_WEEKS);
     expect(window.maxDate).toBe(addDays(startOfWeek(TODAY), 7 * PICKER_MAX_FUTURE_WEEKS - 1));
   });

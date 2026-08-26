@@ -56,8 +56,6 @@ export interface Formatter {
   dayHeader(date: string): string;
   /** "Mié 12 ago" — a whole day, short enough for a form control's option. */
   dayOption(date: string): string;
-  /** The same with the shop's today marked: "Mié 12 ago · hoy". */
-  todayOption(date: string): string;
   /** "jueves 27 de agosto" — for prose such as the summary strip. */
   longDate(date: string): string;
   /** "27 ago 2026" — for lists and confirmations. */
@@ -126,7 +124,6 @@ export function useFormat(): Formatter {
       monthYear: (date) => formatMonthYear(date, language),
       dayHeader,
       dayOption,
-      todayOption: (date) => t('units.dayOptionToday', { date: dayOption(date) }),
       longDate: (date) => formatLongDate(date, language),
       mediumDate: (date) => formatMediumDate(date, language),
       dayLine: (date) => formatDayLine(date, language, t),

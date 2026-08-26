@@ -29,7 +29,6 @@ export {
   type InputProps,
   type NumberStepperProps,
   type SelectOption,
-  type SelectOptionGroup,
   type SelectProps,
   type TextareaProps,
 } from './Field';

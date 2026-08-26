@@ -15,7 +15,7 @@ export const PICKER_PAST_WEEKS = 4;
 /** The forward reach when the caller does not know the horizon. Matches its default. */
 export const PICKER_FUTURE_WEEKS = 8;
 
-/** The forward reach a big horizon is capped to, so the list stays scannable. */
+/** Bounds how far the month picker's forward navigation can go. */
 export const PICKER_MAX_FUTURE_WEEKS = 16;
 
 /** An inclusive range of local `YYYY-MM-DD` days. */
