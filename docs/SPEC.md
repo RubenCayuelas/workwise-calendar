@@ -1534,11 +1534,15 @@ gesture.
   `MAX_ABSENCE_DAYS` (120) is 400 `invalid-range` on `to`, and one running backwards 400
   `range-backwards` on `to`. Backwards earns a sentence of its own because the shared one names
   `{{maxDays}}` and that path has no limit to name: the owner was shown a raw placeholder.
-- **The range is chosen in ONE calendar, in two clicks.** The first click is remembered inside the
-  popover and tells the form nothing; the second closes it and hands over both ends at once, always
-  ordered. A first click that wrote the near end on its own would fire the preview — a real write inside
-  a rolled-back transaction — on every step across the month, announcing displaced work for a range
-  half chosen.
+- **The range is chosen in ONE calendar, and ONE CLICK IS ONE DAY.** A click answers with that day as
+  both ends and leaves the popover open; a second click extends the span to the day it lands on, always
+  ordered, and closes. The common absence is one day, so it costs one click. A click therefore never
+  leaves the span half chosen, which is what keeps the preview — a real write inside a rolled-back
+  transaction — from ever being asked about a range nobody has finished choosing.
+- **The press that closes the popover is swallowed on the GRID and nowhere else.** Underneath the grid
+  it must be, or that press starts a band or opens the panel of the job below it. Inside the panel
+  nothing is underneath, and eating it there made the next control need two presses — `Guardar`
+  appearing to do nothing the first time.
 - **The weekend cells INSIDE the span are drawn excluded**, by the same `absenceRange` the write uses
   and never re-derived in the screen: a span drawn Monday to Sunday as seven cells would promise seven
   days of a write that makes five.
@@ -1547,8 +1551,8 @@ gesture.
   Both ends come out ordered, so `errors.rangeBackwards` cannot be reached from the calendar; the slot
   is what shows the 400 `invalid-range` that two clicks CAN reach.
 - **The day count stays under the field** — the days the preview says will be WRITTEN, not the cells of
-  the span — so the range is the one day field with no week label. While the second end is missing the
-  popover says so itself (`dayPicker.rangePending`), never the form.
+  the span — so the range is the one day field with no week label. That a second click would extend the
+  day already chosen is said by the popover (`dayPicker.rangePending`), never by the form.
 - **In `gap` mode a range writes the SAME absence on each day**: same start, same net duration, one
   unit id per day, each cut at the lunch break by the very function a single gap uses (`insertAbsence`).
 - **The rows are written first and the reflow runs ONCE**, at the end, so the hours are displaced by one

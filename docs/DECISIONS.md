@@ -1016,17 +1016,30 @@ places at once.
 
 ---
 
-## A Range Is Chosen In One Calendar, and the Form Hears It Once
+## A Range Is Chosen In One Calendar, and One Click Is One Day
 
-**Rule** — SPEC § *The Absences Screen*. The multiple mode's two ends are one range calendar: the first
-click is remembered inside the popover, the second closes it and hands the form both ends at once, always
-ordered, and the weekend cells inside the span are drawn excluded by the same `absenceRange` the server
-writes with.
+**Rule** — SPEC § *The Absences Screen*. The multiple mode's two ends are one range calendar. A click
+answers with the day it landed on as BOTH ends and leaves the popover open; a second click extends the
+span to its day, always ordered, and closes. The weekend cells inside the span are drawn excluded by the
+same `absenceRange` the server writes with.
 
-**Why the first click never leaves the calendar** — writing `date` on the first click makes every step
-across the month fire `previewAbsence`, which is the real write inside a transaction that is rolled back,
-announcing displaced work for a range half chosen. Leaving `endDate` unset instead collapses `rangeValid`,
-and with it the preview and the `Reabrir` button, in the middle of a selection.
+**Why one click and not two** — the common absence is a single day, and the first shape of this calendar
+asked for two clicks even for that: the owner met it as being made to click the same day twice, on the
+case that happens most. Two clicks were there to protect the rare one.
+
+**Why that costs nothing it was protecting** — the shape it replaces kept the first end inside the popover
+so a half-chosen range could not reach the form, because `date` alone would fire `previewAbsence` — the
+real write inside a transaction that is rolled back — on every step across a month, and leaving `endDate`
+unset instead collapses `rangeValid`, the preview and the `Reabrir` button mid-selection. **Committing the
+first click as a one-day span removes the half-chosen state itself**, so there is nothing left to protect
+against: every click hands over a complete, ordered span. The provisional end, its paint rule and its
+visual state all went with it.
+
+**Why the closing press is swallowed on the grid alone** — the press that dismisses the popover used to be
+swallowed wherever it landed, so `Guardar` needed two: the first only closed the calendar. Underneath the
+GRID the swallow is measured and stays — that press starts a paint band or opens the panel of the job
+below it — but inside the panel nothing is underneath, and a control that ignores the first press is the
+wrong bargain for someone who does not read the screen before using it.
 
 **Why the excluded cells are not re-derived in the screen** — the server skips Saturday and Sunday unless
 the whole range is a weekend. A span drawn Monday to Sunday as seven cells promises seven days of a write
