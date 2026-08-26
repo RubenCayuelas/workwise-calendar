@@ -23,6 +23,13 @@ import { isDayPickerKey, moveFocusedDay } from './dayPickerKeys';
 import { markOf, markRange, type DayMark, type DayMarks } from './pickerDays';
 import { popoverPosition } from './popoverBox';
 import { dayCellNotes, type DayCellNote } from './dayPickerTitle';
+import {
+  rangeClick,
+  rangeDiscard,
+  rangeNoticeKey,
+  rangePaint,
+  type RangeState,
+} from './dayRange';
 import { useMounted } from './useMounted';
 import styles from './DayPicker.module.css';
 
@@ -32,16 +39,16 @@ const DAYS_PER_WEEK = 7;
 const CELL_HEIGHT = 30;
 const POPOVER_WIDTH = 226;
 /** Everything that is not the six rows: the padding, the month head, the weekday letters, the
-    three gaps and the `Hoy` button. */
+    three gaps and the foot's one line. */
 const POPOVER_CHROME = 100;
 const POPOVER_HEIGHT = POPOVER_CHROME + MONTH_GRID_ROWS * CELL_HEIGHT;
 /** Clear of the field, so the popover never covers the value it is about to change. */
 const POPOVER_GAP = 6;
 
-export interface DayPickerProps {
+/** What both modes take. `value` is the day in single-day mode and the NEAR end of the span in range mode. */
+interface DayPickerCommonProps {
   /** Local `YYYY-MM-DD`. A stored day outside the window is kept, and its own cell stays pressable. */
   value: string;
-  onChange: (value: string) => void;
   /** The shop's today: rings one cell and anchors the window. */
   today: string;
   /** The owner's `planningHorizonWeeks`, which is how far forward the calendar reaches. */
@@ -57,18 +64,51 @@ export interface DayPickerProps {
   className?: string;
 }
 
-export function DayPicker({
-  value,
-  onChange,
-  today,
-  horizonWeeks,
-  labelId,
-  revision,
-  disabled = false,
-  invalid,
-  id,
-  className,
-}: DayPickerProps): React.JSX.Element {
+export interface DayPickerSingleProps extends DayPickerCommonProps {
+  /** Omitted: the discriminant, so a single-day call site needs no change to keep compiling. */
+  range?: false;
+  onChange: (value: string) => void;
+  /** The two `never`s stop a range call site that forgot `range` from silently becoming a
+      single-day picker, whose second click would never commit anything. */
+  endValue?: never;
+  onChangeRange?: never;
+}
+
+export interface DayPickerRangeProps extends DayPickerCommonProps {
+  range: true;
+  /** The stored FAR end. */
+  endValue: string;
+  /**
+   * Fired ONCE, with both ends already in calendar order, on the SECOND click.
+   *
+   * The first click never leaves this component. A half-chosen range reaching the form would run
+   * `previewAbsence` on every click of a walk through the month — a real write inside a transaction
+   * that is rolled back — and would drop `Reabrir` out of the footer while `rangeValid` was false.
+   */
+  onChangeRange: (from: string, to: string) => void;
+  onChange?: never;
+}
+
+export type DayPickerProps = DayPickerSingleProps | DayPickerRangeProps;
+
+export function DayPicker(props: DayPickerProps): React.JSX.Element {
+  const {
+    value,
+    today,
+    horizonWeeks,
+    labelId,
+    revision,
+    disabled = false,
+    invalid,
+    id,
+    className,
+  } = props;
+  // Read off BEFORE any closure: a discriminant narrowed on a parameter does not survive into a
+  // callback, and `choose` is one. `commitRange` is also what "range mode" is asked with below.
+  const commitDay = props.range === true ? undefined : props.onChange;
+  const commitRange = props.range === true ? props.onChangeRange : undefined;
+  const endValue = props.range === true ? props.endValue : undefined;
+
   const { t } = useTranslation();
   const format = useFormat();
   const mounted = useMounted();
@@ -82,6 +122,8 @@ export function DayPicker({
   const [month, setMonth] = useState(today);
   const [focused, setFocused] = useState(today);
   const [marks, setMarks] = useState<DayMarks | undefined>(undefined);
+  /** The end clicked first. It never leaves this component: see `onChangeRange`. */
+  const [pending, setPending] = useState<RangeState>({});
 
   // NEVER named `window`: the listeners below are on the global of that name.
   const dayWindow: DayWindow = planningWindow(isValidDate(today) ? today : value, horizonWeeks);
@@ -100,14 +142,32 @@ export function DayPicker({
   focusedRef.current = focused;
 
   const dismiss = useCallback((restoreFocus: boolean): void => {
+    // The pending end dies with the popover and the stored span is left exactly as it was: a first
+    // click reported nothing, so there is nothing to take back. `Escape` and the click outside both
+    // arrive here, so both discard.
+    setPending(rangeDiscard);
     setOpen(false);
     if (restoreFocus) trigger.current?.focus();
   }, []);
 
   const choose = (date: string): void => {
-    // Reported on the CLICK, never on the close: the panels set the date optimistically because
-    // the band drawn on the grid has to follow the field.
-    onChange(date);
+    if (commitRange === undefined) {
+      // Reported on the CLICK, never on the close: the panels set the date optimistically because
+      // the band drawn on the grid has to follow the field.
+      commitDay?.(date);
+      dismiss(true);
+      return;
+    }
+
+    const click = rangeClick(pending, date);
+    setPending(click.state);
+    // NEVER on the first click: it would run `previewAbsence` — a real write inside a transaction
+    // that is rolled back — on every click of a walk through the month, and would blink `Reabrir`
+    // out of the footer mid-selection.
+    if (click.committed === undefined) return;
+    // Not clamped to `MAX_ABSENCE_DAYS`: the refusal is the server's 400 `invalid-range`, drawn in
+    // the field's own error slot. Clamped here, the owner would never learn why it was refused.
+    commitRange(click.committed.from, click.committed.to);
     dismiss(true);
   };
 
@@ -133,6 +193,10 @@ export function DayPicker({
     if (!shown) {
       // Dropped on close: a stale mark is worse than none, and the next open asks again.
       setMarks(undefined);
+      // And the pending end with them. `disabled` hides the popover without `dismiss` ever running,
+      // so a save started under an open calendar would otherwise leave an anchor behind for the
+      // next click to commit a range nobody started.
+      setPending(rangeDiscard);
       // And closed for good, not merely hidden: `disabled` alone leaves `open` set, so a save that
       // fails and re-enables the field would pop the calendar back open on its own.
       setOpen(false);
@@ -214,6 +278,19 @@ export function DayPicker({
   });
   const reach = monthReach(month, dayWindow);
 
+  // Decided by `rangeCells`, which delegates to `absenceRange` — the same call the preview and the
+  // save make — and never re-derived here, so a painted cell cannot promise a day the write skips.
+  // A span whose every day is a weekend is included whole, which is `absenceRange`'s own exception.
+  // Both ends are checked first: `absenceRange` walks with `addDays`, so an unset end would walk
+  // 120 junk days.
+  const stored =
+    endValue !== undefined && isValidDate(value) && isValidDate(endValue)
+      ? { from: value, to: endValue }
+      : undefined;
+  const paint = rangePaint(pending, stored);
+  const written = new Set(paint.included);
+  const dropped = new Set(paint.skipped);
+
   const noteText = (note: DayCellNote, mark: DayMark | undefined): string => {
     switch (note) {
       case 'today':
@@ -238,6 +315,14 @@ export function DayPicker({
   const labelledBy = [bound.labelId, bound.id]
     .filter((part): part is string => part !== undefined)
     .join(' ');
+
+  const dayText = (date: string): string => (isValidDate(date) ? format.dayOption(date) : date);
+  // Joined with the separator a day header already composes its own title with. `units.timeRange`
+  // is the CLOCK range and would be a lie on two dates.
+  const triggerText =
+    endValue === undefined
+      ? dayText(value)
+      : [dayText(value), dayText(endValue)].join(t('units.listSeparator'));
 
   return (
     <>
@@ -269,7 +354,7 @@ export function DayPicker({
           else reveal();
         }}
       >
-        <span className={styles.value}>{isValidDate(value) ? format.dayOption(value) : value}</span>
+        <span className={styles.value}>{triggerText}</span>
         <span className={styles.chevron} aria-hidden="true">
           <IconChevronDown size={14} stroke={1.75} />
         </span>
@@ -333,7 +418,10 @@ export function DayPicker({
                       className={[
                         styles.cell,
                         cell.inMonth ? '' : styles.outside,
-                        cell.date === value ? styles.selected : '',
+                        commitRange === undefined && cell.date === value ? styles.selected : '',
+                        written.has(cell.date) ? styles.inSpan : '',
+                        dropped.has(cell.date) ? styles.spanDropped : '',
+                        cell.date === paint.pending ? styles.pending : '',
                         cell.isToday ? styles.today : '',
                         cell.isWeekend ? styles.weekend : '',
                         cell.isPast ? styles.past : '',
@@ -343,7 +431,11 @@ export function DayPicker({
                         .join(' ')}
                       disabled={!cell.selectable}
                       tabIndex={cell.date === focused ? 0 : -1}
-                      aria-pressed={cell.date === value}
+                      aria-pressed={
+                        commitRange === undefined
+                          ? cell.date === value
+                          : written.has(cell.date) || cell.date === paint.pending
+                      }
                       aria-current={cell.isToday ? 'date' : undefined}
                       title={titleOf(cell, mark)}
                       onClick={() => choose(cell.date)}
@@ -357,14 +449,23 @@ export function DayPicker({
                 })}
               </div>
 
-              <button
-                type="button"
-                className={styles.todayButton}
-                title={t('dayPicker.todayHint')}
-                onClick={() => choose(today)}
-              >
-                {t('dayPicker.today')}
-              </button>
+              {commitRange === undefined ? (
+                <button
+                  type="button"
+                  className={styles.todayButton}
+                  title={t('dayPicker.todayHint')}
+                  onClick={() => choose(today)}
+                >
+                  {t('dayPicker.today')}
+                </button>
+              ) : (
+                /* In place of `Hoy`, not under it: `POPOVER_HEIGHT` is the constant
+                   `popoverPosition` clips by arithmetic, so a mode may swap the foot's one line and
+                   may never add a second. */
+                <span className={styles.notice} aria-live="polite">
+                  {t(rangeNoticeKey(pending))}
+                </span>
+              )}
             </div>,
             document.body,
           )}

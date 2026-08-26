@@ -86,7 +86,9 @@
     "previousMonth": "Previous month",
     "nextMonth": "Next month",
     "today": "Today",
-    "todayHint": "Choose today"
+    "todayHint": "Choose today",
+    "rangeStart": "Choose the first day",
+    "rangePending": "Choose the last day"
   },
   "grid": {
     "label": "Workshop week",

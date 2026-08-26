@@ -46,3 +46,49 @@ export function rangeCells(from: string, to: string): { included: string[]; skip
   const range = absenceRange(from, to);
   return { included: range.dates, skipped: range.skipped };
 }
+
+/** A committed span, both ends stored and already in calendar order. */
+export interface RangeSpan {
+  from: string;
+  to: string;
+}
+
+export interface RangePaint {
+  /** Cells of the committed span the save will WRITE. */
+  included: string[];
+  /** Cells inside it the save will DROP. */
+  skipped: string[];
+  /** The end already clicked, while the second is missing. */
+  pending?: string;
+}
+
+/**
+ * What the month grid paints for a range.
+ *
+ * A pending end paints NO span, only itself: the second click is what decides which way the span
+ * runs, and a popover has no pointer position to guess with — a band drawn from a guess moves under
+ * the mouse and promises days that were never asked for.
+ */
+export function rangePaint(state: RangeState, span: RangeSpan | undefined): RangePaint {
+  if (state.anchor !== undefined) return { included: [], skipped: [], pending: state.anchor };
+  if (span === undefined) return { included: [], skipped: [] };
+  return rangeCells(span.from, span.to);
+}
+
+/**
+ * Closing the popover with only one end clicked. The pending end dies and the stored span is not
+ * touched, because a first click reported nothing there is anything to take back.
+ *
+ * Answers with the state it was given when nothing is pending, so the close path can hand this
+ * straight to a setter without costing a render.
+ */
+export function rangeDiscard(state: RangeState): RangeState {
+  return state.anchor === undefined ? state : {};
+}
+
+/** Which line the popover shows about a range, as a locale KEY: the wording lives in the bundles. */
+export function rangeNoticeKey(
+  state: RangeState,
+): 'dayPicker.rangePending' | 'dayPicker.rangeStart' {
+  return state.anchor === undefined ? 'dayPicker.rangeStart' : 'dayPicker.rangePending';
+}

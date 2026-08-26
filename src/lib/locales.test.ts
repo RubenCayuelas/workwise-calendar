@@ -107,6 +107,10 @@ describe('locale files', () => {
     expect(resolve(es as Json, 'dayPicker.nextMonth')).toBe('Mes siguiente');
     expect(resolve(es as Json, 'dayPicker.today')).toBe('Hoy');
     expect(resolve(es as Json, 'dayPicker.todayHint')).toBe('Elige hoy');
+    expect(resolve(es as Json, 'dayPicker.rangeStart')).toBe('Elige el primer día');
+    expect(resolve(es as Json, 'dayPicker.rangePending')).toBe('Elige el último día');
+    expect(resolve(en as Json, 'dayPicker.rangeStart')).toBe('Choose the first day');
+    expect(resolve(en as Json, 'dayPicker.rangePending')).toBe('Choose the last day');
   });
 
   it('words the week label a date field carries under itself', () => {

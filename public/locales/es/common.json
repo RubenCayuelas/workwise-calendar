@@ -86,7 +86,9 @@
     "previousMonth": "Mes anterior",
     "nextMonth": "Mes siguiente",
     "today": "Hoy",
-    "todayHint": "Elige hoy"
+    "todayHint": "Elige hoy",
+    "rangeStart": "Elige el primer día",
+    "rangePending": "Elige el último día"
   },
   "grid": {
     "label": "Semana del taller",

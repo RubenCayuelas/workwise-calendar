@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { MAX_ABSENCE_DAYS } from '../../lib/absences';
 import { addDays } from '../../lib/dates';
 import { FRI, MON, NEXT_MON, SAT, SUN, THU, WED } from '../../testing/fixtures';
-import { rangeCells, rangeClick } from './dayRange';
+import { rangeCells, rangeClick, rangeDiscard, rangeNoticeKey, rangePaint } from './dayRange';
 
 describe('rangeClick', () => {
   it('holds the first click and commits nothing', () => {
@@ -82,5 +82,81 @@ describe('rangeCells', () => {
     const { committed } = rangeClick({ anchor: NEXT_MON }, THU);
     expect(committed).toEqual({ from: THU, to: NEXT_MON });
     expect(rangeCells(committed!.from, committed!.to).skipped).toEqual([SAT, SUN]);
+  });
+});
+
+describe('rangePaint', () => {
+  it('paints the committed span, and the weekend it drops', () => {
+    expect(rangePaint({}, { from: THU, to: NEXT_MON })).toEqual({
+      included: [THU, FRI, NEXT_MON],
+      skipped: [SAT, SUN],
+    });
+  });
+
+  it('paints a span that is nothing but a weekend as written whole', () => {
+    expect(rangePaint({}, { from: SAT, to: SUN })).toEqual({ included: [SAT, SUN], skipped: [] });
+  });
+
+  it('paints no span while one end is still missing, only the end already clicked', () => {
+    // There is no hover to read: the second click is what decides which way the span runs, and a
+    // band drawn from a guess would promise days nobody has asked for.
+    expect(rangePaint({ anchor: WED }, { from: MON, to: FRI })).toEqual({
+      included: [],
+      skipped: [],
+      pending: WED,
+    });
+  });
+
+  it('paints nothing at all in single-day mode, where there is no far end', () => {
+    expect(rangePaint({}, undefined)).toEqual({ included: [], skipped: [] });
+  });
+
+  it('paints nothing for a stored pair that runs backwards', () => {
+    expect(rangePaint({}, { from: FRI, to: MON })).toEqual({ included: [], skipped: [] });
+  });
+});
+
+describe('closing with one end pending', () => {
+  it('drops the pending end', () => {
+    expect(rangeDiscard({ anchor: WED })).toEqual({});
+  });
+
+  it('leaves the committed span exactly as it was', () => {
+    const span = { from: MON, to: FRI };
+    const half = rangeClick({}, NEXT_MON);
+
+    expect(rangePaint(half.state, span).included).toEqual([]);
+    expect(rangePaint(rangeDiscard(half.state), span)).toEqual(rangePaint({}, span));
+    expect(rangePaint(rangeDiscard(half.state), span).included).toEqual(
+      rangeCells(MON, FRI).included,
+    );
+  });
+
+  it('answers with the state it was given when nothing is pending, so a close is not a render', () => {
+    const state = {};
+    expect(rangeDiscard(state)).toBe(state);
+  });
+});
+
+describe('rangeNoticeKey', () => {
+  it('asks for the first day, and then for the last', () => {
+    expect(rangeNoticeKey({})).toBe('dayPicker.rangeStart');
+    expect(rangeNoticeKey({ anchor: WED })).toBe('dayPicker.rangePending');
+  });
+});
+
+describe('the cap this calendar does not clamp', () => {
+  it("commits a second click past the cap, because the refusal is the server's", () => {
+    const past = addDays(MON, MAX_ABSENCE_DAYS);
+    expect(rangeClick({ anchor: MON }, past).committed).toEqual({ from: MON, to: past });
+  });
+
+  it('paints only the cells `absenceRange` walks, and never the day past the cap', () => {
+    const past = addDays(MON, MAX_ABSENCE_DAYS);
+    const paint = rangePaint({}, { from: MON, to: past });
+
+    expect(paint.included.length + paint.skipped.length).toBe(MAX_ABSENCE_DAYS);
+    expect(paint.included).not.toContain(past);
+    expect(paint.skipped).not.toContain(past);
   });
 });
