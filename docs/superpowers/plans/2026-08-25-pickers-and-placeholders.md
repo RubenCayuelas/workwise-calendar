@@ -4384,6 +4384,105 @@ git commit -m "feat(pickers): choose the day in a calendar, not a list"
 ```
 
 
+### Task 19b: Retire what the dropdown left behind
+
+> **Added after Task 19's review, which found five places of dead code left by one removed control and
+> said they should be retired in one deliberate change rather than found again one at a time.** The
+> design foresaw two of them — it says `SelectOptionGroup` and the `groups` prop "lose their last
+> caller" — but leaving a capability nobody calls is not the same as deciding to keep it, and one of
+> the five is a locale key that **no gate can ever catch**: `locales.test.ts` holds the two key sets
+> identical, so an unread key present in both bundles passes forever.
+
+**Files:**
+- Modify: `src/lib/useFormat.ts` — drop `todayOption` from the `Formatter` interface and its implementation
+- Modify: `public/locales/es/common.json:36`, `public/locales/en/common.json:36` — drop `units.dayOptionToday`
+- Modify: `src/components/ui/Field.tsx` — drop `SelectOptionGroup`, `Select`'s `groups` prop and its `<optgroup>` branch
+- Modify: `src/components/ui/index.ts` — drop the `SelectOptionGroup` type re-export
+- Modify: `src/lib/creation.ts:24`, `src/components/ui/dateOptions.ts:18`, `src/components/ui/dateOptions.test.ts:38` — three comments describing a dropdown that no longer exists
+
+**Interfaces:**
+- Consumes: nothing new. Everything here is removal.
+- Produces: `Formatter` without `todayOption`; `Select` without `groups`; `units` without `dayOptionToday`.
+  No later task references any of the three.
+
+- [ ] **Step 1: Prove each one is unread, before deleting anything**
+
+Run each and read it against what is stated. If any prints a caller this task did not expect, **stop and
+report it** rather than deleting.
+
+```bash
+grep -rn "todayOption" src app
+grep -rn "dayOptionToday" src app public
+grep -rn "SelectOptionGroup" src app
+grep -rn "groups=" src app
+grep -rn "\.groups\b" src app
+```
+
+Expected, exactly:
+
+- `todayOption` — two hits, both in `src/lib/useFormat.ts` (the interface member and its implementation). No consumer.
+- `dayOptionToday` — three hits: `useFormat.ts`'s implementation and the key itself in each bundle. **No test asserts it**; `locales.test.ts`'s verbatim-wording case pins ten other keys and not this one.
+- `SelectOptionGroup` — its declaration in `Field.tsx`, the `groups` prop's type, and the type re-export in `index.ts`. No consumer.
+- `groups=` — **one hit, `src/components/calendar/WeekGrid.tsx:451`, and it is NOT this one**: that passes `BlockGroup[]` to a different component. Leave it alone.
+- `.groups` — the same `WeekGrid` layout usage. Not `Select`.
+
+- [ ] **Step 2: Drop `todayOption` from the formatter**
+
+In `src/lib/useFormat.ts`, delete the interface member and the implementation line. Its neighbour
+`dayOption` STAYS — the day picker's trigger renders through it.
+
+- [ ] **Step 3: Drop the key from both bundles**
+
+Delete `"dayOptionToday"` from `units` in `public/locales/es/common.json` and
+`public/locales/en/common.json`. Both, at the same key, or the parity test fails — which is the one
+thing here a gate does catch.
+
+- [ ] **Step 4: Drop the option group from `Select`**
+
+In `src/components/ui/Field.tsx`, delete the `SelectOptionGroup` interface, the `groups` prop from
+`SelectProps`, its default in the destructure, and the `<optgroup>` branch in the returned markup.
+`SelectOption` and the ungrouped `options` prop STAY — every surviving `Select` uses them.
+
+In `src/components/ui/index.ts`, delete `SelectOptionGroup` from the type re-export line, leaving the
+rest of that line as it is.
+
+- [ ] **Step 5: Reword the three comments**
+
+None of these describes anything that exists. Say what the code now is, in the repo's own comment rule —
+a unit, an origin, a caller obligation, a trap, or a measured defect, and nothing else:
+
+- `src/lib/creation.ts:24` — the preview's alternatives are no longer one dropdown click away; they are
+  days the owner reaches in the calendar. Name what the constant bounds, not the control.
+- `src/components/ui/dateOptions.ts:18` — the cap no longer keeps a list scannable; it bounds how far the
+  month arrows may walk.
+- `src/components/ui/dateOptions.test.ts:38` — the same, in the test's name.
+
+- [ ] **Step 6: Run the four gates**
+
+Run: `npx tsc --noEmit`
+Expected: PASS. This is the gate that proves the deletions: a surviving consumer of `todayOption`,
+`SelectOptionGroup` or `groups` cannot compile.
+
+Run: `npm test`
+Expected: PASS, at the same file count and the same test count as before this task. **Nothing here adds
+or removes a case**, and there is no test to add: a hook cannot be rendered in this suite, and asserting
+that a locale key is ABSENT would block a legitimate future re-add. Say so in the report rather than
+implying coverage.
+
+Run: `npx eslint .`
+Expected: PASS, and specifically no unused-import or unused-variable report from the four edited source
+files.
+
+Run: `npm run build`
+Expected: compiled successfully.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/lib/useFormat.ts public/locales/es/common.json public/locales/en/common.json src/components/ui/Field.tsx src/components/ui/index.ts src/lib/creation.ts src/components/ui/dateOptions.ts src/components/ui/dateOptions.test.ts
+git commit -m "refactor(pickers): retire what the day dropdown left behind"
+```
+
 ### Task 20a: Range mode on the day picker
 
 **Files:**
