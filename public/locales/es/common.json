@@ -265,6 +265,7 @@
     "modeGapHint": "Unas horas del día: una avería, gestiones, media tarde.",
     "modeClosed": "Cerrar días",
     "modeClosedHint": "Vacaciones, feria, festivo: el día entero, sin horas planificables.",
+    "range": "Qué días",
     "from": "Desde",
     "to": "Hasta",
     "days_one": "{{count}} día",

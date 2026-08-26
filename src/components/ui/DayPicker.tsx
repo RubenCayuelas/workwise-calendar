@@ -318,9 +318,11 @@ export function DayPicker(props: DayPickerProps): React.JSX.Element {
 
   const dayText = (date: string): string => (isValidDate(date) ? format.dayOption(date) : date);
   // Joined with the separator a day header already composes its own title with. `units.timeRange`
-  // is the CLOCK range and would be a lie on two dates.
+  // is the CLOCK range and would be a lie on two dates. One end is shown alone when both name the
+  // same day — the absences panel opens its range that way, on every open — and when either is not
+  // a date, so the separator never trails an empty half.
   const triggerText =
-    endValue === undefined
+    endValue === undefined || endValue === value || !isValidDate(value) || !isValidDate(endValue)
       ? dayText(value)
       : [dayText(value), dayText(endValue)].join(t('units.listSeparator'));
 

@@ -76,6 +76,7 @@ import {
   type AbsenceOrigin,
   type AbsenceSummary,
 } from './absence';
+import { API_FIELD, rangeError, type AbsenceField } from './absenceFields';
 import type { JobsMutationHandler } from './events';
 import styles from './jobs.module.css';
 
@@ -582,80 +583,82 @@ export function AbsencePanel({
 
         {closing === undefined ? (
           <>
-            {/* Never a native date input. The picker keeps a
-                stored day outside its window, so editing an old gap can never move it. */}
-            <div className={bulk ? styles.row : undefined}>
+            {bulk ? (
+              /* One control over both ends of the span: its error slot is the only place
+                 `errors.rangeBackwards` and the server's `invalid-range` are ever drawn, and the line
+                 under it is the days the preview will WRITE — a Monday-to-Sunday span paints seven
+                 cells and writes five. */
               <Field
-                label={t(bulk ? 'absenceForm.from' : 'gapForm.date')}
-                error={errorFor('date')}
+                label={t('absenceForm.range')}
+                error={rangeError(errorFor)}
                 hint={
-                  !isValidDate(date)
-                    ? undefined
-                    : bulk
-                      ? format.longDate(date)
-                      : format.dayLine(date)
+                  summary === null ? undefined : t('absenceForm.days', { count: summary.dayCount })
                 }
               >
                 <DayPicker
+                  range
                   value={date}
+                  endValue={endDate}
                   today={reference}
                   horizonWeeks={horizonWeeks}
                   revision={revision}
                   disabled={busy}
-                  onChange={(next) => {
-                    // Set OPTIMISTICALLY: a painted band on the grid has to follow the field.
-                    if (visibleDates?.includes(date) === true) setLastVisible(date);
-                    setDate(next);
-                    // "Hasta" follows the day it can no longer precede, so the range is never
-                    // inverted by moving its start.
-                    if (compareDates(endDate, next) < 0) setEndDate(next);
+                  onChangeRange={(from, to) => {
+                    // BOTH ends in one update. A half-chosen range would run `previewAbsence`, which
+                    // is the real write inside a transaction that is rolled back, and would drop
+                    // `Reabrir` out of the footer while `rangeValid` was false.
+                    setDate(from);
+                    setEndDate(to);
                   }}
                 />
               </Field>
-
-              {offWeek === null ? null : (
-                <InlineBanner tone="info" title={t('jobForm.offWeekTitle')}>
-                  {t('jobForm.offWeek', { date: format.longDate(offWeek.goTo) })}
-                  <div className={styles.offWeekActions}>
-                    <Button size="sm" onClick={() => onShowWeekOf?.(offWeek.goTo)}>
-                      {t('jobForm.offWeekGo')}
-                    </Button>
-                    {offWeek.backTo === null ? null : (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => setDate(offWeek.backTo as string)}
-                      >
-                        {t('jobForm.offWeekBack', { date: format.dayOption(offWeek.backTo) })}
-                      </Button>
-                    )}
-                  </div>
-                </InlineBanner>
-              )}
-
-              {!bulk ? null : (
+            ) : (
+              <div>
+                {/* Never a native date input. The picker keeps a
+                    stored day outside its window, so editing an old gap can never move it. */}
                 <Field
-                  label={t('absenceForm.to')}
-                  error={errorFor('endDate')}
-                  hint={
-                    summary === null
-                      ? isValidDate(endDate)
-                        ? format.longDate(endDate)
-                        : undefined
-                      : t('absenceForm.days', { count: summary.dayCount })
-                  }
+                  label={t('gapForm.date')}
+                  error={errorFor('date')}
+                  hint={isValidDate(date) ? format.dayLine(date) : undefined}
                 >
                   <DayPicker
-                    value={endDate}
+                    value={date}
                     today={reference}
                     horizonWeeks={horizonWeeks}
                     revision={revision}
                     disabled={busy}
-                    onChange={setEndDate}
+                    onChange={(next) => {
+                      // Set OPTIMISTICALLY: a painted band on the grid has to follow the field.
+                      if (visibleDates?.includes(date) === true) setLastVisible(date);
+                      setDate(next);
+                      // "Hasta" follows the day it can no longer precede, so the range is never
+                      // inverted by moving its start.
+                      if (compareDates(endDate, next) < 0) setEndDate(next);
+                    }}
                   />
                 </Field>
-              )}
-            </div>
+
+                {offWeek === null ? null : (
+                  <InlineBanner tone="info" title={t('jobForm.offWeekTitle')}>
+                    {t('jobForm.offWeek', { date: format.longDate(offWeek.goTo) })}
+                    <div className={styles.offWeekActions}>
+                      <Button size="sm" onClick={() => onShowWeekOf?.(offWeek.goTo)}>
+                        {t('jobForm.offWeekGo')}
+                      </Button>
+                      {offWeek.backTo === null ? null : (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setDate(offWeek.backTo as string)}
+                        >
+                          {t('jobForm.offWeekBack', { date: format.dayOption(offWeek.backTo) })}
+                        </Button>
+                      )}
+                    </div>
+                  </InlineBanner>
+                )}
+              </div>
+            )}
 
             {kind === 'closed-days' && bulk ? null : (
               <div className={styles.row}>
@@ -998,8 +1001,6 @@ function ConflictList({
   );
 }
 
-type AbsenceField = 'date' | 'endDate' | 'startTime' | 'duration' | 'reason';
-
 /**
  * The moments the day can be stopped at: the start of the shift to one step before it ends,
  * since a gap of nothing is not a gap. `undefined` on a day with no periods, which leaves
@@ -1015,15 +1016,3 @@ function momentBounds(
     maxMinutes: end - TIME_STEP_MINUTES,
   };
 }
-
-/** The payload keys the API validates, mapped onto this form's controls. */
-const API_FIELD: Record<string, AbsenceField | undefined> = {
-  date: 'date',
-  from: 'date',
-  to: 'endDate',
-  startTime: 'startTime',
-  startMinutes: 'startTime',
-  durationHours: 'duration',
-  durationMinutes: 'duration',
-  reason: 'reason',
-};

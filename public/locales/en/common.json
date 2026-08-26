@@ -265,6 +265,7 @@
     "modeGapHint": "A few hours of the day: a breakdown, errands, half an afternoon.",
     "modeClosed": "Close days",
     "modeClosedHint": "Holidays, a fair, a public holiday: the whole day, with no plannable hours.",
+    "range": "Which days",
     "from": "From",
     "to": "To",
     "days_one": "{{count}} day",
