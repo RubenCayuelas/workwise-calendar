@@ -11,6 +11,9 @@
  *
  * It renders the `Input` from `Field`, so inside a `Field` it picks up the generated id, the
  * `aria-describedby` and the invalid ring like every other control here.
+ *
+ * A REFUSED value stays on screen while the caller still holds the last settled one, so `onInvalid`
+ * is how it says so: unheard, `Guardar` would store the value the field stopped showing.
  */
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
@@ -26,6 +29,13 @@ export interface TimeFieldProps {
   value: string;
   /** Fired on a SETTLED value only: Enter, leaving the field, a button or an arrow. */
   onChange: (value: string) => void;
+  /**
+   * What the field is refusing, `undefined` when it settles. REQUIRED, because a refusal keeps the
+   * typed string on screen and leaves `value` at the last settled one: a caller that does not hear
+   * it saves what the field is no longer showing. Draw it in the `Field`'s `error` — that is where
+   * `role="alert"` lives — and hold the save while it stands.
+   */
+  onInvalid: (message: string | undefined) => void;
   /** Bounds, in minutes from midnight. Outside them the field refuses; it never clips. */
   minMinutes?: number;
   maxMinutes?: number;
@@ -39,6 +49,7 @@ export interface TimeFieldProps {
 export function TimeField({
   value,
   onChange,
+  onInvalid,
   minMinutes,
   maxMinutes,
   disabled = false,
@@ -54,12 +65,22 @@ export function TimeField({
   /** What the field held when focus arrived: an untouched value commits verbatim. */
   const entered = useRef(value);
 
-  // The form's value wins whenever it changes from outside — a panel reopening on another
-  // absence, a settings draft reset — and the half-typed string is dropped for it.
+  // Held in a ref so the effect below stays keyed on the value: a caller's inline closure changes
+  // identity every render, and an effect that re-ran that often would wipe the string being typed.
+  const report = useRef(onInvalid);
+  report.current = onInvalid;
+
+  // The form's value wins whenever it changes from outside — a panel reopening on another absence, a
+  // settings draft reset — and the half-typed string is dropped for it. `disabled` counts as outside:
+  // a field that can no longer commit must not go on refusing. The cleanup covers the same thing on
+  // the way out, so a caller conditionally rendering this is never left holding a refusal for a
+  // control that is off screen.
   useEffect(() => {
     setText(value);
     setRejected(undefined);
-  }, [value]);
+    report.current(undefined);
+    return () => report.current(undefined);
+  }, [value, disabled]);
 
   const bounds: TimeBounds = { minMinutes, maxMinutes };
 
@@ -68,6 +89,7 @@ export function TimeField({
     // above to put back, and the field would keep showing `8`.
     setText(next);
     setRejected(undefined);
+    onInvalid(undefined);
     entered.current = next;
     if (next !== value) onChange(next);
   };
@@ -78,16 +100,17 @@ export function TimeField({
       settle(result.value);
       return;
     }
-    // The `Field`'s error line belongs to the caller, so the refusal rides in the same `title` the
-    // hint does — the way `Field` swaps its hint for an error.
-    setRejected(
+    const message =
       result.reason === 'invalid-format'
         ? t('errors.invalidTimeFormat')
         : t('errors.timeOutOfBounds', {
             startTime: format.time(result.minMinutes),
             endTime: format.time(result.maxMinutes),
-          }),
-    );
+          });
+    // On the field's own `title`, the way `Field` swaps its hint for an error, AND handed to the
+    // caller: a tooltip is not announced and cannot hold a save.
+    setRejected(message);
+    onInvalid(message);
   };
 
   const step = (direction: 1 | -1, wholeHour: boolean): void => {

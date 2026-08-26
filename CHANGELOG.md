@@ -39,6 +39,8 @@ The four schedule rows on the settings screen are the same field. Nothing is rew
 an hour that cannot be read stays on screen and says so, an hour already stored off the quarter hour
 survives being tabbed past, and the one hour that has bounds — where the day stops when you close it
 from the grid — is refused naming the two hours it has to be between instead of being pulled inside them.
+An hour the field refuses also holds the save: the message appears under the field and the save button
+waits, so what is stored can never be the hour the screen stopped showing.
 
 **The placeholders say what to write.** The name of a job, the reason for a gap and the note on a closed
 day each showed an example — `Puerta metálica`, `Avería del torno`, `Feria` — which reads like a value

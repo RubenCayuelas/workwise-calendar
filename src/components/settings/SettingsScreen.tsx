@@ -65,6 +65,32 @@ import styles from './SettingsScreen.module.css';
  *  the generated one up from `Field`'s context the way `Input` does. */
 const GAP_COLOR_ID = 'ww-settings-gap-color';
 
+/**
+ * The four shift boundaries. A `TimeField` refuses without telling the draft — the unreadable string
+ * stays on screen and the draft keeps the last settled hour — so no `draftIssues` entry can ever name
+ * one of these, and the Save button has to be told separately.
+ */
+const TIME_KEYS = ['period1Start', 'period1End', 'period2Start', 'period2End'] as const;
+type TimeKey = (typeof TIME_KEYS)[number];
+
+function isTimeKey(field: keyof Settings): field is TimeKey {
+  return (TIME_KEYS as readonly string[]).includes(field);
+}
+
+/**
+ * What a shift row is refusing. A row switched off draws neither the field nor its message, so its
+ * refusal must not hold Save either: what is SHOWN and what BLOCKS ask this one question, or the
+ * button locks with nothing on screen to explain it.
+ */
+function refusedTimeOf(
+  refusals: Partial<Record<TimeKey, string>>,
+  field: TimeKey,
+  period2Enabled: boolean,
+): string | undefined {
+  if (!period2Enabled && (field === 'period2Start' || field === 'period2End')) return undefined;
+  return refusals[field];
+}
+
 interface PendingSave {
   patch: Partial<Settings>;
   affected: AffectedBlock[];
@@ -89,6 +115,7 @@ export function SettingsScreen(): React.JSX.Element {
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
   const [pending, setPending] = useState<PendingSave | undefined>(undefined);
+  const [timeRefusals, setTimeRefusals] = useState<Partial<Record<TimeKey, string>>>({});
 
   useEffect(() => {
     const controller = new AbortController();
@@ -132,6 +159,21 @@ export function SettingsScreen(): React.JSX.Element {
   );
   const dirty = Object.keys(patch).length > 0;
 
+  const refuseTime =
+    (field: TimeKey) =>
+    (message: string | undefined): void => {
+      setTimeRefusals((current) =>
+        current[field] === message ? current : { ...current, [field]: message },
+      );
+    };
+  // An hour the field refused never reached the draft, so neither `issues` nor `dirty` can see it:
+  // the Save button has to be told, or it writes the hour the row stopped showing.
+  const timeRefused =
+    draft !== undefined &&
+    TIME_KEYS.some(
+      (field) => refusedTimeOf(timeRefusals, field, draft.period2Enabled) !== undefined,
+    );
+
   const commit = useCallback(
     async (fields: Partial<Settings>): Promise<void> => {
       if (draft === undefined) return;
@@ -159,6 +201,7 @@ export function SettingsScreen(): React.JSX.Element {
 
   const requestSave = useCallback(async (): Promise<void> => {
     if (saved === undefined || draft === undefined || !dirty || hasIssues(issues)) return;
+    if (timeRefused) return;
 
     const risk = assessRisk(saved, draft);
     let affected: AffectedBlock[] = [];
@@ -186,7 +229,7 @@ export function SettingsScreen(): React.JSX.Element {
     }
 
     await commit(patch);
-  }, [saved, draft, dirty, issues, patch, reduction, commit]);
+  }, [saved, draft, dirty, issues, timeRefused, patch, reduction, commit]);
 
   // ---- loading and hard failures -----------------------------------------
 
@@ -221,6 +264,10 @@ export function SettingsScreen(): React.JSX.Element {
    * wording: `errors.settingsInvalid` is the only key the data layer emits for a bad setting.
    */
   const errorFor = (field: keyof Settings): string | undefined => {
+    if (isTimeKey(field)) {
+      const refused = refusedTimeOf(timeRefusals, field, draft.period2Enabled);
+      if (refused !== undefined) return refused;
+    }
     if (issues[field] !== undefined) return t('errors.settingsInvalid');
     if (failedField === field) return apiErrorMessage(saveError, t, language);
     return undefined;
@@ -249,6 +296,7 @@ export function SettingsScreen(): React.JSX.Element {
           value={draft.period1Start}
           error={errorFor('period1Start')}
           onChange={(value) => patchDraft({ period1Start: value })}
+          onInvalid={refuseTime('period1Start')}
         />
 
         <TimeRow
@@ -256,6 +304,7 @@ export function SettingsScreen(): React.JSX.Element {
           value={draft.period1End}
           error={errorFor('period1End')}
           onChange={(value) => patchDraft({ period1End: value })}
+          onInvalid={refuseTime('period1End')}
         />
 
         <div className={styles.row}>
@@ -273,6 +322,7 @@ export function SettingsScreen(): React.JSX.Element {
           disabled={!draft.period2Enabled}
           error={draft.period2Enabled ? errorFor('period2Start') : undefined}
           onChange={(value) => patchDraft({ period2Start: value })}
+          onInvalid={refuseTime('period2Start')}
         />
 
         <TimeRow
@@ -281,6 +331,7 @@ export function SettingsScreen(): React.JSX.Element {
           disabled={!draft.period2Enabled}
           error={draft.period2Enabled ? errorFor('period2End') : undefined}
           onChange={(value) => patchDraft({ period2End: value })}
+          onInvalid={refuseTime('period2End')}
         />
 
         <p className={styles.note}>
@@ -450,7 +501,7 @@ export function SettingsScreen(): React.JSX.Element {
         <Button
           variant="primary"
           icon={<IconDeviceFloppy size={15} stroke={1.75} />}
-          disabled={!dirty || hasIssues(issues) || saving || checking}
+          disabled={!dirty || hasIssues(issues) || timeRefused || saving || checking}
           onClick={() => void requestSave()}
         >
           {saving || checking ? t('common.saving') : t('settings.save')}
@@ -530,16 +581,25 @@ interface TimeRowProps {
   error?: string;
   disabled?: boolean;
   onChange: (value: string) => void;
+  /** What the field refuses. Never in the draft, so the row's error and the Save gate need it. */
+  onInvalid: (message: string | undefined) => void;
 }
 
 /**
  * One period boundary, typed rather than `<input type="time">`, which renders in the BROWSER's
  * locale: this form showed "08:00 AM" beside a calendar reading "08:00–14:00".
  */
-function TimeRow({ label, value, error, disabled = false, onChange }: TimeRowProps): React.JSX.Element {
+function TimeRow({
+  label,
+  value,
+  error,
+  disabled = false,
+  onChange,
+  onInvalid,
+}: TimeRowProps): React.JSX.Element {
   return (
     <Field label={label} inline error={error}>
-      <TimeField value={value} disabled={disabled} onChange={onChange} />
+      <TimeField value={value} disabled={disabled} onChange={onChange} onInvalid={onInvalid} />
     </Field>
   );
 }

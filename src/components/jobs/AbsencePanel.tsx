@@ -169,6 +169,13 @@ export function AbsencePanel({
   const [hours, setHours] = useState(minutesToHours(DEFAULT_GAP_MINUTES));
   const [reason, setReason] = useState('');
   const [localError, setLocalError] = useState<{ field: AbsenceField; key: string } | null>(null);
+  /**
+   * What the hour field is refusing. It is on screen; `startTime` is not — it still holds the last
+   * settled value. Only ever ONE of the two hour fields is mounted, and the field itself clears this
+   * on both mount and unmount, so a mode switch cannot leave a refusal behind for a control the
+   * screen no longer draws.
+   */
+  const [timeRefusal, setTimeRefusal] = useState<string | undefined>(undefined);
   const [actionError, setActionError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -322,6 +329,9 @@ export function AbsencePanel({
 
   const submit = async (): Promise<void> => {
     if (saving || deleting) return;
+    // A refused hour would be saved as the value the field stopped showing — the day closed from
+    // 08:00 for a typed 23:00. The blur that refuses it is flushed before this click.
+    if (timeRefusal !== undefined) return;
 
     if (!isValidDate(date)) {
       setLocalError({ field: 'date', key: 'errors.invalidDate' });
@@ -496,7 +506,7 @@ export function AbsencePanel({
             <Button
               className={styles.grow}
               variant="primary"
-              disabled={busy || nothingToClose || refused}
+              disabled={busy || nothingToClose || refused || timeRefusal !== undefined}
               onClick={submit}
             >
               {saving
@@ -658,8 +668,16 @@ export function AbsencePanel({
 
             {kind === 'closed-days' && bulk ? null : (
               <div className={styles.row}>
-                <Field label={t('gapForm.startTime')} error={errorFor('startTime')}>
-                  <TimeField value={startTime} disabled={busy} onChange={setStartTime} />
+                <Field
+                  label={t('gapForm.startTime')}
+                  error={timeRefusal ?? errorFor('startTime')}
+                >
+                  <TimeField
+                    value={startTime}
+                    disabled={busy}
+                    onChange={setStartTime}
+                    onInvalid={setTimeRefusal}
+                  />
                 </Field>
 
                 <Field label={t('gapForm.duration')} error={errorFor('duration')}>
@@ -690,13 +708,17 @@ export function AbsencePanel({
               </span>
             </div>
 
-            <Field label={t('gapForm.closeDayWhen')} error={errorFor('startTime')}>
+            <Field
+              label={t('gapForm.closeDayWhen')}
+              error={timeRefusal ?? errorFor('startTime')}
+            >
               <TimeField
                 value={startTime}
                 minMinutes={closeBounds?.minMinutes}
                 maxMinutes={closeBounds?.maxMinutes}
                 disabled={busy}
                 onChange={setStartTime}
+                onInvalid={setTimeRefusal}
               />
             </Field>
 

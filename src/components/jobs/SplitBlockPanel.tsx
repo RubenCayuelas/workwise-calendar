@@ -97,6 +97,8 @@ export function SplitBlockPanel({
   const [date, setDate] = useState(defaultDate ?? block.date);
   const [startTime, setStartTime] = useState(minutesToHHmm(defaultStartMinutes ?? block.startMinutes));
   const [localError, setLocalError] = useState<{ field: SplitField; key: string } | null>(null);
+  /** What the hour field is refusing. It is on screen; `startTime` is not. */
+  const [timeRefusal, setTimeRefusal] = useState<string | undefined>(undefined);
   const [actionError, setActionError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
   /** The job's row ids before the split, which is how the fragment is recognised. */
@@ -132,6 +134,9 @@ export function SplitBlockPanel({
 
   const submit = async (): Promise<void> => {
     if (saving) return;
+    // A refused hour is on screen while `startTime` still holds the last settled one: saving would
+    // cut at the hour the field stopped showing. The blur that refused it lands before this click.
+    if (timeRefusal !== undefined) return;
 
     const durationMinutes = hoursToMinutes(hours);
     if (durationMinutes <= 0 || durationMinutes >= block.durationMinutes) {
@@ -191,7 +196,7 @@ export function SplitBlockPanel({
             className={styles.grow}
             variant="primary"
             icon={<IconScissors size={15} stroke={1.75} />}
-            disabled={saving}
+            disabled={saving || timeRefusal !== undefined}
             onClick={submit}
           >
             {saving ? t('common.saving') : t('block.splitConfirm')}
@@ -247,8 +252,13 @@ export function SplitBlockPanel({
         </Field>
 
         {/* Typed, and moved by quarter hours like the grid's snap. */}
-        <Field label={t('gapForm.startTime')} error={errorFor('startTime')}>
-          <TimeField value={startTime} disabled={saving} onChange={setStartTime} />
+        <Field label={t('gapForm.startTime')} error={timeRefusal ?? errorFor('startTime')}>
+          <TimeField
+            value={startTime}
+            disabled={saving}
+            onChange={setStartTime}
+            onInvalid={setTimeRefusal}
+          />
         </Field>
       </div>
 

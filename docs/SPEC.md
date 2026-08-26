@@ -1079,13 +1079,19 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   `minutesToHHmm`.
 - **Only a value that actually CHANGED is snapped to the quarter**, compared against what the field held
   when it took the focus, so a hand-stored `08:10` survives being tabbed over.
-- **What cannot be read is LEFT ON SCREEN**, with the invalid ring and `errors.invalidTimeFormat` in the
-  field's own `title`, the way `Field` swaps its hint for an error. Never replaced, never cleared.
+- **What cannot be read is LEFT ON SCREEN**, with the invalid ring and `errors.invalidTimeFormat` both on
+  the field's own `title` and in the `Field`'s error line, which is the announced half. Never replaced,
+  never cleared.
 - **The ceiling is `23:45`**, the last quarter of the day: `hhmmToMinutes` reads `24:00` as 1440, and the
   band then stops being drawn while the field still looks legal.
 - **Bounds REFUSE in the open and never clamp.** The one field that carries them is the hour a day is
   closed at, bounded by the work periods; out of them it is refused with `errors.timeOutOfBounds`, which
   names the two hours it has to be between.
+- **A REFUSAL HOLDS THE SAVE.** The refused string is on screen while the form still holds the last
+  settled hour, so the field tells the form (`onInvalid`, required) and the form's save button neither
+  writes nor enables until the field settles. Otherwise `Guardar` stores the hour the screen stopped
+  showing — the same harm as clamping, reached from the other side. The field clears the refusal on
+  mount and on unmount, so a control the screen no longer draws can never hold a button down.
 - **`Escape` inside the field closes the panel**, as it already does inside the name `Input`. There is
   nothing to revert.
 
