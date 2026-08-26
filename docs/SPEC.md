@@ -369,7 +369,7 @@ engine plans nothing there, so only the owner's choice and the padlock hold the 
 - **The confirmation is now the SERVER's answer, not the weekday's.** `confirmKindFor` asks the
   weekday FIRST and lets it win, so a preview that failed or has not arrived can still never let a
   save honour a Friday or a weekend silently. A closed day is invisible to the weekday — only
-  `day_overrides` knows — so a **dated save waits for its preview** and Guardar is inert until one
+  `day_overrides` knows — so a **dated save waits for its preview** and the save is inert until one
   answers. Without that wait a closed day would be honoured without ever being asked about.
 - **`needsDayConfirmation` and `confirmKind` are one question**, held so by a `Record` over the three
   kinds: a confirmation with no sentence in it is a dialog the owner cannot read.
@@ -489,9 +489,9 @@ end is a QUESTION, asked once and answered in the same request shape:
 
 | the answer | what happens | `total_hours` |
 |---|---|---|
-| **Cancelar** | nothing is written; the client simply does not ask again | unchanged |
-| **Quitar las horas del total** (`freedHours: "reduce-total"`) | the job becomes smaller by those hours | **decreases** |
-| **Dividir** (`freedHours: "new-block"`) | the hours become a block of their own, ranked after the job's last row | unchanged |
+| **Cancel** | nothing is written; the client simply does not ask again | unchanged |
+| **Take the hours off the total** (`freedHours: "reduce-total"`) | the job becomes smaller by those hours | **decreases** |
+| **Split** (`freedHours: "new-block"`) | the hours become a block of their own, ranked after the job's last row | unchanged |
 | **Add the hours to the total** (`freedHours: "add-to-total"`) | answers a GROW: the job becomes bigger by the shortfall | **increases** |
 
 Unanswered, the request is **409 `shrink-needs-choice`** or **409 `grow-needs-choice`**, writing
@@ -541,8 +541,8 @@ Three honest ways, all of which fall out of the rules above:
 
 1. **Put another job after it.** The drop re-ranks the queue, the job splits there, and the day reads
    `A 2 h, B, A 4 h`.
-2. **Stop the day with a gap.** A **one-click action** on the block's hover bar ("Cerrar el día
-   aquí"): it pre-fills a gap from a chosen moment to the end of the day's last enabled period, asks
+2. **Stop the day with a gap.** A **one-click action** on the block's hover bar (*close the day
+   here*): it pre-fills a gap from a chosen moment to the end of the day's last enabled period, asks
    only for an optional reason, and states what the day loses and whose hours the engine will move.
    **Across the lunch break that is TWO rows** and the plan says so (`CloseDayPlan.rows`), while the hours
    it asks for are the day's NET working minutes — closing at 13:00 is 5 h, not 6.5 h. One request
@@ -550,7 +550,7 @@ Three honest ways, all of which fall out of the rules above:
    It is an ordinary gap — same endpoint, same refusals, editable and deletable afterwards.
    **It is also what the refused resize offers**, so a reach for the bottom edge of an automatic row
    ends one tap from the thing that really works. **THE APP NEVER CREATES THE GAP ITSELF**, from
-   either entry point: it fills the form in and the owner presses Guardar. Both entry points read the
+   either entry point: it fills the form in and the owner presses save. Both entry points read the
    same `closeDayOffer.ts`, so they can never propose different gaps.
 3. **Padlock the block and then shrink it.** The padlock is what holds the shorter length (*Block
    Resize*); the hours it frees go to the job's last block the engine still places, and the room it
@@ -1091,7 +1091,7 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   names the two hours it has to be between.
 - **A REFUSAL HOLDS THE SAVE.** The refused string is on screen while the form still holds the last
   settled hour, so the field tells the form (`onInvalid`, required) and the form's save button neither
-  writes nor enables until the field settles. Otherwise `Guardar` stores the hour the screen stopped
+  writes nor enables until the field settles. Otherwise the save stores the hour the screen stopped
   showing — the same harm as clamping, reached from the other side. The field clears the refusal when it
   mounts, when it is disabled and when it unmounts, so a control the screen has stopped drawing can
   never hold a button down.
@@ -1140,9 +1140,9 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   - The two hanging classes (`.tickFirst` / `.tickLast`) are keyed on the MINUTE, never on the tick's
     index: either end can now be dropped, and by index the label that inherited position 0 would be
     hung below its rule while the collision arithmetic had measured it as centred.
-- **Day headers** carry their state: `Lun 10 · congelado`, `Mar 11 [hoy]`, `Vie 14 · buffer`. On a
-  CLOSED day the state is the owner's own words — `Mar 1 · Feria`, from `day_overrides.note`, falling
-  back to *cerrado* when there are none: the dimmed column already says "closed", and the reason is the
+- **Day headers carry their state** beside the day: frozen, today, the Friday buffer. On a CLOSED
+  day the state is the owner's own words, from `day_overrides.note`, falling back to a word for
+  closed when there are none: the dimmed column already says "closed", and the reason is the
   only thing it cannot.
 - **The day picker's month is fed from the same rows this week is**: `GET /api/days?from=&to=`, whose
   `readDays` sits beside `readWeek` and reads the same `listDayOverridesBetween` and the same snapshot's
@@ -1435,7 +1435,7 @@ minute by minute, at several fitted scales — never at sample points.
   row the padlock and the scissors are absent**, and the padlock is drawn as a read-only state icon.
 - The two halves around lunch are listed as two separate rows — that is the segment model, confirmed
   by the wireframe.
-- Actions: `Guardar`, `Eliminar`.
+- Actions: save and delete.
 
 ### Job Management
 - **Create**: Name + Description + Color + Hours, appended to the end of the queue (Mon-Thu, never
@@ -1475,7 +1475,7 @@ of this one.)*
   DELETED. **Delete**: takes the whole unit too; it frees up time and recomposition runs if needed.
 - **The FORM edits the absence, never one of its rows.** It is handed (date, start, NET total) for the
   unit. Handed one half instead, opening the `08:00 +6 h` morning of a 10 h absence and pressing
-  Guardar sent `durationMinutes: 360` for the whole unit and the reconcile deleted the afternoon —
+  save sent `durationMinutes: 360` for the whole unit and the reconcile deleted the afternoon —
   4 h destroyed by a save that changed nothing (measured 2026-08-19). `gapUnitOf` in `grouping.ts` is
   the one place the absence is derived from what is on screen.
 - **The form is the only gesture that reaches a PAST day**, which is how a mis-recorded absence is
@@ -1543,7 +1543,7 @@ gesture.
   transaction — from ever being asked about a range nobody has finished choosing.
 - **The press that closes the popover is swallowed on the GRID and nowhere else.** Underneath the grid
   it must be, or that press starts a band or opens the panel of the job below it. Inside the panel
-  nothing is underneath, and eating it there made the next control need two presses — `Guardar`
+  nothing is underneath, and eating it there made the next control need two presses — the save
   appearing to do nothing the first time.
 - **The weekend cells INSIDE the span are drawn excluded**, by the same `absenceRange` the write uses
   and never re-derived in the screen: a span drawn Monday to Sunday as seven cells would promise seven
@@ -1566,7 +1566,7 @@ gesture.
 
 #### Closing Days — the mechanism that was wired engine-deep and had no way in
 > **A closed day is one `day_overrides` row: `plannableMinutes` 0, `dayReflows` false, the column
-> dimmed, and the DAY HEADER carries the reason from `note` — `Mar 1 · Feria`. No colour band: five in
+> dimmed, and the DAY HEADER carries the reason from `note`. No colour band: five in
 > a row would drown the week.**
 
 - **It behaves like a weekend**, and that is the whole of its definition: the engine plans nothing
@@ -1722,7 +1722,7 @@ gesture.
 
 #### The Band Stays Drawn While Its Form Is Open
 > **Choosing an answer does not erase the band. It stays on the grid and FOLLOWS THE FORM — the day,
-> the start and the hours — until Guardar replaces it with the real rows, or Cancelar takes it away.
+> the start and the hours — until the save replaces it with the real rows, or cancelling takes it away.
 > For a gap and for a job alike.**
 
 - **Client-side only, and AGNOSTIC to what is underneath it** (`planDraftRows`, `draftBand.ts`): it
@@ -1757,19 +1757,19 @@ gesture.
 #### The Warning Before Work Is Pushed
 > **Bulk creation PREVIEWS: `POST /api/absences/preview` takes the same body and WRITES NOTHING. It
 > names the days, the rows one day will hold, the hours it pushes, the jobs they belong to and the
-> date they land on. Cancelling is not pressing Guardar.**
+> date they land on. Cancelling is not saving.**
 
 - **It runs the real write and rolls it back** (`previewAbsence` → `dryRun`), so it cannot promise a
   placement the save will not perform and it REFUSES whatever the save would refuse — a padlocked row
   in the way, a horizon the hours no longer fit in. The screen shows the refusal and does not offer
-  Guardar at all. The alternative, a model of the reflow, is the thing *one function serves both* exists
+  the save at all. The alternative, a model of the reflow, is the thing *one function serves both* exists
   to prevent: only a whole pass knows where the queue's cursor reaches.
 - **Only bulk creation warns** — a range of closed days, a range of gaps, a painted gap — because those
   displace hours into weeks that are not on screen. A DRAG or a RESIZE of one absence does not: the
   result is on screen and the ghost drew it.
 - **A painted JOB warns through the creation preview it already had** (`POST /api/projects/preview`
   + `PlacementNotice`), not through this one: `planCreation` computes the whole placement, so the form
-  states what the day will hold and what the hours cost before Guardar. `startMinutes` is sent to the
+  states what the day will hold and what the hours cost before the save. `startMinutes` is sent to the
   preview only while the date is STILL the painted one — moving the day gives the point up and makes it
   an ordinary floor again, and previewing a minute on another column would promise a placement nobody
   asked for.
@@ -1815,10 +1815,10 @@ gesture.
   `history` — an undo may not reach back into a calendar that no longer exists.
 - **A name is `basename`d and must match the automatic pattern**, so the folder cannot be used to read
   an arbitrary file off the disk.
-- **The buttons.** *Guardar copia* opens the browser's native save dialog (`showSaveFilePicker`,
+- **The buttons.** *Save a copy* opens the browser's native save dialog (`showSaveFilePicker`,
   falling back to a download where it does not exist) — the server streams bytes and never learns
-  where they went. The list of automatic copies is the primary way to restore; *Cargar copia desde mi
-  PC* is a secondary button for a file the owner saved themselves.
+  where they went. The list of automatic copies is the primary way to restore; *load a copy from my
+  own PC* is a secondary button for a file the owner saved themselves.
 - **Silent when it works, loud when it does not.** The automatic copy says nothing on success or when
   it was not due; a failure raises the error banner, because a backup that quietly never happens is
   worse than none.

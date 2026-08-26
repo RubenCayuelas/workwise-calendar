@@ -208,7 +208,7 @@ thing holding it there, and a half-locked job comes apart on the next reflow.
 closes itself, and what the write DID is said in a toast. A refusal is the opposite: the form stays and
 stays editable, because there is still something to fix.
 
-**Why** — the new-job form used to remain on screen with every field disabled behind a single *Cerrar*,
+**Why** — the new-job form used to remain on screen with every field disabled behind a single button to close it,
 and it read as the app having hung. It also held the grid: `enabled` and `nothingOpen` both count an open
 panel, so no second band could be painted and undo stayed off until it was shut.
 
@@ -511,7 +511,7 @@ from 10:00 tests `10:00-18:00`, names rows inside the break where nothing can be
 `18:00-19:30` its real second half lands on.
 
 **Why the form is handed the UNIT and never one row** — handed one half instead, opening the `08:00 +6 h`
-morning of a 10 h absence and pressing Guardar sent 360 minutes for the whole unit and the reconcile deleted
+morning of a 10 h absence and pressing save sent 360 minutes for the whole unit and the reconcile deleted
 the afternoon. Four hours destroyed by a save that changed nothing.
 
 ---
@@ -927,7 +927,7 @@ screen instead.
 
 **Why a refusal is handed to the form and holds the save** — the refused string stays on screen while the
 form goes on holding the last settled hour, so the two disagree. With the message only on the field's own
-`title` — not announced to a screen reader, and easy to press past — `Guardar` wrote the previous value:
+`title` — not announced to a screen reader, and easy to press past — the save wrote the previous value:
 a day typed to close at `23:00` closed at `08:00`, and a Settings shift row showing an unreadable hour
 saved the old shift. That is the clamping above, arrived at from the other side. `onInvalid` is required
 rather than optional so a new call site cannot quietly reintroduce it, and the field clears the refusal
@@ -1036,7 +1036,7 @@ against: every click hands over a complete, ordered span. The provisional end, i
 visual state all went with it.
 
 **Why the closing press is swallowed on the grid alone** — the press that dismisses the popover used to be
-swallowed wherever it landed, so `Guardar` needed two: the first only closed the calendar. Underneath the
+swallowed wherever it landed, so the save needed two: the first only closed the calendar. Underneath the
 GRID the swallow is measured and stays — that press starts a paint band or opens the panel of the job
 below it — but inside the panel nothing is underneath, and a control that ignores the first press is the
 wrong bargain for someone who does not read the screen before using it.
@@ -1047,7 +1047,7 @@ that makes five.
 
 **Why one error slot is still needed** — `localError` is drawn nowhere but in a `Field`'s `error=`. Two
 fields became one, so the range's `Field` takes `rangeError`, which answers with whichever of the span's
-two ends was refused; without it `Guardar` would write nothing and say nothing when the server answers 400
+two ends was refused; without it the save would write nothing and say nothing when the server answers 400
 `invalid-range`, which two clicks reach at `MAX_ABSENCE_DAYS` (120). Ordered ends make
 `errors.rangeBackwards` unreachable from the calendar.
 

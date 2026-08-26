@@ -19,6 +19,10 @@ day, and only an absence that runs longer needs a second one, which stretches it
 the save button: that press saves. Before, it only shut the calendar and the button had to be pressed
 again. Over the week grid it still only closes, because a stray press there starts painting a band.
 
+**And the four documents describe the screen in English.** They quoted its Spanish here and there — a
+button, a placeholder's example, the line under a day field — which is how a document ends up half
+translated. The wording lives in the language files and nowhere else.
+
 **The ring around today is a circle again.** It was drawn around the number itself, so it sat tight
 against the digits and came out a different shape on the 9th than on the 26th. The number now sits
 centred inside a circle of its own, and the calendar's rows are a little taller to give it room.
