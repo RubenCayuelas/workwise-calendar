@@ -135,10 +135,21 @@
   background: var(--ww-surface-alt);
 }
 
-.today .number {
+/*
+ * A round box of its own, not the glyphs' own edge. Outlined at an offset the ring hugged the text,
+ * so it came out tight and a different shape for one digit than for two. Twenty inside a thirty-tall
+ * cell leaves five either side, which clears the room dot at the bottom.
+ */
+.number {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
   border-radius: var(--ww-radius-pill);
-  outline: var(--ww-hairline) solid var(--ww-border-strong);
-  outline-offset: 2px;
+}
+
+.today .number {
+  border: var(--ww-hairline) solid var(--ww-border-strong);
 }
 
 .selected {
@@ -180,14 +191,6 @@
 
 /* The one end already clicked. The second click is what reaches the form, so this is the only sign
    the popover gives that a range is half chosen. */
-.pending {
-  background: var(--ww-accent);
-}
-
-.pending .number {
-  color: var(--ww-on-accent);
-}
-
 /* Centred and quiet under a hairline: it is a shortcut, not a third answer. */
 .todayButton {
   align-self: stretch;
