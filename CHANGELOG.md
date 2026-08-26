@@ -9,6 +9,67 @@ never moves without the owner asking.
 
 ---
 
+## 0.24.1 — one click is one day
+
+**Choosing a single day for an absence takes one click.** The calendar that picks an absence's days
+wanted two even when the answer was one day — the same day, clicked twice. A click now answers with that
+day, and only an absence that runs longer needs a second one, which stretches it to the day it lands on.
+
+**And the press that closes the calendar is no longer spent closing it.** Pick the day and go straight to
+the save button: that press saves. Before, it only shut the calendar and the button had to be pressed
+again. Over the week grid it still only closes, because a stray press there starts painting a band.
+
+**And the four documents describe the screen in English.** They quoted its Spanish here and there — a
+button, a placeholder's example, the line under a day field — which is how a document ends up half
+translated. The wording lives in the language files and nowhere else.
+
+**The ring around today is a circle again.** It was drawn around the number itself, so it sat tight
+against the digits and came out a different shape on the 9th than on the 26th. The number now sits
+centred inside a circle of its own, and the calendar's rows are a little taller to give it room.
+
+## 0.24.0 — the day comes from a calendar, the hour is typed
+
+**Choosing a day is a calendar now, not a list.** Every form that asks for one — a new job, the scissors,
+an absence — shows the day it holds on a button, and pressing it opens the month: six rows of seven,
+Monday first, an arrow either side to change month, and a Today button that picks today and closes. The
+list it replaces ran to well over a hundred days one after another.
+
+**The month says what it knows about each day.** Today wears a ring; Saturday, Sunday and anything past
+are dimmed; a closed day carries the same grey the grid gives its column and, under the mouse, the reason
+written on it; and a day the shop can still take work on carries a dot — hover it for the hours still
+free. Every one of them can still be chosen, so a closed day picked on purpose is honoured exactly as it
+was before.
+
+**The days a form cannot reach now look unreachable.** They are drawn faint and will not take a press,
+instead of accepting one and coming back with a refusal after the save.
+
+**Under the field the day is spelled out in full**: the weekday, the day, the month, and the week number
+after them. The old list grouped its days by week, and this is what keeps a form and the calendar calling
+one day by one name.
+
+**An absence over several days is one calendar.** It used to ask for the first day and the last in two
+separate fields; they are one range now, picked in two clicks, and the Saturdays and Sundays the save is
+going to skip are drawn as skipped before it is pressed. The count of days that will really be written
+stays under the field.
+
+**Every hour is typed.** `08:00` straight into the field, Enter or leaving it to make it count, and the
+two buttons beside it or the up and down arrows to move a quarter of an hour — a whole hour with Shift.
+The four schedule rows on the settings screen are the same field. Nothing is rewritten behind your back:
+an hour that cannot be read stays on screen and says so, an hour already stored off the quarter hour
+survives being tabbed past, and the one hour that has bounds — where the day stops when you close it
+from the grid — is refused naming the two hours it has to be between instead of being pulled inside them.
+An hour the field refuses also holds the save: the message appears under the field and the save button
+waits, so what is stored can never be the hour the screen stopped showing.
+
+**The placeholders say what to write.** The name of a job, the reason for a gap and the note on a closed
+day each showed a made-up value of the kind the field expects, which reads like something already filled
+in. They now say what the field is for.
+
+**An absence stays on the one day it names.** Moving a gap's day back to an earlier one — in the
+calendar, or with the button that offers the week you came from — used to save it on every weekday
+from the new day to the day it had been on, three days for a band drawn on one, and push work out of
+all of them.
+
 ## 0.23.5 — the buttons' outlines are quieter
 
 **Every button and icon button rests on a soft grey outline now instead of a near-black one** — 3.2:1
@@ -19,8 +80,6 @@ a block's hover actions all follow: it is one value for every control.
 The firm line is still there wherever it does work — a text field's edge under the pointer, and the
 dashed marks a drag draws.
 
----
-
 ## 0.23.4 — the calendar reaches closer to the bottom of the window
 
 **The dead space under the grid is down from 24 px to 8 px, and the calendar has taken the
@@ -29,16 +88,12 @@ what was there was holding a gap open in front of a box with no height in it, wh
 The rest came off the page's bottom padding. Nothing is cut: the last hour of the axis still ends
 inside the frame at every window size.
 
----
-
 ## 0.23.3 — the week sits in the middle of the window
 
 **The week label and its two arrows are centred on the window now**, instead of in the middle of
 whatever room was left between the logo and the buttons — which put them 166 px to the left of centre,
 at every window size. On a narrow window, where the row of buttons is wider than its half, the pager
 stops 35 px short rather than crowd it; nothing is ever cut.
-
----
 
 ## 0.23.2 — the amber button has an edge, like every other control
 
@@ -51,8 +106,6 @@ changes only its fill.
 This reaches every amber button, not just the header: the save button on each panel, the paint chooser
 and settings.
 
----
-
 ## 0.23.1 — the absences screen is a button, not a menu item
 
 **The `…` menu is gone, and both things it held are on the header.** Absences now sits beside the new
@@ -63,8 +116,6 @@ That menu was costing more than a click. With nothing on screen saying the shop'
 of its own, days off were being entered as jobs instead — which counts hours nobody is going to work,
 pushes the *booked until* date further out than the shop really is, and leaves the calendar planning
 work into days the shop is shut.
-
----
 
 ## 0.23.0 — a gap or a job can be started in the middle of a job
 
@@ -86,8 +137,6 @@ work into days the shop is shut.
 - **The two lines of small print under the grid are gone, and the calendar is 38 px taller for it.** A
   gesture's hint still appears in that corner while the gesture lasts; it no longer holds a strip of
   every screen open to say what the grey bands mean.
-
----
 
 ## 0.22.1 — closing a day by hand asks the same question
 
@@ -177,7 +226,7 @@ behaves has changed.
 ## 0.20.1 — the new-job form closes when the job is created
 
 **Creating a job no longer leaves the form open.** It used to stay on screen with every field greyed
-out and one `Cerrar` button, and until it was shut nothing else could be done: no second band could be
+out and one button to close it, and until it was shut nothing else could be done: no second band could be
 painted on the grid, and undo was off. The form now closes on the save, and what the engine did with
 the hours — the days and times they were born on, and the sentence explaining a padlock the chosen
 date left behind — is said in a notice at the corner of the calendar, the same way saving an absence

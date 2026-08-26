@@ -1,18 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   addDays,
+  addMonths,
   compareDates,
   daysBetween,
+  endOfMonth,
   formatDate,
   hhmmToMinutes,
   hoursToMinutes,
   instantToLocalDate,
+  isSameMonth,
   isWeekend,
   isoWeekNumber,
   isoWeekYear,
   minutesToHHmm,
   minutesToHours,
   parseDate,
+  startOfMonth,
   startOfWeek,
   todayLocal,
   weekDates,
@@ -123,6 +127,44 @@ describe('weeks', () => {
     expect(compareDates('2026-08-11', '2026-08-12')).toBe(-1);
     expect(compareDates('2026-08-12', '2026-08-11')).toBe(1);
     expect(compareDates('2026-08-11', '2026-08-11')).toBe(0);
+  });
+});
+
+describe('months', () => {
+  it('finds the first and the last day of a month, whatever its length', () => {
+    expect(startOfMonth('2026-08-12')).toBe('2026-08-01');
+    expect(startOfMonth('2026-08-01')).toBe('2026-08-01');
+    expect(endOfMonth('2026-08-12')).toBe('2026-08-31');
+    expect(endOfMonth('2026-09-15')).toBe('2026-09-30');
+    expect(endOfMonth('2026-12-25')).toBe('2026-12-31');
+  });
+
+  it('gets February right in a common year and in a leap one', () => {
+    expect(endOfMonth('2026-02-10')).toBe('2026-02-28');
+    expect(endOfMonth('2024-02-10')).toBe('2024-02-29');
+  });
+
+  it('clamps a 31st onto a shorter month instead of rolling into the next one', () => {
+    expect(addMonths('2026-08-31', 1)).toBe('2026-09-30');
+    expect(addMonths('2026-01-31', 1)).toBe('2026-02-28');
+    expect(addMonths('2024-01-31', 1)).toBe('2024-02-29');
+    expect(addMonths('2026-03-31', -1)).toBe('2026-02-28');
+    expect(addMonths('2026-10-31', -8)).toBe('2026-02-28');
+  });
+
+  it('crosses the year in both directions', () => {
+    expect(addMonths('2026-12-15', 1)).toBe('2027-01-15');
+    expect(addMonths('2026-01-15', -1)).toBe('2025-12-15');
+    expect(addMonths('2026-08-12', 12)).toBe('2027-08-12');
+    expect(addMonths('2026-08-12', -12)).toBe('2025-08-12');
+    expect(addMonths('2026-08-12', 0)).toBe('2026-08-12');
+  });
+
+  it('tells two months apart when they share a number but not a year', () => {
+    expect(isSameMonth('2026-08-01', '2026-08-31')).toBe(true);
+    expect(isSameMonth('2026-08-31', '2026-09-01')).toBe(false);
+    expect(isSameMonth('2026-01-15', '2025-01-15')).toBe(false);
+    expect(isSameMonth('2027-01-01', '2026-12-31')).toBe(false);
   });
 });
 

@@ -207,6 +207,27 @@
   opacity: 0.4;
 }
 
+/* --- typed time --- */
+
+/* `TimeField` renders the stepper's own box, so the two stepping controls cannot drift apart.
+   The ring goes on the BOX because the state it draws reaches the input from `FieldContext`,
+   which the box cannot read. */
+.stepper:has(.timeInput[aria-invalid]) {
+  border-color: var(--ww-danger);
+}
+
+/* Doubled to raise specificity over `.input` above, whose bordered full-width box would
+   otherwise sit inside the box already drawing one. */
+.timeInput.timeInput {
+  width: 4.5em;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  background: none;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- checkbox --- */
 
 .checkbox {

@@ -55,7 +55,7 @@ export function assertRowInsideDay(row: RowExtent): void {
 
 /**
  * The smallest row the calendar can draw or the owner can aim at. Held equal to the drag layer's
- * `SNAP_MINUTES` and the `TimeSelect` step by a test; a shorter row cannot show its own hours
+ * `SNAP_MINUTES` and `TIME_STEP_MINUTES` by a test; a shorter row cannot show its own hours
  * (`MIN_LABEL_HEIGHT`). A FRONT-DOOR floor on the gestures that name a duration outright, and
  * deliberately not a write-path guard.
  */

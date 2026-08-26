@@ -73,6 +73,25 @@ describe('every pointer resolves', () => {
   });
 });
 
+describe('docs/SPEC.md describes the screen that exists', () => {
+  /**
+   * The two controls the spec described before the month calendar and the typed hour replaced them.
+   * A spec naming a component that is not in the tree sends the next reader to a file that is not
+   * there — and it was the pointer this file already caught once, under a different name.
+   */
+  const RETIRED = ['DateSelect', 'TimeSelect'];
+
+  it('names the day picker and the time field, and neither control they replaced', () => {
+    for (const file of [SPEC, DECISIONS]) {
+      const text = read(file);
+      for (const name of RETIRED) expect(text).not.toContain(name);
+    }
+    const spec = read(SPEC);
+    expect(spec).toContain('DayPicker');
+    expect(spec).toContain('TimeField');
+  });
+});
+
 describe('docs/DECISIONS.md keeps one shape', () => {
   /** Every entry opens the same way, so a reader knows where the rule is without reading the prose. */
   const LEAD_IN = /^\*\*(Rule\*\* — |Rejected)/;
@@ -143,6 +162,40 @@ describe('CHANGELOG.md answers for the version that is shipping', () => {
     const app = JSON.parse(read('package.json')) as { version: string };
     const desktop = JSON.parse(read('desktop/package.json')) as { version: string };
     expect(desktop.version).toBe(app.version);
+  });
+
+  it('keeps both lockfiles on that version too', () => {
+    // `npm install` writes the manifest's version into the lockfile in two places, and the installer
+    // workflow keys its cache on those files. Left behind, the lockfile answers a version the app has
+    // not been for three releases.
+    for (const [manifest, lock] of [
+      ['package.json', 'package-lock.json'],
+      ['desktop/package.json', 'desktop/package-lock.json'],
+    ]) {
+      const { version } = JSON.parse(read(manifest)) as { version: string };
+      const locked = JSON.parse(read(lock)) as {
+        version: string;
+        packages: Record<string, { version?: string }>;
+      };
+      expect([locked.version, locked.packages[''].version]).toEqual([version, version]);
+    }
+  });
+
+  it('rules off the preamble and nothing else', () => {
+    // Every entry below 0.22.1 is separated from the next by a blank line alone, and the one `---` in
+    // the file sits between the preamble and the newest version. Seven crept in above it — one of them
+    // written by an agent reordering the file — and nothing caught them, because shape is only a rule
+    // here when it is a test.
+    const rules = read(CHANGELOG)
+      .split('\n')
+      .flatMap((line, index) => (line.trim() === '---' ? [index + 1] : []));
+    const firstEntry =
+      read(CHANGELOG)
+        .split('\n')
+        .findIndex((line) => line.startsWith('## ')) + 1;
+
+    expect(rules).toHaveLength(1);
+    expect(rules[0]).toBeLessThan(firstEntry);
   });
 
   it('lists its versions newest first', () => {

@@ -369,7 +369,7 @@ engine plans nothing there, so only the owner's choice and the padlock hold the 
 - **The confirmation is now the SERVER's answer, not the weekday's.** `confirmKindFor` asks the
   weekday FIRST and lets it win, so a preview that failed or has not arrived can still never let a
   save honour a Friday or a weekend silently. A closed day is invisible to the weekday — only
-  `day_overrides` knows — so a **dated save waits for its preview** and Guardar is inert until one
+  `day_overrides` knows — so a **dated save waits for its preview** and the save is inert until one
   answers. Without that wait a closed day would be honoured without ever being asked about.
 - **`needsDayConfirmation` and `confirmKind` are one question**, held so by a `Record` over the three
   kinds: a confirmation with no sentence in it is a dialog the owner cannot read.
@@ -489,9 +489,9 @@ end is a QUESTION, asked once and answered in the same request shape:
 
 | the answer | what happens | `total_hours` |
 |---|---|---|
-| **Cancelar** | nothing is written; the client simply does not ask again | unchanged |
-| **Quitar las horas del total** (`freedHours: "reduce-total"`) | the job becomes smaller by those hours | **decreases** |
-| **Dividir** (`freedHours: "new-block"`) | the hours become a block of their own, ranked after the job's last row | unchanged |
+| **Cancel** | nothing is written; the client simply does not ask again | unchanged |
+| **Take the hours off the total** (`freedHours: "reduce-total"`) | the job becomes smaller by those hours | **decreases** |
+| **Split** (`freedHours: "new-block"`) | the hours become a block of their own, ranked after the job's last row | unchanged |
 | **Add the hours to the total** (`freedHours: "add-to-total"`) | answers a GROW: the job becomes bigger by the shortfall | **increases** |
 
 Unanswered, the request is **409 `shrink-needs-choice`** or **409 `grow-needs-choice`**, writing
@@ -541,8 +541,8 @@ Three honest ways, all of which fall out of the rules above:
 
 1. **Put another job after it.** The drop re-ranks the queue, the job splits there, and the day reads
    `A 2 h, B, A 4 h`.
-2. **Stop the day with a gap.** A **one-click action** on the block's hover bar ("Cerrar el día
-   aquí"): it pre-fills a gap from a chosen moment to the end of the day's last enabled period, asks
+2. **Stop the day with a gap.** A **one-click action** on the block's hover bar (*close the day
+   here*): it pre-fills a gap from a chosen moment to the end of the day's last enabled period, asks
    only for an optional reason, and states what the day loses and whose hours the engine will move.
    **Across the lunch break that is TWO rows** and the plan says so (`CloseDayPlan.rows`), while the hours
    it asks for are the day's NET working minutes — closing at 13:00 is 5 h, not 6.5 h. One request
@@ -550,7 +550,7 @@ Three honest ways, all of which fall out of the rules above:
    It is an ordinary gap — same endpoint, same refusals, editable and deletable afterwards.
    **It is also what the refused resize offers**, so a reach for the bottom edge of an automatic row
    ends one tap from the thing that really works. **THE APP NEVER CREATES THE GAP ITSELF**, from
-   either entry point: it fills the form in and the owner presses Guardar. Both entry points read the
+   either entry point: it fills the form in and the owner presses save. Both entry points read the
    same `closeDayOffer.ts`, so they can never propose different gaps.
 3. **Padlock the block and then shrink it.** The padlock is what holds the shorter length (*Block
    Resize*); the hours it frees go to the job's last block the engine still places, and the room it
@@ -576,8 +576,8 @@ No impact on calendar layout or block positions. Metadata only.
 
 ### The Calendar Sits On The Quarter Hour
 > **A quarter of an hour is the smallest row the calendar can draw and the smallest amount the owner
-> can aim at. `MIN_ROW_MINUTES` (src/lib/validation.ts) is held equal to the drag layer's
-> `SNAP_MINUTES` and to the `TimeSelect` step by a test.**
+> can aim at. `MIN_ROW_MINUTES` (src/lib/validation.ts), the drag layer's `SNAP_MINUTES` and
+> `TIME_STEP_MINUTES` — the step a typed hour moves by — are held equal by a test.**
 
 - **The scissors** floor both halves (409 `split-below-minimum`).
 - **The engine** never stores a row under it and never fills a hole too small to hold one — see the
@@ -1004,10 +1004,99 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
 - **Icons**: Tabler (`@tabler/icons-react`), bundled locally — no CDN.
 - **No native `<input type="time">` or `<input type="date">` anywhere.** Both render in the
   BROWSER's locale, not the page's. Every time and every day goes through `useFormat()`:
-  - times from the quarter-hour `TimeSelect`, whose step is held equal to `SNAP_MINUTES` by a test;
-  - days from `DateSelect`, which offers the days of the schedule, spelled "Mié 12 ago" and grouped
-    under the header's week label. Its window runs a few weeks back to the end of the planning
-    horizon, and the day already stored is **always** an option even when it falls outside.
+  - times are TYPED into `TimeField`, an `HH:mm` field with `−`/`+` beside it, whose quarter-hour step
+    is held equal to `SNAP_MINUTES` by a test — see *The Hour Is Typed*;
+  - days are chosen on `DayPicker`'s month grid, the day itself spelled short on the button that
+    opens it — abbreviated weekday, day, abbreviated month — see *The Day Is Picked From a Month,
+    Never From a List*.
+
+#### The Day Is Picked From a Month, Never From a List
+> **A day is chosen on `DayPicker`: a button carrying the day it already holds, spelled short, that
+> opens a month grid in a popover. Six rows of seven, ALWAYS six, Monday first, `‹ ›` to change month,
+> and a Today button that CHOOSES today and closes like any other cell. The form is told on the click.**
+
+- **One line under the field, never two**: the day written out in full and the week number, joined
+  with `units.listSeparator`. The list this replaces grouped its days under the very week label the header
+  carries, so a form and the grid could not name one day two ways; `units.week` keeps that number
+  without the date range the long date already spells out. `Field` shows the error in its place when
+  there is one, so the line goes away exactly when a date is being refused.
+- **How far it reaches is `planningWindow`, unchanged**: four weeks back from this week's Monday, the
+  planning horizon forward, capped at 16 weeks. `‹ ›` go grey at that window's edges.
+- **A month always overhangs the window, and the overhanging days are dimmed and cannot be pressed.**
+  The window falls mid-month — for a today of 2026-08-12 on an 8-week horizon it is
+  `2026-07-13 … 2026-10-04`, so July shows twelve days it does not offer. Pressed, they would earn a
+  409 `horizon-exceeded` forward, and backward a job's start date writing padlocked rows in the past.
+- **The day already stored is always pressable, even outside the window**: the popover opens in its
+  month, that one cell can be chosen, the rest of that month cannot.
+- **The days a row borrows from the neighbouring month are drawn fainter.** Six rows always means the
+  first and the last borrow; the fading says which month is on show and nothing about the day, and such
+  a cell is chosen like any other when the window offers it.
+- **Six marks, no more, and every one of them can be chosen.** No mark disables a cell.
+
+  | day | drawn as | known from |
+  |---|---|---|
+  | the chosen one | the cell filled | the value itself |
+  | today | a ring around the number | `today`, which already reaches all three panels |
+  | Saturday and Sunday | the number dimmed | the weekday, on the client |
+  | past | the number dimmed, the same as the weekend | `compareDates(date, today) < 0`, on the client |
+  | closed | the cell's BACKGROUND in `--ww-surface-alt`, the grid's own closed grey | the server |
+  | room left | a dot under the number | the server |
+
+  **Two channels and not three**: the NUMBER dims where the calendar itself puts no work — the weekend,
+  the past — and the BACKGROUND greys where the owner closed the shop. A closed Saturday carries both,
+  which is the truth. No hatch, and no legend.
+- **The dot says one thing: the engine still places hours here.** Its absence claims nothing.
+  `freeMinutes` is the day's plannable minutes less the movable blocks already on it; `hasRoom` also
+  requires the day's longest free stretch to hold `MIN_ROW_MINUTES` and the day to fall inside the
+  horizon.
+- **Hovering a cell says what that day has to say**, composed with `units.listSeparator` exactly as a
+  day header composes its own — `dayCellNotes` returns the KINDS and the component words them: the
+  day, then `today`, `weekend`, the stored `note` or `closed` without one, and either `freeHours` or
+  `full`.
+- **The keyboard**: arrows move the focused cell, `Home`/`End` to the ends of its week,
+  `PageUp`/`PageDown` a month, `Enter` chooses, `Escape` closes and gives the focus back to the
+  button. Opening puts the focus on the selected cell, and the picker SWALLOWS the arrow keys it uses,
+  so the header's week pager cannot turn the week under an open calendar.
+- **The popover is portalled to `document.body`**, fixed to the viewport and clipped there, at
+  `--ww-z-popover` (45) — over the panel it belongs to, under a confirmation. The grid clips its own
+  overflow and a week change applies a `transform`, which would contain anything `fixed` inside it for
+  the 180 ms it lasts.
+- **`Escape` and the press that dismisses it are SWALLOWED**, both on `window` in the capture phase.
+  Otherwise the same `Escape` closes the panel underneath, and the dismissing press falls through to the
+  column and starts painting a band. A press on the TRIGGER itself is the exception, and so is one on
+  the `Field` label whose click the browser forwards there: the trigger's own click TOGGLES, because
+  `preventDefault` on a `pointerdown` does not cancel the click behind it and the calendar would reopen
+  the instant it closed. Leaving by `Tab` fires no pointer event at all, so a `focusout` on the box
+  closes it too.
+
+#### The Hour Is Typed
+> **An hour is TYPED into `TimeField`, an `HH:mm` field. What is typed takes effect on `Enter` or on
+> leaving the field; `−`/`+` and `↑`/`↓` take effect at once, a quarter of an hour at a time and an hour
+> with `Shift`. Typing is tolerant — `8` is `08:00`, `830` and `8:30` are `08:30`.**
+
+- **It draws its own string**, never the result of `format.time`: passing every keystroke through
+  parse-then-format rewrites `8:00` to `08:00` under the cursor, and `formatTime` answers a value it
+  cannot read with `--:--`. `format.time` has ONE use in the control: the two hours named inside a
+  refusal. The initial value and everything the buttons and the arrows produce come from
+  `minutesToHHmm`.
+- **Only a value that actually CHANGED is snapped to the quarter**, compared against what the field held
+  when it took the focus, so a hand-stored `08:10` survives being tabbed over.
+- **What cannot be read is LEFT ON SCREEN**, with the invalid ring and `errors.invalidTimeFormat` both on
+  the field's own `title` and in the `Field`'s error line, which is the announced half. Never replaced,
+  never cleared.
+- **The ceiling is `23:45`**, the last quarter of the day: `hhmmToMinutes` reads `24:00` as 1440, and the
+  band then stops being drawn while the field still looks legal.
+- **Bounds REFUSE in the open and never clamp.** The one field that carries them is the hour a day is
+  closed at, bounded by the work periods; out of them it is refused with `errors.timeOutOfBounds`, which
+  names the two hours it has to be between.
+- **A REFUSAL HOLDS THE SAVE.** The refused string is on screen while the form still holds the last
+  settled hour, so the field tells the form (`onInvalid`, required) and the form's save button neither
+  writes nor enables until the field settles. Otherwise the save stores the hour the screen stopped
+  showing — the same harm as clamping, reached from the other side. The field clears the refusal when it
+  mounts, when it is disabled and when it unmounts, so a control the screen has stopped drawing can
+  never hold a button down.
+- **`Escape` inside the field closes the panel**, as it already does inside the name `Input`. There is
+  nothing to revert.
 
 ### Calendar View
 - **Horizontal week layout**: all seven columns always rendered. Mon-Fri at full width; Sat/Sun
@@ -1051,10 +1140,16 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   - The two hanging classes (`.tickFirst` / `.tickLast`) are keyed on the MINUTE, never on the tick's
     index: either end can now be dropped, and by index the label that inherited position 0 would be
     hung below its rule while the collision arithmetic had measured it as centred.
-- **Day headers** carry their state: `Lun 10 · congelado`, `Mar 11 [hoy]`, `Vie 14 · buffer`. On a
-  CLOSED day the state is the owner's own words — `Mar 1 · Feria`, from `day_overrides.note`, falling
-  back to *cerrado* when there are none: the dimmed column already says "closed", and the reason is the
+- **Day headers carry their state** beside the day: frozen, today, the Friday buffer. On a CLOSED
+  day the state is the owner's own words, from `day_overrides.note`, falling back to a word for
+  closed when there are none: the dimmed column already says "closed", and the reason is the
   only thing it cannot.
+- **The day picker's month is fed from the same rows this week is**: `GET /api/days?from=&to=`, whose
+  `readDays` sits beside `readWeek` and reads the same `listDayOverridesBetween` and the same snapshot's
+  `getDayConfig`. So a closed cell wears the column's own grey and prints the column's own reason, and
+  the two cannot disagree. One request covers the whole navigable window, capped at `MAX_DAY_MARK_DAYS`
+  (200), and it reloads on the same counter the week does, because a recomposition rewrites rows in
+  weeks no response mentions.
 - **Summary strip** above the grid, amber-tinted:
   `Taller ocupado hasta el jueves 27 de agosto · 96 h en cola · viernes libre`. This is the stated
   objective of the app. Served from one endpoint so `composition.ts` owns the arithmetic.
@@ -1340,7 +1435,7 @@ minute by minute, at several fitted scales — never at sample points.
   row the padlock and the scissors are absent**, and the padlock is drawn as a read-only state icon.
 - The two halves around lunch are listed as two separate rows — that is the segment model, confirmed
   by the wireframe.
-- Actions: `Guardar`, `Eliminar`.
+- Actions: save and delete.
 
 ### Job Management
 - **Create**: Name + Description + Color + Hours, appended to the end of the queue (Mon-Thu, never
@@ -1380,7 +1475,7 @@ of this one.)*
   DELETED. **Delete**: takes the whole unit too; it frees up time and recomposition runs if needed.
 - **The FORM edits the absence, never one of its rows.** It is handed (date, start, NET total) for the
   unit. Handed one half instead, opening the `08:00 +6 h` morning of a 10 h absence and pressing
-  Guardar sent `durationMinutes: 360` for the whole unit and the reconcile deleted the afternoon —
+  save sent `durationMinutes: 360` for the whole unit and the reconcile deleted the afternoon —
   4 h destroyed by a save that changed nothing (measured 2026-08-19). `gapUnitOf` in `grouping.ts` is
   the one place the absence is derived from what is on screen.
 - **The form is the only gesture that reaches a PAST day**, which is how a mis-recorded absence is
@@ -1424,7 +1519,7 @@ of this one.)*
 
 #### The Absences Screen — One Place, Two Modes
 > **The ABSENCES SCREEN, reached from the calendar's header and from the grid itself, with a
-> selector: ONE GAP / CLOSE DAYS. Both modes share a from and a to date and a reason, so there is one
+> selector: ONE GAP / CLOSE DAYS. Both modes share ONE range calendar and a reason, so there is one
 > screen to learn and the decision is made INSIDE it.**
 
 The evidence it was built on, from the shop's own database: `2026-09-01` … `09-04`, four gaps of
@@ -1438,17 +1533,40 @@ gesture.
 - **A range SKIPS Saturday and Sunday**, unless it lies entirely inside one weekend, which is the owner
   naming those days on purpose (`absenceRange` in `src/lib/absences.ts`, with a test). The response and
   the preview both NAME the days they skipped, so the skip is never silent. A range longer than
-  `MAX_ABSENCE_DAYS` (120) or running backwards is 400 `invalid-range` on `to`.
+  `MAX_ABSENCE_DAYS` (120) is 400 `invalid-range` on `to`, and one running backwards 400
+  `range-backwards` on `to`. Backwards earns a sentence of its own because the shared one names
+  `{{maxDays}}` and that path has no limit to name: the owner was shown a raw placeholder.
+- **The range is chosen in ONE calendar, and ONE CLICK IS ONE DAY.** A click answers with that day as
+  both ends and leaves the popover open; a second click extends the span to the day it lands on, always
+  ordered, and closes. The common absence is one day, so it costs one click. A click therefore never
+  leaves the span half chosen, which is what keeps the preview — a real write inside a rolled-back
+  transaction — from ever being asked about a range nobody has finished choosing.
+- **The press that closes the popover is swallowed on the GRID and nowhere else.** Underneath the grid
+  it must be, or that press starts a band or opens the panel of the job below it. Inside the panel
+  nothing is underneath, and eating it there made the next control need two presses — the save
+  appearing to do nothing the first time.
+- **The weekend cells INSIDE the span are drawn excluded**, by the same `absenceRange` the write uses
+  and never re-derived in the screen: a span drawn Monday to Sunday as seven cells would promise seven
+  days of a write that makes five.
+- **One error slot, and it is the range's**: the field takes `rangeError`, which answers with whichever
+  of the span's two ends was refused, and `API_FIELD` keeps mapping `from → date` and `to → endDate`.
+  Both ends come out ordered, so `errors.rangeBackwards` cannot be reached from the calendar; the slot
+  is what shows the 400 `invalid-range` that two clicks CAN reach.
+- **The day count stays under the field** — the days the preview says will be WRITTEN, not the cells of
+  the span — so the range is the one day field with no week label. That a second click would extend the
+  day already chosen is said by the popover (`dayPicker.rangePending`), never by the form.
 - **In `gap` mode a range writes the SAME absence on each day**: same start, same net duration, one
   unit id per day, each cut at the lunch break by the very function a single gap uses (`insertAbsence`).
 - **The rows are written first and the reflow runs ONCE**, at the end, so the hours are displaced by one
   pass and reported once. A refusal on ANY day of the range rolls the whole thing back.
+- **A shape that draws ONE day sends that day as BOTH ends** (`absenceSpan`), so `endDate` belongs to
+  the range calendar alone: a far end left behind by a day that has since moved cannot widen the write.
 - **The two OLD shapes of the form are untouched**: editing one absence and *stop the day here* still
   write through `/api/gaps`, still reach the past, and keep every refusal they had.
 
 #### Closing Days — the mechanism that was wired engine-deep and had no way in
 > **A closed day is one `day_overrides` row: `plannableMinutes` 0, `dayReflows` false, the column
-> dimmed, and the DAY HEADER carries the reason from `note` — `Mar 1 · Feria`. No colour band: five in
+> dimmed, and the DAY HEADER carries the reason from `note`. No colour band: five in
 > a row would drown the week.**
 
 - **It behaves like a weekend**, and that is the whole of its definition: the engine plans nothing
@@ -1585,7 +1703,7 @@ gesture.
   Enter is the common answer; there is no memory of the last choice, and **no modifier key, ever**.
 - **The job answer creates a job at the painted MINUTE, padlocked** — see *Creating a Job With a Start
   Date*, mode `painted`. **The gap answer is the absence it always was**, and it opens ONE absence rather
-  than the from/to range screen, which a one-column gesture has no use for.
+  than the absences screen's range calendar, which a one-column gesture has no use for.
 - **The band draws the rows the gesture will really be stored as**, cut at the lunch break
   (`segmentDroppedRow`), like every other ghost on this grid, and it is measured in NET working
   minutes: 13:00 to 16:30 is 2 h. It paints upwards as readily as downwards, reaches the visual
@@ -1604,7 +1722,7 @@ gesture.
 
 #### The Band Stays Drawn While Its Form Is Open
 > **Choosing an answer does not erase the band. It stays on the grid and FOLLOWS THE FORM — the day,
-> the start and the hours — until Guardar replaces it with the real rows, or Cancelar takes it away.
+> the start and the hours — until the save replaces it with the real rows, or cancelling takes it away.
 > For a gap and for a job alike.**
 
 - **Client-side only, and AGNOSTIC to what is underneath it** (`planDraftRows`, `draftBand.ts`): it
@@ -1628,7 +1746,9 @@ gesture.
 > where it can be seen; it never leaves the owner looking at a week their band is not in.**
 
 - **The date is set OPTIMISTICALLY** and the notice appears after: the band has to follow the field, and
-  a field frozen behind a question would freeze the band mid-edit.
+  a field frozen behind a question would freeze the band mid-edit. The month grid keeps that true by
+  telling the form on the CLICK rather than when the popover closes; the range calendar is outside this
+  rule, because painting only ever opens the form for ONE absence.
 - **The way back is the last VISIBLE day, not the previous value** (`offWeekChoice`). Sep 1 → Sep 8
   would otherwise offer Sep 1, which is off screen too, leaving nothing left to press.
 - **Triggered by the FIELD changing, never by visibility.** Paging the week with the header arrows
@@ -1637,19 +1757,19 @@ gesture.
 #### The Warning Before Work Is Pushed
 > **Bulk creation PREVIEWS: `POST /api/absences/preview` takes the same body and WRITES NOTHING. It
 > names the days, the rows one day will hold, the hours it pushes, the jobs they belong to and the
-> date they land on. Cancelling is not pressing Guardar.**
+> date they land on. Cancelling is not saving.**
 
 - **It runs the real write and rolls it back** (`previewAbsence` → `dryRun`), so it cannot promise a
   placement the save will not perform and it REFUSES whatever the save would refuse — a padlocked row
   in the way, a horizon the hours no longer fit in. The screen shows the refusal and does not offer
-  Guardar at all. The alternative, a model of the reflow, is the thing *one function serves both* exists
+  the save at all. The alternative, a model of the reflow, is the thing *one function serves both* exists
   to prevent: only a whole pass knows where the queue's cursor reaches.
 - **Only bulk creation warns** — a range of closed days, a range of gaps, a painted gap — because those
   displace hours into weeks that are not on screen. A DRAG or a RESIZE of one absence does not: the
   result is on screen and the ghost drew it.
 - **A painted JOB warns through the creation preview it already had** (`POST /api/projects/preview`
   + `PlacementNotice`), not through this one: `planCreation` computes the whole placement, so the form
-  states what the day will hold and what the hours cost before Guardar. `startMinutes` is sent to the
+  states what the day will hold and what the hours cost before the save. `startMinutes` is sent to the
   preview only while the date is STILL the painted one — moving the day gives the point up and makes it
   an ordinary floor again, and previewing a minute on another column would promise a placement nobody
   asked for.
@@ -1695,10 +1815,10 @@ gesture.
   `history` — an undo may not reach back into a calendar that no longer exists.
 - **A name is `basename`d and must match the automatic pattern**, so the folder cannot be used to read
   an arbitrary file off the disk.
-- **The buttons.** *Guardar copia* opens the browser's native save dialog (`showSaveFilePicker`,
+- **The buttons.** *Save a copy* opens the browser's native save dialog (`showSaveFilePicker`,
   falling back to a download where it does not exist) — the server streams bytes and never learns
-  where they went. The list of automatic copies is the primary way to restore; *Cargar copia desde mi
-  PC* is a secondary button for a file the owner saved themselves.
+  where they went. The list of automatic copies is the primary way to restore; *load a copy from my
+  own PC* is a secondary button for a file the owner saved themselves.
 - **Silent when it works, loud when it does not.** The automatic copy says nothing on success or when
   it was not due; a failure raises the error banner, because a backup that quietly never happens is
   worse than none.
@@ -1712,6 +1832,9 @@ gesture.
 
 ### Settings
 Work periods, auto-fill capacity, visual margins, planning horizon, gap colour, language.
+- **The four schedule rows are TYPED** `HH:mm` fields — see *The Hour Is Typed* — and the one line
+  saying they can be nudged with `↑`/`↓` is the field's `title`, not a line of help under each: the rows
+  are inline, and four copies of it would add four rows to this screen.
 - **A change that narrows the day asks first**, in ONE confirmation: it names the blocks the narrower
   periods or margins would strand, and — per *The Capacity Is Never Touched Alone* — the capacity the
   new shift can no longer buy, with both numbers. **Cancel writes nothing** and leaves the rest of the

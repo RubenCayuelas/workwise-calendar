@@ -27,7 +27,7 @@ so the shape is a test now. Run `npx vitest run src/lib/docs.test.ts` after edit
 | **CLAUDE.md** | the agreement, under 320 lines. A rule needing more than a line or two belongs in SPEC.md. `## The invariants` stays a numbered list, so a new one joins the list instead of hiding in prose |
 | **docs/SPEC.md** | behaviour, present tense, no history. What the app does, not what it used to do |
 | **docs/DECISIONS.md** | one entry per decision, all the same shape (below) |
-| **CHANGELOG.md** | `## X.Y.Z — title`, newest first, an entry for the version in `package.json`, and `desktop/package.json` on the same number |
+| **CHANGELOG.md** | `## X.Y.Z — title`, newest first, an entry for the version in `package.json`, and `desktop/package.json` on the same number. **One `---` in the whole file**, under the preamble: entries are separated by a blank line and nothing else |
 
 A **DECISIONS.md** entry is always these parts in this order:
 

@@ -15,6 +15,7 @@ import {
   answerHolidays,
   createGap,
   createProject,
+  getDayMarks,
   getHolidayState,
   getWeek,
   isApiError,
@@ -240,6 +241,19 @@ describe('requests', () => {
     const { calls } = stubFetch({ body: {} });
     await updateSettings({ period2Enabled: false, period1Start: undefined });
     expect(calls[0].body).toEqual({ period2Enabled: false });
+  });
+
+  it('asks for a span of day marks with both bounds in the query', async () => {
+    const { calls } = stubFetch({
+      body: { today: '2026-08-12', days: [{ date: '2026-08-12', isClosed: false, freeMinutes: 360, hasRoom: true }] },
+    });
+
+    const view = await getDayMarks('2026-07-13', '2026-10-04');
+
+    expect(calls[0].method).toBe('GET');
+    expect(calls[0].url).toBe('/api/days?from=2026-07-13&to=2026-10-04');
+    expect(view.today).toBe('2026-08-12');
+    expect(view.days[0].hasRoom).toBe(true);
   });
 });
 

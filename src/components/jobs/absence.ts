@@ -12,7 +12,7 @@ import type { BannerTone } from '../ui';
 export type AbsenceOrigin = 'header' | 'closed-column' | 'paint' | 'gap' | 'close-day';
 
 /**
- * `range` is the whole screen — the two mode cards, `Desde`/`Hasta`, the server preview — and it is
+ * `range` is the whole screen — the two mode cards, the range calendar, the server preview — and it is
  * for the two gestures that name no day of their own. Everything else already named ONE day, so a
  * range there asks a question the gesture has answered: a painted band opened the range screen
  * pre-filled on a single day until 2026-08-21.

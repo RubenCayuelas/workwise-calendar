@@ -105,8 +105,8 @@ describe('which shape of the absences form a gesture opens', () => {
   });
 
   it('opens ONE absence for a painted band', () => {
-    // A paint is one column by definition, so the Desde/Hasta screen asked a question the gesture
-    // had already answered — and offered a range pre-filled on a single day.
+    // A paint is one column by definition, so the range screen asked a question the gesture had
+    // already answered — and offered a range pre-filled on a single day.
     expect(absenceFormMode('paint')).toBe('single');
   });
 

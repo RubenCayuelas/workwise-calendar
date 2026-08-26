@@ -1,5 +1,5 @@
 /**
- * The time control's option list.
+ * The time control's granularity, and its one safe parse.
  *
  * The first test is the important one: it pins the form's granularity to the drag
  * layer's snap. If those two ever drift, a start time chosen in the gap form lands
@@ -10,7 +10,8 @@
 import { describe, expect, it } from 'vitest';
 import { MIN_ROW_MINUTES } from '../../lib/validation';
 import { SNAP_MINUTES } from '../calendar/geometry';
-import { TIME_STEP_MINUTES, clockMinutes, timeOptionMinutes } from './timeOptions';
+import { TIME_STEP_MINUTES, clockMinutes } from './timeOptions';
+import * as timeOptions from './timeOptions';
 
 describe('the time step', () => {
   it('is the same quarter hour the drag layer snaps to', () => {
@@ -36,34 +37,10 @@ describe('clockMinutes', () => {
   });
 });
 
-describe('timeOptionMinutes', () => {
-  it('offers every quarter hour of the day by default', () => {
-    const options = timeOptionMinutes(undefined);
-    expect(options).toHaveLength((24 * 60) / TIME_STEP_MINUTES);
-    expect(options[0]).toBe(0);
-    expect(options[options.length - 1]).toBe(23 * 60 + 45);
-  });
-
-  it('keeps a stored value that does not sit on the grid', () => {
-    const options = timeOptionMinutes(8 * 60 + 10);
-    expect(options).toContain(8 * 60 + 10);
-    // Still in order, so the list does not read as broken.
-    expect(options.indexOf(8 * 60 + 10)).toBe(options.indexOf(8 * 60) + 1);
-  });
-
-  it('honours a range, inclusive of both ends', () => {
-    const options = timeOptionMinutes(undefined, { minMinutes: 8 * 60, maxMinutes: 9 * 60 });
-    expect(options).toEqual([480, 495, 510, 525, 540]);
-  });
-
-  it('keeps a stored value that falls outside the range', () => {
-    const options = timeOptionMinutes(7 * 60, { minMinutes: 8 * 60, maxMinutes: 9 * 60 });
-    expect(options[0]).toBe(7 * 60);
-  });
-
-  it('takes a coarser step when one is asked for', () => {
-    expect(timeOptionMinutes(undefined, { stepMinutes: 60, maxMinutes: 3 * 60 })).toEqual([
-      0, 60, 120, 180,
-    ]);
+describe('the module surface', () => {
+  it('no longer offers the list of quarter hours the dropdown was built from', () => {
+    // 96 options from 00:00 to 23:45. The step and the parse are what the app needs from here;
+    // the list would be a second way to say what a legal time is.
+    expect(Object.keys(timeOptions)).not.toContain('timeOptionMinutes');
   });
 });
