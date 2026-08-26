@@ -1066,6 +1066,8 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   and the Two Keys*.
 - **NOTHING IN THE HEADER IS BEHIND A MENU**, and the absences button carries its name rather than a
   glyph alone. See § *The Header Hides Nothing* in DECISIONS.
+- **The pager is centred on the WINDOW**, not on the room left over between the logo and the actions.
+  See § *The Week Label Sits On the Window's Centre Line* in DECISIONS.
 - **Visual blocks**: tinted fill with a saturated border in the project colour, name + hours. A unit
   cut at the lunch break is marked at both ends. Engine-placed Friday blocks read `desborde 2 h` and
   get a distinct border so an overrun week is visible at a glance.

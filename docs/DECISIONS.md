@@ -878,3 +878,22 @@ so that nothing carries a strong edge, which would erase a deliberate second wei
 `--ww-border-strong` is what separates a control from the grid rules and card edges drawn in `--ww-border`.
 
 ---
+
+## The Week Label Sits On the Window's Centre Line
+
+**Rule** — SPEC § *Calendar View*. The week pager is centred on the WINDOW. The logo and the actions are
+one flex basis each, so the pager between them lands on the header's centre line rather than in the
+middle of whatever room those two leave.
+
+**Why** — the week label is the only thing on screen that says which week is being looked at, and it is
+read on every page turn. Centred in the leftover room it sat 166px left of the window's centre at every
+width — half the 334px by which the action row outweighs the logo — so the one label the eye returns to
+was not where the eye returns to. Measured after: dead centre from 1360px up, and 35px shy of it at
+1280px, where the action row is wider than its half and the pager gives ground rather than crowd it.
+Nothing is clipped at any width.
+
+**Rejected** — absolute centring (`left: 50%` and a translate), which ignores what is beside it: at
+1280px the pager would have run 25px into the action row. Flex flanks let the pager yield exactly as
+far as it has to and no further.
+
+---

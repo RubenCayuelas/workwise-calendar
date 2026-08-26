@@ -1,5 +1,24 @@
 /* The app header: logo, the week pager in the middle, actions on the right. */
 
+/*
+ * One flex basis per flank, so the pager between them lands on the header's centre line.
+ *
+ * `min-width: max-content` is not optional. A `Button`'s label carries `overflow: hidden`, so its
+ * min-content contribution is ZERO and the flank was free to size itself under its own content: at
+ * 1280px it took 436px instead of 466px and ellipsed both `New job` and `Absences`. With the floor
+ * the flank gives ground instead, and no label is ever cut.
+ */
+.flank {
+  display: flex;
+  flex: 1 1 0;
+  min-width: max-content;
+  align-items: center;
+}
+
+.flankEnd {
+  justify-content: flex-end;
+}
+
 .pager {
   display: flex;
   align-items: center;

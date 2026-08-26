@@ -9,6 +9,15 @@ never moves without the owner asking.
 
 ---
 
+## 0.23.3 — the week sits in the middle of the window
+
+**The week label and its two arrows are centred on the window now**, instead of in the middle of
+whatever room was left between the logo and the buttons — which put them 166 px to the left of centre,
+at every window size. On a narrow window, where the row of buttons is wider than its half, the pager
+stops 35 px short rather than crowd it; nothing is ever cut.
+
+---
+
 ## 0.23.2 — the amber button has an edge, like every other control
 
 **Every button in the app is a fill inside a hairline now, the amber one included.** It was the only

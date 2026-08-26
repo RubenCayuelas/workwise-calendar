@@ -60,9 +60,9 @@ export function WeekHeader({
 
   return (
     <header className="ww-app__header">
-      <Logo />
-
-      <span className="ww-spacer" />
+      <div className={styles.flank}>
+        <Logo />
+      </div>
 
       {/* No aria-label: a second landmark would only compete with the grid's own. */}
       <nav className={styles.pager}>
@@ -91,9 +91,7 @@ export function WeekHeader({
         />
       </nav>
 
-      <span className="ww-spacer" />
-
-      <div className="ww-toolbar">
+      <div className={`${styles.flank} ${styles.flankEnd} ww-toolbar`}>
         {/* Ghost, so the pair sits quietly beside the controls that do something every day:
             the keyboard is the normal route to them. */}
         <IconButton
