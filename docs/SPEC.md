@@ -996,10 +996,11 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   accent or as a hole in the day. Replacing a swatch repaints the jobs already wearing the retired
   one.
 - Hairline borders (`0.5px`), `--radius` rounded corners, generous whitespace.
-- **EVERY CONTROL IS A FILL INSIDE A HAIRLINE, the amber one included.** The neutral ones take
-  `--ww-border-strong`, the amber fill takes `--ww-amber-ink` — amber itself may not be a thin
-  line. Hover and active change the fill and leave the edge where it is.
-  See § *Every Control Is a Fill Inside a Hairline* in DECISIONS.
+- **EVERY CONTROL IS A FILL INSIDE A HAIRLINE, the amber one included.** The neutral ones rest on
+  `--ww-control-border`, the amber fill on `--ww-control-border-accent` — amber itself may not be a thin
+  line. `--ww-border-strong` is the firmer weight, for a field under the pointer and for a gesture's
+  dashed marks, and is a resting edge on nothing. Hover and active change the fill and leave the edge
+  where it is. See § *Every Control Is a Fill Inside a Hairline* in DECISIONS.
 - **Icons**: Tabler (`@tabler/icons-react`), bundled locally — no CDN.
 - **No native `<input type="time">` or `<input type="date">` anywhere.** Both render in the
   BROWSER's locale, not the page's. Every time and every day goes through `useFormat()`:

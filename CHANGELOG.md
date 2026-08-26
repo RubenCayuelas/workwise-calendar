@@ -9,6 +9,18 @@ never moves without the owner asking.
 
 ---
 
+## 0.23.5 — the buttons' outlines are quieter
+
+**Every button and icon button rests on a soft grey outline now instead of a near-black one** — 3.2:1
+where it was 9.8:1, a third of the contrast. The amber button's rim came down with them, so the row
+still reads as one family rather than one loud control among quiet ones. The week arrows, the gear and
+a block's hover actions all follow: it is one value for every control.
+
+The firm line is still there wherever it does work — a text field's edge under the pointer, and the
+dashed marks a drag draws.
+
+---
+
 ## 0.23.4 — the calendar reaches closer to the bottom of the window
 
 **The dead space under the grid is down from 24 px to 8 px, and the calendar has taken the

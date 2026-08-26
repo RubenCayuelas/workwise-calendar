@@ -858,24 +858,31 @@ for it behind a glyph — they reach for the tool they can see, which is the new
 
 ## Every Control Is a Fill Inside a Hairline
 
-**Rule** — SPEC § *Visual Design*. Every button and icon button is a fill inside a 0.5px edge: the neutral
-ones `--ww-border-strong`, the amber one `--ww-amber-ink`. Hover and active change the fill and leave the
-edge alone.
+**Rule** — SPEC § *Visual Design*. Every button and icon button is a fill inside a 0.5px RESTING edge: the
+neutral ones `--ww-control-border`, the amber one `--ww-control-border-accent`. `--ww-border-strong` is the
+firmer weight and is a resting edge on nothing — it is what a field's edge becomes under the pointer, and
+what a gesture's dashed marks are drawn in.
 
-**Why** — the amber button took its own fill as its border, so it was the one control in the app drawn
-without an edge, and in a header row beside four outlined ones it read as unfinished. What the edge has to
-match is not the fill it sits on but the SURFACE BEHIND THE ROW, because that is the line the eye follows:
-amber-ink is dE 53.0 from the white header against the neutral controls' dE 59.1, close enough that the row
-reads as one construction. Against its own fill it is dE 31.8 — a rim rather than a ring. The brand file
-already ships amber-ink as the amber for text and thin strokes, pure amber on white being 2.1:1 and no use
-as a line at all. One rule, one place: it reaches every primary button, the panels' save and the paint
-chooser included.
+**Why** — two things were wrong at once. The amber button took its own fill as its border, so it was the
+only control in the app drawn with no edge, and beside four outlined ones it read as unfinished. And those
+four rested on `--ww-border-strong`, #444441 at 9.8:1 against white, which reads as a black box round every
+button — while every text field beside them rested on something far quieter. Both now rest on one soft
+edge, #908f88 at 3.2:1: a third of the contrast, still enough to bound the shape.
 
-**Rejected** — three other edges, measured against the amber fill. Graphite-soft, the edge the white
-buttons wear, is dE 50.7 from amber: a black ring around orange. Amber-soft at dE 11.2 and a 70/30
-amber-graphite mix at dE 13.5 both disappear at 0.5px. And softening the neutral controls to `--ww-border`
-so that nothing carries a strong edge, which would erase a deliberate second weight —
-`--ww-border-strong` is what separates a control from the grid rules and card edges drawn in `--ww-border`.
+**The amber edge is matched by register, not by number.** It is a darker amber at dE 13.5 from its own
+fill, where the neutral edge is dE 28.5 from the white it sits on. Those are different jobs: a white fill
+on a white header has nothing but its edge to say where it ends, while amber already stands dE 33 clear of
+the surface on its own and only needs its boundary drawn.
+
+`--ww-control-border` mixes toward `--ww-text` rather than toward graphite, so it lightens on a dark
+surface instead of sinking into it.
+
+**Rejected** — resting the neutral controls on `--ww-border` itself, #d3d1c7 at 1.5:1, which is what every
+input rests on and would have been one vocabulary instead of two. Rendered side by side it inverts the row:
+at that weight the amber button's rim is the most visible line in the header and the white buttons read as
+unbounded. For the amber edge, three more, all measured against its fill: graphite-soft at dE 50.7, a black
+ring around orange; amber-ink at dE 31.8, louder than the neutral edges beside it; and amber-soft at dE
+11.2, which lightens rather than darkens and so reads as a highlight instead of an edge.
 
 ---
 

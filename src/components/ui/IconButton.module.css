@@ -6,7 +6,7 @@
   flex: none;
   width: var(--ww-control-height);
   height: var(--ww-control-height);
-  border: var(--ww-hairline) solid var(--ww-border-strong);
+  border: var(--ww-hairline) solid var(--ww-control-border);
   border-radius: var(--ww-radius);
   background: var(--ww-surface-alt);
   color: var(--ww-text);

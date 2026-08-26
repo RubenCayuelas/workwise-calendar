@@ -32,11 +32,11 @@
 
 /* Amber fill with graphite on top — the only accessible way to use pure amber
    (brand guidelines: amber on white is 2.1:1, so never as text or a thin line).
-   Which is why the outline is amber-ink and not the fill's own hue: every control in
+   Which is why the outline is a token and not the fill's own hue: every control in
    the app is a fill inside a hairline, and amber cannot be the hairline. */
 .primary {
   background: var(--ww-accent);
-  border-color: var(--ww-amber-ink);
+  border-color: var(--ww-control-border-accent);
   color: var(--ww-on-accent);
 }
 
@@ -53,7 +53,7 @@
 /* The default: white with a hairline, as every button in the wireframe header. */
 .secondary {
   background: var(--ww-surface);
-  border-color: var(--ww-border-strong);
+  border-color: var(--ww-control-border);
   color: var(--ww-text);
 }
 
