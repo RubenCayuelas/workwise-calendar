@@ -15,7 +15,7 @@ import { DEFAULT_LANGUAGE } from './i18n';
 
 // Defined next to the query that builds them. `import type` is erased at compile time, so
 // nothing from the server module (which opens SQLite) reaches the browser bundle.
-export type { WeekBlock, WeekDay, WeekView } from './operations/views';
+export type { DayMarkView, DaysView, WeekBlock, WeekDay, WeekView } from './operations/views';
 export type { FreedHoursChoice, ScheduleSummary } from './composition';
 export type { Block, DayShape, Gap, GapUnit, Project, Settings, WorkPeriod } from '../types';
 export type {
@@ -43,7 +43,7 @@ export type {
   RefusedHoliday,
 } from './operations/holidays';
 
-import type { WeekView } from './operations/views';
+import type { DaysView, WeekView } from './operations/views';
 import type { HistoryMutation } from './operations/history';
 import type { CreationOutcome, CreationPreview } from './operations/projects';
 import type { AbsenceKind, AbsenceMutation, AbsencePreview } from './operations/absences';
@@ -770,6 +770,17 @@ export function getSummary(options?: RequestOptions): Promise<SummaryView> {
 export function getWeek(date?: string, options?: RequestOptions): Promise<WeekView> {
   const suffix = date === undefined ? '' : `?date=${encodeURIComponent(date)}`;
   return get<WeekView>(`/week${suffix}`, options);
+}
+
+/**
+ * The two marks a day picker cannot deduce for itself, for every day of an inclusive span: closed,
+ * with the note stored on the day, and whether the engine still has room there. Both bounds are
+ * required, and a span past 200 days is a 400. Refetch it on the same counter as `getWeek` — a
+ * recomposition rewrites rows on days this response has already described.
+ */
+export function getDayMarks(from: string, to: string, options?: RequestOptions): Promise<DaysView> {
+  const query = new URLSearchParams({ from, to });
+  return get<DaysView>(`/days?${query.toString()}`, options);
 }
 
 // ---------------------------------------------------------------------------
