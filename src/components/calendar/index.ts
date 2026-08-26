@@ -36,7 +36,8 @@ export {
   type PaintRefusal,
   type PaintedAbsence,
 } from './usePaintAbsence';
-export { paintedSpan, type PaintPoint, type PaintedSpan } from './paintSession';
+export { bandStartAt, paintedSpan, type PaintPoint, type PaintedSpan } from './paintSession';
+export { aimAt, type AimInput, type AimRow } from './paintAim';
 export {
   useBlockDrag,
   type BlockDragOptions,
@@ -62,6 +63,7 @@ export {
 
 export {
   BREAK_BAND_HEIGHT,
+  CREATE_RAIL_PX,
   DEFAULT_PIXELS_PER_HOUR,
   MIN_LABEL_HEIGHT,
   SNAP_MINUTES,
@@ -73,6 +75,7 @@ export {
   maxDurationFrom,
   nonWorkingBands,
   rankFor,
+  rowAt,
   slotAt,
   snapTo,
   type AxisTick,

@@ -47,7 +47,8 @@ import { PROJECT_COLORS } from '../../lib/projectColors';
 import { clockEndOf, manualWindowsOf } from '../../lib/manualWindow';
 import { spillByDay } from '../../lib/dropSpill';
 import { closeDayAfter, closeDayInputFor } from './closeDayOffer';
-import { rankFor, createTimeline, type GridMetrics, type Timeline } from './geometry';
+import { rankFor, createTimeline, rowAt, type GridMetrics, type Timeline } from './geometry';
+import { gapUnitOf, groupGaps } from './grouping';
 import { dropPins } from './dropEffect';
 import { describeDrop, type DropOutcomeKind } from './dropOutcome';
 import { SummaryStrip } from './SummaryStrip';
@@ -587,26 +588,44 @@ export function CalendarScreen({
     writable: () => !week.mutating.current && !loading,
     // IT WRITES NOTHING. The band stays drawn and the question is asked beside it.
     onPainted: (span, at) => setRelease({ span, at }),
-    // A day that can take no absence, said once — and for a CLOSED one the honest answer is the
-    // screen that can reopen it, since a dimmed column has nothing else to press.
-    onRefused: (reason, date) => {
-      if (reason !== 'closed') {
-        toast.info(t(reason === 'past' ? 'notices.pressOnPastDay' : 'notices.pressWhileBusy'));
+    // A day that can take no band, said once. A CLOSED day is not one: it takes a band like any
+    // other, and pressing a dimmed column WITHOUT travelling still opens the screen that reopens it.
+    onRefused: (reason) => {
+      toast.info(t(reason === 'past' ? 'notices.pressOnPastDay' : 'notices.pressWhileBusy'));
+    },
+    // THE ROW UNDER THE PRESS COMES FIRST. The create rail lies over the rows, so a still press on it
+    // is the ROW'S — the same job panel and the same absence form that pressing the row itself opens,
+    // on a past day too, where a press has always been allowed to read. Only the DRAG belongs to the
+    // rail, which is what stops a strip of every row from losing the click it used to answer.
+    //
+    // With nothing underneath, a CLOSED column keeps the one press the grid background has ever had a
+    // use for: its reason and its way back out both live on the absences screen, and a closed day is
+    // not an object on the grid to press instead. The past does not get it — reopening a past day
+    // changes nothing the engine reads.
+    onClick: (date, minutes) => {
+      const day = dayAt(date);
+      const current = viewRef.current;
+      if (day === undefined || current === null) return;
+
+      const block = rowAt(
+        current.blocks.filter((row) => row.date === date),
+        minutes,
+      );
+      if (block !== undefined) {
+        setOpenJobId(block.projectId);
         return;
       }
-      setGapTarget({ gap: null, origin: 'closed-column', kind: 'closed-days', date });
-    },
-    // The only press the grid background has ever had a use for: a closed column, whose reason and
-    // whose way back out both live on the absences screen.
-    //
-    // THE SAME PRECEDENCE THE TRAVELLING PATH USES, and it has to be: a column that is both closed
-    // AND past was answered by `isPast` on travel and by `isClosed` on a still press, so four pixels
-    // of wobble decided which of two different things the owner was told. The past wins in both, and
-    // reopening a past day would change nothing the engine reads anyway.
-    onClick: (date) => {
-      const day = dayAt(date);
-      if (day === undefined || day.isPast || !day.isClosed) return;
-      setGapTarget({ gap: null, origin: 'closed-column', kind: 'closed-days', date });
+      const unit = groupGaps(
+        current.gaps.filter((row) => row.date === date),
+        day.manualWindows,
+      ).find((group) => rowAt(group.gaps, minutes) !== undefined);
+      if (unit !== undefined) {
+        setGapTarget({ gap: gapUnitOf(unit), origin: 'gap' });
+        return;
+      }
+      if (!day.isPast && day.isClosed) {
+        setGapTarget({ gap: null, origin: 'closed-column', kind: 'closed-days', date });
+      }
     },
   });
 
@@ -1038,6 +1057,11 @@ export function CalendarScreen({
             )}
           </div>
 
+          {/*
+            * OUT OF THE FLOW, so the grid keeps every pixel. What is left here is transient — a
+            * gesture's hint, and the empty week's — and it is drawn over the foot of the grid rather
+            * than above it, where the two resting lines used to sit reserving 38 px of every screen.
+            */}
           <div className={styles.legend}>
             {/* The two drags say different things, and a MOVE says two of its own — see
                 `dragHintKey`. */}
@@ -1049,12 +1073,7 @@ export function CalendarScreen({
               <span className={styles.hint}>{t('grid.placingHint')}</span>
             ) : emptyWeek ? (
               <span>{t('jobForm.hint')}</span>
-            ) : (
-              <>
-                <span>{t('grid.bandsLegend')}</span>
-                <span>{t('grid.pastLegend')}</span>
-              </>
-            )}
+            ) : null}
           </div>
         </div>
       </main>

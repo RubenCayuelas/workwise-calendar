@@ -1008,7 +1008,7 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
 - **Horizontal week layout**: all seven columns always rendered. Mon-Fri at full width; Sat/Sun
   narrow and de-emphasised, so dragging to the weekend works with no extra state and no setting.
 - **Time axis**: vertical, from the top visual margin to the bottom visual margin. Grey bands mark
-  the margins and the lunch break, labelled "solo arrastre manual".
+  the margins and the lunch break, labelled *manual drag only*.
 - **The axis is PIECEWISE, and only the break between two periods is compressed.** Working time and
   the visual margins share one scale; the break is drawn as a fixed **28 px seam**
   (`BREAK_BAND_HEIGHT` in `geometry.ts`) however tall an hour is — "hay un hueco pero es
@@ -1087,19 +1087,21 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
 - **Past days**: desaturated, not a drop target, and with no gesture on their rows at all.
 - **Empty columns**: `libre` / `—` sit in the middle of the day's LONGEST WORKING STRETCH, drawn as a
   small dashed pill (`emptyLabelMinutes` in `geometry.ts`, with a test).
-- **Painting on empty space**: a drag on a column's background draws a band in the gap colour, dashed
-  because nothing is written yet, in one rectangle per row the absence will be stored as. It opens the
-  absences form on release — see *Painting an Absence on Empty Grid Space*.
+- **Painting a band**: a drag on a column's create surface draws a band in the gap colour, dashed and
+  translucent because nothing is written yet, in one rectangle per row the gesture will be stored as.
+  The release asks whether it is a job or a gap — see § *Painting a Band: a Gap or a Job*, and
+  § *The Create Rail* for where a press may begin one.
 - **Drag-drop**: mouse only, with a ghost during the drag. The ghost states the real outcome before
   the mouse is released — which row will be cut (drawn as a seam), merged into, or refused; whether
   the drop rolls to the next day (`grid.dropNextDay`); whether it slides past something fixed; and
   whether it will padlock. The ghost is drawn **in segments**, one rectangle per row the gesture will
   be stored as, because one rectangle straight through the grey band promises a shape that will never
   exist. **A RESIZE past the break is drawn the same way.**
-  - **A GAP's two gestures get the same ghost, in its own two sentences** (`gapDropEffect`): the rows
-    the absence will be stored as, and either the job it will push forward (`grid.gapDisplaces`) or
-    the fixed row that will make the save write nothing (`grid.gapBlocked`, drawn denied). A gap is
-    never slid, never merged and never cut, so none of a block's other sentences can be true of one —
+  - **A GAP's two gestures get the same ghost, in its own three sentences** (`gapDropEffect`): the rows
+    the absence will be stored as, and the job it lands on — CUT in two where the absence starts inside
+    it (`grid.gapCuts`), pushed forward whole where it covers the row from its very start
+    (`grid.gapDisplaces`), or fixed, which makes the save write nothing (`grid.gapBlocked`, drawn
+    denied). A gap is never slid and never merged, so a block's other sentences cannot be true of one —
     which is why it has a vocabulary of its own rather than borrowing that table.
   - **And the drawn footprint never leaves the day** (`footprintWithinDay`). `segmentDroppedRow` returns
     a stretch UNCUT when its tail would pass midnight, so the server can refuse the drop as it was
@@ -1313,8 +1315,8 @@ did change. A SCALE that changes means the same pixel now means a different minu
 ends somewhere the owner never chose.
 
 Three things hold it: `useBlockDrag` fixes the axis in the session at press; the screen HOLDS the
-painted axis for as long as a block is in the air; and the legend reserves its two lines, which
-removes the trigger at the source. The invariant underneath is `minutesAt(yOf(m)) === m` for every
+painted axis for as long as a block is in the air; and the hint line under the grid is OUT OF THE
+FLOW, so it has no height to change and cannot re-fit the grid it is measured against. The invariant underneath is `minutesAt(yOf(m)) === m` for every
 minute of the axis, margins and lunch band included. **Since the axis became piecewise (the
 compressed break) that is a stronger claim, not a formality**: the two directions have to agree
 segment by segment and on every seam between two segments, so it is asserted over the whole axis,
@@ -1511,22 +1513,70 @@ gesture.
   which. A day the write refuses is skipped and named; the rest of the pass still runs.
 - **Andalucía only**, 785 municipalities, the list bundled so the picker works with no network.
 
-#### Painting on Empty Grid Space — a Gap or a Job
-> **A drag on empty grid space paints a band. ON RELEASE the band STAYS DRAWN and two buttons appear
-> at the pointer — A JOB / A GAP — and whichever is pressed OPENS A FORM PRE-FILLED with
-> the day, the start and the net duration. IT WRITES NOTHING either way — the owner presses Guardar.**
+#### The Create Rail
+> **THE LEFTMOST 21 PX OF A COLUMN CREATE, whatever is drawn there. Everywhere else, the free part of
+> a column creates and a row moves. So the create surface is the whole free part of a column PLUS its
+> left edge — and wherever a press would create, the pointer says so: the cursor copies, a hairline
+> marks the minute and a badge names it.**
+
+- **The rail draws NOTHING.** At rest the calendar is pixel for pixel what it would be without it: the
+  rows keep their width, their inset and their text where they are. It is a hit surface, and the reveal
+  is the whole of what announces it.
+- **21 px**, one declaration — `CREATE_RAIL_PX`, read by the CSS through `--ww-create-rail`, so the
+  strip and the aim measure one edge. For scale: a row's resize handle is 10 px and the app's mouse
+  floor is 24 px (`--ww-control-height-sm`).
+- **THE RAIL TAKES THE DRAG AND NEVER THE CLICK.** A still press on it opens the row underneath — the
+  job panel or the absence's form, on a past day too, and so does a press that TRAVELLED without
+  drawing a band: a wobble inside one snap step is a click, exactly as the drag layer's own slop makes
+  it one. What a row gives up is its leftmost 21 px as a place to start a MOVE or a RESIZE from.
+- **The reveal appears where a press CREATES and nowhere else**, so the two states cannot be confused:
+  a shadow, the action bar and `grab` mean the press moves; the hairline, the badge and `copy` mean it
+  creates. Over a row and off the rail there is no hairline at all, and none over a control that
+  answers its own press — a hover bar docked outside its row hangs over free minutes, which the aim
+  would otherwise call free.
+- **The badge names the minute a band would really START on** (`bandStartAt`, the function
+  `paintedSpan` uses), not the minute under the pointer: inside the lunch break it reads 15:30. It
+  says nothing past the last window, where the named minute would be a band's end and not its start.
+  It is clamped to stay inside the column — the hairline is the exact statement — and its height is
+  declared once (`AIM_BADGE_HEIGHT_PX`, `--ww-aim-badge`) because the clamp needs half of it.
+- **The hairline is neutral, never the gap colour**: what the band is has not been asked yet, and the
+  release is what asks.
+- **Nothing is revealed that the press will not do**: a past day, a save in flight, a gesture already
+  in the air, or a form already open on a band. The press is still taken in each case and still says
+  its one thing. The cursor and the rail's own tooltip are declared off that same state as the
+  hairline, so the rail can never offer a create that the press refuses.
+- **It is a sibling of the column body at `z-index: 2`, after it in the DOM**: level with a hovered
+  row and later in tree order, so it takes the press from one, and below the sticky day header. A
+  press in the rail therefore leaves the row underneath un-hovered, which is why its action bar stays
+  down and cannot be pressed through the rail.
+- **A HOVER BAR IS OUT OF REACH ONLY WHERE TWO LANES SHARE A COLUMN.** A bar is anchored `right: 3px`
+  inside its row, so at one lane it starts near `x = 101` on a weekday and at `x = 34` on the 116 px
+  weekend floor — both clear of the rail. At two lanes the row is about half a column and a four-button
+  bar starts near `x = 7`, where the rail covers the first button's left half; the bar is hidden while
+  the pointer is on the rail, so those pixels paint rather than pressing anything. Lanes exist only
+  where rows overlap, which the engine never produces and a hand can.
+
+#### Painting a Band: a Gap or a Job
+> **A drag on a column's create surface paints a band. ON RELEASE the band STAYS DRAWN and two buttons
+> appear at the pointer — A JOB / A GAP — and whichever is pressed OPENS A FORM PRE-FILLED with
+> the day, the start and the net duration. IT WRITES NOTHING either way — the owner presses save.**
 > That is the rule they set on 2026-08-18 about *stop the day here* and it holds for both: the app
 > never creates work or an absence by itself.
 
 - **ONE COLUMN per paint** (`usePaintAbsence` over the `paintSession` reducer). Several days go through
   the form's range; cross-column painting does not exist.
+- **A band may be painted over occupied time**, which is what the create rail is for: a gap started
+  inside an unlocked row cuts it in two — the head stays where it is, the rest is poured in after the
+  absence, and the ghost of a gap DRAG says so too (`grid.gapCuts`). A padlocked row refuses the save
+  and is named. The band is drawn TRANSLUCENT, like the drag ghost, so the row it is about to cut
+  reads through it.
 - **THE BAND NO LONGER MEANS ONE THING, so it is ASKED rather than guessed.** *«GAPS ONLY»* was
   deleted on 2026-08-21 — but the half of it that forbade a THRESHOLD is now stronger, not weaker: the
   kind is never inferred from the band's size, its day or anything else. The job button is focused, so
   Enter is the common answer; there is no memory of the last choice, and **no modifier key, ever**.
 - **The job answer creates a job at the painted MINUTE, padlocked** — see *Creating a Job With a Start
   Date*, mode `painted`. **The gap answer is the absence it always was**, and it opens ONE absence rather
-  than the `Desde`/`Hasta` range screen, which a one-column gesture had no use for.
+  than the from/to range screen, which a one-column gesture has no use for.
 - **The band draws the rows the gesture will really be stored as**, cut at the lunch break
   (`segmentDroppedRow`), like every other ghost on this grid, and it is measured in NET working
   minutes: 13:00 to 16:30 is 2 h. It paints upwards as readily as downwards, reaches the visual
@@ -1536,10 +1586,12 @@ gesture.
 - **Disabled while a scissors fragment waits for its target**, where a grid click already means "put it
   here", and **while a painted form is open** — otherwise a second band replaced a form the owner had
   already typed a name and hours into.
-- **A past day and a closed day take no paint**, and each says so once, on the first travel: the past
-  gets the frozen-day notice, a closed day opens the absences screen for itself. That the FORM reaches
-  a closed day while the brush does not is deliberate: the form asks a confirmation, and pressing a
-  dimmed column already means "reopen this day".
+- **A CLOSED DAY AND THE WEEKEND BOTH TAKE A BAND** (2026-08-26). Only the past refuses, with the
+  frozen-day notice on the first travel. What made a closed day refusable was that pressing a dimmed
+  column already means "reopen this day" — and it still does, because that is a press WITHOUT travel
+  and the rail's rule is that a drag and a click are different questions. So a closed day keeps its
+  way back out and gains the gesture: what the answer's form does about the day being shut is the
+  form's own business.
 
 #### The Band Stays Drawn While Its Form Is Open
 > **Choosing an answer does not erase the band. It stays on the grid and FOLLOWS THE FORM — the day,

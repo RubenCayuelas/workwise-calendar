@@ -469,6 +469,31 @@ describe('gapDropEffect — what an absence dropped here will do', () => {
     ).toEqual({ kind: 'displace', projectName: 'Railing' });
   });
 
+  it('CUTS the row it starts inside, and says so', () => {
+    // The engine turns the absence into an obstacle: the head keeps its place, the rest is poured in
+    // after it, and one row becomes two. Verified against the operations layer for 10:00-12:00 plus a
+    // quarter of an hour at 11:00 — 10:00-11:00 and 11:15-12:15.
+    expect(
+      at(11 * 60, 15, [row({ id: 'grille', startMinutes: 10 * 60, durationMinutes: 120 })]),
+    ).toEqual({ kind: 'cut', projectName: 'Railing' });
+  });
+
+  it('covers a row from its very start: displaced whole, not cut', () => {
+    expect(
+      at(10 * 60, 15, [row({ id: 'grille', startMinutes: 10 * 60, durationMinutes: 120 })]),
+    ).toEqual({ kind: 'displace', projectName: 'Railing' });
+  });
+
+  it('names the FIRST row on the clock, and cuts only if the absence starts inside it', () => {
+    const rows = [
+      row({ id: 'grille', startMinutes: 8 * 60, durationMinutes: 120, project: { name: 'Grille' } }),
+      row({ id: 'door', startMinutes: 10 * 60, durationMinutes: 120, project: { name: 'Door' } }),
+    ];
+
+    expect(at(9 * 60, 3 * 60, rows)).toEqual({ kind: 'cut', projectName: 'Grille' });
+    expect(at(8 * 60, 3 * 60, rows)).toEqual({ kind: 'displace', projectName: 'Grille' });
+  });
+
   it('is a REFUSAL over a padlocked row: `gap-over-fixed-block` writes nothing', () => {
     expect(
       at(10 * 60, 120, [

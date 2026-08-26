@@ -594,6 +594,49 @@ calendars, 8,132 municipalities and abandoning the official source for an aggreg
 
 ---
 
+## The Create Rail Draws Nothing
+
+**Rule** — SPEC § *The Create Rail*. The leftmost 21 px of a column create whatever is drawn there, and
+the rail itself paints nothing: the cursor, a hairline on the minute and a badge naming it are the whole
+of what announces it. It takes the DRAG and never the click.
+
+**Why** — the strip a full-width block leaves beside it is 3 px, 1.65% of an hour at 1920x1080, and it
+was the only way to start a band over occupied time. The owner asked for the target without the paint:
+*«tener ese margen pero invisible, desde fuera se ve normal»* (2026-08-26). Hiding a control until the
+pointer finds it is this grid's own idiom rather than a new one — the action bar, the resize pill and a
+gap's edge strip are all invisible until hovered — and unlike a modifier key, a strip is discovered by
+moving the mouse, which happens all day.
+
+**Why a closed day and the weekend take one** — the brush used to stop at a closed column because
+pressing one already meant "reopen this day". The rail splits that press in two: a drag creates, a still
+press still opens the screen that reopens the day. With the collision gone there was no reason left to
+refuse, and the owner asked for it (2026-08-26). The weekend never refused.
+
+**Why 21 px and not 3, and what the width costs** — 3 px is all a full-width row leaves beside it, 1.65%
+of an hour at 1920x1080, measured against a resize handle of 10 px that had itself been widened from 7
+for being a mean target, and a mouse floor of 24 px. Drawing nothing, the width costs no layout at all:
+it costs a row its leftmost 21 px as a place to start a move or a resize from, and — only where two
+lanes share a column — the left half of a hover bar's first button.
+
+**Why the click is left to the row** — the rail lies over 21 px of every row, so taking the click as
+well would silently cost the job panel a target the owner already aims at: the beginning of the name.
+Only the drag is new, and that is what makes an invisible surface safe. A press that TRAVELLED without
+drawing a band is a click too: the paint had no answer for a wobble where the drag layer had 12 px of
+slop, so the rail would have turned an old silence into a lost click.
+
+**Why the band became translucent** — the same measurement that made the drag ghost translucent on
+2026-08-13. A band can now START over occupied time, so an opaque fill hid the very row the gesture is
+about to cut in two, from the first pixel of the drag.
+
+**Rejected** — a PAINTED rail: a 12-14 px gutter, or the block's text pushed in to clear the strip.
+Both work and both change how the calendar looks at rest for a control that is only needed part of the
+time, which the owner turned down in those terms. An armed create mode with the scissors' machinery was
+costed too — the whole column as a target — and turned down for being a mode and a click before every
+create. A modifier and a long press were closed already: *«no modifier key, ever»*, and an Alt-drag
+would never be discovered on a shop PC.
+
+---
+
 ## Painting Makes a Job As Well As a Gap
 
 **Rule** — SPEC § *Calendar View*. A released band asks which it is, and a job made that way starts on the

@@ -25,6 +25,19 @@ export const SNAP_MINUTES = 15;
  */
 export const DRAG_THRESHOLD_PX = 4;
 
+/**
+ * Pixels from a column's LEFT BORDER where a press creates instead of moving the row under it. The
+ * CSS reads it as `--ww-create-rail`, so the strip and the aim measure one edge.
+ */
+export const CREATE_RAIL_PX = 21;
+
+/**
+ * The aim badge's own height, likewise read by the CSS as `--ww-aim-badge`. Declared here because the
+ * clamp that keeps the badge inside the column needs half of it, and an estimate on this side would
+ * stop matching the box the moment its font or padding moved.
+ */
+export const AIM_BADGE_HEIGHT_PX = 20;
+
 /** Below this a row shows its name but not its hours. */
 export const MIN_LABEL_HEIGHT = 34;
 
@@ -464,6 +477,20 @@ export function slotAt(
 
   const exactMinutes = timeline.minutesAt(point.y - metrics.top);
   return { date, exactMinutes, snappedMinutes: snapTo(exactMinutes, snap) };
+}
+
+/**
+ * The row a minute falls inside. Half-open: a minute on a row's end belongs to whatever comes after
+ * it, so two flush rows never both answer. `durationMinutes` is NET working minutes and no stored
+ * row straddles a break, so a row's clock end is its start plus its duration.
+ */
+export function rowAt<T extends { startMinutes: number; durationMinutes: number }>(
+  rows: readonly T[],
+  minutes: number,
+): T | undefined {
+  return rows.find(
+    (row) => minutes >= row.startMinutes && minutes < row.startMinutes + row.durationMinutes,
+  );
 }
 
 export function snapTo(minutes: number, snap: number = SNAP_MINUTES): number {

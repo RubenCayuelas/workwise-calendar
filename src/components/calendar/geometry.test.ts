@@ -20,6 +20,7 @@ import {
   maxDurationFrom,
   nonWorkingBands,
   rankFor,
+  rowAt,
   slotAt,
   snapTo,
 } from './geometry';
@@ -474,6 +475,31 @@ describe('drop targets', () => {
 
 /** The day's own end, which is what a resize is capped by. Never the axis's. */
 const REACH = { endOfDayMinutes: dayEndMinutes(SHAPE.manualWindows) };
+
+describe('rowAt', () => {
+  const ROWS = [
+    { id: 'morning', startMinutes: 8 * 60, durationMinutes: 120 },
+    { id: 'later', startMinutes: 10 * 60, durationMinutes: 60 },
+  ];
+
+  it('finds the row a minute is inside', () => {
+    expect(rowAt(ROWS, 9 * 60)?.id).toBe('morning');
+    expect(rowAt(ROWS, 10 * 60 + 30)?.id).toBe('later');
+  });
+
+  it('answers the row a minute STARTS, and not the one it ends', () => {
+    // Two flush rows must never both answer, or the reveal would name a minute the row above owns.
+    expect(rowAt(ROWS, 8 * 60)?.id).toBe('morning');
+    expect(rowAt(ROWS, 10 * 60)?.id).toBe('later');
+    expect(rowAt(ROWS, 11 * 60)).toBeUndefined();
+  });
+
+  it('is undefined off both ends', () => {
+    expect(rowAt(ROWS, 7 * 60)).toBeUndefined();
+    expect(rowAt(ROWS, 19 * 60)).toBeUndefined();
+    expect(rowAt([], 9 * 60)).toBeUndefined();
+  });
+});
 
 describe('clampDropStart', () => {
   const timeline = createTimeline(SHAPE, { pixelsPerHour: 60 });

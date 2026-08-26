@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  paintRefusalFor,
   paintStep,
   type PaintEvent,
   type PaintPoint,
@@ -40,13 +41,21 @@ export interface PaintOptions {
   onPainted: (painted: PaintedSpan, at: PaintPoint) => void;
   /** A paint that travelled on a day that cannot take one. Called ONCE per press. */
   onRefused: (reason: PaintRefusal, date: string) => void;
-  /** A press that did not travel. The grid background has no click of its own. */
-  onClick: (date: string) => void;
+  /**
+   * A press that did not travel. `minutes` is the minute under it, unsnapped, because the create
+   * rail lies OVER the rows: a still press there is the row's, exactly as pressing the row is.
+   */
+  onClick: (date: string, minutes: number) => void;
 }
 
 export interface PaintController {
   /** The band, as the rows it will really be stored as. `null` when nothing is being painted. */
   painting: PaintedSpan | null;
+  /**
+   * Whether a press would be taken at all. Read by the grid so the reveal never promises a create
+   * the controller is going to ignore — a form already open on a band owns the grid.
+   */
+  enabled: boolean;
   /** True only while the pointer is DOWN, which is what freezes the axis. */
   pressed: boolean;
   begin: (event: React.PointerEvent, date: string) => void;
@@ -83,7 +92,7 @@ export function usePaintAbsence(options: PaintOptions): PaintController {
             live.current.onRefused(effect.reason, effect.date);
             break;
           case 'clicked':
-            live.current.onClick(effect.date);
+            live.current.onClick(effect.date, effect.minutes);
             break;
           case 'painted':
             live.current.onPainted(effect.span, effect.at);
@@ -115,9 +124,8 @@ export function usePaintAbsence(options: PaintOptions): PaintController {
         origin: { x: event.clientX, y: event.clientY },
         anchorMinutes: timeline.minutesAt(event.clientY - metrics.top),
         windows: day.manualWindows,
-        // Said ONCE, on the first travel, exactly as an inert press on a row is: the past is a
-        // record, a closed day holds no work, and a save in flight is a moment that will pass.
-        refusal: day.isPast ? 'past' : day.isClosed ? 'closed' : current.writable() ? null : 'busy',
+        // Said ONCE, on the first travel, exactly as an inert press on a row is.
+        refusal: paintRefusalFor(day, current.writable()),
       });
 
       const onPointerMove = (moveEvent: PointerEvent): void => {
@@ -170,6 +178,7 @@ export function usePaintAbsence(options: PaintOptions): PaintController {
 
   return {
     painting: state.painted ?? null,
+    enabled: options.enabled,
     pressed: state.phase === 'pressed' || state.phase === 'painting',
     begin,
     settle,

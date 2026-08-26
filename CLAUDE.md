@@ -107,6 +107,7 @@ Read the section first. These are the ones most often broken by a plausible-look
 | the engine, placement, overflow | SPEC § *Weekly Auto-Composition*, § *Fill and Overflow, Always*, § *The Movable Pool* |
 | anything that pins a row | SPEC § *The Padlock Is the Only Pin* |
 | a drag, a drop, the ghost | SPEC § *A Drop Is Stored In Segments*, § *Thirds*, § *A Drop Onto a Day the Engine Reflows Is Never Refused*, § *A Drop Always Answers For Itself* |
+| where a press creates instead of moving | SPEC § *The Create Rail*, § *Painting a Band: a Gap or a Job* |
 | the bottom edge | SPEC § *Block Resize*, and § *Block Resize Is a Transfer, and Both Dead Ends Ask* in DECISIONS |
 | gaps, absences, closed days | SPEC § *Gap Management*, § *Blocks and the Lunch Break* |
 | the axis, the grid, a gesture's geometry | SPEC § *Calendar View*, § *Block Gestures*, § *One Axis Per Gesture* in DECISIONS |
