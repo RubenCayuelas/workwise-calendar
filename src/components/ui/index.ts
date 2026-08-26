@@ -36,6 +36,7 @@ export {
 export { TimeField, type TimeFieldProps } from './TimeField';
 export { TIME_STEP_MINUTES, clockMinutes } from './timeOptions';
 export { DateSelect, type DateSelectProps } from './DateSelect';
+export { DayPicker, type DayPickerProps } from './DayPicker';
 export {
   PICKER_FUTURE_WEEKS,
   PICKER_MAX_FUTURE_WEEKS,

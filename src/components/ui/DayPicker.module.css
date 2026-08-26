@@ -1,0 +1,175 @@
+.trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ww-space-2);
+  width: 100%;
+  min-width: 0;
+  height: var(--ww-control-height-lg);
+  padding: 0 var(--ww-space-3);
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius);
+  background: var(--ww-surface);
+  color: var(--ww-text);
+  font-size: var(--ww-text-md);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--ww-duration-fast) ease-out;
+}
+
+.trigger:hover:not(:disabled) {
+  border-color: var(--ww-border-strong);
+}
+
+.trigger:disabled {
+  background: var(--ww-surface-alt);
+  color: var(--ww-text-muted);
+  cursor: default;
+}
+
+.invalid {
+  border-color: var(--ww-danger);
+}
+
+.value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  display: flex;
+  flex: none;
+  color: var(--ww-text-muted);
+}
+
+/* Fixed to the viewport like the paint chooser: this opens over the columns the field is moving a
+   band on, and a `transform` on the grid would otherwise clip it. The box is a CONSTANT —
+   226 wide, six 30px rows plus 100px of chrome — which is what lets popoverPosition clip it by
+   arithmetic instead of a measurement. POPOVER_WIDTH and CELL_HEIGHT in DayPicker.tsx are these
+   numbers. */
+.popover {
+  position: fixed;
+  z-index: var(--ww-z-popover);
+  width: 226px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-2);
+  padding: var(--ww-space-3);
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius-lg);
+  background: var(--ww-surface);
+  box-shadow: var(--ww-shadow-popover);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-2);
+  height: var(--ww-control-height);
+}
+
+.month {
+  flex: 1;
+  text-align: center;
+  font-size: var(--ww-text-sm);
+  font-weight: var(--ww-weight-medium);
+}
+
+.weekdays,
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.weekday {
+  height: 16px;
+  line-height: 16px;
+  text-align: center;
+  font-size: var(--ww-text-xs);
+  color: var(--ww-text-muted);
+}
+
+.cell {
+  position: relative;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--ww-radius-sm);
+  background: none;
+  color: var(--ww-text);
+  font-size: var(--ww-text-sm);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.cell:hover:not(:disabled) {
+  background: var(--ww-hover-fill);
+}
+
+.cell:disabled {
+  color: var(--ww-text-muted);
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Two channels, never three: the NUMBER dims where the engine does not work by the calendar, and
+   the BACKGROUND goes grey where the shop is closed by the owner's decision. A closed Saturday
+   carries both, which is the truth. */
+.weekend .number,
+.past .number {
+  color: var(--ww-text-muted);
+}
+
+.outside .number {
+  opacity: 0.55;
+}
+
+.closed {
+  background: var(--ww-surface-alt);
+}
+
+.today .number {
+  border-radius: var(--ww-radius-pill);
+  outline: var(--ww-hairline) solid var(--ww-border-strong);
+  outline-offset: 2px;
+}
+
+.selected {
+  background: var(--ww-accent);
+}
+
+.selected .number {
+  color: var(--ww-on-accent);
+}
+
+.room {
+  position: absolute;
+  bottom: 3px;
+  width: 3px;
+  height: 3px;
+  border-radius: var(--ww-radius-pill);
+  background: var(--ww-text-muted);
+}
+
+.selected .room {
+  background: var(--ww-on-accent);
+}
+
+/* Centred and quiet under a hairline: it is a shortcut, not a third answer. */
+.todayButton {
+  align-self: stretch;
+  border: 0;
+  border-top: var(--ww-hairline) solid var(--ww-border);
+  background: none;
+  color: var(--ww-text-muted);
+  cursor: pointer;
+  padding: var(--ww-space-2) 0 0;
+  font-size: var(--ww-text-sm);
+}
+
+.todayButton:hover {
+  color: var(--ww-text);
+}

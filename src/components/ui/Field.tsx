@@ -24,6 +24,8 @@ import styles from './Field.module.css';
 
 interface FieldContextValue {
   id: string;
+  /** The `<label>`'s own id, for a control whose accessible name has to point AT it. */
+  labelId: string;
   describedBy?: string;
   invalid: boolean;
 }
@@ -62,13 +64,14 @@ export function Field({
   const { t } = useTranslation();
   const generated = useId();
   const controlId = id ?? `${generated}-control`;
+  const labelId = `${generated}-label`;
   const hintId = `${generated}-hint`;
   const errorId = `${generated}-error`;
   const describedBy = error !== undefined ? errorId : hint !== undefined ? hintId : undefined;
 
   return (
     <div className={[styles.field, inline ? styles.inline : '', className].filter(Boolean).join(' ')}>
-      <label className={styles.label} htmlFor={controlId}>
+      <label className={styles.label} id={labelId} htmlFor={controlId}>
         {label}
         {required ? (
           <span className={styles.required} aria-hidden="true">
@@ -79,7 +82,9 @@ export function Field({
       </label>
 
       <div className={styles.control}>
-        <FieldContext.Provider value={{ id: controlId, describedBy, invalid: error !== undefined }}>
+        <FieldContext.Provider
+          value={{ id: controlId, labelId, describedBy, invalid: error !== undefined }}
+        >
           {children}
         </FieldContext.Provider>
       </div>
@@ -100,16 +105,20 @@ export function Field({
 /**
  * What a control inherits from its `Field`, or nothing when it stands alone. Public because a
  * control that does not live in this module — a popover's trigger button — has to inherit the same
- * id, `aria-describedby` and invalid ring as the ones that do.
+ * id, `aria-describedby` and invalid ring as the ones that do, and because `<label for>` cannot
+ * name a `<button>`: one takes its accessible name from its own contents, so it has to point
+ * `aria-labelledby` at `labelId` itself.
  */
 export function useFieldBinding(explicit: {
   id?: string;
+  labelId?: string;
   describedBy?: string;
   invalid?: boolean;
-}): { id?: string; describedBy?: string; invalid: boolean } {
+}): { id?: string; labelId?: string; describedBy?: string; invalid: boolean } {
   const context = useContext(FieldContext);
   return {
     id: explicit.id ?? context?.id,
+    labelId: explicit.labelId ?? context?.labelId,
     describedBy: explicit.describedBy ?? context?.describedBy,
     invalid: explicit.invalid ?? context?.invalid ?? false,
   };

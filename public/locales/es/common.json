@@ -71,6 +71,7 @@
     "frozen": "congelado",
     "buffer": "colchón",
     "closed": "cerrado",
+    "weekend": "fin de semana",
     "todayHint": "Hoy se puede replanificar entero. Bloquea el trabajo que ya hayas empezado.",
     "frozenHint": "El motor no escribe en el pasado, pero tú sí puedes editarlo a mano.",
     "bufferHint": "El viernes es el colchón: solo recibe el desborde del trabajo que ha crecido.",
@@ -80,6 +81,13 @@
     "freeHours": "{{hours}} h libres",
     "full": "Día completo",
     "note": "Nota: {{note}}"
+  },
+  "dayPicker": {
+    "open": "Elegir el día",
+    "previousMonth": "Mes anterior",
+    "nextMonth": "Mes siguiente",
+    "today": "Hoy",
+    "todayHint": "Elige hoy"
   },
   "grid": {
     "label": "Semana del taller",

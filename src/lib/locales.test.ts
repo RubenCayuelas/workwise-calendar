@@ -99,6 +99,16 @@ describe('locale files', () => {
     );
   });
 
+  it('words the day picker in both languages', () => {
+    expect(resolve(es as Json, 'day.weekend')).toBe('fin de semana');
+    expect(resolve(en as Json, 'day.weekend')).toBe('weekend');
+    expect(resolve(es as Json, 'dayPicker.open')).toBe('Elegir el día');
+    expect(resolve(es as Json, 'dayPicker.previousMonth')).toBe('Mes anterior');
+    expect(resolve(es as Json, 'dayPicker.nextMonth')).toBe('Mes siguiente');
+    expect(resolve(es as Json, 'dayPicker.today')).toBe('Hoy');
+    expect(resolve(es as Json, 'dayPicker.todayHint')).toBe('Elige hoy');
+  });
+
   it('words the week label a date field carries under itself', () => {
     // `header.week` carries the week's date range inside it. Under a date field the long date
     // already says the days, so the number has to be available on its own.

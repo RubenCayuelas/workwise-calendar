@@ -71,6 +71,7 @@
     "frozen": "frozen",
     "buffer": "buffer",
     "closed": "closed",
+    "weekend": "weekend",
     "todayHint": "Today can still be re-planned in full. Lock the work you have already started.",
     "frozenHint": "The engine never writes in the past, but you can still edit it by hand.",
     "bufferHint": "Friday is the buffer: it only takes the overflow of work that grew.",
@@ -80,6 +81,13 @@
     "freeHours": "{{hours}} h left",
     "full": "Day full",
     "note": "Note: {{note}}"
+  },
+  "dayPicker": {
+    "open": "Choose the day",
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month",
+    "today": "Today",
+    "todayHint": "Choose today"
   },
   "grid": {
     "label": "Workshop week",
