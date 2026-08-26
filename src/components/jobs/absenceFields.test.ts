@@ -1,11 +1,19 @@
 /**
- * Which control of the absences form a refusal lands on, now that the range is ONE calendar. Both
- * refusals a span can earn name the far end, and `localError` is drawn nowhere but a `Field`'s
- * `error`: an end that maps onto no field leaves `Guardar` refusing in silence.
+ * What span the absences form sends, and which control a refusal lands on, now that the range is ONE
+ * calendar. The span because a far end left behind by a day that moved is how one absence became
+ * three; the control because both refusals a span can earn name the far end, and `localError` is
+ * drawn nowhere but a `Field`'s `error`: an end that maps onto no field leaves `Guardar` refusing in
+ * silence.
  */
 
 import { describe, expect, it } from 'vitest';
-import { API_FIELD, RANGE_FIELDS, rangeError, type AbsenceField } from './absenceFields';
+import {
+  API_FIELD,
+  RANGE_FIELDS,
+  absenceSpan,
+  rangeError,
+  type AbsenceField,
+} from './absenceFields';
 import { summarizeAbsence } from './absence';
 import { rangeCells } from '../ui/dayRange';
 import { absenceRange } from '../../lib/absences';
@@ -31,6 +39,27 @@ const onlyOn =
   (field: AbsenceField, message: string) =>
   (asked: AbsenceField): string | undefined =>
     asked === field ? message : undefined;
+
+describe('the span the absences form sends', () => {
+  it('names both ends of a range the calendar chose', () => {
+    expect(absenceSpan(true, MON, FRI)).toEqual({ from: MON, to: FRI });
+  });
+
+  it('names the same day twice in the shapes that draw one day', () => {
+    expect(absenceSpan(false, WED, WED)).toEqual({ from: WED, to: WED });
+  });
+
+  it('keeps one absence on one day when its day moved BACK behind a stale far end', () => {
+    // Both writers of the single day reach this state: the calendar moved the day forward, which
+    // recorded a week to come back to, and then «Volver a…» moved it back on its own. Sent as
+    // `to: endDate` it wrote WED, THU and FRI for a band drawn on WED alone.
+    expect(absenceSpan(false, WED, FRI)).toEqual({ from: WED, to: WED });
+  });
+
+  it('never reaches past the day it is given, whichever way the ends sit', () => {
+    expect(absenceSpan(false, FRI, MON)).toEqual({ from: FRI, to: FRI });
+  });
+});
 
 describe('the field a refusal of the absences form lands on', () => {
   it('sends both payload keys of a span to the one control that draws it', () => {

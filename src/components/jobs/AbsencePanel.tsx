@@ -76,7 +76,7 @@ import {
   type AbsenceOrigin,
   type AbsenceSummary,
 } from './absence';
-import { API_FIELD, rangeError, type AbsenceField } from './absenceFields';
+import { API_FIELD, absenceSpan, rangeError, type AbsenceField } from './absenceFields';
 import type { JobsMutationHandler } from './events';
 import styles from './jobs.module.css';
 
@@ -288,8 +288,7 @@ export function AbsencePanel({
       previewAbsence(
         {
           kind,
-          from: date,
-          to: endDate,
+          ...absenceSpan(bulk, date, endDate),
           ...(kind === 'gap' ? { startMinutes, durationMinutes } : {}),
           // The answers travel with it: without them the preview reports the displacement of a save
           // nobody is about to make, and the two notices would disagree about the same hours.
@@ -317,7 +316,7 @@ export function AbsencePanel({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [previewable, kind, date, endDate, startMinutes, durationMinutes, keptKey]);
+  }, [previewable, bulk, kind, date, endDate, startMinutes, durationMinutes, keptKey]);
 
   const summary: AbsenceSummary | null = preview === null ? null : summarizeAbsence(preview);
 
@@ -393,8 +392,7 @@ export function AbsencePanel({
             : [];
         const result = await saveAbsence({
           kind,
-          from: date,
-          to: endDate,
+          ...absenceSpan(bulk, date, endDate),
           ...(trimmed === '' ? {} : { reason: trimmed }),
           ...(kind === 'gap' ? { startMinutes: start, durationMinutes: minutes } : {}),
           ...(keepWork.length === 0 ? {} : { keepWork }),
@@ -445,7 +443,7 @@ export function AbsencePanel({
     setActionError(null);
 
     try {
-      const result = await reopenDays({ from: date, to: endDate });
+      const result = await reopenDays(absenceSpan(bulk, date, endDate));
       onChanged?.({ kind: 'days-reopened', summary: result.summary });
       toast.success(t('absenceForm.reopened', { count: result.dates.length }));
       onClose();
@@ -617,9 +615,8 @@ export function AbsencePanel({
                     stored day outside its window, so editing an old gap can never move it. */}
                 <Field
                   label={t('gapForm.date')}
-                  // This shape shows only `date`, but `submit` still sends `to: endDate`:
-                  // `rangeError` catches a refusal on either end, so a 400 naming `to` is
-                  // never silent here even though no control here names `endDate`.
+                  // Either end of the span, so a refusal `API_FIELD` maps to `endDate` cannot go
+                  // unsaid on a screen that draws no control for it.
                   error={rangeError(errorFor)}
                   hint={isValidDate(date) ? format.dayLine(date) : undefined}
                 >
@@ -633,9 +630,6 @@ export function AbsencePanel({
                       // Set OPTIMISTICALLY: a painted band on the grid has to follow the field.
                       if (visibleDates?.includes(date) === true) setLastVisible(date);
                       setDate(next);
-                      // One absence is ONE day: `submit` sends `to: endDate`, so an end left
-                      // behind a day that moved BACKWARDS saved three days for a band drawn on one.
-                      setEndDate(next);
                     }}
                   />
                 </Field>

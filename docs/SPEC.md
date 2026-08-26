@@ -1546,6 +1546,8 @@ gesture.
   unit id per day, each cut at the lunch break by the very function a single gap uses (`insertAbsence`).
 - **The rows are written first and the reflow runs ONCE**, at the end, so the hours are displaced by one
   pass and reported once. A refusal on ANY day of the range rolls the whole thing back.
+- **A shape that draws ONE day sends that day as BOTH ends** (`absenceSpan`), so `endDate` belongs to
+  the range calendar alone: a far end left behind by a day that has since moved cannot widen the write.
 - **The two OLD shapes of the form are untouched**: editing one absence and *stop the day here* still
   write through `/api/gaps`, still reach the past, and keep every refusal they had.
 
