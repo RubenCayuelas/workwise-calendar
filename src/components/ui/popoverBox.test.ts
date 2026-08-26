@@ -4,10 +4,12 @@
  * so the box is a known size and the clipping is arithmetic with a test.
  */
 
+import fs from 'fs';
+import path from 'path';
 import { describe, expect, it } from 'vitest';
 import { popoverPosition, type PopoverAnchor } from './popoverBox';
 
-/** Some box. The arithmetic is the same whatever the size; the real one is 226 x 280. */
+/** Some box. The arithmetic is the same whatever the size. */
 const BOX = { width: 268, height: 320 };
 const VIEWPORT = { width: 1280, height: 800 };
 const GAP = 6;
@@ -47,5 +49,27 @@ describe('popoverPosition', () => {
     expect(popoverPosition(TRIGGER, BOX, VIEWPORT, 0).top).toBe(208);
     const low: PopoverAnchor = { top: 520, left: 940, bottom: 548, right: 1240 };
     expect(popoverPosition(low, BOX, VIEWPORT, 0).top).toBe(200);
+  });
+});
+
+describe('the box the arithmetic assumes is the box the stylesheet draws', () => {
+  const read = (file: string): string => fs.readFileSync(path.resolve(__dirname, file), 'utf8');
+
+  it('measures the popover from the cell height the stylesheet actually uses', () => {
+    // `POPOVER_HEIGHT` is six of these plus the chrome, and it decides when the box flips above its
+    // trigger. Growing one number and not the other moves that threshold silently, and a comment
+    // saying they must match was all that held them together — until a hand-edit of both proved it.
+    const constant = /const CELL_HEIGHT = (\d+);/.exec(read('DayPicker.tsx'));
+    const rule = /\.cell \{[^}]*?height: (\d+)px;/s.exec(read('DayPicker.module.css'));
+
+    expect(constant).not.toBeNull();
+    expect(rule).not.toBeNull();
+    expect(rule?.[1]).toBe(constant?.[1]);
+  });
+
+  it('draws the width it clips against, inline rather than from the stylesheet', () => {
+    expect(read('DayPicker.tsx')).toMatch(/const POPOVER_WIDTH = \d+;/);
+    expect(read('DayPicker.tsx')).toContain('width: POPOVER_WIDTH');
+    expect(read('DayPicker.module.css')).not.toMatch(/\.popover \{[^}]*?width:/s);
   });
 });
