@@ -115,6 +115,31 @@ describe('locale files', () => {
     expect(dayLine('es')).toBe('miércoles 12 de agosto · Semana 33');
     expect(dayLine('en')).toBe('Wednesday 12 August · Week 33');
   });
+
+  it('words the typed time field in both languages', () => {
+    expect(resolve(es as Json, 'timeField.earlier')).toBe('Adelantar la hora');
+    expect(resolve(es as Json, 'timeField.later')).toBe('Retrasar la hora');
+    expect(resolve(es as Json, 'timeField.hint')).toBe(
+      'Escríbela, o muévela con ↑ y ↓ de cuarto en cuarto; con Mayús, de hora en hora.',
+    );
+    expect(resolve(es as Json, 'errors.invalidTimeFormat')).toBe(
+      'La hora tiene que tener el formato HH:mm.',
+    );
+    // The bounds are NAMED, because the field refuses instead of clipping and «entre qué horas»
+    // is the only thing that tells the owner what to type instead.
+    expect(resolve(es as Json, 'errors.timeOutOfBounds')).toBe(
+      'Esa hora tiene que estar entre las {{startTime}} y las {{endTime}}.',
+    );
+    for (const key of [
+      'timeField.earlier',
+      'timeField.later',
+      'timeField.hint',
+      'errors.invalidTimeFormat',
+      'errors.timeOutOfBounds',
+    ]) {
+      expect(enKeys, `missing in en: ${key}`).toContain(key);
+    }
+  });
 });
 
 function resolve(bundle: Json, key: string): string {

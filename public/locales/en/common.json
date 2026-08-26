@@ -19,6 +19,11 @@
     "decrease": "Decrease",
     "optional": "optional"
   },
+  "timeField": {
+    "earlier": "Move earlier",
+    "later": "Move later",
+    "hint": "Type it, or move it with ↑ and ↓ a quarter of an hour at a time; with Shift, an hour."
+  },
   "units": {
     "hours": "{{hours}} h",
     "hoursSuffix": "h",
@@ -495,6 +500,8 @@
     "invalidTotalHours": "Total hours must be a number greater than zero.",
     "invalidDate": "The date must be in YYYY-MM-DD format.",
     "invalidTime": "That time does not fit inside the day.",
+    "invalidTimeFormat": "The time must be in HH:mm format.",
+    "timeOutOfBounds": "That time has to be between {{startTime}} and {{endTime}}.",
     "invalidRange": "That date range is not valid: \"To\" must be the same day as \"From\" or later, and at most {{maxDays}} days long.",
     "rangeBackwards": "That range runs backwards: \"To\" has to be the same day as \"From\" or later.",
     "invalidReason": "That gap reason is not valid.",

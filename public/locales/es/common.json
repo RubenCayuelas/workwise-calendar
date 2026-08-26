@@ -19,6 +19,11 @@
     "decrease": "Disminuir",
     "optional": "opcional"
   },
+  "timeField": {
+    "earlier": "Adelantar la hora",
+    "later": "Retrasar la hora",
+    "hint": "Escríbela, o muévela con ↑ y ↓ de cuarto en cuarto; con Mayús, de hora en hora."
+  },
   "units": {
     "hours": "{{hours}} h",
     "hoursSuffix": "h",
@@ -495,6 +500,8 @@
     "invalidTotalHours": "Las horas totales tienen que ser un número mayor que cero.",
     "invalidDate": "La fecha tiene que tener el formato AAAA-MM-DD.",
     "invalidTime": "Esa hora no cabe en el día.",
+    "invalidTimeFormat": "La hora tiene que tener el formato HH:mm.",
+    "timeOutOfBounds": "Esa hora tiene que estar entre las {{startTime}} y las {{endTime}}.",
     "invalidRange": "Ese rango de fechas no es válido: «Hasta» tiene que ser igual o posterior a «Desde», y como mucho de {{maxDays}} días.",
     "rangeBackwards": "Ese rango va hacia atrás: «Hasta» tiene que ser igual o posterior a «Desde».",
     "invalidReason": "El motivo del hueco no es válido.",

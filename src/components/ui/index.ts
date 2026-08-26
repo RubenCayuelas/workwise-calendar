@@ -33,6 +33,7 @@ export {
   type SelectProps,
   type TextareaProps,
 } from './Field';
+export { TimeField, type TimeFieldProps } from './TimeField';
 export { TimeSelect, type TimeSelectProps } from './TimeSelect';
 export {
   TIME_STEP_MINUTES,
