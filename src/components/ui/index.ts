@@ -23,6 +23,7 @@ export {
   NumberStepper,
   Select,
   Textarea,
+  useFieldBinding,
   type CheckboxProps,
   type FieldProps,
   type InputProps,

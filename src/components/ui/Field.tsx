@@ -97,8 +97,12 @@ export function Field({
   );
 }
 
-/** What a control inherits from its `Field`, or nothing when it stands alone. */
-function useFieldBinding(explicit: {
+/**
+ * What a control inherits from its `Field`, or nothing when it stands alone. Public because a
+ * control that does not live in this module — a popover's trigger button — has to inherit the same
+ * id, `aria-describedby` and invalid ring as the ones that do.
+ */
+export function useFieldBinding(explicit: {
   id?: string;
   describedBy?: string;
   invalid?: boolean;

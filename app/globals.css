@@ -70,6 +70,9 @@
 
   --ww-panel-width: 360px;
   --ww-z-panel: 40;
+  /* Over the panel it opens in, under a confirmation. NOT the panel's own 40: a tie is settled by
+     mount order, and a portal mounted between the two would silently invert them. */
+  --ww-z-popover: 45;
   --ww-z-dialog: 50;
   --ww-z-toast: 60;
 
