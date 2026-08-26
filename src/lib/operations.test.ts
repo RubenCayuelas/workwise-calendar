@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, openDatabase, type Db } from './db';
-import { minutesToHHmm } from './dates';
+import { addDays, minutesToHHmm } from './dates';
 import { AppError } from './errors';
 import { PROJECT_COLORS } from './projectColors';
 import { readHistoryState, undoLast } from './history';
@@ -21,7 +21,7 @@ import { deleteBlock, moveBlock, resizeBlock, setBlockLock, splitBlock } from '.
 import { createGap, deleteGap, patchGap } from './operations/gaps';
 import { previewAbsence, reopenDays, saveAbsence } from './operations/absences';
 import { updateSettings } from './operations/settings';
-import { readWeek } from './operations/views';
+import { MAX_DAY_MARK_DAYS, readDays, readWeek } from './operations/views';
 import { deleteBlocks, insertBlock, listBlocks, updateBlock } from './repositories/blocks';
 import { listGaps } from './repositories/gaps';
 import { listDayOverrides, upsertDayOverride } from './repositories/dayOverrides';
@@ -2937,6 +2937,116 @@ describe('the views the screens read', () => {
     expect(summary.bufferDate).toBe(FRI);
     expect(summary.bufferClear).toBe(true);
   });
+
+  it('marks a plain weekday as having room, and says how many minutes are left', () => {
+    job('Door', 4);
+
+    const days = marks(MON, TUE, MON);
+
+    expect(days.get(MON)).toEqual({ date: MON, isClosed: false, freeMinutes: 6 * 60, hasRoom: true });
+    expect(days.get(TUE)).toEqual({ date: TUE, isClosed: false, freeMinutes: 10 * 60, hasRoom: true });
+  });
+
+  it('reports NO room on a day unlocked work has filled, which plannableMinutes calls empty', () => {
+    job('Door', 10);
+
+    // The week still answers 600: it reports the engine's budget, not what is left of it.
+    expect(readWeek(MON, { today: MON }, db).days[0].plannableMinutes).toBe(10 * 60);
+    expect(marks(MON, MON, MON).get(MON)).toEqual({
+      date: MON,
+      isClosed: false,
+      freeMinutes: 0,
+      hasRoom: false,
+    });
+  });
+
+  it('sends a closed day with its stored note, and no room', () => {
+    upsertDayOverride({ date: THU, isClosed: true, capacityHours: null, note: 'Fair' }, db);
+
+    expect(marks(THU, THU, MON).get(THU)).toEqual({
+      date: THU,
+      isClosed: true,
+      note: 'Fair',
+      freeMinutes: 0,
+      hasRoom: false,
+    });
+  });
+
+  it('gives the weekend no room, because the engine never lays it out', () => {
+    const days = marks(SAT, SUN, MON);
+
+    expect([days.get(SAT), days.get(SUN)]).toEqual([
+      { date: SAT, isClosed: false, freeMinutes: 0, hasRoom: false },
+      { date: SUN, isClosed: false, freeMinutes: 0, hasRoom: false },
+    ]);
+  });
+
+  it('gives the frozen past no room', () => {
+    expect(marks(MON, TUE, WED).get(MON)).toEqual({
+      date: MON,
+      isClosed: false,
+      freeMinutes: 0,
+      hasRoom: false,
+    });
+  });
+
+  it('ships the real free minutes beyond the horizon while refusing it room', () => {
+    updateSettings({ planningHorizonWeeks: 1 }, { today: MON }, db);
+
+    const days = marks(THU, NEXT_MON, MON);
+
+    expect(days.get(THU)).toEqual({ date: THU, isClosed: false, freeMinutes: 10 * 60, hasRoom: true });
+    // One week's horizon from Monday ends on Sunday: the day after it is fully plannable to the
+    // day plan and out of reach to the engine, which is why the horizon is checked separately.
+    expect(days.get(NEXT_MON)).toEqual({
+      date: NEXT_MON,
+      isClosed: false,
+      freeMinutes: 10 * 60,
+      hasRoom: false,
+    });
+  });
+
+  it('refuses room to a day whose free minutes are holes too small to hold a row', () => {
+    // 08:00-13:50 and 15:30-19:20: twenty minutes left, in two holes of ten.
+    createGap({ date: WED, startMinutes: 8 * 60, durationMinutes: 350, reason: 'Breakdown', today: MON }, db);
+    createGap({ date: WED, startMinutes: 15 * 60 + 30, durationMinutes: 230, reason: 'Errands', today: MON }, db);
+
+    expect(marks(WED, WED, MON).get(WED)).toEqual({
+      date: WED,
+      isClosed: false,
+      freeMinutes: 20,
+      hasRoom: false,
+    });
+  });
+
+  it('gives a day whose capacity is nought no room, and does not call it closed', () => {
+    upsertDayOverride({ date: THU, isClosed: false, capacityHours: 0 }, db);
+
+    expect(marks(THU, THU, MON).get(THU)).toEqual({
+      date: THU,
+      isClosed: false,
+      freeMinutes: 0,
+      hasRoom: false,
+    });
+  });
+
+  it('refuses a span longer than MAX_DAY_MARK_DAYS instead of walking it', () => {
+    expect(readDays(MON, addDays(MON, MAX_DAY_MARK_DAYS - 1), { today: MON }, db).days).toHaveLength(
+      MAX_DAY_MARK_DAYS,
+    );
+
+    const error = refusal(() => readDays(MON, addDays(MON, MAX_DAY_MARK_DAYS), { today: MON }, db));
+
+    expect(error.code).toBe('invalid-range');
+    expect(error.status).toBe(400);
+    expect(error.field).toBe('to');
+    expect(error.details).toMatchObject({ maxDays: MAX_DAY_MARK_DAYS });
+  });
+
+  /** The marks by date, so a case names the day it is about instead of counting rows. */
+  function marks(from: string, to: string, today: string) {
+    return new Map(readDays(from, to, { today }, db).days.map((day) => [day.date, day]));
+  }
 });
 
 // ---------------------------------------------------------------------------
