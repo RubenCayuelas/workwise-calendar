@@ -617,7 +617,10 @@ export function AbsencePanel({
                     stored day outside its window, so editing an old gap can never move it. */}
                 <Field
                   label={t('gapForm.date')}
-                  error={errorFor('date')}
+                  // This shape shows only `date`, but `submit` still sends `to: endDate`:
+                  // `rangeError` catches a refusal on either end, so a 400 naming `to` is
+                  // never silent here even though no control here names `endDate`.
+                  error={rangeError(errorFor)}
                   hint={isValidDate(date) ? format.dayLine(date) : undefined}
                 >
                   <DayPicker
@@ -630,9 +633,9 @@ export function AbsencePanel({
                       // Set OPTIMISTICALLY: a painted band on the grid has to follow the field.
                       if (visibleDates?.includes(date) === true) setLastVisible(date);
                       setDate(next);
-                      // This mode draws no control for the far end, but `submit` still sends it
-                      // as `to`: this is what stops that range going backwards.
-                      if (compareDates(endDate, next) < 0) setEndDate(next);
+                      // One absence is ONE day: `submit` sends `to: endDate`, so an end left
+                      // behind a day that moved BACKWARDS saved three days for a band drawn on one.
+                      setEndDate(next);
                     }}
                   />
                 </Field>
