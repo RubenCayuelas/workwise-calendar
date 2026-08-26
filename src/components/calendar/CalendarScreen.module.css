@@ -6,7 +6,9 @@
   flex: 1 1 auto;
   flex-direction: column;
   gap: var(--ww-space-4);
-  padding: var(--ww-space-4) var(--ww-space-5);
+  /* Tighter at the foot than at the head, deliberately: the head separates the strip from the
+     header's rule, the foot is only the window's edge, and the calendar wants those pixels. */
+  padding: var(--ww-space-4) var(--ww-space-5) var(--ww-space-3);
 }
 
 /*
@@ -46,6 +48,9 @@
   z-index: 5;
   display: flex;
   height: 0;
+  /* The column's gap buys nothing in front of a box with no height, and the 12px it was holding
+     open under the grid belong to the grid. Static, so it is not a height that can change. */
+  margin-top: calc(-1 * var(--ww-space-4));
   flex-direction: column;
   justify-content: flex-end;
   gap: 2px;

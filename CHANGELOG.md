@@ -9,6 +9,16 @@ never moves without the owner asking.
 
 ---
 
+## 0.23.4 — the calendar reaches closer to the bottom of the window
+
+**The dead space under the grid is down from 24 px to 8 px, and the calendar has taken the
+difference** — 16 px taller at 1920x1080, so an hour of the day is that much easier to aim at. Half of
+what was there was holding a gap open in front of a box with no height in it, which bought nothing.
+The rest came off the page's bottom padding. Nothing is cut: the last hour of the axis still ends
+inside the frame at every window size.
+
+---
+
 ## 0.23.3 — the week sits in the middle of the window
 
 **The week label and its two arrows are centred on the window now**, instead of in the middle of
