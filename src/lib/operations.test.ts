@@ -2278,6 +2278,28 @@ describe('gaps', () => {
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
+  it('CUTS the row it lands inside in two, leaving the head where it was', () => {
+    // The gesture the create rail exists for: a quarter of an hour taken out of the middle of a job.
+    // Nothing in the write path cuts anything — the gap becomes an obstacle, the day has two free
+    // runs left, and the queue item is poured into both. The head keeps its id; the tail is an insert.
+    job('Door', 4);
+
+    createGap({ date: MON, startMinutes: 11 * 60, durationMinutes: 15, reason: 'Errands', today: MON }, db);
+
+    expect(calendar()).toEqual([`${MON} 08:00-11:00 Door`, `${MON} 11:15-12:15 Door`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('leaves no head behind when the piece in front is under a quarter of an hour', () => {
+    // The floor is what decides, not the aim: the engine steps over a run it cannot fill, so the
+    // whole block lands after the gap instead of being cut with a ten-minute stub in front.
+    job('Door', 4);
+
+    createGap({ date: MON, startMinutes: 8 * 60 + 10, durationMinutes: 30, today: MON }, db);
+
+    expect(calendar()).toEqual([`${MON} 08:40-12:40 Door`]);
+  });
+
   it('refuses to cover a locked block, naming it, and saves nothing', () => {
     const door = job('Door', 4);
     setBlockLock(door.blocks[0].id, true, { today: MON }, db);

@@ -878,6 +878,90 @@
 }
 
 /* --------------------------------------------------------------------------
+   The create rail, and the aim it reveals
+   -------------------------------------------------------------------------- */
+
+/*
+ * THE ONLY THING ON THIS GRID THAT IS A HIT TARGET AND NOTHING ELSE. It lies over the rows down the
+ * column's left edge so a press there creates instead of moving what is underneath, and it paints
+ * NOTHING: at rest the calendar looks exactly as it did before the rail existed, which is the whole
+ * of what the owner asked for. `.columnAiming` and `.aimLine` are what say it is there, and they are
+ * driven by the same state, so the rail can never offer a create the press will refuse.
+ *
+ * `z-index: 2` and after `.columnBody` in the DOM: level with a HOVERED block and later in tree
+ * order, so it takes the press from one — and below the sticky day header at 3, which it would
+ * otherwise cover when the grid scrolls.
+ *
+ * A HOVER BAR IS ANCHORED `right: 3px` INSIDE ITS ROW, so at one lane it starts near x = 101 on a
+ * weekday and x = 34 on the 116 px weekend floor, both clear of this strip. At TWO lanes the row is
+ * about half a column and a four-button bar starts near x = 7, where the strip covers the first
+ * button's left half — and since a press here leaves the row un-hovered, `display: none` takes the bar
+ * away rather than the strip stealing its click. Lanes exist only where rows overlap, which the engine
+ * never produces and a hand can.
+ */
+.createRail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Out over the column's own border, because the aim measures x from the BORDER box: at `left: 0`
+     the strip started half a pixel in and the two declarations of one edge disagreed. */
+  left: calc(-1 * var(--ww-hairline));
+  z-index: 2;
+  width: var(--ww-create-rail);
+}
+
+/*
+ * WHERE THE CUT WOULD FALL. Neutral and dashed, never the gap colour: nothing has been written and
+ * what the band is has not even been asked — the release asks. Full width, because the row it would
+ * cut is full width.
+ */
+/*
+ * Every surface a press would create on, the free part of a column included — and the ONLY place the
+ * copy cursor is declared, so it cannot disagree with the reveal. `cursor` inherits, so the rail takes
+ * it from here: on a frozen day, where nothing is revealed, the rail says nothing either. A block
+ * declares its own `grab` and keeps it, which is what makes the two states unmistakable.
+ */
+.columnAiming {
+  cursor: copy;
+}
+
+.aimLine {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  height: 0;
+  /* 1 px, not the hairline: at 0.5 it was barely legible over a job's tint, and this line is the
+     whole of what says the rail is there. Still lighter than a committed drop's 2 px cut seam. */
+  border-top: 1px dashed var(--ww-border-strong);
+  pointer-events: none;
+}
+
+/*
+ * The hour, named. Anchored just right of the rail rather than tracking the pointer sideways: on the
+ * rail that IS beside the pointer, and over free time a badge chasing the mouse in both axes reads
+ * as debris. Opaque, since it is read over a block.
+ */
+.aimBadge {
+  position: absolute;
+  left: calc(var(--ww-create-rail) + 2px);
+  z-index: 2;
+  display: flex;
+  height: var(--ww-aim-badge);
+  align-items: center;
+  padding: 0 4px;
+  transform: translateY(-50%);
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius-sm);
+  background: var(--ww-surface);
+  color: var(--ww-text-muted);
+  font-size: var(--ww-text-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
    Painting an absence
    -------------------------------------------------------------------------- */
 
@@ -897,7 +981,13 @@
   padding: 4px 7px;
   border: 1px dashed var(--ww-border-strong);
   border-radius: var(--ww-radius);
-  background-color: var(--ww-gap-color, var(--ww-gap-fill));
+  /*
+   * TRANSLUCENT, exactly as `.ghost` is and for the same measured reason: a band can now be started
+   * over occupied time, so an opaque fill hid the very row the gesture is about to cut in two from
+   * the first pixel of the drag. `transparent` in the mix keeps the colour recipe and lets the row
+   * read through.
+   */
+  background-color: color-mix(in srgb, var(--ww-gap-color, var(--ww-gap-fill)) 42%, transparent);
   font-size: var(--ww-text-sm);
   line-height: var(--ww-line-tight);
   pointer-events: none;

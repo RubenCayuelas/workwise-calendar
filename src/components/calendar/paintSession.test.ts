@@ -8,7 +8,15 @@ import { describe, expect, it } from 'vitest';
 import { hhmmToMinutes as t } from '../../lib/dates';
 import { manualWindowsOf } from '../../lib/manualWindow';
 import { DRAG_THRESHOLD_PX } from './geometry';
-import { paintStep, type PaintEffect, type PaintState } from './paintSession';
+import {
+  bandStartAt,
+  paintRefusalFor,
+  paintStep,
+  paintedSpan,
+  type PaintEffect,
+  type PaintRefusal,
+  type PaintState,
+} from './paintSession';
 import { WED } from '../../testing/fixtures';
 
 const WINDOWS = manualWindowsOf(
@@ -22,7 +30,7 @@ const WINDOWS = manualWindowsOf(
 
 const IDLE: PaintState = { phase: 'idle' };
 
-function press(refusal: PaintState extends never ? never : 'past' | 'closed' | 'busy' | null = null) {
+function press(refusal: PaintRefusal | null = null) {
   return paintStep(IDLE, {
     kind: 'press',
     date: WED,
@@ -68,6 +76,22 @@ describe('the paint gesture state machine', () => {
 
     expect(kinds(effects)).toEqual(['unlisten', 'clicked']);
     expect(state.phase).toBe('idle');
+  });
+
+  it('the click carries the minute under the press, unsnapped', () => {
+    // The rail lies over the rows, so the answer is whatever is on the row there — which cannot be
+    // worked out from the date alone. Unsnapped, because the question is what the pointer is OVER.
+    const pressed = paintStep(IDLE, {
+      kind: 'press',
+      date: WED,
+      origin: { x: 100, y: 200 },
+      anchorMinutes: t('10:52'),
+      windows: WINDOWS,
+      refusal: null,
+    }).state;
+    const { effects } = paintStep(pressed, { kind: 'release' });
+
+    expect(effects).toContainEqual({ kind: 'clicked', date: WED, minutes: t('10:52') });
   });
 
   it('draws the band once the pointer has travelled', () => {
@@ -138,6 +162,16 @@ describe('the paint gesture state machine', () => {
     expect(painted?.kind === 'painted' ? painted.at : null).toEqual({ x: 100, y: 214 });
   });
 
+  it('a press that TRAVELLED but drew no band is still a click', () => {
+    // The create rail lies over 21 px of every row, and the drag layer answers a wobble with 12 px of
+    // click slop. Without this, those pixels swallowed the click the row itself used to answer.
+    const wandered = moveTo(press().state, '10:05').state;
+    const { state, effects } = paintStep(wandered, { kind: 'release' });
+
+    expect(effects).toContainEqual({ kind: 'clicked', date: WED, minutes: t('10:00') });
+    expect(state).toEqual(IDLE);
+  });
+
   it('a band under a quarter of an hour is a press that wandered, not a gesture', () => {
     // Both ends snap to 10:00, so there is nothing to draw. The smallest band that can exist is
     // exactly one quarter, because the snap is what the floor is reached through.
@@ -148,7 +182,8 @@ describe('the paint gesture state machine', () => {
     const { state, effects } = paintStep(painting, { kind: 'release' });
 
     expect(state).toEqual(IDLE);
-    expect(kinds(effects)).toEqual(['unlisten']);
+    // No band — and the click above, which is the only thing left for it to be.
+    expect(kinds(effects)).toEqual(['unlisten', 'clicked']);
   });
 
   it('a single quarter of an hour IS a band', () => {
@@ -199,5 +234,53 @@ describe('the paint gesture state machine', () => {
 
   it('ignores a move that arrives with no session', () => {
     expect(moveTo(IDLE, '13:00')).toEqual({ state: IDLE, effects: [] });
+  });
+});
+
+describe('bandStartAt', () => {
+  it('snaps to the quarter hour', () => {
+    expect(bandStartAt(WINDOWS, t('10:52'))).toBe(t('10:45'));
+    expect(bandStartAt(WINDOWS, t('10:53'))).toBe(t('11:00'));
+  });
+
+  it('moves a minute inside the lunch break forward to the afternoon', () => {
+    expect(bandStartAt(WINDOWS, t('14:30'))).toBe(t('15:30'));
+  });
+
+  it('takes a margin at its face value, the margins being inside the windows', () => {
+    expect(bandStartAt(WINDOWS, t('07:15'))).toBe(t('07:15'));
+    expect(bandStartAt(WINDOWS, t('20:00'))).toBe(t('20:00'));
+  });
+
+  it('is the same minute a band released there would start on', () => {
+    // The reveal names it before the press. If these two could differ, the pointer would promise an
+    // hour the release does not use.
+    for (const minute of [t('07:10'), t('09:00'), t('13:55'), t('14:20'), t('16:40')]) {
+      // Three hours, so neither end can snap onto the other and collapse the band.
+      const span = paintedSpan(WINDOWS, minute, minute + 180);
+      expect(span?.startMinutes).toBe(bandStartAt(WINDOWS, minute));
+    }
+  });
+});
+
+describe('paintRefusalFor', () => {
+  it('refuses the past and a save in flight, and nothing else', () => {
+    expect(paintRefusalFor({ isPast: true }, true)).toBe('past');
+    expect(paintRefusalFor({ isPast: false }, false)).toBe('busy');
+    expect(paintRefusalFor({ isPast: false }, true)).toBeNull();
+  });
+
+  it('the past outranks a save in flight', () => {
+    expect(paintRefusalFor({ isPast: true }, false)).toBe('past');
+  });
+
+  it('a CLOSED day and the weekend take a band', () => {
+    // The rule the owner set on 2026-08-26. The signature is half the guarantee — the function is never
+    // handed `isClosed` at all — and these are days carrying it, to say so where it can be read.
+    const closed = { isPast: false, isClosed: true };
+    const weekend = { isPast: false, isWeekend: true, role: 'manual' as const };
+
+    expect(paintRefusalFor(closed, true)).toBeNull();
+    expect(paintRefusalFor(weekend, true)).toBeNull();
   });
 });

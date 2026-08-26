@@ -86,7 +86,12 @@ export function dayReflowsOn(day: { role: DayRole; isClosed: boolean; isPast: bo
  * work, which the same transaction pushes forward.
  */
 export interface GapEffect {
-  kind: 'blocked' | 'displace';
+  /**
+   * `cut` where the absence starts INSIDE a row: the head stays, the rest is poured in after the
+   * absence and the row becomes two. `displace` where the row is covered from its very start and
+   * moves whole. The same fork a block's own drop makes.
+   */
+  kind: 'blocked' | 'cut' | 'displace';
   /** The job the sentence names: the first one in the way, in clock order. */
   projectName: string;
 }
@@ -113,7 +118,11 @@ export function gapDropEffect(input: {
   const fixed = covered.find((row) => row.locked || input.dayIsWeekend);
   if (fixed !== undefined) return { kind: 'blocked', projectName: fixed.project.name };
   const pushed = covered[0];
-  return pushed === undefined ? null : { kind: 'displace', projectName: pushed.project.name };
+  if (pushed === undefined) return null;
+  return {
+    kind: pushed.startMinutes < input.startMinutes ? 'cut' : 'displace',
+    projectName: pushed.project.name,
+  };
 }
 
 export interface QueueRow {

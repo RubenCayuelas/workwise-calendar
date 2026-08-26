@@ -9,6 +9,29 @@ never moves without the owner asking.
 
 ---
 
+## 0.23.0 — a gap or a job can be started in the middle of a job
+
+- **The leftmost 21 px of a day now CREATE, whatever is drawn there.** A gap of a quarter of an hour at
+  11:00 inside a job that runs 10:00 to 12:00 is one drag: press the left edge of the column, pull, and
+  answer the question. The job is cut in two around it, the head staying where it was. Before this the
+  only way in was the 3 px of background a full-width block leaves beside it.
+- **Nothing about the calendar looks different until the pointer is there.** The rail draws nothing: the
+  cursor changes, a hairline marks the minute across the row and a badge names it — and that only
+  appears where a press would really create, so it never says "create" over pixels that move a row.
+- **The free part of a day says it too.** Empty grid space had no cursor and no mark of any kind; the
+  same hairline and hour now appear there, which is the first time the paint gesture announces itself.
+- **A closed day and the weekend take a band too.** Only the past still refuses. Pressing a dimmed
+  column without dragging still opens the screen that reopens the day, so nothing is lost.
+- A still press on the rail opens the row underneath, exactly as pressing the row does.
+- The band a drag draws is translucent now, so the row it is about to cut stays readable underneath it.
+- Dragging an absence onto the middle of a job says it will CUT the job in two, instead of only saying
+  it moves its hours aside.
+- **The two lines of small print under the grid are gone, and the calendar is 38 px taller for it.** A
+  gesture's hint still appears in that corner while the gesture lasts; it no longer holds a strip of
+  every screen open to say what the grey bands mean.
+
+---
+
 ## 0.22.1 — closing a day by hand asks the same question
 
 **The absences screen now asks before a close moves any work**, the way the automatic holiday check

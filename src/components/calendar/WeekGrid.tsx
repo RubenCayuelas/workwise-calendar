@@ -20,6 +20,8 @@ import type { Gap, GapUnit } from '../../types';
 import type { WeekBlock, WeekDay, WeekView } from '../../lib/api-client';
 import { CalendarBlock } from './CalendarBlock';
 import {
+  AIM_BADGE_HEIGHT_PX,
+  CREATE_RAIL_PX,
   axisTicks,
   clampDropStart,
   emptyLabelMinutes,
@@ -28,6 +30,7 @@ import {
   type GridMetrics,
   type Timeline,
 } from './geometry';
+import { aimAt } from './paintAim';
 import {
   buildDropQueue,
   dayHoldsMinutes,
@@ -401,7 +404,14 @@ export function WeekGrid({
           className={[styles.grid, placing === null ? '' : styles.placing, stale ? styles.stale : '']
             .filter(Boolean)
             .join(' ')}
-          style={{ '--ww-timeline-height': `${timeline.height}px` } as React.CSSProperties}
+          style={
+            {
+              '--ww-timeline-height': `${timeline.height}px`,
+              // One declaration of the rail's width. The CSS reads it; the aim compares against it.
+              '--ww-create-rail': `${CREATE_RAIL_PX}px`,
+              '--ww-aim-badge': `${AIM_BADGE_HEIGHT_PX}px`,
+            } as React.CSSProperties
+          }
           role="group"
           aria-label={t('grid.label')}
           onPointerMove={placing === null ? undefined : (event) => setHover(slotUnder(event))}
@@ -682,6 +692,32 @@ function DayColumn({
   const bands = nonWorkingBands(day.periods, timeline);
   /** The band being painted, when it is being painted on THIS column. */
   const painting = paint.painting?.date === day.date ? paint.painting : null;
+
+  /**
+   * THE MINUTE THE POINTER IS NAMING, or `null` where a press would move a row instead of creating
+   * one. The create rail draws nothing, so a column at rest looks exactly as it did before the rail
+   * existed; this is the whole of what announces it, and it appears over the FREE part of a column
+   * as readily as on the rail — the reveal follows the create surface, not the strip.
+   */
+  const [aim, setAim] = useState<number | null>(null);
+
+  /** Every stored row of the day, blocks and gaps alike: what makes a minute occupied. */
+  const occupied = useMemo(
+    () => [...groups.flatMap((group) => group.blocks), ...gaps],
+    [groups, gaps],
+  );
+
+  // Nothing is promised that the press will not do: a frozen day takes no band, a save in flight
+  // refuses one, and a gesture already in the air owns the grid — in every case the press is still
+  // taken and still says its one thing, which is the reveal's job to stay out of. A CLOSED day and
+  // the weekend are not on this list; both take a band, and both keep their dimmed column.
+  const aiming =
+    paint.enabled && !paint.pressed && paint.painting === null && drag.kind === null && !busy && !day.isPast;
+
+  // The same shape `placing` uses to drop its hover: state the column no longer has any use for.
+  useEffect(() => {
+    if (!aiming) setAim(null);
+  }, [aiming]);
   const draftHere = draftRows.filter((row) => row.date === day.date);
   const preview = drag.preview?.date === day.date ? drag.preview : null;
   // The gesture itself, whichever column it was released over: `preview` is null on every other
@@ -895,6 +931,9 @@ function DayColumn({
         day.isWeekend ? styles.columnWeekend : '',
         day.isClosed ? styles.columnClosed : '',
         sliding ? styles.columnSliding : '',
+        // The create surface says so with the cursor too, and it is the WHOLE free part of a column,
+        // not just the rail — so it cannot be a rule on one element.
+        aim === null ? '' : styles.columnAiming,
       ]
         .filter(Boolean)
         .join(' ')}
@@ -906,6 +945,29 @@ function DayColumn({
        * already means "put it here".
        */
       onPointerDown={(event) => paint.begin(event, day.date)}
+      /*
+       * Read off the COLUMN's own box, not `measure()`: `.column` is the timeline's own rectangle
+       * (`--ww-timeline-height`, no padding anywhere in the chain), so its top is minute zero and
+       * its left is where the rail starts. One box read per move, as the drag layer already does.
+       */
+      onPointerMove={
+        aiming
+          ? (event) => {
+              const box = event.currentTarget.getBoundingClientRect();
+              setAim(
+                answersItsOwnPress(event.target, styles.createRail)
+                  ? null
+                  : aimAt({
+                      x: event.clientX - box.left,
+                      minutes: timeline.minutesAt(event.clientY - box.top),
+                      windows: day.manualWindows,
+                      rows: occupied,
+                    }),
+              );
+            }
+          : undefined
+      }
+      onPointerLeave={aiming ? () => setAim(null) : undefined}
     >
       {bands.map((band) => (
         <div
@@ -1133,6 +1195,38 @@ function DayColumn({
           );
         })}
       </div>
+
+      {/*
+       * THE CREATE RAIL. A hit surface and nothing else: it draws nothing, carries no handler and
+       * only has to sit OVER the rows, so the press bubbles to the column's own `onPointerDown` and
+       * becomes a paint where it would otherwise have become a MOVE. The 3 px a full-width block
+       * leaves beside it was the whole target before this existed.
+       *
+       * It is outside `.columnBody` for the same reason the ghost is: a week change slides the body.
+       */}
+      <div className={styles.createRail} title={aiming ? t('grid.createRail') : undefined} />
+
+      {aim === null ? null : (
+        <>
+          {/* Where the cut would fall. Neutral, never the gap colour: what the band is has not been
+              asked yet, and the release is what asks. */}
+          <div
+            className={styles.aimLine}
+            style={{ top: `${timeline.yOf(aim)}px` }}
+            aria-hidden="true"
+          />
+          <span
+            className={styles.aimBadge}
+            // Kept inside the column: on the axis's first minute a centred badge went behind the
+            // sticky day header. The hairline above is where the minute really is.
+            style={{
+              top: `${Math.min(Math.max(timeline.yOf(aim), AIM_BADGE_HEIGHT_PX / 2), timeline.height - AIM_BADGE_HEIGHT_PX / 2)}px`,
+            }}
+          >
+            {format.time(aim)}
+          </span>
+        </>
+      )}
 
       {gesture === null
         ? null
@@ -1376,6 +1470,7 @@ const DROP_EFFECT_KEYS: Record<DropEffect['kind'], string> = {
  */
 const GAP_EFFECT_KEYS: Record<GapEffect['kind'], string> = {
   blocked: 'grid.gapBlocked',
+  cut: 'grid.gapCuts',
   displace: 'grid.gapDisplaces',
 };
 
@@ -1461,6 +1556,18 @@ function targetFor(group: BlockGroup, day: WeekDay, run: BlockRun): BlockDragTar
  * minute it was released, on every day, because it is not in the queue and there is no rank for it
  * to take. Both halves around the lunch break travel in `rowIds`, so neither is an obstacle to the drag.
  */
+/**
+ * Is the pointer on something that answers its own press? A row's hover bar is docked OUTSIDE its row
+ * when the row is short or narrow, so it hangs over minutes NO row occupies: the aim would call that
+ * free and promise a create over the padlock. Everything on this grid that answers a press for itself
+ * is a `role="button"` — a row, an absence, a bar's buttons — and the rail is not one.
+ */
+function answersItsOwnPress(target: EventTarget | null, railClass: string): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target.classList.contains(railClass)) return false;
+  return target.closest('[role="button"]') !== null;
+}
+
 function gapTargetFor(group: GapGroup, gapColor: string): GapDragTarget {
   const unit = gapUnitOf(group);
   return {
