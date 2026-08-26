@@ -16,7 +16,7 @@ import {
   InlineBanner,
   NumberStepper,
   Select,
-  TimeSelect,
+  TimeField,
   useToast,
 } from '../ui';
 import { useLanguage } from '../I18nProvider';
@@ -533,19 +533,13 @@ interface TimeRowProps {
 }
 
 /**
- * One period boundary, as a list of quarter hours rather than `<input type="time">`, which
- * renders in the BROWSER's locale: this form showed "08:00 AM" beside a calendar reading
- * "08:00–14:00".
+ * One period boundary, typed rather than `<input type="time">`, which renders in the BROWSER's
+ * locale: this form showed "08:00 AM" beside a calendar reading "08:00–14:00".
  */
 function TimeRow({ label, value, error, disabled = false, onChange }: TimeRowProps): React.JSX.Element {
   return (
     <Field label={label} inline error={error}>
-      <TimeSelect
-        className={styles.timeSelect}
-        value={value}
-        disabled={disabled}
-        onChange={onChange}
-      />
+      <TimeField value={value} disabled={disabled} onChange={onChange} />
     </Field>
   );
 }

@@ -31,7 +31,7 @@ import {
   SidePanel,
   TIME_STEP_MINUTES,
   clockMinutes,
-  TimeSelect,
+  TimeField,
   useToast,
 } from '../ui';
 import {
@@ -649,7 +649,7 @@ export function AbsencePanel({
             {kind === 'closed-days' && bulk ? null : (
               <div className={styles.row}>
                 <Field label={t('gapForm.startTime')} error={errorFor('startTime')}>
-                  <TimeSelect value={startTime} disabled={busy} onChange={setStartTime} />
+                  <TimeField value={startTime} disabled={busy} onChange={setStartTime} />
                 </Field>
 
                 <Field label={t('gapForm.duration')} error={errorFor('duration')}>
@@ -681,7 +681,7 @@ export function AbsencePanel({
             </div>
 
             <Field label={t('gapForm.closeDayWhen')} error={errorFor('startTime')}>
-              <TimeSelect
+              <TimeField
                 value={startTime}
                 minMinutes={closeBounds?.minMinutes}
                 maxMinutes={closeBounds?.maxMinutes}

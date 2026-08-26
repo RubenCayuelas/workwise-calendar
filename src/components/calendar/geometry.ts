@@ -14,7 +14,7 @@ import {
 import type { DayShape, WorkPeriod } from '../../types';
 
 /**
- * Held equal to `MIN_ROW_MINUTES` and `TimeSelect`'s step. A quarter and not a half, though the shop
+ * Held equal to `MIN_ROW_MINUTES` and `TIME_STEP_MINUTES`. A quarter and not a half, though the shop
  * plans in halves: at 30 the drag jumps instead of following the mouse.
  */
 export const SNAP_MINUTES = 15;

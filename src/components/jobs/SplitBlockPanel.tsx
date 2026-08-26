@@ -16,7 +16,7 @@ import {
   InlineBanner,
   NumberStepper,
   SidePanel,
-  TimeSelect,
+  TimeField,
   clockMinutes,
 } from '../ui';
 import {
@@ -242,9 +242,9 @@ export function SplitBlockPanel({
           />
         </Field>
 
-        {/* Quarter hours, like the grid's snap. */}
+        {/* Typed, and moved by quarter hours like the grid's snap. */}
         <Field label={t('gapForm.startTime')} error={errorFor('startTime')}>
-          <TimeSelect value={startTime} disabled={saving} onChange={setStartTime} />
+          <TimeField value={startTime} disabled={saving} onChange={setStartTime} />
         </Field>
       </div>
 

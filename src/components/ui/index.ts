@@ -34,13 +34,7 @@ export {
   type TextareaProps,
 } from './Field';
 export { TimeField, type TimeFieldProps } from './TimeField';
-export { TimeSelect, type TimeSelectProps } from './TimeSelect';
-export {
-  TIME_STEP_MINUTES,
-  clockMinutes,
-  timeOptionMinutes,
-  type TimeOptionsRange,
-} from './timeOptions';
+export { TIME_STEP_MINUTES, clockMinutes } from './timeOptions';
 export { DateSelect, type DateSelectProps } from './DateSelect';
 export {
   PICKER_FUTURE_WEEKS,
