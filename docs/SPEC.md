@@ -1090,8 +1090,9 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
 - **A REFUSAL HOLDS THE SAVE.** The refused string is on screen while the form still holds the last
   settled hour, so the field tells the form (`onInvalid`, required) and the form's save button neither
   writes nor enables until the field settles. Otherwise `Guardar` stores the hour the screen stopped
-  showing — the same harm as clamping, reached from the other side. The field clears the refusal on
-  mount and on unmount, so a control the screen no longer draws can never hold a button down.
+  showing — the same harm as clamping, reached from the other side. The field clears the refusal when it
+  mounts, when it is disabled and when it unmounts, so a control the screen has stopped drawing can
+  never hold a button down.
 - **`Escape` inside the field closes the panel**, as it already does inside the name `Input`. There is
   nothing to revert.
 

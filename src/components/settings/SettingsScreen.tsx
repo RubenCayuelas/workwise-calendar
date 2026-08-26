@@ -65,32 +65,6 @@ import styles from './SettingsScreen.module.css';
  *  the generated one up from `Field`'s context the way `Input` does. */
 const GAP_COLOR_ID = 'ww-settings-gap-color';
 
-/**
- * The four shift boundaries. A `TimeField` refuses without telling the draft — the unreadable string
- * stays on screen and the draft keeps the last settled hour — so no `draftIssues` entry can ever name
- * one of these, and the Save button has to be told separately.
- */
-const TIME_KEYS = ['period1Start', 'period1End', 'period2Start', 'period2End'] as const;
-type TimeKey = (typeof TIME_KEYS)[number];
-
-function isTimeKey(field: keyof Settings): field is TimeKey {
-  return (TIME_KEYS as readonly string[]).includes(field);
-}
-
-/**
- * What a shift row is refusing. A row switched off draws neither the field nor its message, so its
- * refusal must not hold Save either: what is SHOWN and what BLOCKS ask this one question, or the
- * button locks with nothing on screen to explain it.
- */
-function refusedTimeOf(
-  refusals: Partial<Record<TimeKey, string>>,
-  field: TimeKey,
-  period2Enabled: boolean,
-): string | undefined {
-  if (!period2Enabled && (field === 'period2Start' || field === 'period2End')) return undefined;
-  return refusals[field];
-}
-
 interface PendingSave {
   patch: Partial<Settings>;
   affected: AffectedBlock[];
@@ -115,7 +89,14 @@ export function SettingsScreen(): React.JSX.Element {
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
   const [pending, setPending] = useState<PendingSave | undefined>(undefined);
-  const [timeRefusals, setTimeRefusals] = useState<Partial<Record<TimeKey, string>>>({});
+  /**
+   * What a control is REFUSING while the draft still holds the last settled value — today only the
+   * four `TimeField` rows can be in that state. The unreadable string never reached the draft, so
+   * `draftIssues` can never name one of these and both the message and the Save button are told here
+   * instead. A field clears its own entry when it is disabled or unmounted, so a row the screen has
+   * stopped drawing cannot hold the button down.
+   */
+  const [timeRefusals, setTimeRefusals] = useState<Partial<Record<keyof Settings, string>>>({});
 
   useEffect(() => {
     const controller = new AbortController();
@@ -160,19 +141,15 @@ export function SettingsScreen(): React.JSX.Element {
   const dirty = Object.keys(patch).length > 0;
 
   const refuseTime =
-    (field: TimeKey) =>
+    (field: keyof Settings) =>
     (message: string | undefined): void => {
       setTimeRefusals((current) =>
         current[field] === message ? current : { ...current, [field]: message },
       );
     };
-  // An hour the field refused never reached the draft, so neither `issues` nor `dirty` can see it:
-  // the Save button has to be told, or it writes the hour the row stopped showing.
-  const timeRefused =
-    draft !== undefined &&
-    TIME_KEYS.some(
-      (field) => refusedTimeOf(timeRefusals, field, draft.period2Enabled) !== undefined,
-    );
+  // Neither `issues` nor `dirty` can see a refusal, so without this the Save button writes the hour
+  // the row stopped showing and leaves the unreadable string on screen beside it.
+  const timeRefused = Object.values(timeRefusals).some((message) => message !== undefined);
 
   const commit = useCallback(
     async (fields: Partial<Settings>): Promise<void> => {
@@ -264,10 +241,8 @@ export function SettingsScreen(): React.JSX.Element {
    * wording: `errors.settingsInvalid` is the only key the data layer emits for a bad setting.
    */
   const errorFor = (field: keyof Settings): string | undefined => {
-    if (isTimeKey(field)) {
-      const refused = refusedTimeOf(timeRefusals, field, draft.period2Enabled);
-      if (refused !== undefined) return refused;
-    }
+    const refused = timeRefusals[field];
+    if (refused !== undefined) return refused;
     if (issues[field] !== undefined) return t('errors.settingsInvalid');
     if (failedField === field) return apiErrorMessage(saveError, t, language);
     return undefined;

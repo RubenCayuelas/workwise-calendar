@@ -930,8 +930,9 @@ form goes on holding the last settled hour, so the two disagree. With the messag
 `title` — not announced to a screen reader, and easy to press past — `Guardar` wrote the previous value:
 a day typed to close at `23:00` closed at `08:00`, and a Settings shift row showing an unreadable hour
 saved the old shift. That is the clamping above, arrived at from the other side. `onInvalid` is required
-rather than optional so a new call site cannot quietly reintroduce it, and the field clears the refusal on
-mount and on unmount so a control the screen no longer draws can never hold a save button down.
+rather than optional so a new call site cannot quietly reintroduce it, and the field clears the refusal
+itself on mount, on being disabled and on unmount, so the caller needs no rule of its own for a control
+the screen has stopped drawing.
 
 **Why the ceiling is `23:45`** — `hhmmToMinutes` reads `24:00` as 1440, and the band then stops being drawn
 with no explanation while the field still looks legal.
