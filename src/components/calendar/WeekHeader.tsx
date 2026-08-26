@@ -2,15 +2,14 @@
 
 /** Paging is a GET, so holding the arrow keys down is safe. */
 
-import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useRouter } from 'next/navigation';
 import {
   IconArrowBackUp,
   IconArrowForwardUp,
   IconCalendarPlus,
   IconChevronLeft,
   IconChevronRight,
-  IconDots,
   IconPlus,
   IconSettings,
 } from '@tabler/icons-react';
@@ -57,18 +56,20 @@ export function WeekHeader({
   onRedo,
 }: WeekHeaderProps): React.JSX.Element {
   const { t } = useTranslation();
+  const router = useRouter();
 
   return (
     <header className="ww-app__header">
-      <Logo />
-
-      <span className="ww-spacer" />
+      <div className={styles.flank}>
+        <Logo />
+      </div>
 
       {/* No aria-label: a second landmark would only compete with the grid's own. */}
       <nav className={styles.pager}>
         <IconButton
           icon={<IconChevronLeft size={18} stroke={1.75} />}
           label={t('header.previousWeek')}
+          className={styles.pagerButton}
           disabled={disabled}
           onClick={onPrevious}
         />
@@ -84,14 +85,13 @@ export function WeekHeader({
         <IconButton
           icon={<IconChevronRight size={18} stroke={1.75} />}
           label={t('header.nextWeek')}
+          className={styles.pagerButton}
           disabled={disabled}
           onClick={onNext}
         />
       </nav>
 
-      <span className="ww-spacer" />
-
-      <div className="ww-toolbar">
+      <div className={`${styles.flank} ${styles.flankEnd} ww-toolbar`}>
         {/* Ghost, so the pair sits quietly beside the controls that do something every day:
             the keyboard is the normal route to them. */}
         <IconButton
@@ -120,80 +120,21 @@ export function WeekHeader({
         >
           {t('header.newJob')}
         </Button>
+        <Button
+          icon={<IconCalendarPlus size={15} stroke={1.75} />}
+          title={t('header.absencesHint')}
+          disabled={onNewAbsence === undefined}
+          onClick={onNewAbsence}
+        >
+          {t('header.absences')}
+        </Button>
         <LanguageSwitcher />
-        <OverflowMenu settingsHref={settingsHref} onNewAbsence={onNewAbsence} />
+        <IconButton
+          icon={<IconSettings size={18} stroke={1.75} />}
+          label={t('header.settings')}
+          onClick={() => router.push(settingsHref)}
+        />
       </div>
     </header>
-  );
-}
-
-function OverflowMenu({
-  settingsHref,
-  onNewAbsence,
-}: {
-  settingsHref: string;
-  onNewAbsence?: () => void;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const wrapper = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent): void => {
-      if (!(event.target instanceof Node)) return;
-      if (wrapper.current?.contains(event.target) === true) return;
-      setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open]);
-
-  return (
-    <div className={styles.menu} ref={wrapper}>
-      <IconButton
-        icon={<IconDots size={18} stroke={1.75} />}
-        label={t('header.menu')}
-        active={open}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        onClick={() => setOpen((value) => !value)}
-      />
-
-      {!open ? null : (
-        <div className={styles.menuList} role="menu">
-          {onNewAbsence === undefined ? null : (
-            <button
-              type="button"
-              role="menuitem"
-              className={styles.menuItem}
-              onClick={() => {
-                setOpen(false);
-                onNewAbsence();
-              }}
-            >
-              <span className={styles.menuGlyph} aria-hidden="true">
-                <IconCalendarPlus size={16} stroke={1.75} />
-              </span>
-              {t('header.menuAbsences')}
-            </button>
-          )}
-
-          <a role="menuitem" className={styles.menuItem} href={settingsHref}>
-            <span className={styles.menuGlyph} aria-hidden="true">
-              <IconSettings size={16} stroke={1.75} />
-            </span>
-            {t('header.menuSettings')}
-          </a>
-        </div>
-      )}
-    </div>
   );
 }

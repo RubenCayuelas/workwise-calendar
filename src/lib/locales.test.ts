@@ -3,8 +3,10 @@ import es from '../../public/locales/es/common.json';
 import en from '../../public/locales/en/common.json';
 import { EDIT_MESSAGE_KEYS, HORIZON_EXCEEDED_KEY, MANUAL_PLACEMENT_MESSAGE_KEYS } from './composition';
 import { ERROR_MESSAGE_KEYS } from './errors';
-import { SUPPORTED_LANGUAGES } from './i18n';
+import { formatDayLine } from './format';
+import i18next, { SUPPORTED_LANGUAGES, type Language } from './i18n';
 import { deletedJobGapReason, textLanguages } from './text';
+import { WED } from '../testing/fixtures';
 
 type Json = { [key: string]: string | Json };
 
@@ -95,6 +97,62 @@ describe('locale files', () => {
     expect(resolve(es as Json, 'jobPanel.blocks_other')).toBe(
       'Bloques · {{hours}} h en {{count}} tramos',
     );
+  });
+
+  it('words the day picker in both languages', () => {
+    expect(resolve(es as Json, 'day.weekend')).toBe('fin de semana');
+    expect(resolve(en as Json, 'day.weekend')).toBe('weekend');
+    expect(resolve(es as Json, 'dayPicker.open')).toBe('Elegir el día');
+    expect(resolve(es as Json, 'dayPicker.previousMonth')).toBe('Mes anterior');
+    expect(resolve(es as Json, 'dayPicker.nextMonth')).toBe('Mes siguiente');
+    expect(resolve(es as Json, 'dayPicker.today')).toBe('Hoy');
+    expect(resolve(es as Json, 'dayPicker.todayHint')).toBe('Elige hoy');
+    expect(resolve(es as Json, 'dayPicker.rangeStart')).toBe('Elige el primer día');
+    expect(resolve(es as Json, 'dayPicker.rangePending')).toBe('Elige el último día');
+    expect(resolve(en as Json, 'dayPicker.rangeStart')).toBe('Choose the first day');
+    expect(resolve(en as Json, 'dayPicker.rangePending')).toBe('Choose the last day');
+  });
+
+  it('words the week label a date field carries under itself', () => {
+    // `header.week` carries the week's date range inside it. Under a date field the long date
+    // already says the days, so the number has to be available on its own.
+    expect(resolve(es as Json, 'units.week')).toBe('Semana {{week}}');
+    expect(resolve(en as Json, 'units.week')).toBe('Week {{week}}');
+  });
+
+  it('composes the day line a date field shows under itself', () => {
+    // `useFormat().dayLine` is a hook and this suite renders nothing, so it calls the real
+    // `formatDayLine` directly with a fixed `t`, rather than re-deriving its formula — a swapped
+    // join order, a typo'd key or a hardcoded separator in `formatDayLine` fails this test.
+    const dayLine = (language: Language): string =>
+      formatDayLine(WED, language, i18next.getFixedT(language));
+    expect(dayLine('es')).toBe('miércoles 12 de agosto · Semana 33');
+    expect(dayLine('en')).toBe('Wednesday 12 August · Week 33');
+  });
+
+  it('words the typed time field in both languages', () => {
+    expect(resolve(es as Json, 'timeField.earlier')).toBe('Adelantar la hora');
+    expect(resolve(es as Json, 'timeField.later')).toBe('Retrasar la hora');
+    expect(resolve(es as Json, 'timeField.hint')).toBe(
+      'Escríbela, o muévela con ↑ y ↓ de cuarto en cuarto; con Mayús, de hora en hora.',
+    );
+    expect(resolve(es as Json, 'errors.invalidTimeFormat')).toBe(
+      'La hora tiene que tener el formato HH:mm.',
+    );
+    // The bounds are NAMED, because the field refuses instead of clipping and «entre qué horas»
+    // is the only thing that tells the owner what to type instead.
+    expect(resolve(es as Json, 'errors.timeOutOfBounds')).toBe(
+      'Esa hora tiene que estar entre las {{startTime}} y las {{endTime}}.',
+    );
+    for (const key of [
+      'timeField.earlier',
+      'timeField.later',
+      'timeField.hint',
+      'errors.invalidTimeFormat',
+      'errors.timeOutOfBounds',
+    ]) {
+      expect(enKeys, `missing in en: ${key}`).toContain(key);
+    }
   });
 });
 

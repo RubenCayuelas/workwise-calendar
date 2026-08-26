@@ -1,0 +1,227 @@
+.trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ww-space-2);
+  width: 100%;
+  min-width: 0;
+  height: var(--ww-control-height-lg);
+  padding: 0 var(--ww-space-3);
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius);
+  background: var(--ww-surface);
+  color: var(--ww-text);
+  font-size: var(--ww-text-md);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--ww-duration-fast) ease-out;
+}
+
+.trigger:hover:not(:disabled) {
+  border-color: var(--ww-border-strong);
+}
+
+.trigger:disabled {
+  background: var(--ww-surface-alt);
+  color: var(--ww-text-muted);
+  cursor: default;
+}
+
+/* After the hover rule, and repeating its `:hover` to match its (0,3,0): `.invalid` alone is (0,1,0),
+   so hovering a field that is being refused turned its red border grey — with the pointer on it, which
+   is exactly where it is when the owner goes to fix it. */
+.invalid,
+.trigger.invalid:hover {
+  border-color: var(--ww-danger);
+}
+
+.value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  display: flex;
+  flex: none;
+  color: var(--ww-text-muted);
+}
+
+/* Fixed to the viewport like the paint chooser: this opens over the columns the field is moving a
+   band on, and a `transform` on the grid would otherwise clip it. Its WIDTH and its MINIMUM HEIGHT
+   come from DayPicker.tsx, applied inline, because the same two numbers are what popoverPosition
+   clips against — declared here as well, they would be free to drift from it. Everything a change
+   here can still do is make the box TALLER than assumed, which only delays the flip above the
+   trigger. */
+.popover {
+  position: fixed;
+  z-index: var(--ww-z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-2);
+  padding: var(--ww-space-3);
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius-lg);
+  background: var(--ww-surface);
+  box-shadow: var(--ww-shadow-popover);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-2);
+  height: var(--ww-control-height);
+}
+
+.month {
+  flex: 1;
+  text-align: center;
+  font-size: var(--ww-text-sm);
+  font-weight: var(--ww-weight-medium);
+}
+
+.weekdays,
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.weekday {
+  height: 16px;
+  line-height: 16px;
+  text-align: center;
+  font-size: var(--ww-text-xs);
+  color: var(--ww-text-muted);
+}
+
+.cell {
+  position: relative;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--ww-radius-sm);
+  background: none;
+  color: var(--ww-text);
+  font-size: var(--ww-text-sm);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.cell:hover:not(:disabled) {
+  background: var(--ww-hover-fill);
+}
+
+.cell:disabled {
+  color: var(--ww-text-muted);
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Two channels, never three: the NUMBER dims where the engine does not work by the calendar, and
+   the BACKGROUND goes grey where the shop is closed by the owner's decision. A closed Saturday
+   carries both, which is the truth. */
+.weekend .number,
+.past .number {
+  color: var(--ww-text-muted);
+}
+
+.outside .number {
+  opacity: 0.55;
+}
+
+.closed {
+  background: var(--ww-surface-alt);
+}
+
+/*
+ * A round box of its own, not the glyphs' own edge: outlined at an offset, the ring hugged the text,
+ * so it came out tight and a different shape for one digit than for two. `line-height: 1` is what
+ * makes the centring predictable — left at `normal` the line box carries descender space the digits
+ * never use, and they sit visibly high inside the circle.
+ *
+ * Twenty-four inside a thirty-six-tall cell leaves six either side, and the room dot below it. The
+ * cell's height is also `CELL_HEIGHT` in `DayPicker.tsx`, which the popover's own height is measured
+ * from; `popoverBox.test.ts` reads both numbers and refuses a change to one of them.
+ */
+.number {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  line-height: 1;
+  border-radius: var(--ww-radius-pill);
+}
+
+.today .number {
+  border: var(--ww-hairline) solid var(--ww-border-strong);
+}
+
+.selected {
+  background: var(--ww-accent);
+}
+
+.selected .number {
+  color: var(--ww-on-accent);
+}
+
+/*
+ * Centred by hand, not by the cell: an absolutely positioned child of a flex container takes its
+ * static horizontal position from the container's own alignment, which browsers do not agree on.
+ */
+.room {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 3px;
+  height: 3px;
+  border-radius: var(--ww-radius-pill);
+  background: var(--ww-text-muted);
+}
+
+.selected .room {
+  background: var(--ww-on-accent);
+}
+
+/* The span the save will WRITE. The per-cell radius goes, so a run reads as one band instead of a
+   row of separate pills — the grid has no gap, the cells touch. The tint takes the background from
+   `.closed` exactly as `.selected` already does: a choice wins that channel, and the cell's own
+   title still names the reason the day is closed. */
+.inSpan {
+  border-radius: 0;
+  background: var(--ww-accent-tint);
+}
+
+/* Inside the span and dropped by it: the server skips Saturday and Sunday unless the whole span is
+   one. A strike and not a tint, so a painted cell never promises a day the write skips — every one
+   of these is a weekend cell, so its number is already muted. */
+.spanDropped .number {
+  text-decoration: line-through;
+}
+
+/* Centred and quiet under a hairline: it is a shortcut, not a third answer. */
+.todayButton {
+  align-self: stretch;
+  border: 0;
+  border-top: var(--ww-hairline) solid var(--ww-border);
+  background: none;
+  color: var(--ww-text-muted);
+  cursor: pointer;
+  padding: var(--ww-space-2) 0 0;
+  font-size: var(--ww-text-sm);
+}
+
+.todayButton:hover {
+  color: var(--ww-text);
+}
+
+/* The foot's one line in range mode, in the box `.todayButton` has. */
+.notice {
+  border-top: var(--ww-hairline) solid var(--ww-border);
+  padding-top: var(--ww-space-2);
+  color: var(--ww-text-muted);
+  font-size: var(--ww-text-sm);
+  text-align: center;
+}

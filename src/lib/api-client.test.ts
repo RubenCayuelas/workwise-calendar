@@ -12,8 +12,11 @@ import {
   apiErrorMessage,
   apiErrorMessageKey,
   apiErrorValues,
+  answerHolidays,
   createGap,
   createProject,
+  getDayMarks,
+  getHolidayState,
   getWeek,
   isApiError,
   isNetworkError,
@@ -24,6 +27,7 @@ import {
   reopenDays,
   resizeBlock,
   resizeGap,
+  runHolidayCheck,
   saveAbsence,
   setBlockLock,
   updateProject,
@@ -76,8 +80,8 @@ afterEach(() => {
 describe('requests', () => {
   it('always sends minutes, never hours, so 2.5 h cannot drift', async () => {
     const { calls } = stubFetch({ body: { project: {}, blocks: [], summary: {}, touchedLockedBlockIds: [] } });
-    await createProject({ name: 'Door', color: '#185FA5', totalMinutes: 150 });
-    expect(calls[0].body).toEqual({ name: 'Door', color: '#185FA5', totalMinutes: 150 });
+    await createProject({ name: 'Door', color: '#3087DF', totalMinutes: 150 });
+    expect(calls[0].body).toEqual({ name: 'Door', color: '#3087DF', totalMinutes: 150 });
     expect(JSON.stringify(calls[0].body)).not.toContain('totalHours');
   });
 
@@ -104,6 +108,60 @@ describe('requests', () => {
       { action: 'lock', locked: true },
     ]);
     expect(calls.every((call) => call.method === 'PATCH')).toBe(true);
+  });
+
+  it('sends keepWork only when a day is being kept, so a plain close is unchanged', async () => {
+    const { calls } = stubFetch({ body: { dates: [], gaps: [], days: [] } });
+    await saveAbsence({ kind: 'closed-days', from: '2026-08-11', to: '2026-08-12' });
+    await saveAbsence({
+      kind: 'closed-days',
+      from: '2026-08-11',
+      to: '2026-08-12',
+      keepWork: ['2026-08-11'],
+    });
+
+    expect(calls[0].body).toEqual({ kind: 'closed-days', from: '2026-08-11', to: '2026-08-12' });
+    expect(calls[1].body).toEqual({
+      kind: 'closed-days',
+      from: '2026-08-11',
+      to: '2026-08-12',
+      keepWork: ['2026-08-11'],
+    });
+  });
+
+  it('asks for the holiday state with a plain GET', async () => {
+    const { calls } = stubFetch({ body: { enabled: true, count: 0 } });
+    await getHolidayState();
+    expect(calls[0]).toMatchObject({ url: '/api/holidays', method: 'GET' });
+  });
+
+  it('says whether a holiday check was asked for by the button', async () => {
+    const { calls } = stubFetch({ body: { closed: [], pending: [] } });
+    await runHolidayCheck();
+    await runHolidayCheck(true);
+    expect(calls.map((call) => call.body)).toEqual([{ force: false }, { force: true }]);
+    expect(calls.every((call) => call.url === '/api/holidays' && call.method === 'POST')).toBe(true);
+  });
+
+  it('sends the reading language, because a holiday name becomes stored user data', async () => {
+    const { calls } = stubFetch({ body: { closed: [], pending: [] } });
+    await runHolidayCheck(true, { language: 'en' });
+    expect(calls[0].url).toBe('/api/holidays?lang=en');
+  });
+
+  it('posts the panel’s answers as one list, to its own route', async () => {
+    const { calls } = stubFetch({ body: { closed: [], pending: [] } });
+    await answerHolidays([
+      { date: '2026-09-03', keep: true },
+      { date: '2026-12-08', keep: false },
+    ]);
+    expect(calls[0].url).toBe('/api/holidays/apply');
+    expect(calls[0].body).toEqual({
+      answers: [
+        { date: '2026-09-03', keep: true },
+        { date: '2026-12-08', keep: false },
+      ],
+    });
   });
 
   it('sends a JSON content type only when there is a body', async () => {
@@ -183,6 +241,19 @@ describe('requests', () => {
     const { calls } = stubFetch({ body: {} });
     await updateSettings({ period2Enabled: false, period1Start: undefined });
     expect(calls[0].body).toEqual({ period2Enabled: false });
+  });
+
+  it('asks for a span of day marks with both bounds in the query', async () => {
+    const { calls } = stubFetch({
+      body: { today: '2026-08-12', days: [{ date: '2026-08-12', isClosed: false, freeMinutes: 360, hasRoom: true }] },
+    });
+
+    const view = await getDayMarks('2026-07-13', '2026-10-04');
+
+    expect(calls[0].method).toBe('GET');
+    expect(calls[0].url).toBe('/api/days?from=2026-07-13&to=2026-10-04');
+    expect(view.today).toBe('2026-08-12');
+    expect(view.days[0].hasRoom).toBe(true);
   });
 });
 

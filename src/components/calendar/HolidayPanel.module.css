@@ -1,0 +1,110 @@
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--ww-z-dialog);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ww-space-6);
+  background: var(--ww-scrim);
+}
+
+.dialog {
+  width: 100%;
+  max-width: 520px;
+  max-height: 80vh;
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius-lg);
+  background: var(--ww-surface);
+  box-shadow: var(--ww-shadow-panel);
+  padding: var(--ww-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-3);
+}
+
+.title {
+  font-size: var(--ww-text-lg);
+  font-weight: var(--ww-weight-medium);
+}
+
+.description {
+  font-size: var(--ww-text-md);
+  line-height: var(--ww-line);
+  color: var(--ww-text-muted);
+}
+
+/* One block per day. The list scrolls; the title and the actions stay put. */
+.days {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-3);
+  margin-top: var(--ww-space-2);
+  overflow-y: auto;
+}
+
+.day {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ww-space-2);
+  padding: var(--ww-space-3);
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius);
+}
+
+.dayHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ww-space-2);
+  flex-wrap: wrap;
+}
+
+.dayDate {
+  font-size: var(--ww-text-md);
+  font-weight: var(--ww-weight-medium);
+}
+
+.dayName {
+  font-size: var(--ww-text-md);
+  color: var(--ww-text-muted);
+}
+
+.work {
+  font-size: var(--ww-text-sm);
+  color: var(--ww-text-muted);
+  line-height: var(--ww-line);
+}
+
+/* The two answers side by side: alternatives of equal weight, not a primary and a secondary. */
+.choices {
+  display: flex;
+  gap: var(--ww-space-3);
+  flex-wrap: wrap;
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: var(--ww-space-2);
+  font-size: var(--ww-text-sm);
+  cursor: pointer;
+}
+
+.choiceHint {
+  font-size: var(--ww-text-sm);
+  color: var(--ww-text-muted);
+}
+
+/* A day whose work is padlocked states what will happen instead of offering a choice. */
+.forced {
+  font-size: var(--ww-text-sm);
+  color: var(--ww-text-muted);
+  line-height: var(--ww-line);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ww-space-2);
+  margin-top: var(--ww-space-2);
+}

@@ -31,7 +31,7 @@ describe('the schema', () => {
   });
 
   it('cascades blocks when their project is deleted', () => {
-    db.prepare("INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Railing', '#185FA5', 4)").run();
+    db.prepare("INSERT INTO projects (id, name, color, total_hours) VALUES ('p1', 'Railing', '#3087DF', 4)").run();
     db.prepare(
       "INSERT INTO blocks (id, project_id, date, start_time, duration) VALUES ('b1', 'p1', '2026-08-11', '08:00', 4)",
     ).run();
@@ -42,7 +42,7 @@ describe('the schema', () => {
   });
 
   it('touches updated_at on UPDATE, which a column default never does', () => {
-    db.prepare("INSERT INTO projects (id, name, color, total_hours, created_at, updated_at) VALUES ('p1', 'Shutter', '#D85A30', 6, '2020-01-01 00:00:00', '2020-01-01 00:00:00')").run();
+    db.prepare("INSERT INTO projects (id, name, color, total_hours, created_at, updated_at) VALUES ('p1', 'Shutter', '#ED6212', 6, '2020-01-01 00:00:00', '2020-01-01 00:00:00')").run();
 
     db.prepare("UPDATE projects SET name = 'Wide shutter' WHERE id = 'p1'").run();
 
@@ -51,7 +51,7 @@ describe('the schema', () => {
   });
 
   it('refuses a block with no duration and a locked flag that is not 0 or 1', () => {
-    db.prepare("INSERT INTO projects (id, name, color) VALUES ('p1', 'Staircase', '#1D9E75')").run();
+    db.prepare("INSERT INTO projects (id, name, color) VALUES ('p1', 'Staircase', '#1EA42B')").run();
     expect(() =>
       db.prepare("INSERT INTO blocks (id, project_id, date, start_time, duration) VALUES ('b1', 'p1', '2026-08-11', '08:00', 0)").run(),
     ).toThrow();
@@ -269,5 +269,29 @@ describe('serialization', () => {
 
   it('uppercases the gap colour so comparisons are stable', () => {
     expect(validateSettings({ ...DEFAULT_SETTINGS, gapColor: '#d3d1c7' }).gapColor).toBe('#D3D1C7');
+  });
+});
+
+describe('the holiday settings', () => {
+  it('default to Priego de Córdoba, switched on', () => {
+    expect(DEFAULT_SETTINGS.holidaysEnabled).toBe(true);
+    expect(DEFAULT_SETTINGS.holidaysMunicipality).toBe('14055');
+  });
+
+  it('repairs a corrupt municipality on the way IN', () => {
+    expect(normalizeSettings({ holidaysMunicipality: 'Priego' }).holidaysMunicipality).toBe('14055');
+    expect(normalizeSettings({ holidaysMunicipality: '1405' }).holidaysMunicipality).toBe('14055');
+    expect(normalizeSettings({ holidaysMunicipality: '04003' }).holidaysMunicipality).toBe('04003');
+  });
+
+  it('REFUSES on the way out what the read path would have repaired', () => {
+    expect(() => validateSettings({ ...DEFAULT_SETTINGS, holidaysMunicipality: 'Priego' })).toThrow(
+      SettingsValidationError,
+    );
+  });
+
+  it('round-trips: what writeSettings returns is what readSettings gives back', () => {
+    const written = writeSettings({ holidaysEnabled: false, holidaysMunicipality: '41091' }, db);
+    expect(readSettings(db)).toEqual(written);
   });
 });

@@ -8,8 +8,11 @@ import { firstWorkingMinute, netMinutesBetween } from '../../lib/manualWindow';
 import { DRAG_THRESHOLD_PX, SNAP_MINUTES, snapTo } from './geometry';
 import type { WorkPeriod } from '../../types';
 
-/** Why a press on this column cannot become a band. */
-export type PaintRefusal = 'past' | 'closed' | 'busy';
+/**
+ * Why a press on this column cannot become a band. A CLOSED day is not one of them: the weekend and a
+ * closed day both take a band, and the form each answer opens is what asks about the day being shut.
+ */
+export type PaintRefusal = 'past' | 'busy';
 
 /** What a released band fully describes, and the one payload every consumer reads. */
 export interface PaintedSpan {
@@ -64,8 +67,12 @@ export type PaintEvent =
 
 export type PaintEffect =
   | { kind: 'refused'; reason: PaintRefusal; date: string }
-  /** The grid background's only press: a still press on a closed column. */
-  | { kind: 'clicked'; date: string }
+  /**
+   * A press that did not travel. `minutes` is the minute under it, unsnapped: the answer depends on
+   * what is on the row there, since the create rail lies OVER the rows and must not swallow the
+   * press they would have answered themselves.
+   */
+  | { kind: 'clicked'; date: string; minutes: number }
   | { kind: 'painted'; span: PaintedSpan; at: PaintPoint }
   /** Take the window listeners off. Separate from ending, so the band can outlive the pointer. */
   | { kind: 'unlisten' };
@@ -87,14 +94,34 @@ export function paintedSpan(
   anchorMinutes: number,
   pointerMinutes: number,
 ): { startMinutes: number; durationMinutes: number } | null {
-  const a = firstWorkingMinute(windows, snapTo(anchorMinutes));
-  const b = firstWorkingMinute(windows, snapTo(pointerMinutes));
+  const a = bandStartAt(windows, anchorMinutes);
+  const b = bandStartAt(windows, pointerMinutes);
   const from = Math.min(a, b);
   const durationMinutes = netMinutesBetween(windows, from, Math.max(a, b));
   if (durationMinutes < SNAP_MINUTES) return null;
-  // The band's own start is the first minute that can hold work: painting from inside the lunch break
-  // means the afternoon, exactly as a drop aimed there does.
   return { startMinutes: firstWorkingMinute(windows, from), durationMinutes };
+}
+
+/**
+ * The minute a press here would start a band on: snapped, then moved forward to the first minute
+ * that can hold work, so a press inside the lunch break means the afternoon. The grid's reveal names
+ * it before the press, so it has to be THIS function and not the raw minute — otherwise the hour the
+ * pointer promises and the hour the release stores can differ.
+ */
+export function bandStartAt(windows: readonly WorkPeriod[], minutes: number): number {
+  return firstWorkingMinute(windows, snapTo(minutes));
+}
+
+/**
+ * Why a press on this day cannot become a band, decided ONCE at the press. The past outranks a save in
+ * flight because a column that is both was answered by one on travel and the other on a still press,
+ * and four pixels of wobble decided which of two different things the owner was told.
+ *
+ * A CLOSED day and the weekend are not refusals: both take a band, and being shut is the answer's form
+ * to raise. Re-adding one here is how the gesture stops reaching them.
+ */
+export function paintRefusalFor(day: { isPast: boolean }, writable: boolean): PaintRefusal | null {
+  return day.isPast ? 'past' : writable ? null : 'busy';
 }
 
 function travelled(from: PaintPoint, to: PaintPoint): number {
@@ -161,11 +188,32 @@ export function paintStep(state: PaintState, event: PaintEvent): PaintStep {
 
       // A press that travelled far enough to be refused has already had its one answer.
       if (state.phase === 'pressed' && state.explained !== true && state.date !== undefined) {
-        return { state: IDLE, effects: [unlisten, { kind: 'clicked', date: state.date }] };
+        return {
+          state: IDLE,
+          effects: [
+            unlisten,
+            { kind: 'clicked', date: state.date, minutes: state.anchorMinutes ?? 0 },
+          ],
+        };
       }
 
+      // A press that TRAVELLED but drew no band — a wobble inside one snap step — is still a click on
+      // whatever is underneath. It used to end in silence, which the create rail turned into a defect:
+      // the 21 px it lies over were answered by the drag layer's own 12 px of click slop before it.
+      // A REFUSED press is not one of these: it has had its one answer and must not also do something.
       const painted = state.painted ?? null;
-      if (painted === null) return { state: IDLE, effects: [unlisten] };
+      if (painted === null) {
+        if (state.explained === true || state.date === undefined) {
+          return { state: IDLE, effects: [unlisten] };
+        }
+        return {
+          state: IDLE,
+          effects: [
+            unlisten,
+            { kind: 'clicked', date: state.date, minutes: state.anchorMinutes ?? 0 },
+          ],
+        };
+      }
 
       return {
         state: { ...state, phase: 'choosing' },

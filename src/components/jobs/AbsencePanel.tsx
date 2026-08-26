@@ -3,7 +3,7 @@
 /**
  * `Absences` — one screen for every way the shop is not working, in two modes the owner picks
  * between inside it: **un gap** (`gaps`, cut at the lunch break) and **cerrar días** (`day_overrides`).
- * Both share `Desde` / `Hasta`, so a whole Fair week is one gesture instead of one hand-typed row
+ * Both share ONE range calendar, so a whole Fair week is one gesture instead of one hand-typed row
  * per day, which is what the shop's own database was full of.
  *
  * It is also the gap form in its two OLD shapes, unchanged: editing one absence, and *cerrar el día
@@ -22,7 +22,7 @@ import {
   Button,
   ColorDot,
   ConfirmDialog,
-  DateSelect,
+  DayPicker,
   Field,
   IconButton,
   InlineBanner,
@@ -31,7 +31,7 @@ import {
   SidePanel,
   TIME_STEP_MINUTES,
   clockMinutes,
-  TimeSelect,
+  TimeField,
   useToast,
 } from '../ui';
 import {
@@ -46,6 +46,7 @@ import {
   updateGap,
   type AbsenceKind,
   type AbsencePreview,
+  type DayWork,
   type DayShape,
   type GapUnit,
 } from '../../lib/api-client';
@@ -65,6 +66,7 @@ import { useFormat, type Formatter } from '../../lib/useFormat';
 /** An absence is drawn on the same quarter-hour grid the calendar snaps to, so the field is too. */
 const ABSENCE_HOUR_STEP = TIME_STEP_MINUTES / 60;
 import type { GridDraft } from '../calendar/draftBand';
+import { dayIsForced, dayMinutes, keepWorkDates } from '../calendar/dayWork';
 import { offWeekChoice } from './offWeek';
 import { otherGapConflicts } from './placement';
 import {
@@ -74,6 +76,7 @@ import {
   type AbsenceOrigin,
   type AbsenceSummary,
 } from './absence';
+import { API_FIELD, absenceSpan, rangeError, type AbsenceField } from './absenceFields';
 import type { JobsMutationHandler } from './events';
 import styles from './jobs.module.css';
 
@@ -127,6 +130,8 @@ export interface AbsencePanelProps {
   today?: string;
   /** `settings.planningHorizonWeeks`: how far ahead the day pickers reach. */
   horizonWeeks?: number;
+  /** `WeekController.revision`: what the pickers' day marks are refetched on. */
+  revision?: number;
 }
 
 export function AbsencePanel({
@@ -149,6 +154,7 @@ export function AbsencePanel({
   gapColor,
   today,
   horizonWeeks,
+  revision,
 }: AbsencePanelProps): React.JSX.Element {
   const { t } = useTranslation();
   const format = useFormat();
@@ -163,11 +169,27 @@ export function AbsencePanel({
   const [hours, setHours] = useState(minutesToHours(DEFAULT_GAP_MINUTES));
   const [reason, setReason] = useState('');
   const [localError, setLocalError] = useState<{ field: AbsenceField; key: string } | null>(null);
+  /**
+   * What the hour field is refusing. It is on screen; `startTime` is not — it still holds the last
+   * settled value. Only ever ONE of the two hour fields is mounted, and the field itself clears this
+   * on both mount and unmount, so a mode switch cannot leave a refusal behind for a control the
+   * screen no longer draws.
+   */
+  const [timeRefusal, setTimeRefusal] = useState<string | undefined>(undefined);
   const [actionError, setActionError] = useState<unknown>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [preview, setPreview] = useState<AbsencePreview | null>(null);
+  /** Displace or keep, per day, for the days the preview says have work on them. Absent = displace. */
+  const [keepChoice, setKeepChoice] = useState<Map<string, boolean>>(new Map());
+  /** The answers as they stand, joined so the preview effect can depend on their VALUE. */
+  const keptKey = [...keepChoice.entries()]
+    .filter(([, keep]) => keep)
+    .map(([day]) => day)
+    .sort()
+    .join(',');
+  const keptDates = keptKey === '' ? [] : keptKey.split(',');
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<unknown>(null);
   /** The last day chosen that WAS on screen: the honest place to offer going back to. */
@@ -176,8 +198,7 @@ export function AbsencePanel({
   /** Set only in the "stop the day here" shape: editing a gap always wins over it. */
   const closing = gap === undefined ? closeDay : undefined;
   // The GESTURE decides this, not the absence of the other two props: a painted band passes neither,
-  // so inferring it opened the whole Desde/Hasta screen for a gesture that is one column by
-  // definition.
+  // so inferring it opened the whole range screen for a gesture that is one column by definition.
   const bulk = absenceFormMode(origin) === 'range' && gap === undefined && closing === undefined;
   const fallbackStart =
     closing?.fromMinutes ?? defaultStartMinutes ?? shape?.periods[0]?.startMinutes ?? 8 * 60;
@@ -274,9 +295,11 @@ export function AbsencePanel({
       previewAbsence(
         {
           kind,
-          from: date,
-          to: endDate,
+          ...absenceSpan(bulk, date, endDate),
           ...(kind === 'gap' ? { startMinutes, durationMinutes } : {}),
+          // The answers travel with it: without them the preview reports the displacement of a save
+          // nobody is about to make, and the two notices would disagree about the same hours.
+          ...(keptKey === '' ? {} : { keepWork: keptKey.split(',') }),
         },
         { signal: controller.signal },
       )
@@ -300,12 +323,15 @@ export function AbsencePanel({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [previewable, kind, date, endDate, startMinutes, durationMinutes]);
+  }, [previewable, bulk, kind, date, endDate, startMinutes, durationMinutes, keptKey]);
 
   const summary: AbsenceSummary | null = preview === null ? null : summarizeAbsence(preview);
 
   const submit = async (): Promise<void> => {
     if (saving || deleting) return;
+    // A refused hour would be saved as the value the field stopped showing — the day closed from
+    // 08:00 for a typed 23:00. The blur that refuses it is flushed before this click.
+    if (timeRefusal !== undefined) return;
 
     if (!isValidDate(date)) {
       setLocalError({ field: 'date', key: 'errors.invalidDate' });
@@ -370,12 +396,16 @@ export function AbsencePanel({
         onChanged?.({ kind: 'gap-created', gapId: result.gap.id, summary: result.summary });
         toast.success(t('gapForm.saved'));
       } else {
+        const keepWork =
+          kind === 'closed-days' && preview !== null
+            ? keepWorkDates(preview.daysWithWork, keepChoice)
+            : [];
         const result = await saveAbsence({
           kind,
-          from: date,
-          to: endDate,
+          ...absenceSpan(bulk, date, endDate),
           ...(trimmed === '' ? {} : { reason: trimmed }),
           ...(kind === 'gap' ? { startMinutes: start, durationMinutes: minutes } : {}),
+          ...(keepWork.length === 0 ? {} : { keepWork }),
         });
         onChanged?.({
           kind: kind === 'gap' ? 'gap-created' : 'days-closed',
@@ -423,7 +453,7 @@ export function AbsencePanel({
     setActionError(null);
 
     try {
-      const result = await reopenDays({ from: date, to: endDate });
+      const result = await reopenDays(absenceSpan(bulk, date, endDate));
       onChanged?.({ kind: 'days-reopened', summary: result.summary });
       toast.success(t('absenceForm.reopened', { count: result.dates.length }));
       onClose();
@@ -476,7 +506,7 @@ export function AbsencePanel({
             <Button
               className={styles.grow}
               variant="primary"
-              disabled={busy || nothingToClose || refused}
+              disabled={busy || nothingToClose || refused || timeRefusal !== undefined}
               onClick={submit}
             >
               {saving
@@ -560,77 +590,91 @@ export function AbsencePanel({
 
         {closing === undefined ? (
           <>
-            {/* Never a native date input. The picker keeps a
-                stored day outside its window, so editing an old gap can never move it. */}
-            <div className={bulk ? styles.row : undefined}>
+            {bulk ? (
+              /* One control over both ends of the span: its error slot is the only place
+                 `errors.rangeBackwards` and the server's `invalid-range` are ever drawn, and the line
+                 under it is the days the preview will WRITE — a Monday-to-Sunday span paints seven
+                 cells and writes five. */
               <Field
-                label={t(bulk ? 'absenceForm.from' : 'gapForm.date')}
-                error={errorFor('date')}
-                hint={isValidDate(date) ? format.longDate(date) : undefined}
+                label={t('absenceForm.range')}
+                error={rangeError(errorFor)}
+                hint={
+                  summary === null ? undefined : t('absenceForm.days', { count: summary.dayCount })
+                }
               >
-                <DateSelect
+                <DayPicker
+                  range
                   value={date}
+                  endValue={endDate}
                   today={reference}
                   horizonWeeks={horizonWeeks}
+                  revision={revision}
                   disabled={busy}
-                  onChange={(next) => {
-                    // Set OPTIMISTICALLY: a painted band on the grid has to follow the field.
-                    if (visibleDates?.includes(date) === true) setLastVisible(date);
-                    setDate(next);
-                    // "Hasta" follows the day it can no longer precede, so the range is never
-                    // inverted by moving its start.
-                    if (compareDates(endDate, next) < 0) setEndDate(next);
+                  onChangeRange={(from, to) => {
+                    // BOTH ends in one update. A half-chosen range would run `previewAbsence`, which
+                    // is the real write inside a transaction that is rolled back, and would drop
+                    // `Reabrir` out of the footer while `rangeValid` was false.
+                    setDate(from);
+                    setEndDate(to);
                   }}
                 />
               </Field>
-
-              {offWeek === null ? null : (
-                <InlineBanner tone="info" title={t('jobForm.offWeekTitle')}>
-                  {t('jobForm.offWeek', { date: format.longDate(offWeek.goTo) })}
-                  <div className={styles.offWeekActions}>
-                    <Button size="sm" onClick={() => onShowWeekOf?.(offWeek.goTo)}>
-                      {t('jobForm.offWeekGo')}
-                    </Button>
-                    {offWeek.backTo === null ? null : (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => setDate(offWeek.backTo as string)}
-                      >
-                        {t('jobForm.offWeekBack', { date: format.dayOption(offWeek.backTo) })}
-                      </Button>
-                    )}
-                  </div>
-                </InlineBanner>
-              )}
-
-              {!bulk ? null : (
+            ) : (
+              <div>
+                {/* Never a native date input. The picker keeps a
+                    stored day outside its window, so editing an old gap can never move it. */}
                 <Field
-                  label={t('absenceForm.to')}
-                  error={errorFor('endDate')}
-                  hint={
-                    summary === null
-                      ? isValidDate(endDate)
-                        ? format.longDate(endDate)
-                        : undefined
-                      : t('absenceForm.days', { count: summary.dayCount })
-                  }
+                  label={t('gapForm.date')}
+                  // Either end of the span, so a refusal `API_FIELD` maps to `endDate` cannot go
+                  // unsaid on a screen that draws no control for it.
+                  error={rangeError(errorFor)}
+                  hint={isValidDate(date) ? format.dayLine(date) : undefined}
                 >
-                  <DateSelect
-                    value={endDate}
+                  <DayPicker
+                    value={date}
                     today={reference}
                     horizonWeeks={horizonWeeks}
+                    revision={revision}
                     disabled={busy}
-                    onChange={setEndDate}
+                    onChange={(next) => {
+                      // Set OPTIMISTICALLY: a painted band on the grid has to follow the field.
+                      if (visibleDates?.includes(date) === true) setLastVisible(date);
+                      setDate(next);
+                    }}
                   />
                 </Field>
-              )}
-            </div>
+
+                {offWeek === null ? null : (
+                  <InlineBanner tone="info" title={t('jobForm.offWeekTitle')}>
+                    {t('jobForm.offWeek', { date: format.longDate(offWeek.goTo) })}
+                    <div className={styles.offWeekActions}>
+                      <Button size="sm" onClick={() => onShowWeekOf?.(offWeek.goTo)}>
+                        {t('jobForm.offWeekGo')}
+                      </Button>
+                      {offWeek.backTo === null ? null : (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setDate(offWeek.backTo as string)}
+                        >
+                          {t('jobForm.offWeekBack', { date: format.dayOption(offWeek.backTo) })}
+                        </Button>
+                      )}
+                    </div>
+                  </InlineBanner>
+                )}
+              </div>
+            )}
 
             {kind === 'closed-days' && bulk ? null : (
               <div className={styles.row}>
-                <Field label={t('gapForm.startTime')} error={errorFor('startTime')}>
-                  <TimeSelect value={startTime} disabled={busy} onChange={setStartTime} />
+                <Field label={t('gapForm.startTime')} error={timeRefusal ?? errorFor('startTime')}>
+                  <TimeField
+                    value={startTime}
+                    disabled={busy}
+                    onChange={setStartTime}
+                    onInvalid={setTimeRefusal}
+                  />
                 </Field>
 
                 <Field label={t('gapForm.duration')} error={errorFor('duration')}>
@@ -661,13 +705,14 @@ export function AbsencePanel({
               </span>
             </div>
 
-            <Field label={t('gapForm.closeDayWhen')} error={errorFor('startTime')}>
-              <TimeSelect
+            <Field label={t('gapForm.closeDayWhen')} error={timeRefusal ?? errorFor('startTime')}>
+              <TimeField
                 value={startTime}
                 minMinutes={closeBounds?.minMinutes}
                 maxMinutes={closeBounds?.maxMinutes}
                 disabled={busy}
                 onChange={setStartTime}
+                onInvalid={setTimeRefusal}
               />
             </Field>
 
@@ -728,6 +773,12 @@ export function AbsencePanel({
             loading={previewing && summary === null}
             message={previewMessage}
             conflicts={previewConflicts}
+            daysWithWork={kind === 'closed-days' ? (preview?.daysWithWork ?? []) : []}
+            keepChoice={keepChoice}
+            onKeepChoice={(day, keep) =>
+              setKeepChoice((current) => new Map(current).set(day, keep))
+            }
+            busy={busy}
             format={format}
             t={t}
           />
@@ -782,6 +833,11 @@ interface AbsencePreviewNoticeProps {
   /** A failed preview request, already translated. It is the save's refusal, arriving early. */
   message?: string;
   conflicts: ReturnType<typeof otherGapConflicts>;
+  /** `closed-days` only: the days of the range that already have work on them. */
+  daysWithWork: readonly DayWork[];
+  keepChoice: ReadonlyMap<string, boolean>;
+  onKeepChoice: (date: string, keep: boolean) => void;
+  busy: boolean;
   format: Formatter;
   t: (key: string, values?: Record<string, unknown>) => string;
 }
@@ -795,9 +851,18 @@ function AbsencePreviewNotice({
   loading,
   message,
   conflicts,
+  daysWithWork,
+  keepChoice,
+  onKeepChoice,
+  busy,
   format,
   t,
 }: AbsencePreviewNoticeProps): React.JSX.Element | null {
+  // Where each job's hours land, from the preview that ran with the answers as they stand. A job
+  // absent from it is not being moved, which is what «stays here» means.
+  const displacedTo = new Map(
+    (summary?.displaced ?? []).map((job) => [job.projectId, job.landsOn]),
+  );
   if (message !== undefined) {
     return (
       <InlineBanner tone="error" title={t('errors.title')}>
@@ -842,6 +907,60 @@ function AbsencePreviewNotice({
 
   return (
     <div className={styles.notices}>
+      {daysWithWork.length === 0 ? null : (
+        <InlineBanner tone="warning" title={t('dayWork.title')}>
+          <span className={styles.noticeList}>
+            {daysWithWork.map((day) => {
+              const forced = dayIsForced(day.rows);
+              const keep = keepChoice.get(day.date) ?? false;
+              return (
+                <span key={day.date} className={styles.noticeLine}>
+                  <span className={styles.noticeLabel}>{format.dayOption(day.date)}</span>
+                  {day.rows.map((job) => {
+                    const lands = displacedTo.get(job.projectId);
+                    return (
+                      <span key={job.projectId} className={styles.hint}>
+                        {t('dayWork.hours', { hours: format.hours(job.minutes), jobs: job.name })}{' '}
+                        {lands === undefined
+                          ? t('dayWork.staysHere')
+                          : t('dayWork.movesTo', { day: format.mediumDate(lands) })}
+                      </span>
+                    );
+                  })}
+                  {forced ? (
+                    <span className={styles.hint}>{t('dayWork.fixed')}</span>
+                  ) : (
+                    <span className={styles.keepChoice}>
+                      <label className={styles.keepOption}>
+                        <input
+                          type="radio"
+                          name={`keep-${day.date}`}
+                          checked={!keep}
+                          disabled={busy}
+                          onChange={() => onKeepChoice(day.date, false)}
+                        />
+                        {t('dayWork.displace')}
+                      </label>
+                      <label className={styles.keepOption}>
+                        <input
+                          type="radio"
+                          name={`keep-${day.date}`}
+                          checked={keep}
+                          disabled={busy}
+                          onChange={() => onKeepChoice(day.date, true)}
+                        />
+                        {t('dayWork.keep')}
+                        <span className={styles.hint}>{t('dayWork.keepHint')}</span>
+                      </label>
+                    </span>
+                  )}
+                </span>
+              );
+            })}
+          </span>
+        </InlineBanner>
+      )}
+
       <InlineBanner tone={summary.tone} title={t('absenceForm.previewTitle')}>
         {summary.rowsPerDay.length === 0 ? null : (
           <span className={styles.noticeList}>
@@ -864,31 +983,6 @@ function AbsencePreviewNotice({
           ))}
         </span>
 
-        {summary.displaced.length === 0 ? null : (
-          <>
-            <span className={styles.previewNotes}>
-              <span className={styles.hint}>
-                {t('absenceForm.movesHours', {
-                  count: summary.displaced.length,
-                  hours: format.hourNumber(summary.displacedMinutes),
-                })}
-              </span>
-            </span>
-            <span className={styles.noticeList}>
-              {summary.displaced.map((job) => (
-                <span key={job.projectId} className={styles.noticeLine}>
-                  <span className={styles.noticeLabel}>
-                    {t('absenceForm.movesRow', {
-                      hours: format.hourNumber(job.minutes),
-                      day: format.mediumDate(job.landsOn),
-                    })}
-                  </span>
-                  <span className={styles.blockTag}>{job.name}</span>
-                </span>
-              ))}
-            </span>
-          </>
-        )}
       </InlineBanner>
     </div>
   );
@@ -919,8 +1013,6 @@ function ConflictList({
   );
 }
 
-type AbsenceField = 'date' | 'endDate' | 'startTime' | 'duration' | 'reason';
-
 /**
  * The moments the day can be stopped at: the start of the shift to one step before it ends,
  * since a gap of nothing is not a gap. `undefined` on a day with no periods, which leaves
@@ -936,15 +1028,3 @@ function momentBounds(
     maxMinutes: end - TIME_STEP_MINUTES,
   };
 }
-
-/** The payload keys the API validates, mapped onto this form's controls. */
-const API_FIELD: Record<string, AbsenceField | undefined> = {
-  date: 'date',
-  from: 'date',
-  to: 'endDate',
-  startTime: 'startTime',
-  startMinutes: 'startTime',
-  durationHours: 'duration',
-  durationMinutes: 'duration',
-  reason: 'reason',
-};

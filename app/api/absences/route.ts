@@ -9,38 +9,18 @@
  *
  * `startMinutes` and `durationMinutes` belong to `gap` and are required there. Closing a day takes no
  * hours: a short day is a gap, and `capacity_hours` deliberately has no screen.
+ *
+ * `keepWork` belongs to `closed-days`: the dates whose work stays where it is instead of being
+ * displaced, which PADLOCKS it. It is the answer to the question the form asks before a close moves
+ * anything, and the holiday check asks the same one.
  */
 
 import type { NextRequest } from 'next/server';
-import {
-  MAX_TEXT_LENGTH,
-  readDate,
-  readDurationMinutes,
-  readJsonBody,
-  readStartMinutes,
-  readText,
-  requireDate,
-  requireOneOf,
-  route,
-} from '@/src/lib/api';
-import { ERROR_MESSAGE_KEYS } from '@/src/lib/errors';
+import { readAbsenceInput, readJsonBody, route } from '@/src/lib/api';
 import { ABSENCE_KINDS, saveAbsence } from '@/src/lib/operations/absences';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest): Promise<Response> {
-  return route(async () => {
-    const body = await readJsonBody(request);
-    return saveAbsence({
-      kind: requireOneOf(body, 'kind', ABSENCE_KINDS),
-      from: requireDate(body, 'from'),
-      to: readDate(body, 'to'),
-      reason: readText(body, 'reason', {
-        maxLength: MAX_TEXT_LENGTH,
-        messageKey: ERROR_MESSAGE_KEYS.invalidReason,
-      }),
-      startMinutes: readStartMinutes(body),
-      durationMinutes: readDurationMinutes(body),
-    });
-  });
+  return route(async () => saveAbsence(readAbsenceInput(await readJsonBody(request), ABSENCE_KINDS)));
 }

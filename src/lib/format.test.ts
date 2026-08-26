@@ -6,8 +6,10 @@ import {
   formatLongDate,
   formatMediumDate,
   formatMonthShort,
+  formatMonthYear,
   formatTime,
   formatWeekdayLong,
+  formatWeekdayNarrow,
   formatWeekdayShort,
   localDateOf,
   weekRangeLabel,
@@ -118,6 +120,49 @@ describe('dates', () => {
 
   it('gives the short month the wireframe uses', () => {
     expect(formatMonthShort('2026-08-10', 'es')).toBe('ago');
+  });
+
+  it('titles a month without the connector es-ES puts before the year', () => {
+    // Intl's own es-ES string is "agosto de 2026": the parts are joined instead, so the title reads
+    // as a heading and no Spanish word is spelled out in the code.
+    expect(formatMonthYear('2026-08-12', 'es')).toBe('agosto 2026');
+    expect(formatMonthYear('2026-12-31', 'es')).toBe('diciembre 2026');
+    expect(formatMonthYear('2027-01-05', 'es')).toBe('enero 2027');
+    expect(formatMonthYear('2026-08-12', 'en')).toBe('August 2026');
+    expect(formatMonthYear('2026-08-12', 'fr')).toBe('agosto 2026');
+  });
+
+  it('narrows a weekday to the single letter a month grid heads its columns with', () => {
+    const week = [
+      '2026-08-10',
+      '2026-08-11',
+      '2026-08-12',
+      '2026-08-13',
+      '2026-08-14',
+      '2026-08-15',
+      '2026-08-16',
+    ];
+    expect(week.map((date) => formatWeekdayNarrow(date, 'es'))).toEqual([
+      'L',
+      'M',
+      'X',
+      'J',
+      'V',
+      'S',
+      'D',
+    ]);
+    // en-GB repeats T and S. That is CLDR's narrow form, not a defect to correct with a hand-kept
+    // list — the lists were deleted on 2026-08-20 for drifting from CLDR.
+    expect(week.map((date) => formatWeekdayNarrow(date, 'en'))).toEqual([
+      'M',
+      'T',
+      'W',
+      'T',
+      'F',
+      'S',
+      'S',
+    ]);
+    expect(formatWeekdayNarrow('2026-08-12', 'fr')).toBe('X');
   });
 });
 

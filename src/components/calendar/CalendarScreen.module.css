@@ -6,7 +6,9 @@
   flex: 1 1 auto;
   flex-direction: column;
   gap: var(--ww-space-4);
-  padding: var(--ww-space-4) var(--ww-space-5);
+  /* Tighter at the foot than at the head, deliberately: the head separates the strip from the
+     header's rule, the foot is only the window's edge, and the calendar wants those pixels. */
+  padding: var(--ww-space-4) var(--ww-space-5) var(--ww-space-3);
 }
 
 /*
@@ -26,33 +28,44 @@
   color: var(--ww-text-muted);
 }
 
-/* The two lines the wireframe prints under the grid, plus the drag hint that replaces
-   them while a block is in the air.
+/* A gesture's hint, and the empty week's. NOTHING RESTS HERE ANY MORE.
 
-   THE BOX IS RESERVED FOR TWO LINES AND MUST NOT FOLLOW ITS CONTENT. This element and
-   `.gridArea` are siblings in the same column flexbox, and `.gridArea` is `flex: 1 1
-   auto` — so every pixel the legend gives up, the grid takes, and the timeline re-fits
-   to the grid's measured height. Swapping the two resting lines for the ONE-LINE drag
-   hint did exactly that IN THE MIDDLE OF THE GESTURE THAT PUBLISHED THE HINT: measured
-   2026-08-13, 38.00px -> 28.80px about 50 ms in, the axis re-scaled by 1.2%, and a resize
-   released on 17:30 was read as 17:22 and committed 5,75 h instead of 6 h. The gesture
-   was moving the ruler it was being measured with — «a veces no se coloca exactamente
-   donde quiero», and "a veces" because it depended on how fast the drag was and on how
-   many lines the hint wrapped to at that window width.
+   THE BOX MUST NEVER TAKE HEIGHT FROM THE GRID. This element and `.gridArea` are siblings
+   in the same column flexbox and `.gridArea` is `flex: 1 1 auto`, so every pixel this one
+   takes or gives up, the grid gives up or takes, and the timeline re-fits to the grid's
+   measured height. It once held two resting lines and swapped them for the ONE-LINE drag
+   hint IN THE MIDDLE OF THE GESTURE THAT PUBLISHED THE HINT: measured 2026-08-13,
+   38.00px -> 28.80px about 50 ms in, the axis re-scaled by 1.2%, and a resize released on
+   17:30 was read as 17:22 and committed 5,75 h instead of 6 h. The gesture was moving the
+   ruler it was being measured with — «a veces no se coloca exactamente donde quiero».
 
-   The drag layer no longer trusts a live scale (`useBlockDrag` fixes the axis at press),
-   so this is not what makes a gesture correct — it is what stops the week visibly jumping
-   as a drag starts, and it also holds the axis still when the week merely goes from empty
-   to occupied, which swaps this text too. Two lines of `--ww-line` leading plus the gap
-   is the tallest resting content, and the hint wrapped to two lines still fits it. */
+   Reserving two lines fixed that by never changing. Being OUT OF THE FLOW fixes it by
+   never having a height to change, and hands the 38 px back to the calendar. The hint is
+   drawn over the foot of the grid, which is the bottom visual margin; `pointer-events` is
+   off so it can never take a press meant for the row underneath. */
 .legend {
+  position: relative;
+  z-index: 5;
   display: flex;
-  min-height: calc(2 * var(--ww-line) * 1em + 2px);
+  height: 0;
+  /* The column's gap buys nothing in front of a box with no height, and the 12px it was holding
+     open under the grid belong to the grid. Static, so it is not a height that can change. */
+  margin-top: calc(-1 * var(--ww-space-4));
   flex-direction: column;
+  justify-content: flex-end;
   gap: 2px;
   color: var(--ww-text-muted);
   font-size: var(--ww-text-sm);
   line-height: var(--ww-line);
+  pointer-events: none;
+}
+
+/* Upwards out of a box with no height: the hint sits on the grid's last rows rather than
+   below the window's edge, where it would be unreachable at any scroll position. */
+.legend > * {
+  position: absolute;
+  bottom: 0;
+  left: 0;
 }
 
 .hint {

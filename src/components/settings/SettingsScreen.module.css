@@ -64,11 +64,6 @@
 /* Controls in an inline `Field` size themselves, so they need an explicit width. The
    doubled class raises specificity over `.input` / `.select` in Field.module.css, whose
    `width: 100%` would otherwise win or lose depending on stylesheet order. */
-.timeSelect.timeSelect {
-  width: 7.5rem;
-  font-variant-numeric: tabular-nums;
-}
-
 .selectControl.selectControl {
   width: 11rem;
 }

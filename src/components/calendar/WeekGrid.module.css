@@ -481,7 +481,7 @@
  * lives here" without any decoration at all:
  *
  * - THE FILL IS THE MARGINS' FILL, inherited from `.band` above. All non-working time on the
- *   grid is now one grey, which is honest — a margin and the comida are the same kind of
+ *   grid is now one grey, which is honest — a margin and the lunch break are the same kind of
  *   nothing — and it is the fill the owner already reads as "no trabajamos aquí".
  * - IT SPANS THE WEEK. Every block is inset 2 px inside its lane with rounded corners and a
  *   saturated border; this runs edge to edge, square, across seven columns. Nothing else on
@@ -558,14 +558,44 @@
   gap: 4px;
   padding: 5px 7px;
   border: var(--ww-hairline) solid var(--ww-border-strong);
-  /* Squared by default and rounded per unit, exactly like a block: a gap cut at the comida is two
+  /* Squared by default and rounded per unit, exactly like a block: a gap cut at the lunch break is two
      rows, and rounding the inner corners would draw them as two gaps. */
   border-radius: 0;
-  background: var(--ww-gap-color, var(--ww-gap-fill));
+  background-color: var(--ww-gap-color, var(--ww-gap-fill));
   color: var(--ww-text);
   font-size: var(--ww-text-md);
   text-align: left;
   line-height: var(--ww-line-tight);
+}
+
+/*
+ * WHAT SAYS A GAP IS NOT A JOB. Both are a rectangle in a lane, and with a flat fill the only
+ * difference was which colour it happened to be — so an absence read as a job painted grey.
+ *
+ * The stripe is MIXED FROM THE FILL, not a colour of its own, so it follows `gapColor` wherever
+ * the owner takes it and there is no second setting to keep in step. 65% of the fill toward the
+ * surface: enough to see at a glance, and deliberately short of the 45-degree hatch that was
+ * tried on the lunch-break band on 2026-08-17 and taken straight back out for being the loudest thing
+ * on the calendar in the one part of the day that carries no information.
+ *
+ * 135deg, so the lines lean `/`. The lengths are measured along the gradient's own axis, which at
+ * this angle IS the perpendicular thickness — 3px of stripe every 7px.
+ *
+ * IT CANNOT BE HOISTED INTO A TOKEN. `--ww-gap-color` is set inline on these two elements, and a
+ * `var()` inside a custom property is substituted where the property is DECLARED — at `:root` it
+ * would resolve against an unset value, and every gap on the grid would wear the default grey
+ * instead of the colour that was chosen. It stays on the elements that carry the colour.
+ *
+ * An engine with no `color-mix` drops the declaration whole and gets the flat fill back, which is
+ * what a gap looked like before this.
+ */
+.gap,
+.paintBand {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--ww-gap-color, var(--ww-gap-fill)) 65%, var(--ww-surface)) 0 3px,
+    transparent 3px 7px
+  );
 }
 
 .gapFirst {
@@ -848,13 +878,97 @@
 }
 
 /* --------------------------------------------------------------------------
+   The create rail, and the aim it reveals
+   -------------------------------------------------------------------------- */
+
+/*
+ * THE ONLY THING ON THIS GRID THAT IS A HIT TARGET AND NOTHING ELSE. It lies over the rows down the
+ * column's left edge so a press there creates instead of moving what is underneath, and it paints
+ * NOTHING: at rest the calendar looks exactly as it did before the rail existed, which is the whole
+ * of what the owner asked for. `.columnAiming` and `.aimLine` are what say it is there, and they are
+ * driven by the same state, so the rail can never offer a create the press will refuse.
+ *
+ * `z-index: 2` and after `.columnBody` in the DOM: level with a HOVERED block and later in tree
+ * order, so it takes the press from one — and below the sticky day header at 3, which it would
+ * otherwise cover when the grid scrolls.
+ *
+ * A HOVER BAR IS ANCHORED `right: 3px` INSIDE ITS ROW, so at one lane it starts near x = 101 on a
+ * weekday and x = 34 on the 116 px weekend floor, both clear of this strip. At TWO lanes the row is
+ * about half a column and a four-button bar starts near x = 7, where the strip covers the first
+ * button's left half — and since a press here leaves the row un-hovered, `display: none` takes the bar
+ * away rather than the strip stealing its click. Lanes exist only where rows overlap, which the engine
+ * never produces and a hand can.
+ */
+.createRail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Out over the column's own border, because the aim measures x from the BORDER box: at `left: 0`
+     the strip started half a pixel in and the two declarations of one edge disagreed. */
+  left: calc(-1 * var(--ww-hairline));
+  z-index: 2;
+  width: var(--ww-create-rail);
+}
+
+/*
+ * WHERE THE CUT WOULD FALL. Neutral and dashed, never the gap colour: nothing has been written and
+ * what the band is has not even been asked — the release asks. Full width, because the row it would
+ * cut is full width.
+ */
+/*
+ * Every surface a press would create on, the free part of a column included — and the ONLY place the
+ * copy cursor is declared, so it cannot disagree with the reveal. `cursor` inherits, so the rail takes
+ * it from here: on a frozen day, where nothing is revealed, the rail says nothing either. A block
+ * declares its own `grab` and keeps it, which is what makes the two states unmistakable.
+ */
+.columnAiming {
+  cursor: copy;
+}
+
+.aimLine {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  height: 0;
+  /* 1 px, not the hairline: at 0.5 it was barely legible over a job's tint, and this line is the
+     whole of what says the rail is there. Still lighter than a committed drop's 2 px cut seam. */
+  border-top: 1px dashed var(--ww-border-strong);
+  pointer-events: none;
+}
+
+/*
+ * The hour, named. Anchored just right of the rail rather than tracking the pointer sideways: on the
+ * rail that IS beside the pointer, and over free time a badge chasing the mouse in both axes reads
+ * as debris. Opaque, since it is read over a block.
+ */
+.aimBadge {
+  position: absolute;
+  left: calc(var(--ww-create-rail) + 2px);
+  z-index: 2;
+  display: flex;
+  height: var(--ww-aim-badge);
+  align-items: center;
+  padding: 0 4px;
+  transform: translateY(-50%);
+  border: var(--ww-hairline) solid var(--ww-border);
+  border-radius: var(--ww-radius-sm);
+  background: var(--ww-surface);
+  color: var(--ww-text-muted);
+  font-size: var(--ww-text-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
    Painting an absence
    -------------------------------------------------------------------------- */
 
 /*
  * The band a paint draws on empty grid space: the gap colour, dashed, because nothing has been
  * written — the release opens the form and the owner presses Guardar. One rectangle per row the
- * absence will really be stored as, so it is cut at the comida like every other ghost here.
+ * absence will really be stored as, so it is cut at the lunch break like every other ghost here.
  */
 .paintBand {
   position: absolute;
@@ -867,7 +981,13 @@
   padding: 4px 7px;
   border: 1px dashed var(--ww-border-strong);
   border-radius: var(--ww-radius);
-  background: var(--ww-gap-color, var(--ww-gap-fill));
+  /*
+   * TRANSLUCENT, exactly as `.ghost` is and for the same measured reason: a band can now be started
+   * over occupied time, so an opaque fill hid the very row the gesture is about to cut in two from
+   * the first pixel of the drag. `transparent` in the mix keeps the colour recipe and lets the row
+   * read through.
+   */
+  background-color: color-mix(in srgb, var(--ww-gap-color, var(--ww-gap-fill)) 42%, transparent);
   font-size: var(--ww-text-sm);
   line-height: var(--ww-line-tight);
   pointer-events: none;

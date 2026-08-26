@@ -6,7 +6,9 @@
 
 import { getDb, type Db } from '../db';
 import {
+  addDays,
   compareDates,
+  daysBetween,
   isoWeekNumber,
   isoWeekYear,
   isWeekend,
@@ -14,9 +16,18 @@ import {
   weekDates,
   weekdayOf,
 } from '../dates';
-import { summarizeSchedule, type DayRole, type ScheduleSummary } from '../composition';
+import {
+  horizonEndDate,
+  isMovable,
+  summarizeSchedule,
+  type DayRole,
+  type ScheduleSummary,
+} from '../composition';
+import { freeStretchesFrom, type SpillInterval } from '../dropSpill';
+import { badRequest, ERROR_MESSAGE_KEYS } from '../errors';
 import { readHistoryState, type HistoryState } from '../history';
 import { plannableMinutesOf, readSnapshot } from '../scheduler';
+import { MIN_ROW_MINUTES } from '../validation';
 import { listDayOverridesBetween } from '../repositories/dayOverrides';
 import { listProjectLabels } from '../repositories/projects';
 import type { Block, DayShape, Gap, Settings, WorkPeriod } from '../../types';
@@ -155,6 +166,112 @@ export function readWeek(
   };
 }
 
+/**
+ * The widest span one request may ask for. Its own number: the widest window a day picker can
+ * navigate is 140 days, plus a stored value's own month.
+ */
+export const MAX_DAY_MARK_DAYS = 200;
+
+/** One day as a picker draws it, carrying only what the client cannot work out for itself. */
+export interface DayMarkView {
+  date: string;
+  isClosed: boolean;
+  note?: string;
+  /** Net working minutes the engine would still lay work into. */
+  freeMinutes: number;
+  /** Whether the engine still places hours here: the horizon, the free minutes and the longest free run all have to allow it. */
+  hasRoom: boolean;
+}
+
+export interface DaysView {
+  /** The shop's LOCAL today. */
+  today: string;
+  days: DayMarkView[];
+}
+
+/**
+ * The two marks a day picker cannot deduce — closed, and still has room — for every day of an
+ * inclusive span. The weekend and the past are absent on purpose: the client owns them.
+ *
+ * The room question is NOT `WeekDay.plannableMinutes`, which does not subtract ordinary work and so
+ * reports a full Tuesday as empty, and not `bookedMinutes`, which reports a day the next write will
+ * clear as full.
+ */
+export function readDays(
+  from: string,
+  to: string,
+  options: { today?: string } = {},
+  db: Db = getDb(),
+): DaysView {
+  if (daysBetween(from, to) + 1 > MAX_DAY_MARK_DAYS) {
+    throw badRequest('invalid-range', ERROR_MESSAGE_KEYS.invalidRange, {
+      field: 'to',
+      details: { from, to, maxDays: MAX_DAY_MARK_DAYS },
+    });
+  }
+
+  const today = options.today ?? todayLocal();
+  const snapshot = readSnapshot(db, today);
+  const notes = new Map(
+    listDayOverridesBetween(from, to, db).map((override) => [override.date, override.note]),
+  );
+  const horizonEnd = horizonEndDate(today, snapshot.settings.planningHorizonWeeks);
+
+  const occupiedByDate = new Map<string, SpillInterval[]>();
+  for (const row of [...snapshot.gaps, ...snapshot.blocks]) {
+    const rows = occupiedByDate.get(row.date);
+    if (rows === undefined) occupiedByDate.set(row.date, [row]);
+    else rows.push(row);
+  }
+
+  const movableByDate = new Map<string, number>();
+  for (const block of snapshot.blocks) {
+    if (!isMovable(block, today)) continue;
+    movableByDate.set(block.date, (movableByDate.get(block.date) ?? 0) + block.durationMinutes);
+  }
+
+  const days: DayMarkView[] = [];
+  for (let date = from; compareDates(date, to) <= 0; date = addDays(date, 1)) {
+    const config = snapshot.getDayConfig(date);
+    const note = notes.get(date);
+    // The engine's own arithmetic: a day opens at its plannable minutes and auto-fill spends them,
+    // and the day's movable rows are exactly what the last pass spent that budget on.
+    const freeMinutes = Math.max(
+      0,
+      plannableMinutesOf(snapshot, date) - (movableByDate.get(date) ?? 0),
+    );
+    // The horizon is asked separately because the day plan does not know it: past it, a day
+    // declares all its minutes plannable and would promise room where a save answers 409.
+    const withinHorizon = compareDates(date, horizonEnd) <= 0;
+    const longestRun = longestFreeRun(config.periods, occupiedByDate.get(date) ?? []);
+    days.push({
+      date,
+      isClosed: config.isClosed,
+      freeMinutes,
+      hasRoom: withinHorizon && Math.min(freeMinutes, longestRun) >= MIN_ROW_MINUTES,
+      ...(note === undefined ? {} : { note }),
+    });
+  }
+
+  return { today, days };
+}
+
 function withinWeek(date: string, startDate: string, endDate: string): boolean {
   return compareDates(date, startDate) >= 0 && compareDates(date, endDate) <= 0;
+}
+
+/**
+ * The longest run one row could occupy, so a day whose forty free minutes are four holes of ten
+ * reports no room. Measured over the PERIODS, never the manual windows: auto-fill never enters a
+ * margin.
+ */
+function longestFreeRun(
+  periods: readonly WorkPeriod[],
+  occupied: readonly SpillInterval[],
+): number {
+  let longest = 0;
+  for (const stretch of freeStretchesFrom(periods, occupied, 0)) {
+    longest = Math.max(longest, stretch.endMinutes - stretch.startMinutes);
+  }
+  return longest;
 }

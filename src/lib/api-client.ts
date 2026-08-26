@@ -15,7 +15,7 @@ import { DEFAULT_LANGUAGE } from './i18n';
 
 // Defined next to the query that builds them. `import type` is erased at compile time, so
 // nothing from the server module (which opens SQLite) reaches the browser bundle.
-export type { WeekBlock, WeekDay, WeekView } from './operations/views';
+export type { DayMarkView, DaysView, WeekBlock, WeekDay, WeekView } from './operations/views';
 export type { FreedHoursChoice, ScheduleSummary } from './composition';
 export type { Block, DayShape, Gap, GapUnit, Project, Settings, WorkPeriod } from '../types';
 export type {
@@ -32,13 +32,22 @@ export type {
   AbsenceMutation,
   AbsencePreview,
   AbsencePreviewRow,
+  DayWork,
+  DayWorkRow,
   DisplacedWork,
 } from './operations/absences';
+export type {
+  HolidayCheckResult,
+  HolidayState,
+  PendingHoliday,
+  RefusedHoliday,
+} from './operations/holidays';
 
-import type { WeekView } from './operations/views';
+import type { DaysView, WeekView } from './operations/views';
 import type { HistoryMutation } from './operations/history';
 import type { CreationOutcome, CreationPreview } from './operations/projects';
 import type { AbsenceKind, AbsenceMutation, AbsencePreview } from './operations/absences';
+import type { HolidayCheckResult, HolidayState } from './operations/holidays';
 import type { AutomaticBackupResult, BackupList, RestoreResult } from './operations/backups';
 
 // ---------------------------------------------------------------------------
@@ -685,6 +694,11 @@ export interface SaveAbsenceInput {
   /** Net working minutes, cut at the lunch break on the way in, exactly like a single gap. */
   startMinutes?: number;
   durationMinutes?: number;
+  /**
+   * `closed-days` only: the dates whose work stays where it is instead of being displaced, which
+   * PADLOCKS it. The answer to the question the form asks before a close moves anything.
+   */
+  keepWork?: readonly string[];
 }
 
 /** One transaction over the whole range: a refusal on any day of it writes nothing. */
@@ -758,6 +772,17 @@ export function getWeek(date?: string, options?: RequestOptions): Promise<WeekVi
   return get<WeekView>(`/week${suffix}`, options);
 }
 
+/**
+ * The two marks a day picker cannot deduce for itself, for every day of an inclusive span: closed,
+ * with the note stored on the day, and whether the engine still has room there. Both bounds are
+ * required, and a span past 200 days is a 400. Refetch it on the same counter as `getWeek` — a
+ * recomposition rewrites rows on days this response has already described.
+ */
+export function getDayMarks(from: string, to: string, options?: RequestOptions): Promise<DaysView> {
+  const query = new URLSearchParams({ from, to });
+  return get<DaysView>(`/days?${query.toString()}`, options);
+}
+
 // ---------------------------------------------------------------------------
 // Undo and redo
 // ---------------------------------------------------------------------------
@@ -800,6 +825,35 @@ export function listBackups(options?: RequestOptions): Promise<BackupList> {
 /** Called once when the app opens. Answers what it did, so the UI can stay quiet when nothing was due. */
 export function runAutomaticBackup(options?: RequestOptions): Promise<AutomaticBackupResult> {
   return send<AutomaticBackupResult>('POST', '/backups/auto', undefined, options);
+}
+
+/** What Settings prints under the municipality picker. */
+export function getHolidayState(options?: RequestOptions): Promise<HolidayState> {
+  return get<HolidayState>('/holidays', options);
+}
+
+/**
+ * Called once when the app opens, and by the "check now" button with `force`. `pending` comes back
+ * with the days that have work on them, for which NOTHING has been written yet.
+ *
+ * PASS THE LANGUAGE THE OWNER IS READING (`i18n.language`): a holiday's name becomes the day's stored
+ * note, and stored user data cannot be re-translated afterwards.
+ */
+export function runHolidayCheck(
+  force = false,
+  options: RequestOptions & { language?: string } = {},
+): Promise<HolidayCheckResult> {
+  const { language, ...rest } = options;
+  const query = language === undefined ? '' : `?lang=${encodeURIComponent(language)}`;
+  return send<HolidayCheckResult>('POST', `/holidays${query}`, { force }, rest);
+}
+
+/** The panel's answers. Refetch the week afterwards: a reflow rewrites rows it never mentions. */
+export function answerHolidays(
+  answers: ReadonlyArray<{ date: string; keep: boolean }>,
+  options?: RequestOptions,
+): Promise<HolidayCheckResult> {
+  return send<HolidayCheckResult>('POST', '/holidays/apply', { answers }, options);
 }
 
 export function restoreBackupByName(name: string, options?: RequestOptions): Promise<RestoreResult> {

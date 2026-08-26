@@ -297,6 +297,10 @@ export function draftIssues(draft: Settings): SettingsIssues {
   if (!Number.isFinite(draft.defaultDayCapacity) || draft.defaultDayCapacity <= 0) {
     issues.defaultDayCapacity = 'range';
   }
+
+  if (!/^\d{5}$/.test(draft.holidaysMunicipality)) {
+    issues.holidaysMunicipality = 'range';
+  }
   if (
     !isInRange(draft.backupEveryDays, BACKUP_DAYS_MIN, BACKUP_DAYS_MAX) ||
     !Number.isInteger(draft.backupEveryDays)

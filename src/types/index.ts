@@ -122,6 +122,11 @@ export interface Settings {
   backupEveryDays: number;
   /** How many AUTOMATIC copies to keep. The rotation never touches any other file. */
   backupsKept: number;
+  /** Whether the app closes the municipality's public holidays by itself. On by default. */
+  holidaysEnabled: boolean;
+  /** The INE code of the municipality whose holidays are fetched. Five digits. */
+  holidaysMunicipality: string;
+
 }
 
 /** A contiguous stretch of working time, in minutes from midnight. */

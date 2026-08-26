@@ -16,7 +16,7 @@ import {
   InlineBanner,
   NumberStepper,
   Select,
-  TimeSelect,
+  TimeField,
   useToast,
 } from '../ui';
 import { useLanguage } from '../I18nProvider';
@@ -31,6 +31,7 @@ import { hoursToMinutes } from '../../lib/dates';
 import { useFormat } from '../../lib/useFormat';
 import type { Settings } from '../../types';
 import { BackupsSection } from './BackupsSection';
+import { HolidaysSection } from './HolidaysSection';
 import { DayTimelinePreview } from './DayTimelinePreview';
 import { loadScheduledBlocks } from './scheduleData';
 import {
@@ -88,6 +89,14 @@ export function SettingsScreen(): React.JSX.Element {
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
   const [pending, setPending] = useState<PendingSave | undefined>(undefined);
+  /**
+   * What a control is REFUSING while the draft still holds the last settled value — today only the
+   * four `TimeField` rows can be in that state. The unreadable string never reached the draft, so
+   * `draftIssues` can never name one of these and both the message and the Save button are told here
+   * instead. A field clears its own entry when it is disabled or unmounted, so a row the screen has
+   * stopped drawing cannot hold the button down.
+   */
+  const [timeRefusals, setTimeRefusals] = useState<Partial<Record<keyof Settings, string>>>({});
 
   useEffect(() => {
     const controller = new AbortController();
@@ -131,6 +140,17 @@ export function SettingsScreen(): React.JSX.Element {
   );
   const dirty = Object.keys(patch).length > 0;
 
+  const refuseTime =
+    (field: keyof Settings) =>
+    (message: string | undefined): void => {
+      setTimeRefusals((current) =>
+        current[field] === message ? current : { ...current, [field]: message },
+      );
+    };
+  // Neither `issues` nor `dirty` can see a refusal, so without this the Save button writes the hour
+  // the row stopped showing and leaves the unreadable string on screen beside it.
+  const timeRefused = Object.values(timeRefusals).some((message) => message !== undefined);
+
   const commit = useCallback(
     async (fields: Partial<Settings>): Promise<void> => {
       if (draft === undefined) return;
@@ -158,6 +178,7 @@ export function SettingsScreen(): React.JSX.Element {
 
   const requestSave = useCallback(async (): Promise<void> => {
     if (saved === undefined || draft === undefined || !dirty || hasIssues(issues)) return;
+    if (timeRefused) return;
 
     const risk = assessRisk(saved, draft);
     let affected: AffectedBlock[] = [];
@@ -185,7 +206,7 @@ export function SettingsScreen(): React.JSX.Element {
     }
 
     await commit(patch);
-  }, [saved, draft, dirty, issues, patch, reduction, commit]);
+  }, [saved, draft, dirty, issues, timeRefused, patch, reduction, commit]);
 
   // ---- loading and hard failures -----------------------------------------
 
@@ -220,6 +241,8 @@ export function SettingsScreen(): React.JSX.Element {
    * wording: `errors.settingsInvalid` is the only key the data layer emits for a bad setting.
    */
   const errorFor = (field: keyof Settings): string | undefined => {
+    const refused = timeRefusals[field];
+    if (refused !== undefined) return refused;
     if (issues[field] !== undefined) return t('errors.settingsInvalid');
     if (failedField === field) return apiErrorMessage(saveError, t, language);
     return undefined;
@@ -248,6 +271,7 @@ export function SettingsScreen(): React.JSX.Element {
           value={draft.period1Start}
           error={errorFor('period1Start')}
           onChange={(value) => patchDraft({ period1Start: value })}
+          onInvalid={refuseTime('period1Start')}
         />
 
         <TimeRow
@@ -255,6 +279,7 @@ export function SettingsScreen(): React.JSX.Element {
           value={draft.period1End}
           error={errorFor('period1End')}
           onChange={(value) => patchDraft({ period1End: value })}
+          onInvalid={refuseTime('period1End')}
         />
 
         <div className={styles.row}>
@@ -272,6 +297,7 @@ export function SettingsScreen(): React.JSX.Element {
           disabled={!draft.period2Enabled}
           error={draft.period2Enabled ? errorFor('period2Start') : undefined}
           onChange={(value) => patchDraft({ period2Start: value })}
+          onInvalid={refuseTime('period2Start')}
         />
 
         <TimeRow
@@ -280,6 +306,7 @@ export function SettingsScreen(): React.JSX.Element {
           disabled={!draft.period2Enabled}
           error={draft.period2Enabled ? errorFor('period2End') : undefined}
           onChange={(value) => patchDraft({ period2End: value })}
+          onInvalid={refuseTime('period2End')}
         />
 
         <p className={styles.note}>
@@ -418,6 +445,8 @@ export function SettingsScreen(): React.JSX.Element {
       {/* ---- backups: the preferences save with the rest, the buttons act on their own ---- */}
       <BackupsSection draft={draft} patchDraft={patchDraft} errorFor={errorFor} />
 
+      <HolidaysSection draft={draft} patchDraft={patchDraft} errorFor={errorFor} />
+
       {/* ---- language: applied immediately, outside the Save button ---- */}
       <Section title={t('settings.languageSection')}>
         <Field label={t('settings.language')} inline hint={t('settings.languageHint')}>
@@ -447,7 +476,7 @@ export function SettingsScreen(): React.JSX.Element {
         <Button
           variant="primary"
           icon={<IconDeviceFloppy size={15} stroke={1.75} />}
-          disabled={!dirty || hasIssues(issues) || saving || checking}
+          disabled={!dirty || hasIssues(issues) || timeRefused || saving || checking}
           onClick={() => void requestSave()}
         >
           {saving || checking ? t('common.saving') : t('settings.save')}
@@ -527,22 +556,25 @@ interface TimeRowProps {
   error?: string;
   disabled?: boolean;
   onChange: (value: string) => void;
+  /** What the field refuses. Never in the draft, so the row's error and the Save gate need it. */
+  onInvalid: (message: string | undefined) => void;
 }
 
 /**
- * One period boundary, as a list of quarter hours rather than `<input type="time">`, which
- * renders in the BROWSER's locale: this form showed "08:00 AM" beside a calendar reading
- * "08:00–14:00".
+ * One period boundary, typed rather than `<input type="time">`, which renders in the BROWSER's
+ * locale: this form showed "08:00 AM" beside a calendar reading "08:00–14:00".
  */
-function TimeRow({ label, value, error, disabled = false, onChange }: TimeRowProps): React.JSX.Element {
+function TimeRow({
+  label,
+  value,
+  error,
+  disabled = false,
+  onChange,
+  onInvalid,
+}: TimeRowProps): React.JSX.Element {
   return (
     <Field label={label} inline error={error}>
-      <TimeSelect
-        className={styles.timeSelect}
-        value={value}
-        disabled={disabled}
-        onChange={onChange}
-      />
+      <TimeField value={value} disabled={disabled} onChange={onChange} onInvalid={onInvalid} />
     </Field>
   );
 }

@@ -11,6 +11,7 @@ function preview(overrides: Partial<AbsencePreview> = {}): AbsencePreview {
     skippedDates: [],
     rows: [],
     alreadyClosedDates: [],
+    daysWithWork: [],
     displaced: [],
     lastOccupiedBefore: null,
     lastOccupiedAfter: null,
@@ -97,15 +98,15 @@ describe('what a bulk absence is going to cost', () => {
 
 describe('which shape of the absences form a gesture opens', () => {
   it('opens the RANGE screen only where a range makes sense', () => {
-    // `Absences` from the menu, and pressing a closed column, are the two ways a whole week of
-    // absence is asked for.
-    expect(absenceFormMode('menu')).toBe('range');
+    // The header's `Absences` button, and pressing a closed column, are the two ways a whole week
+    // of absence is asked for.
+    expect(absenceFormMode('header')).toBe('range');
     expect(absenceFormMode('closed-column')).toBe('range');
   });
 
   it('opens ONE absence for a painted band', () => {
-    // A paint is one column by definition, so the Desde/Hasta screen asked a question the gesture
-    // had already answered — and offered a range pre-filled on a single day.
+    // A paint is one column by definition, so the range screen asked a question the gesture had
+    // already answered — and offered a range pre-filled on a single day.
     expect(absenceFormMode('paint')).toBe('single');
   });
 

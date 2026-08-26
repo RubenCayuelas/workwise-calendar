@@ -5,7 +5,7 @@
  * local `YYYY-MM-DD`, never an instant, so `localDateOf` is the only thing that turns one into a `Date`.
  */
 
-import { MINUTES_PER_DAY, minutesToHHmm, minutesToHours, parseDate } from './dates';
+import { MINUTES_PER_DAY, isoWeekNumber, minutesToHHmm, minutesToHours, parseDate } from './dates';
 import { intlLocaleOf } from './i18n';
 
 /** A translate function, structurally — so this module never imports i18next. */
@@ -78,6 +78,13 @@ export function formatWeekdayShort(date: string, language: string): string {
   );
 }
 
+/** The single-letter weekday a month grid heads its columns with: "L", "M". */
+export function formatWeekdayNarrow(date: string, language: string): string {
+  return new Intl.DateTimeFormat(intlLocaleOf(language), { weekday: 'narrow' }).format(
+    localDateOf(date),
+  );
+}
+
 /** Full weekday name, lower case as Spanish prose wants it: "jueves". */
 export function formatWeekdayLong(date: string, language: string): string {
   return new Intl.DateTimeFormat(intlLocaleOf(language), { weekday: 'long' }).format(
@@ -95,6 +102,19 @@ export function formatMonthShort(date: string, language: string): string {
   return new Intl.DateTimeFormat(intlLocaleOf(language), { month: 'short' })
     .format(localDateOf(date))
     .replace(/\.$/, '');
+}
+
+/**
+ * The month and year a month grid is titled with: "agosto 2026", "August 2026". Joined from Intl's
+ * PARTS rather than its string, which for es-ES is "agosto de 2026" — dropping the literal parts
+ * removes a connector that reads as prose in a heading, and does it without a Spanish word here.
+ */
+export function formatMonthYear(date: string, language: string): string {
+  return new Intl.DateTimeFormat(intlLocaleOf(language), { month: 'long', year: 'numeric' })
+    .formatToParts(localDateOf(date))
+    .filter((part) => part.type === 'month' || part.type === 'year')
+    .map((part) => part.value)
+    .join(' ');
 }
 
 /**
@@ -169,6 +189,21 @@ export function weekRangeLabel(
     key: 'header.weekRangeSameMonth',
     values: { startDay, endDay, month: endMonth, year: endYear },
   };
+}
+
+// ---------------------------------------------------------------------------
+// The day line under a date field
+// ---------------------------------------------------------------------------
+
+/**
+ * "miércoles 12 de agosto · Semana 33" — the line a date field carries under itself. Takes `t`
+ * directly, unlike `weekRangeLabel`: this joins three translated pieces (the long date, the week
+ * number, the separator) rather than picking one key for the caller to translate.
+ */
+export function formatDayLine(date: string, language: string, t: TranslateFn): string {
+  return [formatLongDate(date, language), t('units.week', { week: isoWeekNumber(date) })].join(
+    t('units.listSeparator'),
+  );
 }
 
 // ---------------------------------------------------------------------------

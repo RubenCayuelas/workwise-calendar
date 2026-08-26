@@ -19,7 +19,7 @@ export default function HomePage(): React.JSX.Element {
 
   return (
     <CalendarScreen
-      renderJobPanel={({ projectId, close, onChanged, today, horizonWeeks }) =>
+      renderJobPanel={({ projectId, close, onChanged, today, horizonWeeks, revision }) =>
         // Compared against the open job, not just checked for null: closing the panel
         // (or deleting the job) must never leave a row from a previous job armed here.
         splitting === null || splitting.projectId !== projectId ? (
@@ -44,6 +44,7 @@ export default function HomePage(): React.JSX.Element {
             block={splitting}
             today={today}
             horizonWeeks={horizonWeeks}
+            revision={revision}
             onClose={() => setSplitting(null)}
             onChanged={onChanged}
             // Back to the job panel, which reloads and shows the two new rows.
@@ -58,6 +59,7 @@ export default function HomePage(): React.JSX.Element {
         summary,
         suggestedColor,
         horizonWeeks,
+        revision,
         painted,
         defaultHours,
         onDraft,
@@ -70,6 +72,7 @@ export default function HomePage(): React.JSX.Element {
           summary={summary}
           defaultColor={suggestedColor}
           horizonWeeks={horizonWeeks}
+          revision={revision}
           painted={painted}
           defaultHours={defaultHours}
           onDraft={onDraft}
@@ -94,6 +97,7 @@ export default function HomePage(): React.JSX.Element {
         defaultStartMinutes,
         defaultDurationMinutes,
         horizonWeeks,
+        revision,
         onDraft,
         visibleDates,
         onShowWeekOf,
@@ -116,6 +120,7 @@ export default function HomePage(): React.JSX.Element {
           defaultStartMinutes={defaultStartMinutes}
           defaultDurationMinutes={defaultDurationMinutes}
           horizonWeeks={horizonWeeks}
+          revision={revision}
           onClose={close}
           onChanged={onChanged}
           onDeleted={close}

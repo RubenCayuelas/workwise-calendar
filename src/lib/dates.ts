@@ -156,6 +156,38 @@ export function isoWeekYear(date: string): number {
   return isoWeekThursday(date).getUTCFullYear();
 }
 
+// ---------------------------------------------------------------------------
+// Month arithmetic
+// ---------------------------------------------------------------------------
+
+/** The first day of the month containing `date`. */
+export function startOfMonth(date: string): string {
+  const { year, month } = parseDate(date);
+  return formatDate({ year, month, day: 1 });
+}
+
+/** The last day of the month containing `date`. */
+export function endOfMonth(date: string): string {
+  const { year, month } = parseDate(date);
+  // Day 0 of the next month, which formatDate normalises: no table of month lengths, and no leap
+  // year rule to keep.
+  return formatDate({ year, month: month + 1, day: 0 });
+}
+
+/** `date` shifted by whole months, CLAMPED to the target month's last day. */
+export function addMonths(date: string, months: number): string {
+  const { year, month, day } = parseDate(date);
+  const shifted = month + Math.trunc(months);
+  const lastDay = parseDate(formatDate({ year, month: shifted + 1, day: 0 })).day;
+  return formatDate({ year, month: shifted, day: Math.min(day, lastDay) });
+}
+
+export function isSameMonth(a: string, b: string): boolean {
+  const left = parseDate(a);
+  const right = parseDate(b);
+  return left.year === right.year && left.month === right.month;
+}
+
 export function compareDates(a: string, b: string): number {
   parseDate(a);
   parseDate(b);

@@ -23,13 +23,16 @@ import {
   redoChange as apiRedoChange,
   resizeBlock as apiResizeBlock,
   resizeGap as apiResizeGap,
+  answerHolidays,
   runAutomaticBackup,
+  runHolidayCheck,
   setBlockLock as apiSetBlockLock,
   splitBlock as apiSplitBlock,
   type AbsenceKind,
   type BlockMutation,
   type FreedHoursChoice,
   type HistoryStep,
+  type PendingHoliday,
   type ScheduleSummary,
   type UndoKind,
   type WeekBlock,
@@ -44,13 +47,15 @@ import { PROJECT_COLORS } from '../../lib/projectColors';
 import { clockEndOf, manualWindowsOf } from '../../lib/manualWindow';
 import { spillByDay } from '../../lib/dropSpill';
 import { closeDayAfter, closeDayInputFor } from './closeDayOffer';
-import { rankFor, createTimeline, type GridMetrics, type Timeline } from './geometry';
+import { rankFor, createTimeline, rowAt, type GridMetrics, type Timeline } from './geometry';
+import { gapUnitOf, groupGaps } from './grouping';
 import { dropPins } from './dropEffect';
 import { describeDrop, type DropOutcomeKind } from './dropOutcome';
 import { SummaryStrip } from './SummaryStrip';
 import { WeekHeader } from './WeekHeader';
 import { WeekGrid, type PlacingFragment, type SettleRequest } from './WeekGrid';
 import { MIN_SPLITTABLE_MINUTES, SplitBlockDialog } from './SplitBlockDialog';
+import { HolidayPanel } from './HolidayPanel';
 import { ResizeChoiceDialog } from './ResizeChoiceDialog';
 import {
   useBlockDrag,
@@ -81,6 +86,8 @@ export interface JobPanelContext {
   today: string;
   /** `settings.planningHorizonWeeks` — how far ahead the panels' day picker reaches. */
   horizonWeeks: number;
+  /** `WeekController.revision`: what the day picker's marks are refetched on. */
+  revision: number;
 }
 
 export interface NewJobContext {
@@ -93,6 +100,8 @@ export interface NewJobContext {
   suggestedColor: string;
   /** `settings.planningHorizonWeeks` — how far the optional start-date picker reaches. */
   horizonWeeks: number;
+  /** `WeekController.revision`: what the day picker's marks are refetched on. */
+  revision: number;
   /**
    * Set when a painted BAND is what opened the form: the day and the minute the hours start on. The
    * form's hours field still decides the LENGTH.
@@ -140,6 +149,8 @@ export interface AbsenceFormContext {
   defaultDurationMinutes?: number;
   /** `settings.planningHorizonWeeks` — how far ahead the day picker reaches. */
   horizonWeeks: number;
+  /** `WeekController.revision`: what the day picker's marks are refetched on. */
+  revision: number;
   /** Only for a PAINTED band: keeps it drawn on the grid while this form is open. */
   onDraft?: (draft: GridDraft | null) => void;
   /** The days on screen, so a form can tell when its own date has left them. */
@@ -164,7 +175,7 @@ export function CalendarScreen({
   renderAbsenceForm,
   settingsHref = '/settings',
 }: CalendarScreenProps): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const format = useFormat();
   const toast = useToast();
   const week = useWeek();
@@ -583,26 +594,44 @@ export function CalendarScreen({
     writable: () => !week.mutating.current && !loading,
     // IT WRITES NOTHING. The band stays drawn and the question is asked beside it.
     onPainted: (span, at) => setRelease({ span, at }),
-    // A day that can take no absence, said once — and for a CLOSED one the honest answer is the
-    // screen that can reopen it, since a dimmed column has nothing else to press.
-    onRefused: (reason, date) => {
-      if (reason !== 'closed') {
-        toast.info(t(reason === 'past' ? 'notices.pressOnPastDay' : 'notices.pressWhileBusy'));
+    // A day that can take no band, said once. A CLOSED day is not one: it takes a band like any
+    // other, and pressing a dimmed column WITHOUT travelling still opens the screen that reopens it.
+    onRefused: (reason) => {
+      toast.info(t(reason === 'past' ? 'notices.pressOnPastDay' : 'notices.pressWhileBusy'));
+    },
+    // THE ROW UNDER THE PRESS COMES FIRST. The create rail lies over the rows, so a still press on it
+    // is the ROW'S — the same job panel and the same absence form that pressing the row itself opens,
+    // on a past day too, where a press has always been allowed to read. Only the DRAG belongs to the
+    // rail, which is what stops a strip of every row from losing the click it used to answer.
+    //
+    // With nothing underneath, a CLOSED column keeps the one press the grid background has ever had a
+    // use for: its reason and its way back out both live on the absences screen, and a closed day is
+    // not an object on the grid to press instead. The past does not get it — reopening a past day
+    // changes nothing the engine reads.
+    onClick: (date, minutes) => {
+      const day = dayAt(date);
+      const current = viewRef.current;
+      if (day === undefined || current === null) return;
+
+      const block = rowAt(
+        current.blocks.filter((row) => row.date === date),
+        minutes,
+      );
+      if (block !== undefined) {
+        setOpenJobId(block.projectId);
         return;
       }
-      setGapTarget({ gap: null, origin: 'closed-column', kind: 'closed-days', date });
-    },
-    // The only press the grid background has ever had a use for: a closed column, whose reason and
-    // whose way back out both live on the absences screen.
-    //
-    // THE SAME PRECEDENCE THE TRAVELLING PATH USES, and it has to be: a column that is both closed
-    // AND past was answered by `isPast` on travel and by `isClosed` on a still press, so four pixels
-    // of wobble decided which of two different things the owner was told. The past wins in both, and
-    // reopening a past day would change nothing the engine reads anyway.
-    onClick: (date) => {
-      const day = dayAt(date);
-      if (day === undefined || day.isPast || !day.isClosed) return;
-      setGapTarget({ gap: null, origin: 'closed-column', kind: 'closed-days', date });
+      const unit = groupGaps(
+        current.gaps.filter((row) => row.date === date),
+        day.manualWindows,
+      ).find((group) => rowAt(group.gaps, minutes) !== undefined);
+      if (unit !== undefined) {
+        setGapTarget({ gap: gapUnitOf(unit), origin: 'gap' });
+        return;
+      }
+      if (!day.isPast && day.isClosed) {
+        setGapTarget({ gap: null, origin: 'closed-column', kind: 'closed-days', date });
+      }
     },
   });
 
@@ -857,6 +886,48 @@ export function CalendarScreen({
     return () => controller.abort();
   }, []);
 
+  // The holidays, asked for the same way and on the same terms: once per visit, at most once a week
+  // inside the server. The ones with nothing on them are already closed by the time this resolves;
+  // `pending` is only the days that have work on them, for which nothing has been written.
+  const [pendingHolidays, setPendingHolidays] = useState<readonly PendingHoliday[]>([]);
+  const [holidaysBusy, setHolidaysBusy] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    runHolidayCheck(false, { signal: controller.signal, language: i18n.language })
+      .then((result) => {
+        setPendingHolidays(result.pending);
+        if (result.closed.length > 0 || result.reopened.length > 0) week.reload();
+      })
+      .catch((error: unknown) => {
+        if (!isAbortError(error)) setBackupFailure(error);
+      });
+    return () => controller.abort();
+    // Once per visit: `week.reload` is stable enough to leave out, and re-running on every week
+    // change would ask the server again on each arrow press.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const saveHolidayAnswers = useCallback(
+    async (answers: Array<{ date: string; keep: boolean }>) => {
+      setHolidaysBusy(true);
+      try {
+        const result = await answerHolidays(answers);
+        setPendingHolidays([]);
+        // A reflow rewrites rows in weeks the response never mentions.
+        week.reload();
+        if (result.closed.length > 0) {
+          toast.success(t('holidayPanel.done', { count: result.closed.length }));
+        }
+      } catch (error) {
+        setBackupFailure(error);
+      } finally {
+        setHolidaysBusy(false);
+      }
+    },
+    [t, toast, week],
+  );
+
   useEffect(() => {
     if (placing === null) return;
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -914,7 +985,7 @@ export function CalendarScreen({
         onToday={week.goToday}
         onNewJob={renderNewJob === undefined ? undefined : () => setNewJobOpen(true)}
         onNewAbsence={
-          renderAbsenceForm === undefined ? undefined : () => setGapTarget({ gap: null, origin: 'menu' })
+          renderAbsenceForm === undefined ? undefined : () => setGapTarget({ gap: null, origin: 'header' })
         }
         settingsHref={settingsHref}
         undoLabel={undoLabel}
@@ -940,6 +1011,13 @@ export function CalendarScreen({
               {week.actionError}
             </InlineBanner>
           )}
+
+          <HolidayPanel
+            pending={pendingHolidays}
+            busy={holidaysBusy}
+            onSave={(answers) => void saveHolidayAnswers(answers)}
+            onDismiss={() => setPendingHolidays([])}
+          />
 
           {backupFailure === undefined ? null : (
             <InlineBanner
@@ -985,6 +1063,11 @@ export function CalendarScreen({
             )}
           </div>
 
+          {/*
+            * OUT OF THE FLOW, so the grid keeps every pixel. What is left here is transient — a
+            * gesture's hint, and the empty week's — and it is drawn over the foot of the grid rather
+            * than above it, where the two resting lines used to sit reserving 38 px of every screen.
+            */}
           <div className={styles.legend}>
             {/* The two drags say different things, and a MOVE says two of its own — see
                 `dragHintKey`. */}
@@ -996,12 +1079,7 @@ export function CalendarScreen({
               <span className={styles.hint}>{t('grid.placingHint')}</span>
             ) : emptyWeek ? (
               <span>{t('jobForm.hint')}</span>
-            ) : (
-              <>
-                <span>{t('grid.bandsLegend')}</span>
-                <span>{t('grid.pastLegend')}</span>
-              </>
-            )}
+            ) : null}
           </div>
         </div>
       </main>
@@ -1100,6 +1178,7 @@ export function CalendarScreen({
                 onChanged: week.reload,
                 today: view.today,
                 horizonWeeks: view.settings.planningHorizonWeeks,
+                revision: week.revision,
               })}
 
           {(!newJobOpen && paintedJob === null) || renderNewJob === undefined
@@ -1115,6 +1194,7 @@ export function CalendarScreen({
                 summary: view.summary,
                 suggestedColor: leastUsedColor(view.blocks),
                 horizonWeeks: view.settings.planningHorizonWeeks,
+                revision: week.revision,
                 ...(paintedJob === null
                   ? {}
                   : {
@@ -1165,6 +1245,7 @@ export function CalendarScreen({
                       defaultDurationMinutes: gapTarget.painted.durationMinutes,
                     }),
                 horizonWeeks: view.settings.planningHorizonWeeks,
+                revision: week.revision,
               })}
         </>
       )}

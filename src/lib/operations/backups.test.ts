@@ -28,7 +28,7 @@ afterEach(() => {
 function addJob(name: string): void {
   getDb()
     .prepare('INSERT INTO projects (id, name, color, total_hours) VALUES (?, ?, ?, 4)')
-    .run(name.toLowerCase(), name, '#1D9E75');
+    .run(name.toLowerCase(), name, '#1EA42B');
 }
 
 function jobNames(): string[] {

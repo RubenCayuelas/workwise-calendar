@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { closeDb, openDatabase, type Db } from './db';
-import { minutesToHHmm } from './dates';
+import { addDays, minutesToHHmm } from './dates';
 import { AppError } from './errors';
 import { PROJECT_COLORS } from './projectColors';
 import { readHistoryState, undoLast } from './history';
@@ -21,7 +21,7 @@ import { deleteBlock, moveBlock, resizeBlock, setBlockLock, splitBlock } from '.
 import { createGap, deleteGap, patchGap } from './operations/gaps';
 import { previewAbsence, reopenDays, saveAbsence } from './operations/absences';
 import { updateSettings } from './operations/settings';
-import { readWeek } from './operations/views';
+import { MAX_DAY_MARK_DAYS, readDays, readWeek } from './operations/views';
 import { deleteBlocks, insertBlock, listBlocks, updateBlock } from './repositories/blocks';
 import { listGaps } from './repositories/gaps';
 import { listDayOverrides, upsertDayOverride } from './repositories/dayOverrides';
@@ -2278,6 +2278,28 @@ describe('gaps', () => {
     expect(() => assertProjectHours(db)).not.toThrow();
   });
 
+  it('CUTS the row it lands inside in two, leaving the head where it was', () => {
+    // The gesture the create rail exists for: a quarter of an hour taken out of the middle of a job.
+    // Nothing in the write path cuts anything — the gap becomes an obstacle, the day has two free
+    // runs left, and the queue item is poured into both. The head keeps its id; the tail is an insert.
+    job('Door', 4);
+
+    createGap({ date: MON, startMinutes: 11 * 60, durationMinutes: 15, reason: 'Errands', today: MON }, db);
+
+    expect(calendar()).toEqual([`${MON} 08:00-11:00 Door`, `${MON} 11:15-12:15 Door`]);
+    expect(() => assertProjectHours(db)).not.toThrow();
+  });
+
+  it('leaves no head behind when the piece in front is under a quarter of an hour', () => {
+    // The floor is what decides, not the aim: the engine steps over a run it cannot fill, so the
+    // whole block lands after the gap instead of being cut with a ten-minute stub in front.
+    job('Door', 4);
+
+    createGap({ date: MON, startMinutes: 8 * 60 + 10, durationMinutes: 30, today: MON }, db);
+
+    expect(calendar()).toEqual([`${MON} 08:40-12:40 Door`]);
+  });
+
   it('refuses to cover a locked block, naming it, and saves nothing', () => {
     const door = job('Door', 4);
     setBlockLock(door.blocks[0].id, true, { today: MON }, db);
@@ -2915,6 +2937,116 @@ describe('the views the screens read', () => {
     expect(summary.bufferDate).toBe(FRI);
     expect(summary.bufferClear).toBe(true);
   });
+
+  it('marks a plain weekday as having room, and says how many minutes are left', () => {
+    job('Door', 4);
+
+    const days = marks(MON, TUE, MON);
+
+    expect(days.get(MON)).toEqual({ date: MON, isClosed: false, freeMinutes: 6 * 60, hasRoom: true });
+    expect(days.get(TUE)).toEqual({ date: TUE, isClosed: false, freeMinutes: 10 * 60, hasRoom: true });
+  });
+
+  it('reports NO room on a day unlocked work has filled, which plannableMinutes calls empty', () => {
+    job('Door', 10);
+
+    // The week still answers 600: it reports the engine's budget, not what is left of it.
+    expect(readWeek(MON, { today: MON }, db).days[0].plannableMinutes).toBe(10 * 60);
+    expect(marks(MON, MON, MON).get(MON)).toEqual({
+      date: MON,
+      isClosed: false,
+      freeMinutes: 0,
+      hasRoom: false,
+    });
+  });
+
+  it('sends a closed day with its stored note, and no room', () => {
+    upsertDayOverride({ date: THU, isClosed: true, capacityHours: null, note: 'Fair' }, db);
+
+    expect(marks(THU, THU, MON).get(THU)).toEqual({
+      date: THU,
+      isClosed: true,
+      note: 'Fair',
+      freeMinutes: 0,
+      hasRoom: false,
+    });
+  });
+
+  it('gives the weekend no room, because the engine never lays it out', () => {
+    const days = marks(SAT, SUN, MON);
+
+    expect([days.get(SAT), days.get(SUN)]).toEqual([
+      { date: SAT, isClosed: false, freeMinutes: 0, hasRoom: false },
+      { date: SUN, isClosed: false, freeMinutes: 0, hasRoom: false },
+    ]);
+  });
+
+  it('gives the frozen past no room', () => {
+    expect(marks(MON, TUE, WED).get(MON)).toEqual({
+      date: MON,
+      isClosed: false,
+      freeMinutes: 0,
+      hasRoom: false,
+    });
+  });
+
+  it('ships the real free minutes beyond the horizon while refusing it room', () => {
+    updateSettings({ planningHorizonWeeks: 1 }, { today: MON }, db);
+
+    const days = marks(THU, NEXT_MON, MON);
+
+    expect(days.get(THU)).toEqual({ date: THU, isClosed: false, freeMinutes: 10 * 60, hasRoom: true });
+    // One week's horizon from Monday ends on Sunday: the day after it is fully plannable to the
+    // day plan and out of reach to the engine, which is why the horizon is checked separately.
+    expect(days.get(NEXT_MON)).toEqual({
+      date: NEXT_MON,
+      isClosed: false,
+      freeMinutes: 10 * 60,
+      hasRoom: false,
+    });
+  });
+
+  it('refuses room to a day whose free minutes are holes too small to hold a row', () => {
+    // 08:00-13:50 and 15:30-19:20: twenty minutes left, in two holes of ten.
+    createGap({ date: WED, startMinutes: 8 * 60, durationMinutes: 350, reason: 'Breakdown', today: MON }, db);
+    createGap({ date: WED, startMinutes: 15 * 60 + 30, durationMinutes: 230, reason: 'Errands', today: MON }, db);
+
+    expect(marks(WED, WED, MON).get(WED)).toEqual({
+      date: WED,
+      isClosed: false,
+      freeMinutes: 20,
+      hasRoom: false,
+    });
+  });
+
+  it('gives a day whose capacity is nought no room, and does not call it closed', () => {
+    upsertDayOverride({ date: THU, isClosed: false, capacityHours: 0 }, db);
+
+    expect(marks(THU, THU, MON).get(THU)).toEqual({
+      date: THU,
+      isClosed: false,
+      freeMinutes: 0,
+      hasRoom: false,
+    });
+  });
+
+  it('refuses a span longer than MAX_DAY_MARK_DAYS instead of walking it', () => {
+    expect(readDays(MON, addDays(MON, MAX_DAY_MARK_DAYS - 1), { today: MON }, db).days).toHaveLength(
+      MAX_DAY_MARK_DAYS,
+    );
+
+    const error = refusal(() => readDays(MON, addDays(MON, MAX_DAY_MARK_DAYS), { today: MON }, db));
+
+    expect(error.code).toBe('invalid-range');
+    expect(error.status).toBe(400);
+    expect(error.field).toBe('to');
+    expect(error.details).toMatchObject({ maxDays: MAX_DAY_MARK_DAYS });
+  });
+
+  /** The marks by date, so a case names the day it is about instead of counting rows. */
+  function marks(from: string, to: string, today: string) {
+    return new Map(readDays(from, to, { today }, db).days.map((day) => [day.date, day]));
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -2978,20 +3110,71 @@ describe('closing a range of days', () => {
     ]);
   });
 
-  it('is refused, writing nothing, when the day holds a row the engine cannot move', () => {
+  it('CLOSES AROUND a row the engine cannot move, instead of refusing', () => {
     const door = job('Door', 4);
     setBlockLock(door.blocks[0].id, true, { today: MON }, db);
 
+    const result = saveAbsence(
+      { kind: 'closed-days', from: MON, to: WED, reason: 'Fair', today: MON },
+      db,
+    );
+
+    // A closed day is a weekend to the engine, and a weekend has always held padlocked work.
+    expect(result.dates).toEqual([MON, TUE, WED]);
+    expect(listBlocks(db).filter((block) => block.date === MON)).toHaveLength(1);
+  });
+
+  it('still refuses over the PAST, which stays frozen', () => {
+    // MOVED into the past rather than inserted, so the job's hours stay conserved. A padlocked past
+    // row is classified `locked`, so this is also the case a filter on the conflict's reason misses.
+    const door = job('Door', 4);
+    updateBlock({ ...door.blocks[0], date: LAST_FRI, startMinutes: 8 * 60, locked: true }, db);
+
     const error = refusal(() =>
-      saveAbsence({ kind: 'closed-days', from: MON, to: WED, reason: 'Fair', today: MON }, db),
+      saveAbsence({ kind: 'closed-days', from: LAST_FRI, to: LAST_FRI, today: MON }, db),
     );
 
     expect(error.code).toBe('closed-day-over-fixed-block');
-    // Its own sentence, about the DAY: reusing the gap's said «ese hueco pisa…» about a closed day.
-    expect(error.messageKey).toBe('errors.closedDayOverLockedBlock');
-    expect(error.details?.projectName).toBe('Door');
-    // The whole range rolls back, Wednesday included: one gesture, one transaction.
+    expect(error.messageKey).toBe('errors.closedDayOverPastBlock');
     expect(listDayOverrides(db)).toEqual([]);
+  });
+
+  it('displaces movable work by default', () => {
+    job('Railing', 6);
+
+    saveAbsence({ kind: 'closed-days', from: MON, to: MON, today: MON }, db);
+
+    expect(listBlocks(db).some((block) => block.date === MON)).toBe(false);
+  });
+
+  it('KEEPS the work and padlocks it when the date is named in keepWork', () => {
+    job('Railing', 6);
+
+    saveAbsence({ kind: 'closed-days', from: MON, to: MON, keepWork: [MON], today: MON }, db);
+
+    const onMonday = listBlocks(db).filter((block) => block.date === MON);
+    expect(onMonday).toHaveLength(1);
+    // The padlock is the only thing that holds a row on a day the engine plans nothing on.
+    expect(onMonday[0].locked).toBe(true);
+  });
+
+  it('keepWork never touches a day it does not name', () => {
+    job('Railing', 16);
+
+    saveAbsence({ kind: 'closed-days', from: MON, to: TUE, keepWork: [MON], today: MON }, db);
+
+    expect(listBlocks(db).filter((block) => block.date === MON)[0]?.locked).toBe(true);
+    expect(listBlocks(db).filter((block) => block.date === TUE)).toHaveLength(0);
+  });
+
+  it('keepWork never reaches a day before today', () => {
+    const railing = job('Railing', 6);
+    const pastRow = railing.blocks[0].id;
+    updateBlock({ ...railing.blocks[0], date: LAST_FRI, startMinutes: 8 * 60 }, db);
+
+    saveAbsence({ kind: 'closed-days', from: TUE, to: TUE, keepWork: [LAST_FRI], today: MON }, db);
+
+    expect(listBlocks(db).find((block) => block.id === pastRow)?.locked).toBe(false);
   });
 
   it('rolls the whole range back when the hours no longer fit the horizon', () => {
@@ -3135,14 +3318,49 @@ describe('the absence preview', () => {
 
   it('refuses exactly as the save would, so the screen never offers an impossible save', () => {
     const door = job('Door', 4);
-    setBlockLock(door.blocks[0].id, true, { today: MON }, db);
+    updateBlock({ ...door.blocks[0], date: LAST_FRI, startMinutes: 8 * 60, locked: true }, db);
 
     const error = refusal(() =>
-      previewAbsence({ kind: 'closed-days', from: MON, to: MON, today: MON }, db),
+      previewAbsence({ kind: 'closed-days', from: LAST_FRI, to: LAST_FRI, today: MON }, db),
     );
 
     expect(error.code).toBe('closed-day-over-fixed-block');
     expect(listDayOverrides(db)).toEqual([]);
+  });
+
+  it('names the work sitting on each day of the range, summed per job', () => {
+    job('Railing', 6);
+    job('Staircase', 4, GREEN);
+
+    const preview = previewAbsence({ kind: 'closed-days', from: MON, to: TUE, today: MON }, db);
+
+    expect(preview.daysWithWork.map((day) => day.date)).toEqual([MON]);
+    expect(preview.daysWithWork[0].rows.map((row) => row.name)).toEqual(['Railing', 'Staircase']);
+    expect(preview.daysWithWork[0].rows[0].minutes).toBe(6 * 60);
+    expect(preview.daysWithWork[0].rows[0].locked).toBe(false);
+  });
+
+  it('omits a day with nothing on it', () => {
+    const preview = previewAbsence({ kind: 'closed-days', from: MON, to: TUE, today: MON }, db);
+    expect(preview.daysWithWork).toEqual([]);
+  });
+
+  it('sums a job cut at the lunch break into ONE line', () => {
+    job('Shed', 10);
+
+    const preview = previewAbsence({ kind: 'closed-days', from: MON, to: MON, today: MON }, db);
+
+    expect(preview.daysWithWork[0].rows).toHaveLength(1);
+    expect(preview.daysWithWork[0].rows[0].minutes).toBe(10 * 60);
+  });
+
+  it('says a row is padlocked, so the panel can offer no choice about it', () => {
+    const door = job('Door', 4);
+    setBlockLock(door.blocks[0].id, true, { today: MON }, db);
+
+    const preview = previewAbsence({ kind: 'closed-days', from: MON, to: MON, today: MON }, db);
+
+    expect(preview.daysWithWork[0].rows[0].locked).toBe(true);
   });
 
   it('says which days of the range are already closed', () => {
