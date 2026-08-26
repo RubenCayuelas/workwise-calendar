@@ -905,8 +905,8 @@ far as it has to and no further.
 ## The Hour Is Typed, Not Chosen From 96 Options
 
 **Rule** — SPEC § *The Hour Is Typed*. Every hour in the app is an `HH:mm` field that is typed. What is
-typed takes effect on `Intro` or on leaving the field; `−`/`+` and `↑`/`↓` take effect at once, a quarter
-of an hour at a time and an hour with `Mayús`.
+typed takes effect on `Enter` or on leaving the field; `−`/`+` and `↑`/`↓` take effect at once, a quarter
+of an hour at a time and an hour with `Shift`.
 
 **Why** — the owner asked for it in those words: *«Permite escribir para no hacer 2000 clicks para ir de
 00:00 a 23:45»*. The list it replaces held all 96 quarter hours of the day in one dropdown, and the shop's
@@ -940,10 +940,11 @@ Monday first, opened from a button carrying the day it already holds. `planningW
 far it reaches — four weeks back, the horizon forward, capped at 16 weeks — the `‹ ›` arrows stop at that
 window's edges, and a day the window does not offer is drawn dimmed and cannot be pressed.
 
-**Why** — the list it replaces offered between 84 and 140 consecutive days, and no list answers "which
-Thursday" the way a month does. The window is unchanged because it is exactly the set of days a form can
-reach today: forward, a day past the horizon is a 409 `horizon-exceeded` on the save; backward, a job's
-start date writes padlocked rows in the past, which the owner did not ask for.
+**Why** — the list it replaces offered between 35 and 140 consecutive days, 84 of them on the horizon's own
+default, and no list answers "which Thursday" the way a month does. The window is unchanged because it is
+exactly the set of days a form can reach today: forward, a day past the horizon is a 409
+`horizon-exceeded` on the save; backward, a job's start date writes padlocked rows in the past, which the
+owner did not ask for.
 
 **Why six rows always, and never five or six by the month** — the popover's height is then a constant, so
 clipping it against the window is arithmetic with a test rather than a measurement of the DOM.
@@ -975,9 +976,11 @@ more — the chosen day, today, the weekend, the past, a closed day, room left �
 still be chosen. The number dims for what the calendar makes of the day, the background greys for what the
 owner decided, and the dot says only that the engine still places hours there.
 
-**Why** — the owner named what they wanted marked and asked for nothing to explain it: the dot gets no
-definition on screen, each cell says the rest on hover the way a day header already does, and there is no
-legend. Nothing is hatched either — the one hatch this app tried lasted a day, and the measurement is in
+**Why** — the owner named FOUR of the six: today, the weekend, a closed day, and which days still have
+room. The chosen cell and the past are the implementer's, inferred from what a calendar is. What the owner
+did decide is that none of it is explained on screen: the dot gets no definition, each cell says the rest
+on hover the way a day header already does, and there is no legend. Nothing is hatched either — the one
+hatch this app tried lasted a day, and the measurement is in
 § *A Gap Is Hatched, the Lunch-Break Band Is Not*.
 
 **Why the dot is neither `plannableMinutes` nor `bookedMinutes`** — the two answer different questions, as
@@ -994,8 +997,8 @@ for the rest: `buildDayPlan` returns zero plannable minutes for a past day, a cl
 and a zero-minute shift alike, so a weekend, a closed day and a past day lose the dot with no code of
 their own and the dot cannot contradict the grey.
 
-**Why no mark ever disables a cell** — § *A Closed Day Chosen As A Start Date Is Honoured*: asked whether to
-refuse a closed day, the owner chose *«Dejar elegirlo, pero cumplirlo de verdad»*.
+**Why no mark ever disables a cell** — § *A Closed Day Chosen As A Start Date Is Honoured* holds that
+decision and the owner's own words for it.
 
 **Why the grey and its reason come from the server** — they are one `day_overrides` row, read through the
 same `listDayOverridesBetween` and the same snapshot's `getDayConfig` the week is read through, so the

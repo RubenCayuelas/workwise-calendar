@@ -1051,8 +1051,8 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
 - **Hovering a cell says what that day has to say**, composed with `units.listSeparator` exactly as a
   day header composes its own: the day, then `hoy`, the weekend, the stored reason or *cerrado*, and
   either the hours still free or *Día completo*.
-- **The keyboard**: arrows move the focused cell, `Inicio`/`Fin` to the ends of its week,
-  `PáginaArriba`/`PáginaAbajo` a month, `Intro` chooses, `Escape` closes and gives the focus back to the
+- **The keyboard**: arrows move the focused cell, `Home`/`End` to the ends of its week,
+  `PageUp`/`PageDown` a month, `Enter` chooses, `Escape` closes and gives the focus back to the
   button. Opening puts the focus on the selected cell, and the picker SWALLOWS the arrow keys it uses,
   so the header's week pager cannot turn the week under an open calendar.
 - **The popover is portalled to `document.body`**, fixed to the viewport and clipped there, at
@@ -1068,14 +1068,15 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   closes it too.
 
 #### The Hour Is Typed
-> **An hour is TYPED into `TimeField`, an `HH:mm` field. What is typed takes effect on `Intro` or on
+> **An hour is TYPED into `TimeField`, an `HH:mm` field. What is typed takes effect on `Enter` or on
 > leaving the field; `−`/`+` and `↑`/`↓` take effect at once, a quarter of an hour at a time and an hour
-> with `Mayús`. Typing is tolerant — `8` is `08:00`, `830` and `8:30` are `08:30`.**
+> with `Shift`. Typing is tolerant — `8` is `08:00`, `830` and `8:30` are `08:30`.**
 
 - **It draws its own string**, never the result of `format.time`: passing every keystroke through
   parse-then-format rewrites `8:00` to `08:00` under the cursor, and `formatTime` answers a value it
-  cannot read with `--:--`. `format.time` is used only where the value starts as minutes — the initial
-  value, and what the buttons and the arrows produce.
+  cannot read with `--:--`. `format.time` has ONE use in the control: the two hours named inside a
+  refusal. The initial value and everything the buttons and the arrows produce come from
+  `minutesToHHmm`.
 - **Only a value that actually CHANGED is snapped to the quarter**, compared against what the field held
   when it took the focus, so a hand-stored `08:10` survives being tabbed over.
 - **What cannot be read is LEFT ON SCREEN**, with the invalid ring and `errors.invalidTimeFormat` in the
@@ -1524,7 +1525,8 @@ gesture.
   naming those days on purpose (`absenceRange` in `src/lib/absences.ts`, with a test). The response and
   the preview both NAME the days they skipped, so the skip is never silent. A range longer than
   `MAX_ABSENCE_DAYS` (120) is 400 `invalid-range` on `to`, and one running backwards 400
-  `range-backwards` on `to`: each names what it can, and the shared sentence has no day limit to name.
+  `range-backwards` on `to`. Backwards earns a sentence of its own because the shared one names
+  `{{maxDays}}` and that path has no limit to name: the owner was shown a raw placeholder.
 - **The range is chosen in ONE calendar, in two clicks.** The first click is remembered inside the
   popover and tells the form nothing; the second closes it and hands over both ends at once, always
   ordered. A first click that wrote the near end on its own would fire the preview — a real write inside

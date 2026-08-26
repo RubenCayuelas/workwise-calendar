@@ -274,8 +274,9 @@ so it inherits `Field`'s wiring without touching anything.
 - **It draws its own string**, not the result of `format.time`. Putting every keystroke through
   parse→format would rewrite `8:00` to `08:00` under the cursor, and `formatTime` fails soft: out of
   range it writes a diagnostic to the console and returns `--:--`, which is the exact opposite of
-  «whatever is not understood stays in sight». `format.time` is used only where the starting point is
-  minutes: the initial value and the result of the buttons and the arrows.
+  «whatever is not understood stays in sight». `format.time` has one use in the control: the two hours
+  named inside a refusal. The initial value and the result of the buttons and the arrows come from
+  `minutesToHHmm`.
 - **What is typed takes effect on `Enter` or on leaving the field.** `−`/`+` and `↑`/`↓` take effect at
   once, by a quarter of an hour, and with `Shift` by an hour.
 - **Only what has actually been changed is snapped to the quarter**, comparing against the value that

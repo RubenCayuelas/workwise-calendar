@@ -37,8 +37,8 @@ stays under the field.
 two buttons beside it or the up and down arrows to move a quarter of an hour — a whole hour with Shift.
 The four schedule rows on the settings screen are the same field. Nothing is rewritten behind your back:
 an hour that cannot be read stays on screen and says so, an hour already stored off the quarter hour
-survives being tabbed past, and an hour outside the working day is refused naming the two hours it has to
-be between.
+survives being tabbed past, and the one hour that has bounds — where the day stops when you close it
+from the grid — is refused naming the two hours it has to be between instead of being pulled inside them.
 
 **The placeholders say what to write.** The name of a job, the reason for a gap and the note on a closed
 day each showed an example — `Puerta metálica`, `Avería del torno`, `Feria` — which reads like a value

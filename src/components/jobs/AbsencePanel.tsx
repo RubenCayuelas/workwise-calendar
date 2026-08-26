@@ -630,8 +630,8 @@ export function AbsencePanel({
                       // Set OPTIMISTICALLY: a painted band on the grid has to follow the field.
                       if (visibleDates?.includes(date) === true) setLastVisible(date);
                       setDate(next);
-                      // This mode draws no control for the far end and reads it nowhere: the
-                      // assignment only keeps it from falling behind the day beside it.
+                      // This mode draws no control for the far end, but `submit` still sends it
+                      // as `to`: this is what stops that range going backwards.
                       if (compareDates(endDate, next) < 0) setEndDate(next);
                     }}
                   />

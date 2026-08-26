@@ -54,7 +54,7 @@ export interface Formatter {
   monthYear(date: string): string;
   /** The day-header label: "Mié 12". */
   dayHeader(date: string): string;
-  /** "Mié 12 ago" — a whole day, short enough for a form control's option. */
+  /** "Mié 12 ago" — a whole day, short enough for the button that opens a day picker. */
   dayOption(date: string): string;
   /** "jueves 27 de agosto" — for prose such as the summary strip. */
   longDate(date: string): string;
