@@ -1,31 +1,37 @@
 /**
- * Choosing a range of days as a pure state machine. The pending end is kept HERE and only reaches
- * the form once both ends exist: a first click that wrote the form's two dates would fire a preview
- * — a real write inside a rolled-back transaction — on every click of a walk through the month.
+ * Choosing a range of days as a pure state machine. ONE CLICK IS ONE DAY: the click answers with
+ * that day as both ends, and a second click extends it. The common absence is a single day, and
+ * requiring a second click for it put the cost on the common case to protect the rare one.
+ *
+ * That every click leaves a COMPLETE span is what makes it safe: the form is never handed a
+ * half-chosen range, so `previewAbsence` — a real write inside a rolled-back transaction — is never
+ * asked about one.
  */
 
 import { absenceRange } from '../../lib/absences';
 import { compareDates } from '../../lib/dates';
 
 export interface RangeState {
-  /** The end clicked first, while the second is still missing. */
+  /** The day a click chose, kept so the NEXT click extends from it instead of starting over. */
   anchor?: string;
 }
 
 export interface RangeClickResult {
   state: RangeState;
-  /** Set only when both ends exist, always ordered. */
-  committed?: { from: string; to: string };
+  /** Always set, and always ordered: a click never leaves the span half chosen. */
+  committed: { from: string; to: string };
 }
 
 /**
- * One click on a cell. The first sets the anchor and commits nothing; the second commits the span
- * in calendar order whichever end was clicked first, and lets the anchor go so a reopened popover
- * starts a range rather than closing the last one.
+ * One click on a cell. With no anchor it answers with that day as BOTH ends and keeps it; with one,
+ * it extends to the day clicked, in calendar order whichever end came first, and lets the anchor go
+ * so the next click starts over rather than extending a span the owner has finished with.
  */
 export function rangeClick(state: RangeState, date: string): RangeClickResult {
   const anchor = state.anchor;
-  if (anchor === undefined) return { state: { anchor: date } };
+  if (anchor === undefined) {
+    return { state: { anchor: date }, committed: { from: date, to: date } };
+  }
 
   const backwards = compareDates(date, anchor) < 0;
   return {
@@ -58,28 +64,24 @@ export interface RangePaint {
   included: string[];
   /** Cells inside it the save will DROP. */
   skipped: string[];
-  /** The end already clicked, while the second is missing. */
-  pending?: string;
 }
 
 /**
- * What the month grid paints for a range.
- *
- * A pending end paints NO span, only itself: the second click is what decides which way the span
- * runs, and a popover has no pointer position to guess with — a band drawn from a guess moves under
- * the mouse and promises days that were never asked for.
+ * What the month grid paints for a range: the stored span, and nothing else. It needs no state,
+ * because there is no provisional end to draw differently — a click's answer is already complete,
+ * and a one-day span paints as the one cell it is.
  */
-export function rangePaint(state: RangeState, span: RangeSpan | undefined): RangePaint {
-  if (state.anchor !== undefined) return { included: [], skipped: [], pending: state.anchor };
+export function rangePaint(span: RangeSpan | undefined): RangePaint {
   if (span === undefined) return { included: [], skipped: [] };
   return rangeCells(span.from, span.to);
 }
 
 /**
- * Closing the popover with only one end clicked. The pending end dies and the stored span is not
- * touched, because a first click reported nothing there is anything to take back.
+ * Closing the popover. The anchor goes, so reopening starts over rather than extending a span the
+ * owner has finished with — and nothing is taken back, because the day the last click chose is a
+ * real answer the form already holds.
  *
- * Answers with the state it was given when nothing is pending, so the close path can hand this
+ * Answers with the state it was given when there is no anchor, so the close path can hand this
  * straight to a setter without costing a render.
  */
 export function rangeDiscard(state: RangeState): RangeState {

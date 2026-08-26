@@ -148,9 +148,9 @@ export function DayPicker(props: DayPickerProps): React.JSX.Element {
   focusedRef.current = focused;
 
   const dismiss = useCallback((restoreFocus: boolean): void => {
-    // The pending end dies with the popover and the stored span is left exactly as it was: a first
-    // click reported nothing, so there is nothing to take back. `Escape` and the click outside both
-    // arrive here, so both discard.
+    // The anchor dies with the popover, so reopening starts over instead of extending a span the
+    // owner has finished with. Nothing is taken back: the day the last click chose is an answer the
+    // form already holds. `Escape` and the press outside both arrive here.
     setPending(rangeDiscard);
     setOpen(false);
     if (restoreFocus) trigger.current?.focus();
@@ -165,14 +165,17 @@ export function DayPicker(props: DayPickerProps): React.JSX.Element {
       return;
     }
 
+    const extending = pending.anchor !== undefined;
     const click = rangeClick(pending, date);
     setPending(click.state);
-    // NEVER on the first click, for the reasons `onChangeRange` states.
-    if (click.committed === undefined) return;
-    // Not clamped to `MAX_ABSENCE_DAYS`: the refusal is the server's 400 `invalid-range`, drawn in
-    // the field's own error slot. Clamped here, the owner would never learn why it was refused.
+    // Every click answers, the first with that day as both ends. Not clamped to `MAX_ABSENCE_DAYS`:
+    // the refusal is the server's 400 `invalid-range`, drawn in the field's own error slot. Clamped
+    // here, the owner would never learn why it was refused.
     commitRange(click.committed.from, click.committed.to);
-    dismiss(true);
+    // The first click leaves the popover open so the next can extend the day it just chose; the
+    // second has both ends and closes. One day therefore costs one click, and the press that follows
+    // — on `Guardar`, on the reason — is not eaten, so nothing has to be clicked twice.
+    if (extending) dismiss(true);
   };
 
   const reveal = (): void => {
@@ -250,13 +253,9 @@ export function DayPicker(props: DayPickerProps): React.JSX.Element {
       setMonth(startOfMonth(next));
     };
 
-    // CAPTURE, and stopped: without it the press that dismisses this lands on the column
-    // underneath and starts a band, or opens the panel of the job under it.
     const onPointerDown = (event: PointerEvent): void => {
       const target = event.target as Node;
       if (box.current?.contains(target) === true) return;
-      event.preventDefault();
-      event.stopPropagation();
       // A press on the TRIGGER — or on the `Field` label that names it, which the browser forwards
       // a click from to the trigger — is left to that click and the toggle to answer.
       // `preventDefault` on a `pointerdown` does not cancel the click that follows it, so closing
@@ -264,7 +263,20 @@ export function DayPicker(props: DayPickerProps): React.JSX.Element {
       // like it never closes.
       if (trigger.current?.contains(target) === true) return;
       if (labelForwards(trigger.current, target)) return;
-      dismiss(true);
+
+      // CAPTURE, and swallowed OUTSIDE the panel only. On the grid it has to be: without it the
+      // press that dismisses this lands on the column underneath and starts a band, or opens the
+      // panel of the job under it. Inside the panel nothing is underneath, and eating the press
+      // there made `Guardar` need two clicks — the first appearing to do nothing at all.
+      const swallow = !withinPanel(trigger.current, target);
+      if (swallow) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      // Focus goes back to the trigger only when the press was swallowed, because `preventDefault`
+      // suppressed the move it would have made itself. A press that got through is about to focus
+      // whatever it landed on.
+      dismiss(swallow);
     };
 
     window.addEventListener('keydown', onKeyDown, true);
@@ -291,7 +303,7 @@ export function DayPicker(props: DayPickerProps): React.JSX.Element {
     endValue !== undefined && isValidDate(value) && isValidDate(endValue)
       ? { from: value, to: endValue }
       : undefined;
-  const paint = rangePaint(pending, stored);
+  const paint = rangePaint(stored);
   const written = new Set(paint.included);
   const dropped = new Set(paint.skipped);
 
@@ -432,7 +444,6 @@ export function DayPicker(props: DayPickerProps): React.JSX.Element {
                         commitRange === undefined && cell.date === value ? styles.selected : '',
                         written.has(cell.date) ? styles.inSpan : '',
                         dropped.has(cell.date) ? styles.spanDropped : '',
-                        cell.date === paint.pending ? styles.pending : '',
                         cell.isToday ? styles.today : '',
                         cell.isWeekend ? styles.weekend : '',
                         cell.isPast ? styles.past : '',
@@ -443,9 +454,7 @@ export function DayPicker(props: DayPickerProps): React.JSX.Element {
                       disabled={!cell.selectable}
                       tabIndex={cell.date === focused ? 0 : -1}
                       aria-pressed={
-                        commitRange === undefined
-                          ? cell.date === value
-                          : written.has(cell.date) || cell.date === paint.pending
+                        commitRange === undefined ? cell.date === value : written.has(cell.date)
                       }
                       aria-current={cell.isToday ? 'date' : undefined}
                       title={titleOf(cell, mark)}
@@ -495,6 +504,16 @@ export function DayPicker(props: DayPickerProps): React.JSX.Element {
 function labelForwards(button: HTMLButtonElement | null, target: Node): boolean {
   if (button === null) return false;
   return Array.from(button.labels).some((label) => label.contains(target));
+}
+
+/**
+ * Whether a press landed inside the side panel this picker is a field of. `SidePanel` is the
+ * `<aside>` around the trigger, so the panel needs no prop for this. No panel means false, which
+ * swallows the press: outside one, the grid is what is underneath.
+ */
+function withinPanel(button: HTMLButtonElement | null, target: Node): boolean {
+  const panel = button?.closest('aside') ?? null;
+  return panel !== null && panel.contains(target);
 }
 
 /** The route's rows keyed by day, which is how a cell asks for its own. */

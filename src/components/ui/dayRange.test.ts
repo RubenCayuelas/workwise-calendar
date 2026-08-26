@@ -2,9 +2,13 @@
  * The range picker's state machine, shaped like `paintSession.ts`: state in, state out, and the
  * caller carries out what came back.
  *
- * Nothing leaves the popover until it has both ends. A half-chosen range reaching the form would
- * fire `previewAbsence` — a real write inside a rolled-back transaction — on every click of a walk
- * through the month, announcing displaced work for a range nobody has finished choosing.
+ * ONE CLICK IS ONE DAY, and a second click extends it. The common absence is a single day, and
+ * asking for two clicks put the cost on the common case to protect the rare one — the owner met it
+ * as being made to click the same day twice.
+ *
+ * There is therefore no half-chosen range to protect against any more: every click leaves a complete
+ * span behind, so `previewAbsence` — a real write inside a rolled-back transaction — is never asked
+ * about a range nobody has finished choosing.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -14,10 +18,10 @@ import { FRI, MON, NEXT_MON, SAT, SUN, THU, WED } from '../../testing/fixtures';
 import { rangeCells, rangeClick, rangeDiscard, rangeNoticeKey, rangePaint } from './dayRange';
 
 describe('rangeClick', () => {
-  it('holds the first click and commits nothing', () => {
+  it('commits that one day on the FIRST click, and keeps it as the anchor', () => {
     const result = rangeClick({}, WED);
+    expect(result.committed).toEqual({ from: WED, to: WED });
     expect(result.state).toEqual({ anchor: WED });
-    expect(result.committed).toBeUndefined();
   });
 
   it('commits both ends on the second click', () => {
@@ -33,13 +37,13 @@ describe('rangeClick', () => {
     expect(rangeClick({ anchor: WED }, WED).committed).toEqual({ from: WED, to: WED });
   });
 
-  it('lets the anchor go once it has committed, so the next click starts a range', () => {
-    const committed = rangeClick({ anchor: MON }, FRI);
-    expect(committed.state.anchor).toBeUndefined();
+  it('lets the anchor go once it has extended, so the next click starts over', () => {
+    const extended = rangeClick({ anchor: MON }, FRI);
+    expect(extended.state.anchor).toBeUndefined();
 
-    const again = rangeClick(committed.state, SUN);
+    const again = rangeClick(extended.state, SUN);
     expect(again.state).toEqual({ anchor: SUN });
-    expect(again.committed).toBeUndefined();
+    expect(again.committed).toEqual({ from: SUN, to: SUN });
   });
 });
 
@@ -87,49 +91,42 @@ describe('rangeCells', () => {
 
 describe('rangePaint', () => {
   it('paints the committed span, and the weekend it drops', () => {
-    expect(rangePaint({}, { from: THU, to: NEXT_MON })).toEqual({
+    expect(rangePaint({ from: THU, to: NEXT_MON })).toEqual({
       included: [THU, FRI, NEXT_MON],
       skipped: [SAT, SUN],
     });
   });
 
   it('paints a span that is nothing but a weekend as written whole', () => {
-    expect(rangePaint({}, { from: SAT, to: SUN })).toEqual({ included: [SAT, SUN], skipped: [] });
+    expect(rangePaint({ from: SAT, to: SUN })).toEqual({ included: [SAT, SUN], skipped: [] });
   });
 
-  it('paints no span while one end is still missing, only the end already clicked', () => {
-    // There is no hover to read: the second click is what decides which way the span runs, and a
-    // band drawn from a guess would promise days nobody has asked for.
-    expect(rangePaint({ anchor: WED }, { from: MON, to: FRI })).toEqual({
-      included: [],
-      skipped: [],
-      pending: WED,
-    });
+  it('paints the one day a first click committed, with nothing provisional about it', () => {
+    // The old machine painted no span while an end was pending, because the second click decided
+    // which way it ran. There is nothing pending now: the first click already answered.
+    const first = rangeClick({}, WED);
+    expect(rangePaint(first.committed)).toEqual({ included: [WED], skipped: [] });
   });
 
   it('paints nothing at all in single-day mode, where there is no far end', () => {
-    expect(rangePaint({}, undefined)).toEqual({ included: [], skipped: [] });
+    expect(rangePaint(undefined)).toEqual({ included: [], skipped: [] });
   });
 
   it('paints nothing for a stored pair that runs backwards', () => {
-    expect(rangePaint({}, { from: FRI, to: MON })).toEqual({ included: [], skipped: [] });
+    expect(rangePaint({ from: FRI, to: MON })).toEqual({ included: [], skipped: [] });
   });
 });
 
-describe('closing with one end pending', () => {
-  it('drops the pending end', () => {
+describe('closing after one click', () => {
+  it('drops the anchor, so a reopened popover starts over instead of extending', () => {
     expect(rangeDiscard({ anchor: WED })).toEqual({});
   });
 
-  it('leaves the committed span exactly as it was', () => {
-    const span = { from: MON, to: FRI };
-    const half = rangeClick({}, NEXT_MON);
-
-    expect(rangePaint(half.state, span).included).toEqual([]);
-    expect(rangePaint(rangeDiscard(half.state), span)).toEqual(rangePaint({}, span));
-    expect(rangePaint(rangeDiscard(half.state), span).included).toEqual(
-      rangeCells(MON, FRI).included,
-    );
+  it('takes nothing back, because the day that click chose is a real answer', () => {
+    const first = rangeClick({}, WED);
+    expect(rangePaint(first.committed)).toEqual({ included: [WED], skipped: [] });
+    expect(rangeDiscard(first.state)).toEqual({});
+    expect(rangeCells(WED, WED).included).toEqual([WED]);
   });
 
   it('answers with the state it was given when nothing is pending, so a close is not a render', () => {
@@ -153,7 +150,7 @@ describe('the cap this calendar does not clamp', () => {
 
   it('paints only the cells `absenceRange` walks, and never the day past the cap', () => {
     const past = addDays(MON, MAX_ABSENCE_DAYS);
-    const paint = rangePaint({}, { from: MON, to: past });
+    const paint = rangePaint({ from: MON, to: past });
 
     expect(paint.included.length + paint.skipped.length).toBe(MAX_ABSENCE_DAYS);
     expect(paint.included).not.toContain(past);
