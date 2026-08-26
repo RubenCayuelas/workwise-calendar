@@ -35,7 +35,13 @@ import styles from './DayPicker.module.css';
 
 const DAYS_PER_WEEK = 7;
 
-/** The box drawn by DayPicker.module.css. Pixels, and they must match it. */
+/**
+ * The box `popoverPosition` clips by arithmetic instead of by measuring the DOM. Both numbers are
+ * APPLIED to the box below as `width` and `min-height`, so the browser draws what the arithmetic
+ * assumes rather than something a stylesheet edit can walk away from. `min-height` and not `height`
+ * because a chrome that grows must push the box taller, never be clipped by it: the popover then flips
+ * above its trigger a little later than ideal, which is the harmless direction.
+ */
 const CELL_HEIGHT = 30;
 const POPOVER_WIDTH = 226;
 /** Everything that is not the six rows: the padding, the month head, the weekday letters, the
@@ -370,7 +376,12 @@ export function DayPicker(props: DayPickerProps): React.JSX.Element {
               className={styles.popover}
               role="dialog"
               aria-label={t('dayPicker.open')}
-              style={{ top: at.top, left: at.left }}
+              style={{
+                top: at.top,
+                left: at.left,
+                width: POPOVER_WIDTH,
+                minHeight: POPOVER_HEIGHT,
+              }}
               onBlur={(event) => {
                 const next = event.relatedTarget as Node | null;
                 // Leaving by TAB fires no pointer event. A press on the popover's own padding

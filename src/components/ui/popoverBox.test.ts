@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { popoverPosition, type PopoverAnchor } from './popoverBox';
 
-/** A six-row month grid: the only box this positions. */
+/** Some box. The arithmetic is the same whatever the size; the real one is 226 x 280. */
 const BOX = { width: 268, height: 320 };
 const VIEWPORT = { width: 1280, height: 800 };
 const GAP = 6;
