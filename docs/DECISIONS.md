@@ -827,3 +827,80 @@ can hold, it drifts from dE 4.8 on the default grey to dE 30.8 on a dark one —
 lunch-break hatch was removed for, reappearing the moment the owner changes a setting.
 
 ---
+
+## The Header Hides Nothing
+
+**Rule** — SPEC § *Calendar View*. Every action in the calendar header is its own control: undo, redo,
+today, new job, absences, language, settings. There is no overflow menu. The absences button carries its
+name; the settings gear does not need one.
+
+**Why** — the absences screen is the only way to say the shop is not working, and behind a `…` it was not
+found. What the calendar filled up with instead was JOBS: hours entered as work to stand in for a gap, and
+whole days off entered as a job covering the day. The loss is not cosmetic. `projects.total_hours` then
+counts hours nobody is going to work, the summary strip says the workshop is booked further out than it
+is, and `day_overrides` stays empty — so the engine keeps planning into days the shop is shut, and every
+one of those days has to be argued with by hand. Reported by the owner on 2026-08-26, and it is the second
+time this same screen has been reached for and not found:
+§ *A Long Absence Is One Gesture, and a Closed Day Has a Screen* was built on the first.
+
+**A NAME is what the menu was costing, not the click.** Measured at 1280 px, the narrowest desktop the app
+supports: the absences button is a 113 px control, the right-hand toolbar goes from 347 px to 466 px, and
+the flexible space either side of the week label from 178 px to 119 px. Nothing overflows, nothing had to
+be shortened, and the label was measured in Spanish, the longer of the two. The width a menu saves here
+was never needed. Which of the two carries a label is the owner's choice: absences, because no calendar
+glyph says *the shop is shut*, while a gear reads as settings everywhere.
+
+**Rejected** — the `…` overflow menu that held both. One click is cheap; what it cost was that neither
+action had a name anywhere on screen, and an owner who cannot see the absences button does not go hunting
+for it behind a glyph — they reach for the tool they can see, which is the new job button.
+
+---
+
+## Every Control Is a Fill Inside a Hairline
+
+**Rule** — SPEC § *Visual Design*. Every button and icon button is a fill inside a 0.5px RESTING edge: the
+neutral ones `--ww-control-border`, the amber one `--ww-control-border-accent`. `--ww-border-strong` is the
+firmer weight and is a resting edge on nothing — it is what a field's edge becomes under the pointer, and
+what a gesture's dashed marks are drawn in.
+
+**Why** — two things were wrong at once. The amber button took its own fill as its border, so it was the
+only control in the app drawn with no edge, and beside four outlined ones it read as unfinished. And those
+four rested on `--ww-border-strong`, #444441 at 9.8:1 against white, which reads as a black box round every
+button — while every text field beside them rested on something far quieter. Both now rest on one soft
+edge, #908f88 at 3.2:1: a third of the contrast, still enough to bound the shape.
+
+**The amber edge is matched by register, not by number.** It is a darker amber at dE 13.5 from its own
+fill, where the neutral edge is dE 28.5 from the white it sits on. Those are different jobs: a white fill
+on a white header has nothing but its edge to say where it ends, while amber already stands dE 33 clear of
+the surface on its own and only needs its boundary drawn.
+
+`--ww-control-border` mixes toward `--ww-text` rather than toward graphite, so it lightens on a dark
+surface instead of sinking into it.
+
+**Rejected** — resting the neutral controls on `--ww-border` itself, #d3d1c7 at 1.5:1, which is what every
+input rests on and would have been one vocabulary instead of two. Rendered side by side it inverts the row:
+at that weight the amber button's rim is the most visible line in the header and the white buttons read as
+unbounded. For the amber edge, three more, all measured against its fill: graphite-soft at dE 50.7, a black
+ring around orange; amber-ink at dE 31.8, louder than the neutral edges beside it; and amber-soft at dE
+11.2, which lightens rather than darkens and so reads as a highlight instead of an edge.
+
+---
+
+## The Week Label Sits On the Window's Centre Line
+
+**Rule** — SPEC § *Calendar View*. The week pager is centred on the WINDOW. The logo and the actions are
+one flex basis each, so the pager between them lands on the header's centre line rather than in the
+middle of whatever room those two leave.
+
+**Why** — the week label is the only thing on screen that says which week is being looked at, and it is
+read on every page turn. Centred in the leftover room it sat 166px left of the window's centre at every
+width — half the 334px by which the action row outweighs the logo — so the one label the eye returns to
+was not where the eye returns to. Measured after: dead centre from 1360px up, and 35px shy of it at
+1280px, where the action row is wider than its half and the pager gives ground rather than crowd it.
+Nothing is clipped at any width.
+
+**Rejected** — absolute centring (`left: 50%` and a translate), which ignores what is beside it: at
+1280px the pager would have run 25px into the action row. Flex flanks let the pager yield exactly as
+far as it has to and no further.
+
+---

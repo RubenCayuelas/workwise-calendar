@@ -82,7 +82,8 @@
    -------------------------------------------------------------------------- */
 
 :root {
-  /* Stronger than --ww-border, for the outline of an interactive control. */
+  /* The firm weight: what a field's edge becomes under the pointer, and what a gesture's dashed
+     marks are drawn in. Not a resting edge on anything — see --ww-control-border. */
   --ww-border-strong: var(--ww-graphite-soft);
 
   /* The one genuinely new hue in the app. The brand palette has no danger colour
@@ -107,6 +108,16 @@
   --ww-accent-tint: var(--ww-surface-alt);
   --ww-accent-tint: color-mix(in srgb, var(--ww-amber) 16%, var(--ww-surface));
   --ww-accent-border: var(--ww-amber);
+
+  /* THE RESTING EDGE OF A CONTROL. Mixed toward --ww-text rather than toward graphite, so it
+     lightens on a dark surface instead of sinking into it. */
+  --ww-control-border: var(--ww-border);
+  --ww-control-border: color-mix(in srgb, var(--ww-text) 40%, var(--ww-border));
+
+  /* The same edge on an amber fill, which is the same in both themes. Amber itself may not be a
+     thin line: on white it is 2.1:1. */
+  --ww-control-border-accent: var(--ww-amber-ink);
+  --ww-control-border-accent: color-mix(in srgb, var(--ww-amber) 70%, var(--ww-graphite));
 
   --ww-danger-tint: var(--ww-surface-alt);
   --ww-danger-tint: color-mix(in srgb, var(--ww-danger) 8%, var(--ww-surface));

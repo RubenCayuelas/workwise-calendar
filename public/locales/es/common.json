@@ -43,11 +43,11 @@
     "todayHint": "Ir a la semana de hoy",
     "newJob": "Nuevo trabajo",
     "newJobHint": "Crear un trabajo y añadirlo al final de la cola",
+    "absences": "Ausencias",
+    "absencesHint": "Anotar un hueco o cerrar días completos",
     "languageCurrent": "Idioma: {{language}}",
     "languageSwitch": "Cambiar a {{language}}",
-    "menu": "Más opciones",
-    "menuSettings": "Configuración",
-    "menuAbsences": "Ausencias"
+    "settings": "Configuración"
   },
   "summary": {
     "label": "Carga del taller",

@@ -979,7 +979,7 @@ export function CalendarScreen({
         onToday={week.goToday}
         onNewJob={renderNewJob === undefined ? undefined : () => setNewJobOpen(true)}
         onNewAbsence={
-          renderAbsenceForm === undefined ? undefined : () => setGapTarget({ gap: null, origin: 'menu' })
+          renderAbsenceForm === undefined ? undefined : () => setGapTarget({ gap: null, origin: 'header' })
         }
         settingsHref={settingsHref}
         undoLabel={undoLabel}

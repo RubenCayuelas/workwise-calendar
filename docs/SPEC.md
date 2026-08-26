@@ -996,6 +996,11 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   accent or as a hole in the day. Replacing a swatch repaints the jobs already wearing the retired
   one.
 - Hairline borders (`0.5px`), `--radius` rounded corners, generous whitespace.
+- **EVERY CONTROL IS A FILL INSIDE A HAIRLINE, the amber one included.** The neutral ones rest on
+  `--ww-control-border`, the amber fill on `--ww-control-border-accent` — amber itself may not be a thin
+  line. `--ww-border-strong` is the firmer weight, for a field under the pointer and for a gesture's
+  dashed marks, and is a resting edge on nothing. Hover and active change the fill and leave the edge
+  where it is. See § *Every Control Is a Fill Inside a Hairline* in DECISIONS.
 - **Icons**: Tabler (`@tabler/icons-react`), bundled locally — no CDN.
 - **No native `<input type="time">` or `<input type="date">` anywhere.** Both render in the
   BROWSER's locale, not the page's. Every time and every day goes through `useFormat()`:
@@ -1057,9 +1062,13 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   object out of `GET /api/week`: it is the one place the strip's arithmetic is reachable on its own.
   An audit called it unused on 2026-08-20; it is unused BY THIS APP, which is a different thing.
 - **Header**: logo, the week label between two arrows — `‹ Week 33 · 10–16 Aug 2026 ›` — two discreet
-  undo/redo icons, the today button,
-  `+ Nuevo trabajo`, language, overflow menu. The icons are ghost-styled and their tooltip names the
-  step — see *The Two Controls and the Two Keys*.
+  undo/redo icons, the today button, the new job button, the absences button, language, and the
+  settings gear. The icons are ghost-styled and their tooltip names the step — see *The Two Controls
+  and the Two Keys*.
+- **NOTHING IN THE HEADER IS BEHIND A MENU**, and the absences button carries its name rather than a
+  glyph alone. See § *The Header Hides Nothing* in DECISIONS.
+- **The pager is centred on the WINDOW**, not on the room left over between the logo and the actions.
+  See § *The Week Label Sits On the Window's Centre Line* in DECISIONS.
 - **Visual blocks**: tinted fill with a saturated border in the project colour, name + hours. A unit
   cut at the lunch break is marked at both ends. Engine-placed Friday blocks read `desborde 2 h` and
   get a distinct border so an overrun week is visible at a glance.
@@ -1414,7 +1423,7 @@ of this one.)*
   frozen to the gestures while staying open to the form.
 
 #### The Absences Screen — One Place, Two Modes
-> **The ABSENCES SCREEN, reached from the calendar's overflow menu and from the grid itself, with a
+> **The ABSENCES SCREEN, reached from the calendar's header and from the grid itself, with a
 > selector: ONE GAP / CLOSE DAYS. Both modes share a from and a to date and a reason, so there is one
 > screen to learn and the decision is made INSIDE it.**
 

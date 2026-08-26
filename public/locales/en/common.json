@@ -43,11 +43,11 @@
     "todayHint": "Go to this week",
     "newJob": "New job",
     "newJobHint": "Create a job and append it to the queue",
+    "absences": "Absences",
+    "absencesHint": "Book a gap or close whole days",
     "languageCurrent": "Language: {{language}}",
     "languageSwitch": "Switch to {{language}}",
-    "menu": "More options",
-    "menuSettings": "Settings",
-    "menuAbsences": "Absences"
+    "settings": "Settings"
   },
   "summary": {
     "label": "Workshop load",

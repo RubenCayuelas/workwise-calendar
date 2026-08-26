@@ -98,9 +98,9 @@ describe('what a bulk absence is going to cost', () => {
 
 describe('which shape of the absences form a gesture opens', () => {
   it('opens the RANGE screen only where a range makes sense', () => {
-    // `Absences` from the menu, and pressing a closed column, are the two ways a whole week of
-    // absence is asked for.
-    expect(absenceFormMode('menu')).toBe('range');
+    // The header's `Absences` button, and pressing a closed column, are the two ways a whole week
+    // of absence is asked for.
+    expect(absenceFormMode('header')).toBe('range');
     expect(absenceFormMode('closed-column')).toBe('range');
   });
 
