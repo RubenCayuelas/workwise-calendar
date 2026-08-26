@@ -9,6 +9,19 @@ never moves without the owner asking.
 
 ---
 
+## 0.23.2 — the amber button has an edge, like every other control
+
+**Every button in the app is a fill inside a hairline now, the amber one included.** It was the only
+control drawn with no edge at all, and beside four outlined buttons in the same row it looked
+unfinished. Its edge is the brand's dark amber rather than the graphite the white buttons wear, so it
+carries the same weight of line without putting a black ring around orange. Pressing a button still
+changes only its fill.
+
+This reaches every amber button, not just the header: the save button on each panel, the paint chooser
+and settings.
+
+---
+
 ## 0.23.1 — the absences screen is a button, not a menu item
 
 **The `…` menu is gone, and both things it held are on the header.** Absences now sits beside the new

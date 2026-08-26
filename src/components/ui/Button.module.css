@@ -31,16 +31,19 @@
 }
 
 /* Amber fill with graphite on top — the only accessible way to use pure amber
-   (brand guidelines: amber on white is 2.1:1, so never as text or a thin line). */
+   (brand guidelines: amber on white is 2.1:1, so never as text or a thin line).
+   Which is why the outline is amber-ink and not the fill's own hue: every control in
+   the app is a fill inside a hairline, and amber cannot be the hairline. */
 .primary {
   background: var(--ww-accent);
-  border-color: var(--ww-accent);
+  border-color: var(--ww-amber-ink);
   color: var(--ww-on-accent);
 }
 
+/* The edge holds through both states, as the neutral button's does: what a press
+   changes is the fill. */
 .primary:hover:not(:disabled) {
   background: var(--ww-amber-soft);
-  border-color: var(--ww-amber-soft);
 }
 
 .primary:active:not(:disabled) {

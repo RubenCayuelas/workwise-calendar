@@ -1,6 +1,6 @@
 {
   "name": "workwise-calendar",
-  "version": "0.23.1",
+  "version": "0.23.2",
   "description": "Interactive calendar app for tracking and distributing work hours across projects",
   "private": true,
   "scripts": {

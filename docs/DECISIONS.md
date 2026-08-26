@@ -855,3 +855,26 @@ action had a name anywhere on screen, and an owner who cannot see the absences b
 for it behind a glyph — they reach for the tool they can see, which is the new job button.
 
 ---
+
+## Every Control Is a Fill Inside a Hairline
+
+**Rule** — SPEC § *Visual Design*. Every button and icon button is a fill inside a 0.5px edge: the neutral
+ones `--ww-border-strong`, the amber one `--ww-amber-ink`. Hover and active change the fill and leave the
+edge alone.
+
+**Why** — the amber button took its own fill as its border, so it was the one control in the app drawn
+without an edge, and in a header row beside four outlined ones it read as unfinished. What the edge has to
+match is not the fill it sits on but the SURFACE BEHIND THE ROW, because that is the line the eye follows:
+amber-ink is dE 53.0 from the white header against the neutral controls' dE 59.1, close enough that the row
+reads as one construction. Against its own fill it is dE 31.8 — a rim rather than a ring. The brand file
+already ships amber-ink as the amber for text and thin strokes, pure amber on white being 2.1:1 and no use
+as a line at all. One rule, one place: it reaches every primary button, the panels' save and the paint
+chooser included.
+
+**Rejected** — three other edges, measured against the amber fill. Graphite-soft, the edge the white
+buttons wear, is dE 50.7 from amber: a black ring around orange. Amber-soft at dE 11.2 and a 70/30
+amber-graphite mix at dE 13.5 both disappear at 0.5px. And softening the neutral controls to `--ww-border`
+so that nothing carries a strong edge, which would erase a deliberate second weight —
+`--ww-border-strong` is what separates a control from the grid rules and card edges drawn in `--ww-border`.
+
+---
