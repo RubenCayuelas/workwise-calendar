@@ -46,6 +46,10 @@ waits, so what is stored can never be the hour the screen stopped showing.
 day each showed an example — `Puerta metálica`, `Avería del torno`, `Feria` — which reads like a value
 already filled in. They now say what the field is for.
 
+**An absence stays on the one day it names.** Moving a gap's day back to an earlier one — in the calendar,
+or with the button that offers the week you came from — used to save it on every weekday from the new day
+to the day it had been on, three days for a band drawn on one, pushing work out of all of them.
+
 ---
 
 ## 0.23.5 — the buttons' outlines are quieter
