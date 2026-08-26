@@ -668,10 +668,7 @@ export function AbsencePanel({
 
             {kind === 'closed-days' && bulk ? null : (
               <div className={styles.row}>
-                <Field
-                  label={t('gapForm.startTime')}
-                  error={timeRefusal ?? errorFor('startTime')}
-                >
+                <Field label={t('gapForm.startTime')} error={timeRefusal ?? errorFor('startTime')}>
                   <TimeField
                     value={startTime}
                     disabled={busy}
@@ -708,10 +705,7 @@ export function AbsencePanel({
               </span>
             </div>
 
-            <Field
-              label={t('gapForm.closeDayWhen')}
-              error={timeRefusal ?? errorFor('startTime')}
-            >
+            <Field label={t('gapForm.closeDayWhen')} error={timeRefusal ?? errorFor('startTime')}>
               <TimeField
                 value={startTime}
                 minMinutes={closeBounds?.minMinutes}
