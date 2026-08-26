@@ -121,6 +121,10 @@ export function TimeField({
         disabled={disabled}
         aria-label={t('timeField.earlier')}
         title={t('timeField.earlier')}
+        // Keeps the input focused through the click, so `step` always reads the same raw,
+        // still-uncommitted `text` an arrow-key press would — otherwise the blur this button
+        // would cause fires `commit()` first, snapping the draft under the click's own step.
+        onMouseDown={(event) => event.preventDefault()}
         onClick={(event) => step(-1, event.shiftKey)}
       >
         <IconMinus size={14} stroke={1.75} />
@@ -149,6 +153,7 @@ export function TimeField({
         disabled={disabled}
         aria-label={t('timeField.later')}
         title={t('timeField.later')}
+        onMouseDown={(event) => event.preventDefault()}
         onClick={(event) => step(1, event.shiftKey)}
       >
         <IconPlus size={14} stroke={1.75} />
