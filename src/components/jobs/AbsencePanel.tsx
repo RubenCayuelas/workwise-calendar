@@ -3,7 +3,7 @@
 /**
  * `Absences` — one screen for every way the shop is not working, in two modes the owner picks
  * between inside it: **un gap** (`gaps`, cut at the lunch break) and **cerrar días** (`day_overrides`).
- * Both share `Desde` / `Hasta`, so a whole Fair week is one gesture instead of one hand-typed row
+ * Both share ONE range calendar, so a whole Fair week is one gesture instead of one hand-typed row
  * per day, which is what the shop's own database was full of.
  *
  * It is also the gap form in its two OLD shapes, unchanged: editing one absence, and *cerrar el día
@@ -191,8 +191,7 @@ export function AbsencePanel({
   /** Set only in the "stop the day here" shape: editing a gap always wins over it. */
   const closing = gap === undefined ? closeDay : undefined;
   // The GESTURE decides this, not the absence of the other two props: a painted band passes neither,
-  // so inferring it opened the whole Desde/Hasta screen for a gesture that is one column by
-  // definition.
+  // so inferring it opened the whole range screen for a gesture that is one column by definition.
   const bulk = absenceFormMode(origin) === 'range' && gap === undefined && closing === undefined;
   const fallbackStart =
     closing?.fromMinutes ?? defaultStartMinutes ?? shape?.periods[0]?.startMinutes ?? 8 * 60;
@@ -631,8 +630,8 @@ export function AbsencePanel({
                       // Set OPTIMISTICALLY: a painted band on the grid has to follow the field.
                       if (visibleDates?.includes(date) === true) setLastVisible(date);
                       setDate(next);
-                      // "Hasta" follows the day it can no longer precede, so the range is never
-                      // inverted by moving its start.
+                      // This mode draws no control for the far end and reads it nowhere: the
+                      // assignment only keeps it from falling behind the day beside it.
                       if (compareDates(endDate, next) < 0) setEndDate(next);
                     }}
                   />

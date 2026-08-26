@@ -902,5 +902,131 @@ Nothing is clipped at any width.
 **Rejected** — absolute centring (`left: 50%` and a translate), which ignores what is beside it: at
 1280px the pager would have run 25px into the action row. Flex flanks let the pager yield exactly as
 far as it has to and no further.
+## The Hour Is Typed, Not Chosen From 96 Options
+
+**Rule** — SPEC § *The Hour Is Typed*. Every hour in the app is an `HH:mm` field that is typed. What is
+typed takes effect on `Intro` or on leaving the field; `−`/`+` and `↑`/`↓` take effect at once, a quarter
+of an hour at a time and an hour with `Mayús`.
+
+**Why** — the owner asked for it in those words: *«Permite escribir para no hacer 2000 clicks para ir de
+00:00 a 23:45»*. The list it replaces held all 96 quarter hours of the day in one dropdown, and the shop's
+day starts at 08:00, which is the 33rd of them.
+
+**Why it draws its own string instead of `format.time`** — parse-then-format on every keystroke rewrites
+`8:00` to `08:00` under the cursor, and `formatTime` fails soft: a value it cannot read comes back as
+`--:--`, which is the opposite of leaving what cannot be read on screen.
+
+**Why only a value that CHANGED is snapped to the quarter** — snapping on every blur moves a hand-stored
+`08:10` to `08:15` by tabbing over it. `changedFields` compares strings, so that lands in the patch, and a
+Settings save recomposes the calendar and empties the undo line. The comparison is against the value the
+field held when it took the focus.
+
+**Why bounds refuse instead of clamping** — clamping turns a typed `18:00` into `17:45`, a value moving
+under the owner. `errors.timeOutOfBounds` names the two hours it has to be between, so the way out is on
+screen instead.
+
+**Why the ceiling is `23:45`** — `hhmmToMinutes` reads `24:00` as 1440, and the band then stops being drawn
+with no explanation while the field still looks legal.
+
+**Rejected** — a native `<input type="time">`, which the spec prohibits outright. Measured on the Settings
+screen: with Chrome set to English it drew `08:00 AM` beside a grid reading `08:00-14:00`.
+
+---
+
+## The Day Is Picked From a Month, and the Month Reaches Exactly As Far As the List Did
+
+**Rule** — SPEC § *The Day Is Picked From a Month*. A day is chosen on a six-row month grid in a popover,
+Monday first, opened from a button carrying the day it already holds. `planningWindow` still decides how
+far it reaches — four weeks back, the horizon forward, capped at 16 weeks — the `‹ ›` arrows stop at that
+window's edges, and a day the window does not offer is drawn dimmed and cannot be pressed.
+
+**Why** — the list it replaces offered between 84 and 140 consecutive days, and no list answers "which
+Thursday" the way a month does. The window is unchanged because it is exactly the set of days a form can
+reach today: forward, a day past the horizon is a 409 `horizon-exceeded` on the save; backward, a job's
+start date writes padlocked rows in the past, which the owner did not ask for.
+
+**Why six rows always, and never five or six by the month** — the popover's height is then a constant, so
+clipping it against the window is arithmetic with a test rather than a measurement of the DOM.
+
+**Why a stored day outside the window is still pressable** — a control that drops the day already on disk
+replaces it the moment the form is saved. It was true of the list and it stays true here.
+
+**Why the line under the field says `Semana 33`** — the list grouped its days under the very week label the
+grid's header carries, so a form and the grid could not name one day two ways, and that is the only thing
+leaving the list would have lost. `units.week` keeps the number; `header.week` carries the date range
+inside it, which the long date beside it already says.
+
+**Why the trigger is a `<button>` and the picker swallows its own arrow keys** — `isTypingTarget` recognises
+only `INPUT`, `TEXTAREA`, `SELECT` and `contenteditable`. With the old `<select>` the header's week pager
+saw the arrows and turned two weeks at once; with a button, nothing but the picker swallowing them stops
+the week turning under an open calendar.
+
+**Why the trigger's own press is left to its click** — `preventDefault` on a `pointerdown` does not cancel
+the click that follows, so dismissing on that press closed the popover and the click reopened it: a
+calendar that looked like it never closed. The press is ignored on the trigger and on the `<label>` the
+browser forwards a click from, and the trigger's click is a toggle.
+
+---
+
+## Six Marks in the Month, and the Dot Only Promises Room
+
+**Rule** — SPEC § *The Day Is Picked From a Month*, § *Calendar View*. A month cell carries six marks and no
+more — the chosen day, today, the weekend, the past, a closed day, room left — and every one of them can
+still be chosen. The number dims for what the calendar makes of the day, the background greys for what the
+owner decided, and the dot says only that the engine still places hours there.
+
+**Why** — the owner named what they wanted marked and asked for nothing to explain it: the dot gets no
+definition on screen, each cell says the rest on hover the way a day header already does, and there is no
+legend. Nothing is hatched either — the one hatch this app tried lasted a day, and the measurement is in
+§ *A Gap Is Hatched, the Lunch-Break Band Is Not*.
+
+**Why the dot is neither `plannableMinutes` nor `bookedMinutes`** — the two answer different questions, as
+their own comment in `views.ts` says. `plannableMinutes` does not subtract ordinary movable work, so it
+dots a Tuesday the grid draws full; `bookedMinutes` calls a day full that the next write is about to clear,
+a state the owner never chose. What the dot reads is the plannable minutes less that day's movable blocks,
+which is the engine's own arithmetic: `openDay` starts the day at `plannableMinutes` and `planTake` spends
+it, and the movable rows are what the last pass spent it on.
+
+**Why the longest free stretch and the horizon are terms of their own** — a day whose 40 free minutes are
+four holes of ten has no room the engine will use, and `buildDayPlan` does not know the horizon, so without
+that term the dot would promise room on precisely the days that answer `horizon-exceeded`. One line pays
+for the rest: `buildDayPlan` returns zero plannable minutes for a past day, a closed day, a `manual` day
+and a zero-minute shift alike, so a weekend, a closed day and a past day lose the dot with no code of
+their own and the dot cannot contradict the grey.
+
+**Why no mark ever disables a cell** — § *A Closed Day Chosen As A Start Date Is Honoured*: asked whether to
+refuse a closed day, the owner chose *«Dejar elegirlo, pero cumplirlo de verdad»*.
+
+**Why the grey and its reason come from the server** — they are one `day_overrides` row, read through the
+same `listDayOverridesBetween` and the same snapshot's `getDayConfig` the week is read through, so the
+picker's grey cannot disagree with the column's, and a note written by another writer names the day in both
+places at once.
+
+---
+
+## A Range Is Chosen In One Calendar, and the Form Hears It Once
+
+**Rule** — SPEC § *The Absences Screen*. The multiple mode's two ends are one range calendar: the first
+click is remembered inside the popover, the second closes it and hands the form both ends at once, always
+ordered, and the weekend cells inside the span are drawn excluded by the same `absenceRange` the server
+writes with.
+
+**Why the first click never leaves the calendar** — writing `date` on the first click makes every step
+across the month fire `previewAbsence`, which is the real write inside a transaction that is rolled back,
+announcing displaced work for a range half chosen. Leaving `endDate` unset instead collapses `rangeValid`,
+and with it the preview and the `Reabrir` button, in the middle of a selection.
+
+**Why the excluded cells are not re-derived in the screen** — the server skips Saturday and Sunday unless
+the whole range is a weekend. A span drawn Monday to Sunday as seven cells promises seven days of a write
+that makes five.
+
+**Why one error slot is still needed** — `localError` is drawn nowhere but in a `Field`'s `error=`. Two
+fields became one, so the range's `Field` takes `rangeError`, which answers with whichever of the span's
+two ends was refused; without it `Guardar` would write nothing and say nothing when the server answers 400
+`invalid-range`, which two clicks reach at `MAX_ABSENCE_DAYS` (120). Ordered ends make
+`errors.rangeBackwards` unreachable from the calendar.
+
+**Why the week label is not under this field** — that line already carries the day count, and the count is
+the days the preview says will be written, not the cells of the span.
 
 ---

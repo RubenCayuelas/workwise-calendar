@@ -73,6 +73,25 @@ describe('every pointer resolves', () => {
   });
 });
 
+describe('docs/SPEC.md describes the screen that exists', () => {
+  /**
+   * The two controls the spec described before the month calendar and the typed hour replaced them.
+   * A spec naming a component that is not in the tree sends the next reader to a file that is not
+   * there — and it was the pointer this file already caught once, under a different name.
+   */
+  const RETIRED = ['DateSelect', 'TimeSelect'];
+
+  it('names the day picker and the time field, and neither control they replaced', () => {
+    for (const file of [SPEC, DECISIONS]) {
+      const text = read(file);
+      for (const name of RETIRED) expect(text).not.toContain(name);
+    }
+    const spec = read(SPEC);
+    expect(spec).toContain('DayPicker');
+    expect(spec).toContain('TimeField');
+  });
+});
+
 describe('docs/DECISIONS.md keeps one shape', () => {
   /** Every entry opens the same way, so a reader knows where the rule is without reading the prose. */
   const LEAD_IN = /^\*\*(Rule\*\* — |Rejected)/;
