@@ -13,7 +13,7 @@ import {
   Checkbox,
   ColorDot,
   ConfirmDialog,
-  DateSelect,
+  DayPicker,
   Field,
   InlineBanner,
   SidePanel,
@@ -85,6 +85,8 @@ export interface NewJobPanelProps {
   onShowWeekOf?: (date: string) => void;
   /** `settings.planningHorizonWeeks`: how far ahead the day picker reaches. */
   horizonWeeks?: number;
+  /** `WeekController.revision`: what the picker's day marks are refetched on. */
+  revision?: number;
 }
 
 export function NewJobPanel({
@@ -101,6 +103,7 @@ export function NewJobPanel({
   visibleDates,
   onShowWeekOf,
   horizonWeeks,
+  revision,
 }: NewJobPanelProps): React.JSX.Element {
   const { t } = useTranslation();
   const format = useFormat();
@@ -388,12 +391,13 @@ export function NewJobPanel({
                 back on purpose: a past date records work done but never logged. */}
             <Field
               label={t('jobForm.startDate')}
-              hint={isValidDate(startDate) ? format.longDate(startDate) : undefined}
+              hint={isValidDate(startDate) ? format.dayLine(startDate) : undefined}
             >
-              <DateSelect
+              <DayPicker
                 value={startDate}
                 today={reference}
                 horizonWeeks={horizonWeeks}
+                revision={revision}
                 disabled={saving}
                 onChange={(next) => {
                   // Set OPTIMISTICALLY: the band on the grid has to follow the field, and a

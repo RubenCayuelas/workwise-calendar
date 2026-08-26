@@ -175,7 +175,7 @@ export interface SelectOption {
   disabled?: boolean;
 }
 
-/** A heading over a run of options — how `DateSelect` names each week. */
+/** A heading over a run of options. */
 export interface SelectOptionGroup {
   /** Already translated. */
   label: string;

@@ -11,7 +11,7 @@ import { IconScissors } from '@tabler/icons-react';
 import {
   Button,
   ColorDot,
-  DateSelect,
+  DayPicker,
   Field,
   InlineBanner,
   NumberStepper,
@@ -69,6 +69,8 @@ export interface SplitBlockPanelProps {
   today?: string;
   /** `settings.planningHorizonWeeks`: how far ahead the day picker reaches. */
   horizonWeeks?: number;
+  /** `WeekController.revision`: what the picker's day marks are refetched on. */
+  revision?: number;
 }
 
 export function SplitBlockPanel({
@@ -82,6 +84,7 @@ export function SplitBlockPanel({
   defaultStartMinutes,
   today,
   horizonWeeks,
+  revision,
 }: SplitBlockPanelProps): React.JSX.Element {
   const { t } = useTranslation();
   const format = useFormat();
@@ -231,12 +234,13 @@ export function SplitBlockPanel({
         <Field
           label={t('gapForm.date')}
           error={errorFor('date')}
-          hint={isValidDate(date) ? format.longDate(date) : undefined}
+          hint={isValidDate(date) ? format.dayLine(date) : undefined}
         >
-          <DateSelect
+          <DayPicker
             value={date}
             today={reference}
             horizonWeeks={horizonWeeks}
+            revision={revision}
             disabled={saving}
             onChange={setDate}
           />

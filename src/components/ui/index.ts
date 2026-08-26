@@ -35,16 +35,12 @@ export {
 } from './Field';
 export { TimeField, type TimeFieldProps } from './TimeField';
 export { TIME_STEP_MINUTES, clockMinutes } from './timeOptions';
-export { DateSelect, type DateSelectProps } from './DateSelect';
 export { DayPicker, type DayPickerProps } from './DayPicker';
 export {
   PICKER_FUTURE_WEEKS,
   PICKER_MAX_FUTURE_WEEKS,
   PICKER_PAST_WEEKS,
-  dayOptionDates,
-  groupDaysByWeek,
   planningWindow,
-  type DayOptionWeek,
   type DayWindow,
 } from './dateOptions';
 export { ColorSwatches, type ColorSwatchesProps } from './ColorSwatches';

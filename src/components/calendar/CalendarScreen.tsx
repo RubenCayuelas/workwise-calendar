@@ -86,6 +86,8 @@ export interface JobPanelContext {
   today: string;
   /** `settings.planningHorizonWeeks` — how far ahead the panels' day picker reaches. */
   horizonWeeks: number;
+  /** `WeekController.revision`: what the day picker's marks are refetched on. */
+  revision: number;
 }
 
 export interface NewJobContext {
@@ -98,6 +100,8 @@ export interface NewJobContext {
   suggestedColor: string;
   /** `settings.planningHorizonWeeks` — how far the optional start-date picker reaches. */
   horizonWeeks: number;
+  /** `WeekController.revision`: what the day picker's marks are refetched on. */
+  revision: number;
   /**
    * Set when a painted BAND is what opened the form: the day and the minute the hours start on. The
    * form's hours field still decides the LENGTH.
@@ -145,6 +149,8 @@ export interface AbsenceFormContext {
   defaultDurationMinutes?: number;
   /** `settings.planningHorizonWeeks` — how far ahead the day picker reaches. */
   horizonWeeks: number;
+  /** `WeekController.revision`: what the day picker's marks are refetched on. */
+  revision: number;
   /** Only for a PAINTED band: keeps it drawn on the grid while this form is open. */
   onDraft?: (draft: GridDraft | null) => void;
   /** The days on screen, so a form can tell when its own date has left them. */
@@ -1172,6 +1178,7 @@ export function CalendarScreen({
                 onChanged: week.reload,
                 today: view.today,
                 horizonWeeks: view.settings.planningHorizonWeeks,
+                revision: week.revision,
               })}
 
           {(!newJobOpen && paintedJob === null) || renderNewJob === undefined
@@ -1187,6 +1194,7 @@ export function CalendarScreen({
                 summary: view.summary,
                 suggestedColor: leastUsedColor(view.blocks),
                 horizonWeeks: view.settings.planningHorizonWeeks,
+                revision: week.revision,
                 ...(paintedJob === null
                   ? {}
                   : {
@@ -1237,6 +1245,7 @@ export function CalendarScreen({
                       defaultDurationMinutes: gapTarget.painted.durationMinutes,
                     }),
                 horizonWeeks: view.settings.planningHorizonWeeks,
+                revision: week.revision,
               })}
         </>
       )}

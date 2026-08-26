@@ -30,6 +30,12 @@ export interface WeekController {
   loadError: string | null;
   /** A mutation was refused. Translated. */
   actionError: string | null;
+  /**
+   * Bumped by every refetch of the SAME week — a reload, and the resync after every mutation — and
+   * never by a page turn, which changes the week instead. Anything holding data from another
+   * request hangs off this: a recomposition rewrites rows the week's own response never mentions.
+   */
+  revision: number;
   clearActionError: () => void;
   reload: () => void;
   goToday: () => void;
@@ -155,6 +161,7 @@ export function useWeek(): WeekController {
       mutating,
       loadError,
       actionError,
+      revision: nonce,
       clearActionError,
       reload,
       goToday,
@@ -169,6 +176,7 @@ export function useWeek(): WeekController {
       busy,
       loadError,
       actionError,
+      nonce,
       clearActionError,
       reload,
       goToday,

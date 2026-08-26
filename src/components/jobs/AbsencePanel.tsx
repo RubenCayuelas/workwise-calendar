@@ -22,7 +22,7 @@ import {
   Button,
   ColorDot,
   ConfirmDialog,
-  DateSelect,
+  DayPicker,
   Field,
   IconButton,
   InlineBanner,
@@ -129,6 +129,8 @@ export interface AbsencePanelProps {
   today?: string;
   /** `settings.planningHorizonWeeks`: how far ahead the day pickers reach. */
   horizonWeeks?: number;
+  /** `WeekController.revision`: what the pickers' day marks are refetched on. */
+  revision?: number;
 }
 
 export function AbsencePanel({
@@ -151,6 +153,7 @@ export function AbsencePanel({
   gapColor,
   today,
   horizonWeeks,
+  revision,
 }: AbsencePanelProps): React.JSX.Element {
   const { t } = useTranslation();
   const format = useFormat();
@@ -585,12 +588,19 @@ export function AbsencePanel({
               <Field
                 label={t(bulk ? 'absenceForm.from' : 'gapForm.date')}
                 error={errorFor('date')}
-                hint={isValidDate(date) ? format.longDate(date) : undefined}
+                hint={
+                  !isValidDate(date)
+                    ? undefined
+                    : bulk
+                      ? format.longDate(date)
+                      : format.dayLine(date)
+                }
               >
-                <DateSelect
+                <DayPicker
                   value={date}
                   today={reference}
                   horizonWeeks={horizonWeeks}
+                  revision={revision}
                   disabled={busy}
                   onChange={(next) => {
                     // Set OPTIMISTICALLY: a painted band on the grid has to follow the field.
@@ -635,10 +645,11 @@ export function AbsencePanel({
                       : t('absenceForm.days', { count: summary.dayCount })
                   }
                 >
-                  <DateSelect
+                  <DayPicker
                     value={endDate}
                     today={reference}
                     horizonWeeks={horizonWeeks}
+                    revision={revision}
                     disabled={busy}
                     onChange={setEndDate}
                   />
