@@ -164,6 +164,23 @@ describe('CHANGELOG.md answers for the version that is shipping', () => {
     expect(desktop.version).toBe(app.version);
   });
 
+  it('keeps both lockfiles on that version too', () => {
+    // `npm install` writes the manifest's version into the lockfile in two places, and the installer
+    // workflow keys its cache on those files. Left behind, the lockfile answers a version the app has
+    // not been for three releases.
+    for (const [manifest, lock] of [
+      ['package.json', 'package-lock.json'],
+      ['desktop/package.json', 'desktop/package-lock.json'],
+    ]) {
+      const { version } = JSON.parse(read(manifest)) as { version: string };
+      const locked = JSON.parse(read(lock)) as {
+        version: string;
+        packages: Record<string, { version?: string }>;
+      };
+      expect([locked.version, locked.packages[''].version]).toEqual([version, version]);
+    }
+  });
+
   it('lists its versions newest first', () => {
     const versions = headings(CHANGELOG)
       .map((heading) => /^(\d+)\.(\d+)\.(\d+)/.exec(heading))

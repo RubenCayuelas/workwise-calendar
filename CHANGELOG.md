@@ -9,6 +9,43 @@ never moves without the owner asking.
 
 ---
 
+## 0.24.0 — the day comes from a calendar, the hour is typed
+
+**Choosing a day is a calendar now, not a list.** Every form that asks for one — a new job, the scissors,
+an absence — shows the day it holds on a button, and pressing it opens the month: six rows of seven,
+Monday first, an arrow either side to change month, and a Today button that picks today and closes. The
+list it replaces ran to well over a hundred days one after another.
+
+**The month says what it knows about each day.** Today wears a ring; Saturday, Sunday and anything past
+are dimmed; a closed day carries the same grey the grid gives its column and, under the mouse, the reason
+written on it; and a day the shop can still take work on carries a dot — hover it for the hours still
+free. Every one of them can still be chosen, so a closed day picked on purpose is honoured exactly as it
+was before.
+
+**The days a form cannot reach now look unreachable.** They are drawn faint and will not take a press,
+instead of accepting one and coming back with a refusal after the save.
+
+**Under the field the day is spelled out in full**: `miércoles 12 de agosto · Semana 33`. The old list
+grouped its days by week, and this is what keeps a form and the calendar calling one day by one name.
+
+**An absence over several days is one calendar.** It used to ask for the first day and the last in two
+separate fields; they are one range now, picked in two clicks, and the Saturdays and Sundays the save is
+going to skip are drawn as skipped before it is pressed. The count of days that will really be written
+stays under the field.
+
+**Every hour is typed.** `08:00` straight into the field, Enter or leaving it to make it count, and the
+two buttons beside it or the up and down arrows to move a quarter of an hour — a whole hour with Shift.
+The four schedule rows on the settings screen are the same field. Nothing is rewritten behind your back:
+an hour that cannot be read stays on screen and says so, an hour already stored off the quarter hour
+survives being tabbed past, and an hour outside the working day is refused naming the two hours it has to
+be between.
+
+**The placeholders say what to write.** The name of a job, the reason for a gap and the note on a closed
+day each showed an example — `Puerta metálica`, `Avería del torno`, `Feria` — which reads like a value
+already filled in. They now say what the field is for.
+
+---
+
 ## 0.23.5 — the buttons' outlines are quieter
 
 **Every button and icon button rests on a soft grey outline now instead of a near-black one** — 3.2:1
