@@ -28,6 +28,7 @@ function preview(overrides: Partial<AbsencePreview> = {}): AbsencePreview {
     skippedDates: [],
     rows: [],
     alreadyClosedDates: [],
+    daysWithWork: [],
     displaced: [],
     lastOccupiedBefore: null,
     lastOccupiedAfter: null,
