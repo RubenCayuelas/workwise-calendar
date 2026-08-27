@@ -9,6 +9,13 @@ never moves without the owner asking.
 
 ---
 
+## 0.25.1 — the installer builds again
+
+**The check that refuses a broken installer now recognises its own files on Windows**, which is the
+only machine that ever builds one. It read the paths inside the package as though they were written
+the way Linux writes them, so it refused a package that was in fact correct — and 0.25.0 produced no
+installer at all.
+
 ## 0.25.0 — it keeps itself up to date
 
 **Workwise updates itself now.** When it opens it looks for a newer published version, downloads it

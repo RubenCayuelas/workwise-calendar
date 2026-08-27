@@ -65,7 +65,10 @@ const archive = path.join(resources, 'app.asar');
 if (!fs.existsSync(archive)) {
   fail('MISSING the application archive: resources/app.asar');
 } else {
-  const inside = new Set(listPackage(archive));
+  // `listPackage` builds every entry with `path.join`, so on WINDOWS — the only platform this package
+  // is really built on — they come back as `\main.mjs`. Compared against a written-out `/main.mjs`
+  // nothing ever matches, and the check reports every file it was given as missing.
+  const inside = new Set(listPackage(archive).map((entry) => entry.split(path.sep).join('/')));
   for (const [what, entry] of [
     ['the shell', '/main.mjs'],
     ['the update decisions', '/updates.mjs'],
@@ -78,7 +81,9 @@ if (!fs.existsSync(archive)) {
   // missing is silent until the shop PC launches it. `semver` nests rather than hoisting.
   const manifest = '/node_modules/electron-updater/package.json';
   if (inside.has(manifest)) {
-    for (const name of Object.keys(JSON.parse(extractFile(archive, manifest.slice(1))).dependencies)) {
+    // And `extractFile` resolves by splitting on `path.sep`, so IT wants the platform's own shape.
+    const inArchive = path.join('node_modules', 'electron-updater', 'package.json');
+    for (const name of Object.keys(JSON.parse(extractFile(archive, inArchive)).dependencies)) {
       if (
         !inside.has(`/node_modules/${name}/package.json`) &&
         !inside.has(`/node_modules/electron-updater/node_modules/${name}/package.json`)
