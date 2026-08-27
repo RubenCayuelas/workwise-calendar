@@ -3,11 +3,22 @@ import os from 'os';
 import path from 'path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BEFORE_RESTORE_NAME, listAutomaticBackups, writeBackup } from '../backups';
+import {
+  BEFORE_RESTORE_NAME,
+  listAutomaticBackups,
+  listPreUpdateBackups,
+  writeBackup,
+} from '../backups';
 import { closeDb, getDb } from '../db';
 import { AppError } from '../errors';
 import { writeSettings } from '../settings';
-import { exportBackup, listBackups, restoreBackup, takeAutomaticBackup } from './backups';
+import {
+  exportBackup,
+  listBackups,
+  restoreBackup,
+  takeAutomaticBackup,
+  takePreUpdateBackup,
+} from './backups';
 
 let root: string;
 let dbPath: string;
@@ -115,6 +126,112 @@ describe('the automatic copy', () => {
   });
 });
 
+describe('the copy taken before an update installs', () => {
+  it('holds the calendar as it stands, under a name saying which update follows', () => {
+    addJob('Railing');
+
+    const result = takePreUpdateBackup('0.26.0', MONDAY);
+
+    expect(result.created).toBe('workwise-before-update-2026-08-10-0900-0.26.0.db');
+    expect(result.removed).toEqual([]);
+    const copy = new Database(path.join(backupsDir, result.created), { readonly: true });
+    expect(copy.prepare('SELECT name FROM projects').all()).toEqual([{ name: 'Railing' }]);
+    copy.close();
+  });
+
+  it('is taken even when the weekly copies are switched off', () => {
+    // That setting is about how much sits in the folder. An update cannot be undone, so it is not a
+    // decision to install without a way back.
+    addJob('Railing');
+    writeSettings({ backupsEnabled: false });
+
+    expect(takePreUpdateBackup('0.26.0', MONDAY).created).toBe(
+      'workwise-before-update-2026-08-10-0900-0.26.0.db',
+    );
+  });
+
+  it('keeps three, so a bad release noticed two updates later is still reachable', () => {
+    addJob('Railing');
+    for (const [day, version] of [
+      ['10', '0.26.0'],
+      ['11', '0.26.1'],
+      ['12', '0.26.2'],
+    ] as const) {
+      takePreUpdateBackup(version, new Date(`2026-08-${day}T09:00:00+02:00`));
+    }
+
+    const fourth = takePreUpdateBackup('0.27.0', new Date('2026-08-13T09:00:00+02:00'));
+
+    expect(fourth.removed).toEqual(['workwise-before-update-2026-08-10-0900-0.26.0.db']);
+    expect(listPreUpdateBackups(backupsDir).map((backup) => backup.version)).toEqual([
+      '0.27.0',
+      '0.26.2',
+      '0.26.1',
+    ]);
+  });
+
+  it('leaves the weekly copies and their count alone', () => {
+    addJob('Railing');
+    takeAutomaticBackup(MONDAY);
+
+    takePreUpdateBackup('0.26.0', MONDAY);
+
+    expect(listAutomaticBackups(backupsDir).map((backup) => backup.name)).toEqual([
+      'workwise-2026-08-10-0900.db',
+    ]);
+    // And the weekly one is still not due, so the pre-update copy did not count as this week's.
+    expect(takeAutomaticBackup(MONDAY)).toMatchObject({ created: null, skipped: 'not-due' });
+  });
+
+  it('replaces its own earlier attempt when an update stays pending across launches', () => {
+    // The updater re-offers a downloaded update every time the app opens, so the same version is
+    // copied again and again. Each attempt spending a slot would erase every earlier way back in
+    // three mornings — and the way back that matters is from the version actually installed.
+    addJob('Railing');
+    takePreUpdateBackup('0.24.0', new Date('2026-08-08T09:00:00+02:00'));
+    const first = takePreUpdateBackup('0.26.0', MONDAY);
+
+    addJob('Staircase');
+    const second = takePreUpdateBackup('0.26.0', new Date('2026-08-11T09:00:00+02:00'));
+
+    expect(second.removed).toEqual([first.created]);
+    expect(listPreUpdateBackups(backupsDir).map((backup) => backup.version)).toEqual([
+      '0.26.0',
+      '0.24.0',
+    ]);
+    // And it is the FRESHER one, so the work done between the two attempts is not lost by restoring.
+    const copy = new Database(path.join(backupsDir, second.created), { readonly: true });
+    expect(copy.prepare('SELECT COUNT(*) AS n FROM projects').get()).toEqual({ n: 2 });
+    copy.close();
+  });
+
+  it('never deletes the copy it has just taken, whatever the clock says', () => {
+    addJob('Railing');
+    for (const [day, version] of [
+      ['10', '0.26.0'],
+      ['11', '0.26.1'],
+      ['12', '0.26.2'],
+    ] as const) {
+      takePreUpdateBackup(version, new Date(`2026-08-${day}T09:00:00+02:00`));
+    }
+
+    const result = takePreUpdateBackup('0.27.0', new Date('2025-01-01T09:00:00+02:00'));
+
+    expect(fs.existsSync(path.join(backupsDir, result.created))).toBe(true);
+    expect(result.removed).not.toContain(result.created);
+    expect(listPreUpdateBackups(backupsDir)).toHaveLength(3);
+  });
+
+  it('refuses a version that could name a file somewhere else, and writes nothing', () => {
+    addJob('Railing');
+
+    expect(refusal(() => takePreUpdateBackup('../../calendar', MONDAY)).code).toBe(
+      'backup-version-invalid',
+    );
+    expect(fs.existsSync(backupsDir)).toBe(false);
+  });
+});
+
 describe('the list Settings shows', () => {
   it('names the folder and the copies, and hides files it does not own', () => {
     takeAutomaticBackup(MONDAY);
@@ -124,6 +241,17 @@ describe('the list Settings shows', () => {
 
     expect(list.directory).toBe(backupsDir);
     expect(list.backups.map((backup) => backup.name)).toEqual(['workwise-2026-08-10-0900.db']);
+  });
+
+  it('keeps the two series apart, so each row says what it is', () => {
+    addJob('Railing');
+    takeAutomaticBackup(MONDAY);
+    takePreUpdateBackup('0.26.0', A_WEEK_LATER);
+
+    const list = listBackups();
+
+    expect(list.backups.map((backup) => backup.name)).toEqual(['workwise-2026-08-10-0900.db']);
+    expect(list.preUpdate.map((backup) => backup.version)).toEqual(['0.26.0']);
   });
 });
 
@@ -176,6 +304,18 @@ describe('restoring', () => {
     addJob('Staircase');
 
     restoreBackup({ uploaded: fs.readFileSync(elsewhere) });
+
+    expect(jobNames()).toEqual(['Railing']);
+  });
+
+  it('brings the calendar back from a copy taken before an update', () => {
+    // Without this the row would render, the confirmation would open, and the restore would always
+    // be refused — a way back that only looks like one.
+    addJob('Railing');
+    const created = takePreUpdateBackup('0.26.0', MONDAY).created;
+    addJob('Staircase');
+
+    restoreBackup({ name: created });
 
     expect(jobNames()).toEqual(['Railing']);
   });

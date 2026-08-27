@@ -1804,17 +1804,22 @@ gesture.
   same folder survives a limit of three, and so does `workwise-before-restore.db`. Lowering the limit
   deletes nothing until the next copy is taken: saving a preference must not delete data.
 - **The refusals, all of which write nothing**: 400 `backup-not-a-database` when the file is not SQLite,
-  400 `backup-not-workwise` when it is a database but not this app's, and 404 `backup-not-found` for a
-  name that is not one of the automatic copies in the folder — which is also what a name reaching
-  outside it gets.
+  400 `backup-not-workwise` when it is a database but not this app's, 400 `backup-version-invalid`
+  when the shell asks for a copy under something that is not a version, and 404 `backup-not-found`
+  for a name that is neither an automatic copy nor a pre-update one in the folder — which is also
+  what a name reaching outside it gets.
 - **Restoring is ONE implementation** for both ways in, a name from the folder and a file from
   anywhere, so neither can be the less tested one. In order: recognise the file (SQLite header, then
   the tables), **migrate it** so a copy from an older version of the app is what a backup is for,
   keep the calendar being replaced as `workwise-before-restore.db`, then close, swap, delete the
   orphaned sidecars and reopen. Nothing is destroyed before the last step, and reopening clears
   `history` — an undo may not reach back into a calendar that no longer exists.
-- **A name is `basename`d and must match the automatic pattern**, so the folder cannot be used to read
-  an arbitrary file off the disk.
+- **A name is `basename`d and must match one of the two patterns the app itself writes**, so the
+  folder cannot be used to read an arbitrary file off the disk. Recognising the shape IS the defence:
+  `basename` leaves `..` intact, and only an anchored pattern refuses it.
+- **The screen shows the two series apart**, each with its own label and its own "none yet"
+  sentence — the weekly copies by day and hour, the pre-update ones by the version they precede.
+  Both restore through the one confirmation and the one implementation.
 - **The buttons.** *Save a copy* opens the browser's native save dialog (`showSaveFilePicker`,
   falling back to a download where it does not exist) — the server streams bytes and never learns
   where they went. The list of automatic copies is the primary way to restore; *load a copy from my
@@ -1829,6 +1834,38 @@ gesture.
   native dialog put the file where the owner chose, while the fallback put it in the browser's
   downloads folder. `showSaveFilePicker` exists only in a SECURE CONTEXT, so reaching the app by IP
   rather than by `localhost` always takes the fallback, and the message says so.
+
+### Updates
+> **An update installs itself, but never before a copy of the calendar has been taken, and never
+> without saying so.**
+
+- **It looks once, when the app opens**, at the published releases. A **draft release is invisible**
+  to it, so nothing reaches the shop until the owner publishes one — reading the notes stays a step.
+- **Failing to look changes nothing.** No network in the shop, nothing published yet, a release it
+  cannot read: the calendar opens exactly as it always does, and says nothing. The updater may fail;
+  the app may not.
+- **The download is checked before it is ever run**, against the SHA512 published beside it. A
+  truncated or altered file is discarded, so a half-installed app is not a state that exists.
+- **A copy is taken first, and it decides whether the update happens at all.** As soon as the
+  download lands — while the calendar is still the one the OLD version wrote —
+  `workwise-before-update-YYYY-MM-DD-HHmm-<version>.db` is written by the server that holds the
+  database. **If it cannot be written, nothing is installed**, the owner is told, and the next
+  opening tries again.
+- **It is taken even when the automatic copies are switched off.** That setting is about how much
+  sits in the folder, and an installed update cannot be undone, so switching them off is not a
+  decision to update without a way back.
+- **Three are kept, on their own count.** A week of releases cannot spend the weekly copies, and a
+  quiet month cannot spend these. Three *versions*: an update that has downloaded but not yet
+  installed is offered again at every opening, and each copy REPLACES the last attempt at the same
+  version rather than taking a slot, so the ways back from earlier versions survive the wait.
+- **The copy just taken is the newest whatever the clock says.** A machine that boots with a dead
+  clock names it in the past, and ordering by name alone would delete the copy it had just written.
+- **Only then does it ask**, naming the version: restart and install now, or install when the app is
+  next closed. Nothing installs while the calendar is on screen, and nothing installs unasked.
+- **The wording is the app's own**, read by the shell out of the same language files the screen uses,
+  in the language last chosen — so a sentence exists in exactly one place.
+- **Going back a version is by hand.** The calendar is safe either way, because the copy is in the
+  folder; the older release itself is installed from the releases page.
 
 ### Settings
 Work periods, auto-fill capacity, visual margins, planning horizon, gap colour, language.

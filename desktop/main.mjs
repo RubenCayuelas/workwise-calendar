@@ -2,10 +2,12 @@
 // `server.mjs`, which imports no Electron and can therefore be run from a plain Node process.
 
 import { app, BrowserWindow, Menu, dialog, shell } from 'electron';
+import electronUpdater from 'electron-updater';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startServer, stopServer } from './server.mjs';
+import { fill, watchForUpdates } from './updates.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -109,7 +111,82 @@ async function open() {
   } catch (error) {
     dialog.showErrorBox('Workwise', String(error instanceof Error ? error.message : error));
     app.quit();
+    return;
   }
+
+  // Never awaited: whether an update exists is not something the calendar waits on.
+  void startUpdates(window, server.origin, appDir);
+}
+
+/**
+ * The wording comes from the app's OWN language files, in the language last chosen — the shell reads
+ * the same bundle the screen does, so a sentence exists in exactly one place.
+ *
+ * The choice is not in the database: it lives in the window's `localStorage`, under the key
+ * `src/lib/i18n.ts` writes. Changing the key there has to be changed here too.
+ */
+async function readWording(window, appDir) {
+  const chosen = await window.webContents
+    .executeJavaScript("window.localStorage.getItem('workwise.language')")
+    .catch(() => null);
+  const language = chosen === 'en' ? 'en' : 'es';
+  const bundle = path.join(appDir, 'public', 'locales', language, 'common.json');
+  return JSON.parse(fs.readFileSync(bundle, 'utf8')).updates;
+}
+
+/**
+ * The updater, wired to the four things only Electron can do. Everything it decides is in
+ * `updates.mjs`, which imports neither Electron nor the updater and is therefore under `npm test`.
+ *
+ * `better-sqlite3` is built for the bundled `node.exe`, not for Electron's ABI, so the shell cannot
+ * copy the calendar itself: it asks the server that already holds it, and installs nothing unless
+ * that answers.
+ */
+async function startUpdates(window, origin, appDir) {
+  if (!app.isPackaged) return;
+
+  let words;
+  try {
+    words = await readWording(window, appDir);
+  } catch (error) {
+    // With nothing to say to the owner there is no way to offer an update, so none is offered.
+    console.error('the update wording could not be read', error);
+    return;
+  }
+
+  const box = (type, title, body, version, buttons) =>
+    dialog.showMessageBox(window, {
+      type,
+      title,
+      message: title,
+      detail: fill(body, { version }),
+      ...(buttons === undefined ? {} : { buttons, defaultId: 1, cancelId: 1 }),
+    });
+
+  await watchForUpdates({
+    // Destructured here rather than at the top of the file: reading it builds a platform updater,
+    // which needs Electron and a valid semver version, and dev must not pay for either.
+    updater: electronUpdater.autoUpdater,
+    backUp: async (version) => {
+      const response = await fetch(`${origin}/api/backups/before-update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version }),
+      });
+      if (!response.ok) throw new Error(`the calendar was not copied (${response.status})`);
+    },
+    ask: async (version) => {
+      const { response } = await box('info', words.readyTitle, words.readyBody, version, [
+        words.restartNow,
+        words.onClose,
+      ]);
+      return response === 0 ? 'now' : 'later';
+    },
+    warn: (version) =>
+      box('warning', words.backupFailedTitle, words.backupFailedBody, version),
+    whenQuitting: (install) => app.once('quit', install),
+    log: (message, error) => console.error(`[workwise] ${message}`, error),
+  });
 }
 
 app.whenReady().then(() => {

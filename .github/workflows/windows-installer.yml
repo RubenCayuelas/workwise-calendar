@@ -11,7 +11,17 @@ permissions:
   contents: write
 
 jobs:
+  # A tag can be pushed from any commit, and what this build produces installs itself on the shop PC
+  # without anyone downloading it — so the gates run here too, not only on the pull request.
+  #
+  # As their own job, on Linux, and NOT as steps below: a multi-line `run:` on `windows-latest` goes
+  # to pwsh, which does not stop at a native command's non-zero exit and reports only the LAST one.
+  # Three gates in one such step means two of them cannot fail the build.
+  gates:
+    uses: ./.github/workflows/gates.yml
+
   installer:
+    needs: gates
     runs-on: windows-latest
 
     steps:
@@ -44,8 +54,11 @@ jobs:
       - name: Build the app
         run: npm run build
 
+      # `shell: bash` because this is a multi-line `run:`, and pwsh would carry on past a failing
+      # `npm ci` and report only what `npm run dist` did.
       - name: Build the installer
         working-directory: desktop
+        shell: bash
         run: |
           npm ci
           npm run dist
@@ -60,12 +73,21 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: workwise-windows-installer
-          path: desktop/dist/*.exe
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.exe.blockmap
+            desktop/dist/latest.yml
           if-no-files-found: error
 
+      # `latest.yml` is what an installed copy reads to learn a release exists — without it on the
+      # release every check fails. The `.blockmap` is what makes the next update download only what
+      # changed instead of the whole installer.
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
           generate_release_notes: true
           name: Workwise ${{ github.ref_name }}
-          files: desktop/dist/*.exe
+          files: |
+            desktop/dist/*.exe
+            desktop/dist/*.exe.blockmap
+            desktop/dist/latest.yml

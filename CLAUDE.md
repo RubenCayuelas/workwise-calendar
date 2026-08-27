@@ -68,7 +68,8 @@ back, will be reported as a defect.
   stays on 18.
 - **It ships as a Windows application**: an Electron 43 window around the app's own standalone server,
   which runs on a **`node.exe` bundled in the package**. `src/` and `app/` know nothing about it — see
-  `desktop/README.md` for the three traps that cost a build each.
+  `desktop/README.md` for the three traps that cost a build each. **It updates itself** from the
+  published releases, and takes a copy of the calendar before it will install one.
 - Priority: **simplicity over optimization**. No multi-user, no auth, no subscriptions.
 - Code in English, UI in Spanish, i18n-ready.
 
@@ -84,7 +85,9 @@ back, will be reported as a defect.
 
 **All four gates must pass before a commit**: `tsc`, `vitest`, `eslint`, `next build`. Node **22
 exactly** — `scripts/require-node-22.mjs` refuses anything else, because `better-sqlite3` publishes no
-prebuilt binary for other ABIs and npm would fall through to a compiler.
+prebuilt binary for other ABIs and npm would fall through to a compiler. CI runs the same four on every
+pull request, whatever branch it targets (`.github/workflows/gates.yml`), and again on the tag that
+builds the installer.
 
 ## Branches, versions and releases
 
@@ -114,6 +117,7 @@ Read the section first. These are the ones most often broken by a plausible-look
 | Settings | SPEC § *Settings*, § *The Capacity Is Never Touched Alone* |
 | undo/redo | SPEC § *A Settings Save Empties the Line*, § *What Ctrl+Z Is Not* |
 | backups | SPEC § *Backups* |
+| updating, the installer, a release | SPEC § *Updates*, and `desktop/README.md` |
 
 **Several rules were decided against an obvious-looking alternative that had already been tried and
 failed for a recorded reason.** DECISIONS.md is where that reason is. Overruling a rule without reading
