@@ -94,6 +94,7 @@ export const ERROR_MESSAGE_KEYS = {
   backupNotFound: 'errors.backupNotFound',
   backupNotADatabase: 'errors.backupNotADatabase',
   backupNotWorkwise: 'errors.backupNotWorkwise',
+  backupVersionInvalid: 'errors.backupVersionInvalid',
   invalidPayload: 'errors.invalidPayload',
   invalidName: 'errors.invalidName',
   invalidDescription: 'errors.invalidDescription',

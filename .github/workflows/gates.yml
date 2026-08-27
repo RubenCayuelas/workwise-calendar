@@ -1,0 +1,33 @@
+name: Gates
+
+# The four checks that must pass before a commit, run before ANY merge into ANY branch: no `branches`
+# filter, so a pull request is checked whatever it is aimed at — a feature branch, `dev`, or `main`.
+# Nothing reaches a branch through a pull request without them.
+#
+# They run again in `windows-installer.yml`, deliberately. A tag can be pushed from any commit, and
+# what that build produces installs itself on the shop PC without anyone downloading it.
+on:
+  pull_request:
+  # Called by `windows-installer.yml`, so a tagged build runs the same four from one definition.
+  workflow_call:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22 exactly: `better-sqlite3` publishes no prebuilt binary for other ABIs, and
+      # `scripts/require-node-22.mjs` refuses the install rather than falling through to a compiler.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build

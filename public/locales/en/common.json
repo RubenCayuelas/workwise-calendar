@@ -373,12 +373,16 @@
     "backupsKeptHint": "Taking a new copy deletes the oldest until this many remain. It only ever deletes automatic copies: one you saved yourself is left alone.",
     "backupsList": "Automatic copies",
     "backupsListEmpty": "None yet. The first is taken next time the app opens.",
+    "backupsBeforeUpdate": "Copies taken before an update",
+    "backupsBeforeUpdateEmpty": "None yet. One is taken right before each update installs.",
+    "backupsBeforeUpdateVersion": "Before {{version}}",
     "backupsSave": "Save a copy",
     "backupsLoad": "Load a copy from my PC",
     "backupsRestore": "Restore",
     "backupsRestoreTitle": "Restore this copy?",
     "backupsRestoreBody": "The calendar as it is now is replaced by the copy from {{date}} at {{time}}. A copy of the current one is taken first, so this can be undone.",
     "backupsRestoreFileBody": "The calendar as it is now is replaced by the one in “{{file}}”. A copy of the current one is taken first, so this can be undone.",
+    "backupsRestoreUpdateBody": "The calendar as it is now is replaced by the copy from {{date}} at {{time}}, taken right before {{version}} installed. A copy of the current one is taken first, so this can be undone.",
     "backupsRestoreConfirm": "Restore",
     "backupSaved": "Copy saved as “{{file}}” in the chosen location.",
     "backupDownloaded": "Copy downloaded as “{{file}}” to the browser’s downloads folder. Open the app on “localhost” to be able to choose a location.",
@@ -479,6 +483,14 @@
     "growTitle": "Add those {{hours}} h to the job?",
     "growBody": "«{{name}}» has nowhere to take them from: its other blocks are locked, on the weekend, already past, or do not hold that much. Lengthening it here makes the job bigger."
   },
+  "updates": {
+    "readyTitle": "Update ready",
+    "readyBody": "Workwise {{version}} has been downloaded. A copy of the calendar was saved before installing it.",
+    "restartNow": "Restart now",
+    "onClose": "When I close it",
+    "backupFailedTitle": "The update was not installed",
+    "backupFailedBody": "Workwise {{version}} has been downloaded, but a copy of the calendar could not be saved before installing it, so nothing was installed. It will be tried again next time you open the app."
+  },
   "errors": {
     "horizonExceeded": "The hours do not fit inside the planning horizon. Widen the horizon in Settings or reduce the hours.",
     "horizonExceededUntil": "The hours do not fit before {{date}}, the end of the planning horizon. Widen the horizon in Settings or reduce the hours. Nothing was saved.",
@@ -534,6 +546,7 @@
     "title": "Could not be completed",
     "backupNotFound": "That copy is no longer in the folder. Nothing was changed.",
     "backupNotADatabase": "That file is not a database. Choose the .db of a Workwise copy. Nothing was changed.",
-    "backupNotWorkwise": "That file is a database, but not a Workwise one. Nothing was changed."
+    "backupNotWorkwise": "That file is a database, but not a Workwise one. Nothing was changed.",
+    "backupVersionInvalid": "The copy before the update could not be taken: that is not a valid version number. Nothing was installed."
   }
 }
