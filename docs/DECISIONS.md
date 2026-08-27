@@ -746,6 +746,52 @@ installer carried the shop's own calendar. `desktop/verify-package.mjs` fails th
 
 ---
 
+## An Update Waits For Its Copy
+
+**Rule** — SPEC § *Updates*. The app looks for a published release when it opens and downloads it in the
+background, but it installs nothing until a copy of the calendar has been written, and nothing at all until the
+owner has chosen the moment. Three of those copies are kept, on a count of their own, and they are listed and
+restored like any other.
+
+**Why the copy is what decides** — `autoInstallOnAppQuit` defaults to TRUE, and the library's own installer runs
+synchronously inside `quit`, where an awaited `VACUUM INTO` cannot veto anything: left alone, an update installs
+with no copy at all. It is switched off and `quitAndInstall` is driven by hand, only after the copy resolves. What
+this covers is a migration in the arriving version rewriting the calendar unattended — and the weekly copy can be
+six days stale at exactly that moment.
+
+**Why the shell asks the server for the copy** — `better-sqlite3` is built for the bundled `node.exe`, not for
+Electron's ABI, so the window cannot open the database at all; and a copy is `VACUUM INTO`, never a file copy. The
+shell POSTs to the server that already holds the handle and reads anything but a 200 as a refusal to update.
+
+**Why three, and counted apart from the weekly ones** — a bad release is both the moment the copy is wanted and
+the moment more releases follow within hours, so one shared count would spend them precisely when they matter.
+The version is not what orders them: `0.9.0` follows `0.26.0` alphabetically while preceding it in time, so the
+stamp comes first in the name and the rotation reads recency off the sorted name, as the weekly one does.
+
+**Why these copies are listed and `workwise-before-restore.db` is not** — a restore is something the owner just
+did and can remember. An update installs itself, possibly twice more before anything looks wrong, and a way back
+nobody can see is not one.
+
+**Three traps in the copy itself, each of which destroyed a way back** — a downloaded update that has not
+installed is re-offered at EVERY opening, so one version is copied over and over; each copy replaces its own
+earlier attempt rather than taking a slot, or three mornings of a shutdown that never installs would erase
+every copy from before the version now running. The rotation is told which copy was just written, because a
+machine that boots with a dead clock names it in the past and ordering by name alone deletes it while still
+reporting it written. And the download the check starts is a SEPARATE promise that rethrows: dropped, a lost
+connection or a checksum mismatch reaches the main process as a fatal unhandled rejection and takes the
+calendar down — the one thing an updater must never do.
+
+**Why the artifact name carries no spaces** — GitHub rewrites a space in an uploaded asset to a dot, while
+electron-builder writes the hyphenated form into `latest.yml`. The two disagreed, every check passed, and every
+download would have been a 404. `artifactName` is fixed so the file on disk, the name in `latest.yml` and the
+asset all read the same.
+
+**Rejected** — a GitHub token inside the installed `.exe`, which is what a private repository needs. It expires,
+and the day it does the app stops finding updates in silence; the repair is a hand-carried build, which is the
+one thing this exists to remove. The repository is public instead, and the app carries no credential.
+
+---
+
 ## Next 16
 
 **Rule** — the app runs on Next 16 with Turbopack, React stays on 18, and the lint gate is the ESLint CLI.

@@ -10,8 +10,14 @@ import {
   backupsDirOf,
   inspectBackupFile,
   isAutomaticBackup,
+  isNameableVersion,
+  isPreUpdateBackup,
+  isRestorableName,
   listAutomaticBackups,
+  listPreUpdateBackups,
+  preUpdateBackupName,
   rotateBackups,
+  rotatePreUpdateBackups,
   writeBackup,
 } from './backups';
 import { closeDb, openDatabase } from './db';
@@ -35,7 +41,11 @@ function at(local: string): Date {
 
 describe('where the copies live', () => {
   it('puts them beside the database, not beside the program', () => {
-    expect(backupsDirOf('/opt/workwise/data/calendar.db')).toBe('/opt/workwise/data/backups');
+    // Built from `path`, not written out: `path.resolve` gives a POSIX literal a drive letter on
+    // Windows, and the release build runs this suite there.
+    const data = path.join(os.tmpdir(), 'workwise', 'data');
+
+    expect(backupsDirOf(path.join(data, 'calendar.db'))).toBe(path.join(data, 'backups'));
     expect(backupsDirOf('C:/Users/x/AppData/Workwise/calendar.db')).toContain('backups');
   });
 });
@@ -52,6 +62,41 @@ describe('naming', () => {
     expect(isAutomaticBackup(BEFORE_RESTORE_NAME)).toBe(false);
     expect(isAutomaticBackup('workwise-2026-08-21.db')).toBe(false);
     expect(isAutomaticBackup('workwise-2026-08-21-1305.db.bak')).toBe(false);
+  });
+
+  it('stamps the version beside the date, so a copy says which update it precedes', () => {
+    expect(preUpdateBackupName(at('2026-08-27T14:30:00'), '0.26.0')).toBe(
+      'workwise-before-update-2026-08-27-1430-0.26.0.db',
+    );
+  });
+
+  it('keeps the three kinds of name apart, so no rotation can reach another kind', () => {
+    const beforeUpdate = 'workwise-before-update-2026-08-27-1430-0.26.0.db';
+
+    expect(isPreUpdateBackup(beforeUpdate)).toBe(true);
+    expect(isAutomaticBackup(beforeUpdate)).toBe(false);
+    expect(isPreUpdateBackup('workwise-2026-08-21-1305.db')).toBe(false);
+    expect(isPreUpdateBackup(BEFORE_RESTORE_NAME)).toBe(false);
+    expect(isPreUpdateBackup('workwise-before-update-0.26.0.db')).toBe(false);
+  });
+});
+
+describe('the version a copy is named for', () => {
+  it('takes what a release can actually be called', () => {
+    for (const version of ['0.26.0', '1.0.0-rc.1', '0.26.0+build.7']) {
+      expect(isNameableVersion(version)).toBe(true);
+    }
+  });
+
+  it('refuses anything that could name a file somewhere else', () => {
+    // It arrives over HTTP from the shell, so it reaches a filename as untrusted text.
+    for (const version of ['../../etc/passwd', '0.26.0/x', '0.26.0\\x', '', 'a b']) {
+      expect(isNameableVersion(version)).toBe(false);
+    }
+  });
+
+  it('cannot be smuggled through the name builder either', () => {
+    expect(() => preUpdateBackupName(at('2026-08-27T14:30:00'), '../escape')).toThrow();
   });
 });
 
@@ -151,23 +196,118 @@ describe('rotation', () => {
     ]);
   });
 
-  it('never touches a copy saved by hand, nor the pre-restore one', () => {
+  it('never touches a copy saved by hand, the pre-restore one, nor a pre-update one', () => {
     const dir = scratch();
+    const beforeUpdate = 'workwise-before-update-2026-08-27-1430-0.26.0.db';
     fs.writeFileSync(path.join(dir, 'workwise-2026-08-01-0900.db'), 'x');
     fs.writeFileSync(path.join(dir, 'before the holidays.db'), 'x');
     fs.writeFileSync(path.join(dir, BEFORE_RESTORE_NAME), 'x');
+    fs.writeFileSync(path.join(dir, beforeUpdate), 'x');
 
     rotateBackups(dir, 0);
 
     expect(fs.existsSync(path.join(dir, 'workwise-2026-08-01-0900.db'))).toBe(false);
     expect(fs.existsSync(path.join(dir, 'before the holidays.db'))).toBe(true);
     expect(fs.existsSync(path.join(dir, BEFORE_RESTORE_NAME))).toBe(true);
+    expect(fs.existsSync(path.join(dir, beforeUpdate))).toBe(true);
   });
 
   it('deletes nothing when there is room', () => {
     const dir = scratch();
     fs.writeFileSync(path.join(dir, 'workwise-2026-08-01-0900.db'), 'x');
     expect(rotateBackups(dir, 3)).toEqual([]);
+  });
+});
+
+describe('the copies taken before an update', () => {
+  const NAMES = [
+    'workwise-before-update-2026-06-02-0800-0.24.0.db',
+    'workwise-before-update-2026-08-27-1430-0.26.0.db',
+    'workwise-before-update-2026-07-15-1100-0.25.0.db',
+  ];
+
+  it('reads newest first and carries the version each one precedes', () => {
+    const dir = scratch();
+    for (const name of [...NAMES, 'workwise-2026-08-21-1305.db', BEFORE_RESTORE_NAME, 'notes.txt']) {
+      fs.writeFileSync(path.join(dir, name), 'x');
+    }
+
+    expect(listPreUpdateBackups(dir).map((backup) => backup.name)).toEqual([
+      'workwise-before-update-2026-08-27-1430-0.26.0.db',
+      'workwise-before-update-2026-07-15-1100-0.25.0.db',
+      'workwise-before-update-2026-06-02-0800-0.24.0.db',
+    ]);
+    expect(listPreUpdateBackups(dir)[0]).toMatchObject({
+      date: '2026-08-27',
+      time: '14:30',
+      version: '0.26.0',
+      bytes: 1,
+    });
+  });
+
+  it('orders by the stamp and not by the version, which does not sort', () => {
+    const dir = scratch();
+    // 0.9.0 is NEWER than 0.10.0, and sorting the version text alone would reverse them.
+    fs.writeFileSync(path.join(dir, 'workwise-before-update-2026-08-01-0900-0.10.0.db'), 'x');
+    fs.writeFileSync(path.join(dir, 'workwise-before-update-2026-08-20-0900-0.9.0.db'), 'x');
+
+    expect(listPreUpdateBackups(dir).map((backup) => backup.version)).toEqual(['0.9.0', '0.10.0']);
+  });
+
+  it('reads an absent folder as no copies rather than throwing', () => {
+    expect(listPreUpdateBackups(path.join(scratch(), 'nope'))).toEqual([]);
+  });
+
+  it('rotates on its own count, so a busy week of releases cannot empty the weekly copies', () => {
+    const dir = scratch();
+    for (const name of [...NAMES, 'workwise-2026-08-21-1305.db']) {
+      fs.writeFileSync(path.join(dir, name), 'x');
+    }
+
+    expect(rotatePreUpdateBackups(dir, 2)).toEqual([
+      'workwise-before-update-2026-06-02-0800-0.24.0.db',
+    ]);
+    expect(listPreUpdateBackups(dir)).toHaveLength(2);
+    expect(listAutomaticBackups(dir)).toHaveLength(1);
+  });
+
+  it('never touches a copy saved by hand, nor the pre-restore one', () => {
+    const dir = scratch();
+    for (const name of [...NAMES, 'before the holidays.db', BEFORE_RESTORE_NAME]) {
+      fs.writeFileSync(path.join(dir, name), 'x');
+    }
+
+    rotatePreUpdateBackups(dir, 0);
+
+    expect(fs.existsSync(path.join(dir, 'before the holidays.db'))).toBe(true);
+    expect(fs.existsSync(path.join(dir, BEFORE_RESTORE_NAME))).toBe(true);
+    expect(listPreUpdateBackups(dir)).toEqual([]);
+  });
+
+  it('counts the copy just written as the newest, whatever the clock said', () => {
+    // A shop PC with a dead battery boots in the past. Ordered by name alone the new copy is the
+    // oldest of the four, and the rotation would delete the very one it had just been given.
+    const dir = scratch();
+    const justWritten = 'workwise-before-update-2025-01-01-0900-0.27.0.db';
+    for (const name of [...NAMES, justWritten]) fs.writeFileSync(path.join(dir, name), 'x');
+
+    const removed = rotatePreUpdateBackups(dir, 3, justWritten);
+
+    expect(removed).toEqual(['workwise-before-update-2026-06-02-0800-0.24.0.db']);
+    expect(fs.existsSync(path.join(dir, justWritten))).toBe(true);
+  });
+});
+
+describe('which names a restore may be asked for', () => {
+  it('takes both kinds the app writes, and nothing else', () => {
+    expect(isRestorableName('workwise-2026-08-21-1305.db')).toBe(true);
+    expect(isRestorableName('workwise-before-update-2026-08-27-1430-0.26.0.db')).toBe(true);
+
+    // The traversal defence is the shape check: `basename` alone leaves `..` intact.
+    for (const name of ['../calendar.db', '../../etc/passwd', 'calendar.db', '..']) {
+      expect(isRestorableName(name)).toBe(false);
+    }
+    expect(isRestorableName('before the holidays.db')).toBe(false);
   });
 });
 

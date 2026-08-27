@@ -21,8 +21,9 @@ import {
 } from '../../lib/api-client';
 import { instantToLocalStamp } from '../../lib/dates';
 import { useFormat } from '../../lib/useFormat';
-import type { StoredBackup } from '../../lib/backups';
+import type { StoredBackup, StoredPreUpdateBackup } from '../../lib/backups';
 import type { Settings } from '../../types';
+import { restoreDescription, type PendingRestore } from './restoreDescription';
 import {
   BACKUPS_KEPT_MAX,
   BACKUPS_KEPT_MIN,
@@ -40,9 +41,6 @@ interface BackupsSectionProps {
 /** Survives the reload a restore triggers, so its confirmation is not lost with the page. */
 const RESTORED_KEY = 'workwise.backupRestored';
 
-/** What the confirmation is about: one of the kept copies, or a file the owner just chose. */
-type PendingRestore = { kind: 'stored'; backup: StoredBackup } | { kind: 'file'; file: File };
-
 export function BackupsSection({
   draft,
   patchDraft,
@@ -54,6 +52,7 @@ export function BackupsSection({
 
   const [directory, setDirectory] = useState('');
   const [backups, setBackups] = useState<StoredBackup[]>([]);
+  const [preUpdate, setPreUpdate] = useState<StoredPreUpdateBackup[]>([]);
   const [pending, setPending] = useState<PendingRestore | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(undefined);
@@ -65,6 +64,7 @@ export function BackupsSection({
       const list = await listBackups({ signal });
       setDirectory(list.directory);
       setBackups(list.backups);
+      setPreUpdate(list.preUpdate);
     } catch (error) {
       if (!isAbortError(error)) setFailure(error);
     }
@@ -118,9 +118,9 @@ export function BackupsSection({
       setFailure(undefined);
       try {
         const result =
-          request.kind === 'stored'
-            ? await restoreBackupByName(request.backup.name)
-            : await restoreBackupFile(request.file);
+          request.kind === 'file'
+            ? await restoreBackupFile(request.file)
+            : await restoreBackupByName(request.backup.name);
         setPending(undefined);
         // Handed across the reload: a toast raised here would be destroyed by it, which is the same
         // silence the save had.
@@ -136,6 +136,11 @@ export function BackupsSection({
     },
     [],
   );
+
+  const confirmation =
+    pending === undefined
+      ? undefined
+      : restoreDescription(pending, (date) => format.longDate(date));
 
   return (
     <section className={`ww-card ${styles.section}`}>
@@ -212,6 +217,34 @@ export function BackupsSection({
           )}
         </div>
 
+        <div className={styles.row}>
+          <span className="ww-small ww-muted">{t('settings.backupsBeforeUpdate')}</span>
+          {preUpdate.length === 0 ? (
+            <p className={styles.note}>{t('settings.backupsBeforeUpdateEmpty')}</p>
+          ) : (
+            <ul className={styles.backupList}>
+              {preUpdate.map((backup) => (
+                <li key={backup.name} className={styles.backupRow}>
+                  <span className="ww-tabular">
+                    {format.mediumDate(backup.date)} · {backup.time}
+                  </span>
+                  <span className="ww-small ww-muted">
+                    {t('settings.backupsBeforeUpdateVersion', { version: backup.version })}
+                  </span>
+                  <span className="ww-spacer" />
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => setPending({ kind: 'preUpdate', backup })}
+                  >
+                    {t('settings.backupsRestore')}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         {outcome === undefined ? null : (
           <InlineBanner tone="success" onDismiss={() => setOutcome(undefined)}>
             {outcome}
@@ -269,16 +302,7 @@ export function BackupsSection({
         onConfirm={() => {
           if (pending !== undefined) void restore(pending);
         }}
-        description={
-          pending === undefined
-            ? undefined
-            : pending.kind === 'stored'
-              ? t('settings.backupsRestoreBody', {
-                  date: format.longDate(pending.backup.date),
-                  time: pending.backup.time,
-                })
-              : t('settings.backupsRestoreFileBody', { file: pending.file.name })
-        }
+        description={confirmation === undefined ? undefined : t(confirmation.key, confirmation.values)}
       />
     </section>
   );

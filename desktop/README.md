@@ -74,15 +74,48 @@ git tag v0.20.0
 git push origin v0.20.0
 ```
 
-`.github/workflows/windows-installer.yml` builds on a clean `windows-latest` with Node 22 pinned, takes
-the version **from the tag** so the installer can never claim a number the release does not, verifies
-the package, and leaves a **draft** release with GitHub's generated notes and the `.exe` attached. Read
-the notes, then publish. Nothing happens on an ordinary push.
+`.github/workflows/windows-installer.yml` builds on a clean `windows-latest` with Node 22 pinned, runs
+the four gates, takes the version **from the tag** so the installer can never claim a number the release
+does not, verifies the package, and leaves a **draft** release with GitHub's generated notes and the
+`.exe`, its `.blockmap` and `latest.yml` attached. Read the notes, then publish. Nothing happens on an
+ordinary push.
+
+**Publishing the draft is what hands the update to the shop.** A draft is invisible to an installed
+copy, which is the gate: until the button is pressed, nothing anywhere sees the release.
 
 `npm run verify` runs the same check locally against `dist/*-unpacked`.
 
 > A `.exe` downloaded from the release carries the mark Windows puts on files from the internet, so
-> SmartScreen warns. Copying it to a USB stick and installing from there does not.
+> SmartScreen warns. Copying it to a USB stick and installing from there does not — and neither does
+> an update the app fetches itself, because that mark is applied by the browser, not by HTTP.
+
+## Updating itself
+
+An installed copy checks the published releases when it opens, downloads a newer one in the background,
+takes a copy of the calendar, and only then asks whether to restart now or install on the next close.
+What it decides lives in `updates.mjs`, which imports neither Electron nor the updater and is therefore
+covered by the repository's own `npm test`; `main.mjs` supplies the four things only Electron can do.
+
+Four pieces have to agree, and three of them fail silently:
+
+- **`dependencies`, not `files`, is what packages `electron-updater`.** electron-builder collects
+  production modules through `npm list --omit dev`, a mechanism the `files` allowlist does not gate —
+  positive patterns there are ignored for `node_modules` entirely. A new **source** file, though, must
+  be added to `files` or it is left out of the archive.
+- **`build.publish` must name `owner` and `repo` explicitly.** Auto-detection reads `.git/config` in
+  the package directory, and this one has no `.git`. Without it, `resources/app-update.yml` is written
+  with no provider in it and the app can never find a release.
+- **`artifactName` may not contain a space.** GitHub turns a space in an uploaded asset into a dot,
+  while `latest.yml` carries the hyphenated form; the two disagree, every check passes, and every
+  download is a 404.
+- **`--publish never` is required on the build.** electron-builder infers `publish: onTag` from the
+  tag CI is running on, and would then either demand a token or create a second, competing release.
+
+`verify-package.mjs` now fails the build on the first three by opening `app.asar` — plain `fs` cannot
+see inside one, so it goes through `@electron/asar`.
+
+> The first update after a hand-installed build downloads the whole installer. The differential
+> download needs the previous installer in the updater's cache, which only a previous update puts there.
 
 ## What the installer does
 
@@ -90,8 +123,9 @@ One-click, **per user**: installs into `%LOCALAPPDATA%`, never asks for administ
 desktop and Start Menu shortcut. Windows registers an uninstaller in *Apps & features* on its own.
 
 **Uninstalling keeps the data.** `deleteAppDataOnUninstall` is off, so `%APPDATA%\Workwise` — the
-database *and* the backups folder — survives both an uninstall and an update. That one file is the
-workshop's calendar; removing it has to be a deliberate act.
+database *and* the backups folder — survives both an uninstall and an update. The installer only ever
+writes under `%LOCALAPPDATA%\Programs`, a different tree entirely. That one file is the workshop's
+calendar; removing it has to be a deliberate act.
 
 It is **not code-signed**, so Windows shows "Windows protected your PC" the first time. Handing the
 installer over on a USB stick avoids it entirely: the warning comes from the mark Windows puts on files
@@ -107,7 +141,8 @@ a glance after a Next upgrade: a payload that grows by the size of a database is
 
 ## Moving an existing calendar onto a new machine
 
-No extra tooling: *Guardar copia* in Settings, then *Cargar copia desde mi PC* on the new install.
+No extra tooling: save a copy from the backups block of the settings screen, then load it from disk on
+the new install.
 
 ## What is verified, and what only Windows can prove
 

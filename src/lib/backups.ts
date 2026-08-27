@@ -30,6 +30,19 @@ export const BEFORE_RESTORE_NAME = 'workwise-before-restore.db';
 
 const AUTOMATIC_PATTERN = /^workwise-(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})\.db$/;
 
+/**
+ * The copies taken immediately before an update installs, one per update. The STAMP COMES FIRST, as
+ * in an automatic name, because the rotation reads recency off the sorted name — a version does not
+ * sort: `0.9.0` follows `0.26.0` alphabetically while preceding it in time.
+ */
+const PRE_UPDATE_PATTERN =
+  /^workwise-before-update-(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})-([0-9A-Za-z.+-]+)\.db$/;
+
+const NAMEABLE_VERSION = /^[0-9A-Za-z.+-]+$/;
+
+/** How many pre-update copies survive. Deliberately not a setting: one more state to explain. */
+export const PRE_UPDATE_BACKUPS_KEPT = 3;
+
 export function automaticBackupName(at: Date): string {
   return `workwise-${instantToLocalStamp(at)}.db`;
 }
@@ -42,6 +55,31 @@ export function isAutomaticBackup(name: string): boolean {
   return AUTOMATIC_PATTERN.test(name);
 }
 
+/**
+ * A version reaches a filename as untrusted text — it arrives over HTTP from the desktop shell — so
+ * anything that could name a file elsewhere is refused before it is ever joined to a path.
+ */
+export function isNameableVersion(version: string): boolean {
+  return NAMEABLE_VERSION.test(version);
+}
+
+export function preUpdateBackupName(at: Date, version: string): string {
+  if (!isNameableVersion(version)) throw new RangeError(`Not a version: ${version}`);
+  return `workwise-before-update-${instantToLocalStamp(at)}-${version}.db`;
+}
+
+export function isPreUpdateBackup(name: string): boolean {
+  return PRE_UPDATE_PATTERN.test(name);
+}
+
+/**
+ * Whether a restore may be asked for this name. Recognising the shape IS the defence: `basename`
+ * leaves `..` intact, so only an anchored pattern keeps the folder from reading the rest of the disk.
+ */
+export function isRestorableName(name: string): boolean {
+  return isAutomaticBackup(name) || isPreUpdateBackup(name);
+}
+
 export interface StoredBackup {
   name: string;
   /** Local date of the copy, `YYYY-MM-DD`, read from the NAME and not from the filesystem. */
@@ -51,11 +89,19 @@ export interface StoredBackup {
   bytes: number;
 }
 
+export interface StoredPreUpdateBackup extends StoredBackup {
+  /** The version this copy precedes, so a row says which update it is the way back from. */
+  version: string;
+}
+
 /**
- * The automatic copies, newest first. Ordered by NAME: it sorts chronologically by construction, and
- * a modification time is whatever the last thing to touch the file left behind.
+ * Newest first, ordered by NAME: it sorts chronologically by construction, and a modification time is
+ * whatever the last thing to touch the file left behind.
  */
-export function listAutomaticBackups(dir: string): StoredBackup[] {
+function listNamed(
+  dir: string,
+  pattern: RegExp,
+): Array<{ name: string; match: RegExpExecArray; bytes: number }> {
   let names: string[];
   try {
     names = fs.readdirSync(dir);
@@ -64,13 +110,28 @@ export function listAutomaticBackups(dir: string): StoredBackup[] {
   }
 
   return names
-    .filter(isAutomaticBackup)
+    .filter((name) => pattern.test(name))
     .sort()
     .reverse()
-    .map((name) => {
-      const [, date, hour, minute] = AUTOMATIC_PATTERN.exec(name) as RegExpExecArray;
-      return { name, date, time: `${hour}:${minute}`, bytes: fs.statSync(path.join(dir, name)).size };
-    });
+    .map((name) => ({
+      name,
+      match: pattern.exec(name) as RegExpExecArray,
+      bytes: fs.statSync(path.join(dir, name)).size,
+    }));
+}
+
+export function listAutomaticBackups(dir: string): StoredBackup[] {
+  return listNamed(dir, AUTOMATIC_PATTERN).map(({ name, match, bytes }) => {
+    const [, date, hour, minute] = match;
+    return { name, date, time: `${hour}:${minute}`, bytes };
+  });
+}
+
+export function listPreUpdateBackups(dir: string): StoredPreUpdateBackup[] {
+  return listNamed(dir, PRE_UPDATE_PATTERN).map(({ name, match, bytes }) => {
+    const [, date, hour, minute, version] = match;
+    return { name, date, time: `${hour}:${minute}`, bytes, version };
+  });
 }
 
 /**
@@ -98,11 +159,35 @@ function minutesOfStamp(stamp: string): number {
   return days * 24 * 60 + Number(clock.slice(0, 2)) * 60 + Number(clock.slice(2));
 }
 
-/** Deletes the oldest automatic copies until `keep` remain. Returns the names it removed. */
-export function rotateBackups(dir: string, keep: number): string[] {
-  const stale = listAutomaticBackups(dir).slice(Math.max(keep, 0));
+function rotateNamed(dir: string, keep: number, listed: StoredBackup[]): string[] {
+  const stale = listed.slice(Math.max(keep, 0));
   for (const backup of stale) fs.rmSync(path.join(dir, backup.name), { force: true });
   return stale.map((backup) => backup.name);
+}
+
+/** Deletes the oldest automatic copies until `keep` remain. Returns the names it removed. */
+export function rotateBackups(dir: string, keep: number): string[] {
+  return rotateNamed(dir, keep, listAutomaticBackups(dir));
+}
+
+/**
+ * The pre-update series counts on its own, so a week of releases cannot spend the weekly copies and a
+ * long quiet spell cannot spend these.
+ *
+ * `newest` is the copy just written, and it is treated as the most recent whatever its stamp says: a
+ * shop PC that boots with a dead clock names it in the past, where ordering by name alone would sort
+ * it last and delete the very copy it had just been given.
+ */
+export function rotatePreUpdateBackups(dir: string, keep: number, newest?: string): string[] {
+  const listed = listPreUpdateBackups(dir);
+  const ordered =
+    newest === undefined
+      ? listed
+      : [
+          ...listed.filter((backup) => backup.name === newest),
+          ...listed.filter((backup) => backup.name !== newest),
+        ];
+  return rotateNamed(dir, keep, ordered);
 }
 
 /** Every table a Workwise database has to have for a restore to be worth attempting. */

@@ -10,7 +10,9 @@ export default defineConfig({
   test: {
     // The engine and the repositories are plain Node code; no DOM needed.
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    // A single star for `desktop`: no `exclude` is set, so vitest only skips `node_modules`, and
+    // `desktop/build/server/deps` is a RENAMED node_modules — `**` would walk the whole payload.
+    include: ['src/**/*.test.ts', 'desktop/*.test.mjs'],
     // The engine's specification is largely PROPERTY tests — several run the whole
     // placement, editing, drop and shrink logic over 2000 generated calendars each. Alone
     // they take about a second; run together they compete for cores, and on a loaded

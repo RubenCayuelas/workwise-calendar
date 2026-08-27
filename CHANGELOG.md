@@ -9,6 +9,36 @@ never moves without the owner asking.
 
 ---
 
+## 0.25.0 — it keeps itself up to date
+
+**Workwise updates itself now.** When it opens it looks for a newer published version, downloads it
+quietly in the background and, once it is ready, asks in one message whether to restart and install it
+now or install it the next time the app is closed. Nothing installs while the calendar is on screen,
+and nothing installs unasked. No more fetching an installer and carrying it over on a USB stick.
+
+**And it will not install one until it has copied the calendar.** The moment a version has finished
+downloading — while the calendar is still the one the previous version wrote — a copy is saved, named
+for the update it comes before. **If that copy cannot be saved, nothing is installed**: it says so, and
+tries again the next time the app opens. It is saved even with the automatic copies switched off,
+because that setting is about how much sits in the folder and an installed update cannot be undone.
+
+**The last three of those copies sit in Settings, beside the weekly ones.** Their own list, each row
+saying the day, the hour and the version it comes before, and each restoring with one press like any
+other copy. They count on their own, so a busy week of releases cannot use up the weekly copies, and a
+quiet month cannot use up these.
+
+**A version only reaches the shop once it has been published.** A release still arrives as a draft, so
+the notes get read first; until then the app sees nothing at all. And with no internet, or nothing
+published, the calendar opens exactly as it always has and says nothing.
+
+**Going back to an earlier version is still done by hand.** The calendar itself is safe either way,
+because the copy is right there in the folder, but the older installer comes from the releases page.
+
+**And the four checks a commit must pass now run before any merge into any branch, not only when a
+version is released.** They ran on the machine the change was written on and nowhere else. The build
+that makes the installer runs them too, because a version that installs itself unattended raises what
+a broken one costs.
+
 ## 0.24.1 — one click is one day
 
 **Choosing a single day for an absence takes one click.** The calendar that picks an absence's days

@@ -373,12 +373,16 @@
     "backupsKeptHint": "Al hacer una copia nueva se borran las más antiguas hasta dejar este número. Solo borra copias automáticas: una que guardes tú no se toca.",
     "backupsList": "Copias automáticas",
     "backupsListEmpty": "Todavía no hay ninguna. La primera se hará al abrir la app.",
+    "backupsBeforeUpdate": "Copias antes de una actualización",
+    "backupsBeforeUpdateEmpty": "Todavía no hay ninguna. Se hace una justo antes de instalar cada actualización.",
+    "backupsBeforeUpdateVersion": "Antes de la {{version}}",
     "backupsSave": "Guardar copia",
     "backupsLoad": "Cargar copia desde mi PC",
     "backupsRestore": "Restaurar",
     "backupsRestoreTitle": "¿Restaurar esta copia?",
     "backupsRestoreBody": "El calendario de ahora se reemplaza por el de la copia del {{date}} a las {{time}}. Antes se guarda una copia del actual, así que se puede volver atrás.",
     "backupsRestoreFileBody": "El calendario de ahora se reemplaza por el del archivo «{{file}}». Antes se guarda una copia del actual, así que se puede volver atrás.",
+    "backupsRestoreUpdateBody": "El calendario de ahora se reemplaza por el de la copia del {{date}} a las {{time}}, de justo antes de instalar la {{version}}. Antes se guarda una copia del actual, así que se puede volver atrás.",
     "backupsRestoreConfirm": "Restaurar",
     "backupSaved": "Copia guardada como «{{file}}» en la ubicación indicada.",
     "backupDownloaded": "Copia descargada como «{{file}}» en la carpeta de descargas del navegador. Para poder indicar la ubicación, abre la aplicación en «localhost».",
@@ -479,6 +483,14 @@
     "growTitle": "¿Sumamos esas {{hours}} h al trabajo?",
     "growBody": "«{{name}}» no tiene de dónde sacarlas: sus otros bloques están bloqueados, en fin de semana, ya pasados, o no dan para tanto. Alargarlo aquí hace el trabajo más grande."
   },
+  "updates": {
+    "readyTitle": "Actualización lista",
+    "readyBody": "Workwise {{version}} está descargada. Se ha guardado una copia del calendario antes de instalarla.",
+    "restartNow": "Reiniciar ahora",
+    "onClose": "Al cerrar",
+    "backupFailedTitle": "No se ha instalado la actualización",
+    "backupFailedBody": "Workwise {{version}} está descargada, pero no se ha podido guardar una copia del calendario antes de instalarla, así que no se ha instalado. Se intentará de nuevo la próxima vez que abras la aplicación."
+  },
   "errors": {
     "horizonExceeded": "No caben todas las horas dentro del horizonte de planificación. Amplía el horizonte en Configuración o reduce las horas.",
     "horizonExceededUntil": "No caben todas las horas antes del {{date}}, que es el final del horizonte de planificación. Amplía el horizonte en Configuración o reduce las horas. No se ha guardado nada.",
@@ -534,6 +546,7 @@
     "title": "No se ha podido completar",
     "backupNotFound": "Esa copia ya no está en la carpeta. No se ha cambiado nada.",
     "backupNotADatabase": "Ese archivo no es una base de datos. Elige el .db de una copia de Workwise. No se ha cambiado nada.",
-    "backupNotWorkwise": "Ese archivo es una base de datos, pero no de Workwise. No se ha cambiado nada."
+    "backupNotWorkwise": "Ese archivo es una base de datos, pero no de Workwise. No se ha cambiado nada.",
+    "backupVersionInvalid": "No se ha podido hacer la copia previa: el número de versión no es válido. No se ha instalado nada."
   }
 }
