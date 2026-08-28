@@ -9,6 +9,13 @@ never moves without the owner asking.
 
 ---
 
+## 0.25.2 — an empty week says nothing
+
+**The paragraph under the grid is gone when the week has no work in it.** It explained where a new job
+goes in the queue and what Friday is for, and it sat there for as long as the week stayed empty — which
+is exactly when there is nothing to read it against. That sentence still appears where it is useful, on
+the form that creates a job. Under the grid now, only a gesture in progress ever speaks.
+
 ## 0.25.1 — the installer builds again
 
 **The check that refuses a broken installer now recognises its own files on Windows**, which is the
