@@ -953,8 +953,6 @@ export function CalendarScreen({
     ? t('undo.redoOf', { what: stepText(history?.redo ?? null) })
     : t('undo.nothingToRedo');
 
-  const emptyWeek = view !== null && view.blocks.length === 0 && view.gaps.length === 0;
-
   /**
    * The sentence under the grid while a gesture is in the air. FIVE of them: a gap's two gestures
    * mean something else from a block's, and a block's move means two things by itself. The same
@@ -1064,9 +1062,10 @@ export function CalendarScreen({
           </div>
 
           {/*
-            * OUT OF THE FLOW, so the grid keeps every pixel. What is left here is transient — a
-            * gesture's hint, and the empty week's — and it is drawn over the foot of the grid rather
-            * than above it, where the two resting lines used to sit reserving 38 px of every screen.
+            * OUT OF THE FLOW, so the grid keeps every pixel. Everything here belongs to a GESTURE
+            * IN PROGRESS and nothing rests: at rest the box is empty, and it is drawn over the foot
+            * of the grid rather than above it, where the two resting lines used to sit reserving
+            * 38 px of every screen.
             */}
           <div className={styles.legend}>
             {/* The two drags say different things, and a MOVE says two of its own — see
@@ -1077,8 +1076,6 @@ export function CalendarScreen({
               // NOT `block.splitHint`, which is the DIALOG's: by now the grid has the pointer,
               // so what is left to say is what to do with it and how to get out.
               <span className={styles.hint}>{t('grid.placingHint')}</span>
-            ) : emptyWeek ? (
-              <span>{t('jobForm.hint')}</span>
             ) : null}
           </div>
         </div>
