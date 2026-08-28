@@ -9,6 +9,20 @@ never moves without the owner asking.
 
 ---
 
+## 0.25.2 — an empty week says nothing
+
+**The paragraph under the grid is gone when the week has no work in it.** It explained where a new job
+goes in the queue and what Friday is for, and it sat there for as long as the week stayed empty — which
+is exactly when there is nothing to read it against. That sentence still appears where it is useful, on
+the form that creates a job. Under the grid now, only a gesture in progress ever speaks.
+
+## 0.25.1 — the installer builds again
+
+**The check that refuses a broken installer now recognises its own files on Windows**, which is the
+only machine that ever builds one. It read the paths inside the package as though they were written
+the way Linux writes them, so it refused a package that was in fact correct — and 0.25.0 produced no
+installer at all.
+
 ## 0.25.0 — it keeps itself up to date
 
 **Workwise updates itself now.** When it opens it looks for a newer published version, downloads it
