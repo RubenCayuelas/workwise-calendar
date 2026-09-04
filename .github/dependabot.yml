@@ -1,0 +1,7 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/desktop"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
