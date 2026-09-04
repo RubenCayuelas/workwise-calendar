@@ -9,6 +9,10 @@ never moves without the owner asking.
 
 ---
 
+## 0.25.4 — Electron update for the desktop app
+
+**The desktop application's framework is updated.** This release bumps Electron to version 44.1.0 to stay up to date. Nothing about how the calendar works has changed.
+
 ## 0.25.3 — security updates for the desktop app
 
 **The desktop application's dependencies are updated.** This release bumps `@xmldom/xmldom` and `fast-uri` to fix several security advisories in the packages the installer builds with. Nothing about how the calendar works has changed.
