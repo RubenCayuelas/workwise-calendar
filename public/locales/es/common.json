@@ -363,6 +363,7 @@
     "languageSection": "Idioma",
     "language": "Idioma de la interfaz",
     "languageHint": "Se puede cambiar en cualquier momento y se recuerda en este equipo.",
+    "version": "Workwise {{version}}",
     "backupsSection": "Copias de seguridad",
     "backupsHint": "Las copias automáticas se guardan junto a la base de datos, en {{directory}}.",
     "backupsEnabled": "Copia automática",

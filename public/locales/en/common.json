@@ -363,6 +363,7 @@
     "languageSection": "Language",
     "language": "Interface language",
     "languageHint": "It can be changed at any time and is remembered on this machine.",
+    "version": "Workwise {{version}}",
     "backupsSection": "Backups",
     "backupsHint": "Automatic copies are kept beside the database, in {{directory}}.",
     "backupsEnabled": "Automatic backup",

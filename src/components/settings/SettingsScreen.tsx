@@ -546,6 +546,10 @@ export function SettingsScreen(): React.JSX.Element {
           )
         }
       />
+
+      {/* Inlined by `next.config.ts`, so it is the version this build WAS MADE FROM and cannot
+          drift from the one the updater compares against. */}
+      <p className={styles.version}>{t('settings.version', { version: process.env.APP_VERSION })}</p>
     </div>
   );
 }
