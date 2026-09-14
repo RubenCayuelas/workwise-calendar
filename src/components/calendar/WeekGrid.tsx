@@ -26,6 +26,7 @@ import {
   clampDropStart,
   emptyLabelMinutes,
   nonWorkingBands,
+  rowTextFit,
   slotAt,
   type GridMetrics,
   type Timeline,
@@ -1057,12 +1058,19 @@ function DayColumn({
           // Same order as a block's: the past is a stronger rule than a save in flight. A CLICK
           // still opens the form on both, which is how a past absence is corrected.
           const inert = day.isPast ? ('past' as const) : busy ? ('busy' as const) : undefined;
+          const gapHeight = timeline.heightBetween(
+            gap.startMinutes,
+            gap.startMinutes + gap.durationMinutes,
+          );
+          // A gap only ever prints its reason, so one line is all it asks for — but it asks the same
+          // way a block does, or a short absence has its reason sliced through the middle.
+          const gapText = rowTextFit(gapHeight);
           const style = {
             '--ww-gap-color': gapColor,
             top: `${timeline.yOf(gap.startMinutes)}px`,
             // The row's own clock interval: no stored row straddles a break any more, gaps
             // included, so its net minutes and its clock minutes are the same number.
-            height: `${timeline.heightBetween(gap.startMinutes, gap.startMinutes + gap.durationMinutes)}px`,
+            height: `${gapHeight}px`,
             left: `calc(${(lane.lane / lane.lanes) * 100}% + 2px)`,
             width: `calc(${100 / lane.lanes}% - 4px)`,
           } as React.CSSProperties;
@@ -1071,6 +1079,7 @@ function DayColumn({
           const reason = seamAbove ? '' : group.reason;
           const className = [
             styles.gap,
+            gapText.tight ? styles.gapTight : '',
             isFirst ? styles.gapFirst : '',
             isLast ? styles.gapLast : '',
             seamAbove ? styles.gapContinued : '',
@@ -1081,8 +1090,10 @@ function DayColumn({
             .join(' ');
           const body = (
             <>
-              <span className={styles.gapReason}>{reason}</span>
-              {seamAbove || seamBelow ? (
+              {/* Both lines answer to the same gate: the seam label is type like any other, and a
+                  half of a lunch-split absence too short for a line would have printed it clipped. */}
+              {gapText.lines === 0 ? null : <span className={styles.gapReason}>{reason}</span>}
+              {gapText.lines > 0 && (seamAbove || seamBelow) ? (
                 <span className={styles.gapContinues}>
                   {t(seamAbove ? 'grid.gapContinuesAbove' : 'grid.gapContinuesBelow')}
                 </span>
@@ -1483,7 +1494,10 @@ function useNowMinutes(active: boolean): number {
       // tab wakes up late, and a fixed interval would carry that lateness for the rest of the day.
       timer = setTimeout(tick, msUntilNextMinute(at));
     };
-    timer = setTimeout(tick, msUntilNextMinute(new Date()));
+    // Read on the way IN, not at the next minute boundary: `active` turns back on when the owner
+    // pages home to this week, and the clock it was last read at may be hours old. Waiting would
+    // draw the mark at that stale minute for up to one more.
+    tick();
     return () => clearTimeout(timer);
   }, [active]);
 

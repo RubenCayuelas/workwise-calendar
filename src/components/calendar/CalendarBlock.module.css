@@ -70,6 +70,35 @@
   overflow: hidden;
 }
 
+/*
+ * A ROW TOO SHORT FOR ITS OWN PADDING gives the padding up rather than cutting its name in half.
+ * Set solid as well: 13px of type in a 13px line is what lets the SHORTEST row the app allows still
+ * print a name at full size, instead of shrinking to a type size the scale does not have.
+ */
+.tight {
+  padding-top: 1px;
+  padding-bottom: 1px;
+  line-height: 1;
+}
+
+/* 4px down in a row this short would hang the glyph out of the bottom of it. */
+.tight .marks {
+  top: 0;
+}
+
+/*
+ * AND THE BORDER GIVES WAY WITH THE PADDING. A padlocked row wears 1.5px and a Friday-buffer row 1px,
+ * which `textHeightOf` cannot see: three pixels of border on a sixteen-pixel row is the difference
+ * between a whole name and a clipped one — the very defect the fit exists to stop, on the rows the
+ * owner pins by hand. What the padlock MEANS is carried by the solid style and by the glyph, never by
+ * the weight, so the weight is what goes. Compound selectors because `.pinned` and `.overflow` are
+ * declared below this and would otherwise win on source order.
+ */
+.tight.pinned,
+.tight.overflow {
+  border-width: var(--ww-hairline);
+}
+
 /* Hovered wins the paint order: its action bar hangs outside the block on a narrow
    column, and it must not go behind the next row along. */
 .block:hover,

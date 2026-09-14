@@ -32,9 +32,18 @@ const SHAPE: DayShape = {
   timelineEndMinutes: 20 * 60 + 30,
 };
 
-/** The axis at rest and the axis the legend's collapse produced mid-drag: measured, 742 and 751 px. */
-const PRESS_AXIS = createTimeline(SHAPE, { fitHeight: 742 });
-const REFITTED_AXIS = createTimeline(SHAPE, { fitHeight: 751 });
+/**
+ * The axis at rest, and the same axis after it re-fitted mid-drag. The pair was measured at 742 and
+ * 751 px; both now sit under the fitted range's floor, where they clamp to ONE scale and the re-fit
+ * this file exists to test cannot happen at all.
+ *
+ * Eleven pixels and not the measured nine: the drift is a RATIO between the two scales, so the same
+ * growth costs less the less compressed the axis is. Nine pixels here reads 19:23 rather than 19:30
+ * and still rounds to the right quarter — real drift, too small to charge for. The pair has to be
+ * far enough apart to cost something, or the test would pass on an unheld answer too.
+ */
+const PRESS_AXIS = createTimeline(SHAPE, { fitHeight: 900 });
+const REFITTED_AXIS = createTimeline(SHAPE, { fitHeight: 911 });
 
 /** The grid's origin, as `measure()` reads it: unchanged by a re-fit (measured). */
 const TOP = 152.5;
@@ -186,7 +195,7 @@ describe('previewResize', () => {
     // The re-fitted axis still reads that pixel as an earlier minute — the whole defect.
     expect(REFITTED_AXIS.minutesAt(yOf(17 * 60 + 30) - TOP)).toBeLessThan(17 * 60 + 30);
     // Since the axis compresses the band the drift accumulates over WORKING pixels: 6.7 min at
-    // 17:30, which snaps back onto its quarter, and 8 at 19:30, which commits 7,75 h for 8 h.
+    // 17:30, which snaps back onto its quarter, and 8.2 at 19:30, which commits 7,75 h for 8 h.
     expect(REFITTED_AXIS.minutesAt(yOf(19 * 60 + 30) - TOP)).toBe(19 * 60 + 22);
     expect(previewResize({ clientY: yOf(19 * 60 + 30) }, press('resize', 14 * 60, REFITTED_AXIS), METRICS, OPTIONS).durationMinutes).toBe(480 - SNAP_MINUTES);
   });

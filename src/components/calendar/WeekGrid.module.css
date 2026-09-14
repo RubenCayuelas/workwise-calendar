@@ -1051,3 +1051,10 @@
   color: var(--ww-text-muted);
   font-size: var(--ww-text-xs);
 }
+
+/* Same bargain a short block makes: the padding goes before the reason does. */
+.gapTight {
+  padding-top: 1px;
+  padding-bottom: 1px;
+  line-height: 1;
+}
