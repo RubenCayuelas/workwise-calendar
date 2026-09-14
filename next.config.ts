@@ -1,7 +1,12 @@
 import type { NextConfig } from 'next';
+import packageJson from './package.json';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Inlined into the client bundle at build time, which is the whole point: the Settings screen is a
+  // client component, so without this the version needs an API route to state a fact that is already
+  // fixed when the build runs. No `NEXT_PUBLIC_` prefix — that only applies to `.env` files.
+  env: { APP_VERSION: packageJson.version },
   // better-sqlite3 loads a native .node binary, which cannot be bundled.
   // Leaving it external keeps the server build from trying.
   serverExternalPackages: ['better-sqlite3'],

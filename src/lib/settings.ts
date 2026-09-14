@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   backupsKept: 3,
   holidaysEnabled: true,
   holidaysMunicipality: '14055',
+  nowLineEnabled: true,
 };
 
 /** Visual margins are 0-2 hours each: enough for an exceptional early start, not a second shift. */
@@ -113,6 +114,7 @@ export function serializeSettings(settings: Settings): Record<keyof Settings, st
     backupsKept: String(settings.backupsKept),
     holidaysEnabled: settings.holidaysEnabled ? 'true' : 'false',
     holidaysMunicipality: settings.holidaysMunicipality,
+    nowLineEnabled: settings.nowLineEnabled ? 'true' : 'false',
   };
 }
 
@@ -164,6 +166,7 @@ export function normalizeSettings(raw: Partial<Record<keyof Settings, string>>):
       raw.holidaysMunicipality,
       DEFAULT_SETTINGS.holidaysMunicipality,
     ),
+    nowLineEnabled: parseBoolean(raw.nowLineEnabled, DEFAULT_SETTINGS.nowLineEnabled),
   };
 
   // A morning that ends before it starts would make the shift negative: restore

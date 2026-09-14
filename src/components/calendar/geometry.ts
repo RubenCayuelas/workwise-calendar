@@ -38,8 +38,77 @@ export const CREATE_RAIL_PX = 21;
  */
 export const AIM_BADGE_HEIGHT_PX = 20;
 
-/** Below this a row shows its name but not its hours. */
-export const MIN_LABEL_HEIGHT = 34;
+// What a row has room to print
+//
+// A row spends height on itself before any text: padding on both sides plus its hairline borders.
+// Nothing used to subtract that, so a row shorter than its own line box was drawn anyway and
+// `overflow: hidden` sliced the letters through the middle. These are the stylesheet's numbers, and
+// the rule below is the one that reads them.
+
+const ROW_PADDING_Y = 5;
+/** What a row gives up before it gives up its name. */
+const ROW_PADDING_Y_TIGHT = 1;
+/**
+ * Both hairlines. `.pinned` wears 1.5px and `.overflow` 1px, which this cannot see — three pixels of
+ * border on a sixteen-pixel row is the difference between a whole line and a clipped one — so the
+ * stylesheet normalises the WIDTH back to the hairline on a tight row and keeps the meaning in the
+ * style and the glyph.
+ */
+const ROW_BORDERS = 1;
+
+/** `--ww-text-md` at `--ww-line-tight`, the name as a block normally prints it. */
+const NAME_LINE = 13 * 1.25;
+/** The same type SET SOLID. This is what buys the shortest row a name at full size. */
+const NAME_LINE_TIGHT = 13;
+/** `--ww-text-sm` at `--ww-line-tight`: the hours under the name. */
+const HOURS_LINE = 12 * 1.25;
+const LINE_GAP = 1;
+
+export interface RowText {
+  /** Lines the row can print IN FULL. Never a line it would have to cut. */
+  lines: 0 | 1 | 2;
+  /** Whether it has to spend its padding to print them. */
+  tight: boolean;
+}
+
+/** Richest first: `rowTextFit` takes the first that fits, so this order IS the preference. A row
+ *  gives up its padding before it gives up a LINE — two tight lines carry more than one roomy one. */
+const ROW_FITS: readonly RowText[] = [
+  { lines: 2, tight: false },
+  { lines: 2, tight: true },
+  { lines: 1, tight: false },
+  { lines: 1, tight: true },
+];
+
+/**
+ * A height arrives as a DIFFERENCE of two `yOf` results, so the row that needs exactly its budget
+ * arrives a fraction under it: a quarter-hour row off the quarter grid measured 15.999999999999993
+ * and, compared exactly, printed nothing at all.
+ */
+const ROW_FIT_TOLERANCE = 1e-9;
+
+/** The height `fit` needs, text and the row's own padding and borders together. */
+export function textHeightOf(fit: RowText): number {
+  if (fit.lines === 0) return 0;
+  const own = (fit.tight ? ROW_PADDING_Y_TIGHT : ROW_PADDING_Y) * 2 + ROW_BORDERS;
+  const text =
+    fit.lines === 2
+      ? NAME_LINE + LINE_GAP + HOURS_LINE
+      : fit.tight
+        ? NAME_LINE_TIGHT
+        : NAME_LINE;
+  return own + text;
+}
+
+/** What a row of `height` pixels may print. The answer is never "part of a line". */
+export function rowTextFit(height: number): RowText {
+  return (
+    ROW_FITS.find((fit) => textHeightOf(fit) <= height + ROW_FIT_TOLERANCE) ?? {
+      lines: 0,
+      tight: false,
+    }
+  );
+}
 
 /** Below this the bar and the resize handle meet, so the bar lifts off the row (`.detached`). */
 export const MIN_ACTIONS_HEIGHT = 56;
@@ -71,7 +140,14 @@ export const DEFAULT_PIXELS_PER_HOUR = 72;
  * Bounds for the fitted scale. They bound WORKING time only — a break between two periods is drawn
  * at `BREAK_BAND_HEIGHT` whatever the scale.
  */
-export const MIN_PIXELS_PER_HOUR = 42;
+/**
+ * Held at the scale where a `MIN_ROW_MINUTES` row can still print its name — `textHeightOf` for one
+ * tight line, four times over, since that row is a quarter of an hour. A test holds them equal.
+ *
+ * It was a free-standing 42, measured against nothing: a quarter-hour row came out 10.5px tall and
+ * its own name did not fit inside it.
+ */
+export const MIN_PIXELS_PER_HOUR = 64;
 export const MAX_PIXELS_PER_HOUR = 96;
 
 /**
@@ -403,7 +479,7 @@ export function axisTicks(periods: readonly WorkPeriod[], timeline: Timeline): A
 }
 
 /** The pixels a label printed at `minutes` covers, as the stylesheet anchors it. */
-function labelBox(minutes: number, timeline: Timeline): { top: number; bottom: number } {
+export function labelBox(minutes: number, timeline: Timeline): { top: number; bottom: number } {
   const y = timeline.yOf(minutes);
   if (minutes <= timeline.startMinutes) return { top: y, bottom: y + TICK_LABEL_HEIGHT };
   if (minutes >= timeline.endMinutes) return { top: y - TICK_LABEL_HEIGHT, bottom: y };

@@ -9,6 +9,45 @@ never moves without the owner asking.
 
 ---
 
+## 0.26.0 — the hour it is, and short jobs you can read
+
+**The calendar marks the time it is.** A thin amber line sits in the hour column on the left, on the
+week in progress only, and moves as the clock does. It can be switched off under appearance in
+settings, where it starts switched on.
+
+**A short job says what it is.** A job or an absence of half an hour was drawing its name and then
+cutting it through the middle of the letters, so a morning's work could not be told apart without
+opening it. Every row now prints only what it has room to print in full, gives up its own padding
+before it gives up its name, and the calendar refuses to squeeze the day past the point where the
+shortest job it allows can still be read — on a short window it scrolls instead.
+
+**Settings prints the installed version** at the foot of the screen.
+
+**Six settings that could not be saved now save.** The automatic backup switch, how often a copy is
+taken, how many are kept, the public-holiday switch and the municipality were all reporting success and
+changing nothing: the screen sent them and the server quietly dropped them, then echoed the old value
+back over the control. Only the shift, the capacity, the margins, the horizon and the gap colour were
+ever getting through.
+
+## 0.25.7 — Electron update for the desktop app
+
+**The desktop application's framework moves to Electron 44.3.0.** Nothing about how the calendar works
+has changed.
+
+## 0.25.6 — dependency updates reach the working branch
+
+**Dependency updates now open against the working branch instead of the release branch**, and the main
+application's own packages are checked weekly rather than only when a security alert fires. Nothing
+about how the calendar works has changed.
+
+## 0.25.5 — security updates
+
+**The packages Workwise is built from are updated to close several security advisories.** Next.js
+moves to 16.3.3, which fixes two critical remote-code-execution holes in the server and in the image
+handling; the image library, the test runner and the YAML reader the installer builds with are updated
+for their own advisories; and the desktop application's framework moves to Electron 44.2.0. Nothing
+about how the calendar works has changed.
+
 ## 0.25.4 — Electron update for the desktop app
 
 **The desktop application's framework is updated.** This release bumps Electron to version 44.1.0 to stay up to date. Nothing about how the calendar works has changed.

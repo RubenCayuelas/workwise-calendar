@@ -1,7 +1,38 @@
 version: 2
 updates:
+  # The app itself. Without this entry it received NO scheduled update at all — only a security alert
+  # ever reached the main application's dependencies, and fourteen of them had drifted behind by the
+  # time anyone looked.
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+    groups:
+      # One pull request for the harmless half, so a weekly run is one review and not fourteen. A major
+      # still arrives on its own, because a major is a decision.
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # React stays on 18: Next declares it as a peer and the App Router runs React out of its own
+      # compiled copy regardless, so the installed version reaches types and nothing else. A major here
+      # is not an update, and proposing it weekly only trains the eye to dismiss the mail.
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+
   - package-ecosystem: "npm"
     directory: "/desktop"
     target-branch: "dev"
     schedule:
       interval: "weekly"
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

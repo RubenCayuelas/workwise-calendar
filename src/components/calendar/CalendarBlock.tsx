@@ -17,7 +17,7 @@ import { useFormat } from '../../lib/useFormat';
 import {
   ACTIONS_BAR_HEIGHT,
   MIN_ACTIONS_HEIGHT,
-  MIN_LABEL_HEIGHT,
+  rowTextFit,
   blockHoldsActions,
   type Timeline,
 } from './geometry';
@@ -89,6 +89,9 @@ export function CalendarBlock({
 
   const endMinutes = block.startMinutes + block.durationMinutes;
   const height = timeline.heightBetween(block.startMinutes, endMinutes);
+  /** What the row has room to print. Asked before anything is drawn: a line that does not fit is not
+   *  drawn SMALLER, it is not drawn at all — and `tight` is the row spending its padding to keep one. */
+  const text = rowTextFit(height);
 
   /*
    * A row with no surface left of its own: too short for the bar (`MIN_ACTIONS_HEIGHT`), or
@@ -130,6 +133,7 @@ export function CalendarBlock({
   ].filter((line): line is string => line !== null);
 
   const classes = [
+    text.tight ? styles.tight : '',
     styles.block,
     // Two independent questions on one edge: `first`/`last` round the unit's outer corners,
     // `continued`/`continuesBelow` dash the edge a real break falls on.
@@ -191,8 +195,8 @@ export function CalendarBlock({
     >
       {/* Clipped on its own: the block does not clip, so the bar can hang outside a narrow one. */}
       <div className={styles.body}>
-        <span className={styles.name}>{block.project.name}</span>
-        {height >= MIN_LABEL_HEIGHT ? <span className={styles.hours}>{hoursLabel}</span> : null}
+        {text.lines === 0 ? null : <span className={styles.name}>{block.project.name}</span>}
+        {text.lines < 2 ? null : <span className={styles.hours}>{hoursLabel}</span>}
       </div>
 
       {/* The mark sits in the corner the action bar takes over on hover. One glyph, one state. */}
