@@ -9,6 +9,14 @@ never moves without the owner asking.
 
 ---
 
+## 0.25.5 — security updates
+
+**The packages Workwise is built from are updated to close several security advisories.** Next.js
+moves to 16.3.3, which fixes two critical remote-code-execution holes in the server and in the image
+handling; the image library, the test runner and the YAML reader the installer builds with are updated
+for their own advisories; and the desktop application's framework moves to Electron 44.2.0. Nothing
+about how the calendar works has changed.
+
 ## 0.25.4 — Electron update for the desktop app
 
 **The desktop application's framework is updated.** This release bumps Electron to version 44.1.0 to stay up to date. Nothing about how the calendar works has changed.
