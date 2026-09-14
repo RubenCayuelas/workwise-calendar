@@ -176,3 +176,13 @@
 .backupRow > button {
   flex: none;
 }
+
+/* The build's own version, under everything. Centred and quiet: it is a fact to look up, never
+   something to read on the way past. */
+.version {
+  padding-bottom: var(--ww-space-6);
+  color: var(--ww-text-muted);
+  font-size: var(--ww-text-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}

@@ -14,11 +14,9 @@
  */
 
 import type { NextRequest } from 'next/server';
-import { readFlag, readJsonBody, readText, route } from '@/src/lib/api';
-import { ERROR_MESSAGE_KEYS, badRequest } from '@/src/lib/errors';
+import { readJsonBody, route } from '@/src/lib/api';
 import { readSettingsView, updateSettings } from '@/src/lib/operations/settings';
-import type { JsonBody } from '@/src/lib/api';
-import type { Settings } from '@/src/types';
+import { settingsPatchOf } from '@/src/lib/settingsPatch';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,29 +25,5 @@ export async function GET(): Promise<Response> {
 }
 
 export async function PATCH(request: NextRequest): Promise<Response> {
-  return route(async () => {
-    const body = await readJsonBody(request);
-    return updateSettings({
-      period1Start: readText(body, 'period1Start'),
-      period1End: readText(body, 'period1End'),
-      period2Start: readText(body, 'period2Start'),
-      period2End: readText(body, 'period2End'),
-      period2Enabled: readFlag(body, 'period2Enabled'),
-      defaultDayCapacity: readSettingsNumber(body, 'defaultDayCapacity'),
-      visualMarginTop: readSettingsNumber(body, 'visualMarginTop'),
-      visualMarginBottom: readSettingsNumber(body, 'visualMarginBottom'),
-      planningHorizonWeeks: readSettingsNumber(body, 'planningHorizonWeeks'),
-      gapColor: readText(body, 'gapColor'),
-    });
-  });
-}
-
-/** Only that it IS a number: every bound belongs to `validateSettings`, or it gets two owners. */
-function readSettingsNumber(body: JsonBody, key: keyof Settings): number | undefined {
-  if (!Object.prototype.hasOwnProperty.call(body, key) || body[key] === undefined) return undefined;
-  const value = body[key];
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw badRequest('invalid-field', ERROR_MESSAGE_KEYS.settingsInvalid, { field: key });
-  }
-  return value;
+  return route(async () => updateSettings(settingsPatchOf(await readJsonBody(request))));
 }

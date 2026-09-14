@@ -440,6 +440,15 @@ export function SettingsScreen(): React.JSX.Element {
             <span className="ww-small ww-muted ww-tabular">{draft.gapColor}</span>
           </span>
         </Field>
+
+        <div className={styles.row}>
+          <Checkbox
+            label={t('settings.nowLineEnabled')}
+            hint={t('settings.nowLineEnabledHint')}
+            checked={draft.nowLineEnabled}
+            onChange={(event) => patchDraft({ nowLineEnabled: event.target.checked })}
+          />
+        </div>
       </Section>
 
       {/* ---- backups: the preferences save with the rest, the buttons act on their own ---- */}
@@ -546,6 +555,10 @@ export function SettingsScreen(): React.JSX.Element {
           )
         }
       />
+
+      {/* Inlined by `next.config.ts`, so it is the version this build WAS MADE FROM and cannot
+          drift from the one the updater compares against. */}
+      <p className={styles.version}>{t('settings.version', { version: process.env.APP_VERSION })}</p>
     </div>
   );
 }

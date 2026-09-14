@@ -1123,6 +1123,23 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   - **A rectangle is the clock interval it occupies** (`Timeline.heightBetween`). No row straddles a
     break — gaps included since 2026-08-19 — so every rectangle's height is its own minutes exactly and
     **nothing on the grid is drawn over the seam**.
+  - **A ROW NEVER PRINTS PART OF A LINE** (`rowTextFit`). What it has room for is asked before anything
+    is drawn, against the height left once its padding and borders are taken off: two lines, one, or
+    none. Nothing used to ask, so a row shorter than its own line box was drawn anyway and clipped
+    through the middle of the letters — a 30-minute job read as a sliced word at the compressed scale.
+    A row too short for its padding **gives the padding up before it gives up its name**, and sets the
+    type solid to buy the line. Blocks and gaps answer the same way; only a block ever asks for two.
+  - **The scale floor answers for the shortest row the app allows.** `MIN_PIXELS_PER_HOUR` is held at
+    the scale where a `MIN_ROW_MINUTES` row can still print a name, and a test ties the two. It was a
+    free-standing 42, measured against nothing: a quarter-hour row came out 10.5 px tall and its own
+    name did not fit inside it. **The week scrolls rather than compressing past legibility.**
+- **The current time is marked on the axis, and nowhere else** — a hairline in the brand amber across
+  the hour gutter, ending in a dot at its own end, away from the grid. It is drawn only while the week
+  ON SCREEN is the one today falls in (the server's `isToday`, never a day derived in the browser) and
+  only while the clock is inside the axis. **The hour label it would be drawn through is not printed**,
+  measured the way `axisTicks` measures a collision between two labels, so the mark never crosses a
+  number. It is redrawn as the wall clock turns over, and no timer runs while it is not shown.
+  Switched off from Settings; on by default.
 - **Every hour is labelled**, plus both edges of every period. A label is dropped only where it would
   print over one already placed — 15:00 inside the seam, 20:00 under a cramped 20:30. It replaces "an
   interior tick every three hours", which labelled 08:00 and then 11:00.
@@ -1132,8 +1149,11 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
   - **Both demotions are real configurations, not hypotheticals.** Settings accepts a 10-minute break
     (`08:00-14:00` then `14:10-18:10`), which the seam deliberately draws at its own 9 px rather than
     stretching to 28 — and two 18 px labels do not fit in 9 px, so `14:00` and `14:10` printed one
-    through the other. The margins step in half hours, so at `MIN_PIXELS_PER_HOUR` a 0.5 h margin puts
-    the axis end 21 px from `08:00`. **The earlier of two edges survives** (it is when work stops), and
+    through the other. **A MARGIN no longer reaches the axis end**: the smallest Settings offers is half
+    an hour, and `MIN_PIXELS_PER_HOUR` now answers for the shortest row the app allows, so half an hour
+    clears a whole label at every scale the window can ask for. `cover` still reaches it — a row left
+    behind in a margin later set to `0` pulls the axis back to the containing hour, which can land a
+    few minutes from the hour work starts at. **The earlier of two edges survives** (it is when work stops), and
     the boundary is not lost with its label: the seam draws a rule on both of its own edges.
   - **Nothing left on the axis ever overlaps anything else** — asserted as a property over every shift
     Settings can produce at every scale the window can ask for, not just the cases above.
@@ -1878,6 +1898,12 @@ Work periods, auto-fill capacity, visual margins, planning horizon, gap colour, 
   unsaved form exactly as it was.
 - **A save EMPTIES the undo line**, and the undo control then says so rather than sitting grey — see
   *A Settings Save Empties the Line*. There is no `Ctrl+Z` on this screen.
+- **The current-time mark is switched here**, under appearance beside the gap colour, on by default.
+  It changes nothing the engine computes, so it is the one setting whose save moves no row — it still
+  empties the undo line, like every other save.
+- **The installed version is printed at the foot of the screen**, quiet and centred. It is inlined at
+  BUILD time from `package.json`, so it is the version this build was made from and cannot drift from
+  the one the updater compares against.
 
 ---
 

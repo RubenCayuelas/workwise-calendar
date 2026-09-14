@@ -3,6 +3,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { MIN_MANUAL_ONLY_MINUTES, dayEndMinutes, manualWindowsOf } from '../../lib/manualWindow';
+import { MINUTES_PER_HOUR } from '../../lib/dates';
+import { MIN_ROW_MINUTES } from '../../lib/validation';
 import type { DayShape, Gap, WorkPeriod } from '../../types';
 import type { WeekBlock } from '../../lib/api-client';
 import {
@@ -21,8 +23,10 @@ import {
   nonWorkingBands,
   rankFor,
   rowAt,
+  rowTextFit,
   slotAt,
   snapTo,
+  textHeightOf,
 } from './geometry';
 import { assignLanes, groupBlocks, groupGaps, packDay, segmentsOf, workingMinutesBetween } from './grouping';
 
@@ -125,12 +129,14 @@ describe('createTimeline', () => {
   });
 
   it('fits the height it is given, within bounds', () => {
-    // The band comes off the top and the 12 h of WORKING time share the rest: (675-28)/12.
-    const fitted = createTimeline(SHAPE, { fitHeight: 675 });
-    expect(fitted.pixelsPerMinute * 60).toBeCloseTo((675 - BREAK_BAND_HEIGHT) / 12);
+    // The band comes off the top and the 12 h of WORKING time share the rest: (900-28)/12. A height
+    // that lands between the floor and the ceiling, which 675 no longer does — at the floor a
+    // quarter-hour row has to stay big enough to print its own name.
+    const fitted = createTimeline(SHAPE, { fitHeight: 900 });
+    expect(fitted.pixelsPerMinute * 60).toBeCloseTo((900 - BREAK_BAND_HEIGHT) / 12);
     // Which is the whole point of compressing it: the same window, a shop working hour.
-    expect(fitted.pixelsPerMinute).toBeGreaterThan(675 / 810);
-    expect(fitted.height).toBe(675);
+    expect(fitted.pixelsPerMinute).toBeGreaterThan(900 / 810 / 2);
+    expect(fitted.height).toBe(900);
     // A tiny window scrolls rather than collapsing the day.
     expect(createTimeline(SHAPE, { fitHeight: 100 }).pixelsPerMinute * 60).toBe(MIN_PIXELS_PER_HOUR);
     // A very tall one stops stretching.
@@ -303,13 +309,22 @@ describe('axisTicks', () => {
     expect(minutes.filter((tick) => tick % 60 === 0 && tick !== 15 * 60)).toHaveLength(13);
   });
 
-  // At a 655 px axis, 20:00 sits 26 px above 20:30 — far apart by any centre test, and printed
-  // through it: the last label is anchored by its BOTTOM, so it reaches a whole label height up.
+  // An afternoon ending at 19:40 under a half-hour margin, both of which Settings offers: 20:00 sits
+  // 11 px under the 20:10 lip — far apart by any centre test, and printed through it, because the
+  // last label is anchored by its BOTTOM and so reaches a whole label height up.
   it('drops the hour the label at the foot of the axis would print over', () => {
-    const timeline = createTimeline(SHAPE, { fitHeight: 655 });
-    const minutes = axisTicks(SHAPE.periods, timeline).map((tick) => tick.minutes);
-    expect(minutes).toContain(19 * 60 + 30);
-    expect(minutes).toContain(20 * 60 + 30);
+    const periods: WorkPeriod[] = [MORNING, { startMinutes: 15 * 60 + 30, endMinutes: 19 * 60 + 40 }];
+    const shape: DayShape = {
+      ...SHAPE,
+      periods,
+      manualWindows: manualWindowsOf(periods, 60, 30),
+      marginBottomMinutes: 30,
+      timelineEndMinutes: 20 * 60 + 10,
+    };
+    const timeline = createTimeline(shape, { fitHeight: 300 });
+    const minutes = axisTicks(shape.periods, timeline).map((tick) => tick.minutes);
+    expect(minutes).toContain(19 * 60 + 40);
+    expect(minutes).toContain(20 * 60 + 10);
     expect(minutes).not.toContain(20 * 60);
     // The morning is untouched — every hour of it is still there.
     expect(minutes).toContain(9 * 60);
@@ -349,27 +364,28 @@ describe('axisTicks', () => {
     expect(minutes).toContain(10 * 60);
   });
 
-  // An axis end is only the outer lip of a grey margin, so a period edge outranks it: at the scale
-  // floor a 0.5 h margin is 21 px, less than one label, and one of 07:30 / 08:00 has to go.
+  // An axis end is only the outer lip of a grey margin, so a period edge outranks it. A MARGIN can no
+  // longer produce the collision — the smallest Settings offers is half an hour, which clears a label
+  // at every scale the window can ask for — but `cover` still does: a row left behind in a margin that
+  // was later set to 0 pulls the axis back to the containing hour, which can land a few minutes from
+  // the hour work starts at.
   it('gives up the end of the axis rather than the hour work starts at', () => {
+    const periods: WorkPeriod[] = [{ startMinutes: 8 * 60 + 10, endMinutes: 14 * 60 }, AFTERNOON];
     const shape: DayShape = {
       ...SHAPE,
-      manualWindows: manualWindowsOf([MORNING, AFTERNOON], 30, 30),
-      marginTopMinutes: 30,
-      marginBottomMinutes: 30,
-      timelineStartMinutes: 7 * 60 + 30,
-      timelineEndMinutes: 20 * 60,
+      periods,
+      manualWindows: manualWindowsOf(periods, 0, 60),
+      marginTopMinutes: 0,
+      timelineStartMinutes: 8 * 60 + 10,
     };
-    // A short window, so the scale is clamped to the floor and half an hour is 21 px.
-    const timeline = createTimeline(shape, { fitHeight: 300 });
+    // The stranded row, and a short window so the scale is clamped to the floor.
+    const timeline = createTimeline(shape, { fitHeight: 300, cover: [8 * 60 + 5] });
     expect(timeline.pixelsPerMinute * 60).toBe(MIN_PIXELS_PER_HOUR);
-    const minutes = axisTicks(SHAPE.periods, timeline).map((tick) => tick.minutes);
+    expect(timeline.startMinutes).toBe(8 * 60);
+    const minutes = axisTicks(shape.periods, timeline).map((tick) => tick.minutes);
 
-    expect(minutes).toContain(8 * 60);
-    expect(minutes).not.toContain(7 * 60 + 30);
-    // And the same at the foot of the axis: 19:30 is the edge, 20:00 the lip.
-    expect(minutes).toContain(19 * 60 + 30);
-    expect(minutes).not.toContain(20 * 60);
+    expect(minutes).toContain(8 * 60 + 10);
+    expect(minutes).not.toContain(8 * 60);
   });
 
   // The property the cases above are examples of, over every shift Settings can produce: a label
@@ -784,5 +800,62 @@ describe('blockHoldsActions', () => {
 
   it('leaves the bar where the wireframe puts it until the grid has been measured', () => {
     expect(blockHoldsActions(null, 5)).toBe(true);
+  });
+});
+
+describe('what a row has room to print', () => {
+  it('prints the name and the hours where both lines fit whole', () => {
+    expect(rowTextFit(60)).toEqual({ lines: 2, tight: false });
+  });
+
+  it('drops to the name alone rather than clipping the hours', () => {
+    expect(rowTextFit(30)).toEqual({ lines: 1, tight: false });
+  });
+
+  it('gives up its padding before it gives up its name', () => {
+    // A 30-minute row at the compressed scale. It has room for the name and for nothing else, and
+    // only once the 5px padding goes: the bug this rule exists to stop drew it anyway and let
+    // `overflow: hidden` slice the letters in half.
+    expect(rowTextFit(21)).toEqual({ lines: 1, tight: true });
+  });
+
+  it('never claims room it does not have', () => {
+    for (let height = 1; height <= 200; height += 1) {
+      const fit = rowTextFit(height);
+      expect(textHeightOf(fit), `a ${height}px row claimed ${fit.lines} line(s)`).toBeLessThanOrEqual(
+        height,
+      );
+    }
+  });
+
+  it('is monotonic: a taller row never prints less than a shorter one', () => {
+    for (let height = 2; height <= 200; height += 1) {
+      expect(rowTextFit(height).lines).toBeGreaterThanOrEqual(rowTextFit(height - 1).lines);
+    }
+  });
+});
+
+describe('what a row has room to print, at the edges', () => {
+  it('prints the hours in a row with room for two tight lines, rather than dropping them', () => {
+    // 42px: short of the 43.25 two comfortable lines want, and well past the 35.25 two tight ones
+    // need. Dropping to one line here loses the hours a 35-minute block used to print.
+    expect(rowTextFit(42)).toEqual({ lines: 2, tight: true });
+  });
+
+  it('does not lose a line to a float a hair under the height it needs', () => {
+    // The grid does not hand `rowTextFit` a round number: a row's height is a DIFFERENCE of two
+    // `yOf` results, and a quarter-hour row off the quarter grid arrives as 15.999999999999993.
+    // Compared exactly, that row printed nothing and drew as an anonymous coloured rectangle.
+    const needed = textHeightOf({ lines: 1, tight: true });
+    expect(rowTextFit(needed - 1e-12).lines).toBe(1);
+  });
+});
+
+describe('the scale floor answers for the shortest row the app allows', () => {
+  it('leaves a MIN_ROW_MINUTES row able to print its name at the most compressed scale', () => {
+    // The floor was a free-standing 42, chosen against nothing: at that scale a quarter-hour row was
+    // 10.5px and its own name did not fit inside it. The two constants are tied now.
+    const shortest = (MIN_PIXELS_PER_HOUR / MINUTES_PER_HOUR) * MIN_ROW_MINUTES;
+    expect(rowTextFit(shortest).lines).toBeGreaterThanOrEqual(1);
   });
 });

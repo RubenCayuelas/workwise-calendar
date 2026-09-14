@@ -25,6 +25,7 @@
   --ww-gap-fill: #d3d1c7; /* gapColor default in settings */
   --ww-locked-stroke: var(--ww-graphite);
   --ww-margin-fill: #e8e6de; /* visual margins, drag-drop only */
+  --ww-now-stroke: var(--ww-amber-ink); /* the current-time mark on the hour axis */
 }
 
 [data-theme="dark"] {
@@ -40,6 +41,7 @@
   --ww-gap-fill: #3a3936;
   --ww-locked-stroke: var(--ww-bone);
   --ww-margin-fill: #2a2a27;
+  --ww-now-stroke: var(--ww-amber);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -53,6 +55,7 @@
     --ww-gap-fill: #3a3936;
     --ww-locked-stroke: var(--ww-bone);
     --ww-margin-fill: #2a2a27;
+    --ww-now-stroke: var(--ww-amber);
   }
 }
 

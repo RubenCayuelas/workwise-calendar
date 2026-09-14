@@ -26,10 +26,12 @@ import {
   clampDropStart,
   emptyLabelMinutes,
   nonWorkingBands,
+  rowTextFit,
   slotAt,
   type GridMetrics,
   type Timeline,
 } from './geometry';
+import { msUntilNextMinute, nowLinePlacement } from './nowLine';
 import { aimAt } from './paintAim';
 import {
   buildDropQueue,
@@ -213,6 +215,22 @@ export function WeekGrid({
   // overlap (allowed on the weekend and in the past) stays visible.
   const layout = useMemo(() => buildLayout(view), [view]);
   const ticks = useMemo(() => axisTicks(view.shape.periods, timeline), [view.shape.periods, timeline]);
+
+  // Which column is today is the SERVER's answer (`isToday`), so the mark and the day header can
+  // never disagree about it on a machine whose clock is set to another zone.
+  const todayOnScreen = useMemo(() => view.days.some((day) => day.isToday), [view.days]);
+  const nowMinutes = useNowMinutes(view.settings.nowLineEnabled && todayOnScreen);
+  const nowLine = useMemo(
+    () =>
+      nowLinePlacement({
+        enabled: view.settings.nowLineEnabled,
+        todayOnScreen,
+        nowMinutes,
+        timeline,
+        ticks,
+      }),
+    [view.settings.nowLineEnabled, todayOnScreen, nowMinutes, timeline, ticks],
+  );
 
   // The queue, so a re-ranking drop can name the row it will fall in behind — the only true
   // thing its ghost can print. Built for the whole week: a Thursday drop usually ranks after
@@ -434,7 +452,8 @@ export function WeekGrid({
           ))}
 
           <div className={styles.axis} aria-hidden="true">
-            {ticks.map((tick) => (
+            {ticks.map((tick) =>
+              tick.minutes === nowLine?.hiddenTickMinutes ? null : (
               <span
                 key={tick.minutes}
                 // Keyed on the MINUTE, never on the tick's index: `axisTicks` may drop either
@@ -451,7 +470,12 @@ export function WeekGrid({
               >
                 {format.time(tick.minutes)}
               </span>
-            ))}
+              ),
+            )}
+
+            {nowLine === null ? null : (
+              <span className={styles.now} style={{ top: `${nowLine.y}px` }} />
+            )}
           </div>
 
           {view.days.map((day) => (
@@ -1034,12 +1058,19 @@ function DayColumn({
           // Same order as a block's: the past is a stronger rule than a save in flight. A CLICK
           // still opens the form on both, which is how a past absence is corrected.
           const inert = day.isPast ? ('past' as const) : busy ? ('busy' as const) : undefined;
+          const gapHeight = timeline.heightBetween(
+            gap.startMinutes,
+            gap.startMinutes + gap.durationMinutes,
+          );
+          // A gap only ever prints its reason, so one line is all it asks for — but it asks the same
+          // way a block does, or a short absence has its reason sliced through the middle.
+          const gapText = rowTextFit(gapHeight);
           const style = {
             '--ww-gap-color': gapColor,
             top: `${timeline.yOf(gap.startMinutes)}px`,
             // The row's own clock interval: no stored row straddles a break any more, gaps
             // included, so its net minutes and its clock minutes are the same number.
-            height: `${timeline.heightBetween(gap.startMinutes, gap.startMinutes + gap.durationMinutes)}px`,
+            height: `${gapHeight}px`,
             left: `calc(${(lane.lane / lane.lanes) * 100}% + 2px)`,
             width: `calc(${100 / lane.lanes}% - 4px)`,
           } as React.CSSProperties;
@@ -1048,6 +1079,7 @@ function DayColumn({
           const reason = seamAbove ? '' : group.reason;
           const className = [
             styles.gap,
+            gapText.tight ? styles.gapTight : '',
             isFirst ? styles.gapFirst : '',
             isLast ? styles.gapLast : '',
             seamAbove ? styles.gapContinued : '',
@@ -1058,8 +1090,10 @@ function DayColumn({
             .join(' ');
           const body = (
             <>
-              <span className={styles.gapReason}>{reason}</span>
-              {seamAbove || seamBelow ? (
+              {/* Both lines answer to the same gate: the seam label is type like any other, and a
+                  half of a lunch-split absence too short for a line would have printed it clipped. */}
+              {gapText.lines === 0 ? null : <span className={styles.gapReason}>{reason}</span>}
+              {gapText.lines > 0 && (seamAbove || seamBelow) ? (
                 <span className={styles.gapContinues}>
                   {t(seamAbove ? 'grid.gapContinuesAbove' : 'grid.gapContinuesBelow')}
                 </span>
@@ -1441,6 +1475,33 @@ function useWeekSlide(startDate: string): WeekSlide {
     previous.current = startDate;
   }
   return direction.current;
+}
+
+/**
+ * The current time in minutes from midnight, re-read as the wall clock turns over. No timer runs at
+ * all while `active` is false: paged off the current week, nothing on screen depends on the time.
+ */
+function useNowMinutes(active: boolean): number {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    if (!active) return undefined;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = (): void => {
+      const at = new Date();
+      setNow(at);
+      // Re-armed from the time just read, never a flat 60s: a browser that throttles a background
+      // tab wakes up late, and a fixed interval would carry that lateness for the rest of the day.
+      timer = setTimeout(tick, msUntilNextMinute(at));
+    };
+    // Read on the way IN, not at the next minute boundary: `active` turns back on when the owner
+    // pages home to this week, and the clock it was last read at may be hours old. Waiting would
+    // draw the mark at that stale minute for up to one more.
+    tick();
+    return () => clearTimeout(timer);
+  }, [active]);
+
+  return now.getHours() * 60 + now.getMinutes();
 }
 
 /** The entry animation for a box of the week that has just arrived: a column's contents. */

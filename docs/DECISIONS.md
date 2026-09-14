@@ -874,6 +874,46 @@ bijection; the one visible jump is the old dark green, which takes the slot noth
 
 ---
 
+## The Current Time Is Amber, and Only in the Gutter
+
+**Rule** — SPEC § *Calendar View*. The mark is a 2 px hairline across the hour gutter, opened by a dot at
+its left end and stopping at the grid. It is drawn only on the week today falls in, and the hour label it
+would cross is not printed.
+
+**Why** — a rule carried across the columns would read as a boundary between rows, in a grid whose every
+other horizontal line is exactly that. Amber and not red because red is what this app says when it
+refuses something; and the eight job colours are held clear of the brand amber by dE 30 already, so it is
+the one hue on the calendar that cannot be mistaken for a job. The stroke takes its own token, which
+swaps by theme the way `--ww-locked-stroke` does: the ink amber measures 6.73:1 on the light surface and
+2.48:1 on the dark one, under the 3:1 a graphic needs, where the brand amber measures 7.68:1.
+
+**Rejected** — the dot at the RIGHT end, against the grid. Hung over the gutter's edge it was clipped to
+a wedge that read as a rendering accident, and once brought wholly inside it still read as a cap pinned
+to the columns rather than a mark running towards them.
+
+---
+
+## A Row Is Never Smaller Than Its Own Name
+
+**Rule** — SPEC § *Calendar View*. `rowTextFit` decides what a row may print — two lines, one, or none —
+from the height left once padding and borders are taken off, and a line that does not fit is not drawn.
+`MIN_PIXELS_PER_HOUR` is held at the scale where a `MIN_ROW_MINUTES` row can still print a name.
+
+**Why** — nothing asked before drawing, so a row shorter than its own line box was drawn anyway and
+`overflow: hidden` sliced it. Measured at the old floor: a 30-minute block was 21 px, of which 10 px were
+left for a 16.25 px line, and the name came out cut at 62 % of its height — and the 60-minute block was
+clipping its second line by 1.25 px unnoticed. The floor itself was a free-standing 42, measured against
+nothing, which put a quarter-hour row at 10.5 px. Tying it to the shortest row the app ALLOWS is what
+stops the two drifting apart again.
+
+**Rejected** — a minimum DRAWN height, which is what other calendars do: a short row is painted taller
+than it is and allowed to overlap. Here the drawing is the data — `yOf` and `heightBetween` are what the
+drop aim and the resize handle are computed from — so a row whose box no longer matched its stored extent
+would make the gesture and the eye disagree. Shrinking the type was tried first and was the wrong
+culprit: the padding was eating 10 px of a 21 px row, and giving that up keeps the name at full size.
+
+---
+
 ## A Gap Is Hatched, the Lunch-Break Band Is Not
 
 **Rule** — SPEC § *Calendar View*. A gap is drawn hatched: `gapColor` under `/`-leaning stripes mixed from
