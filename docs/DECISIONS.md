@@ -809,6 +809,30 @@ silently does nothing** — only the unscoped form removes a nested copy.
 
 ---
 
+## The Branch Dependabot Aims At
+
+**Rule** — every Dependabot pull request lands on `dev`. `.github/dependabot.yml` declares
+`target-branch: dev` for both `/` and `/desktop`, and `.github/workflows/dependabot-target.yml`
+retargets the ones that open on `main` regardless.
+
+**Why the workflow is not redundant** — `target-branch` is obeyed by a VERSION update and ignored by a
+SECURITY update, which always opens against the repository's default branch. On 2026-09-14 five were
+open at once and the split was exactly that: the four security updates had all landed on `main`, and
+the plain Electron bump — same `/desktop` directory, same config — had gone to `dev` correctly. The
+config alone cannot reach the half that actually matters.
+
+**Why `/` is declared at all** — it was missing, so the main application's own dependencies received no
+scheduled update ever. They surfaced only when an alert fired, and fourteen had drifted behind.
+
+**Rejected** — making `dev` the repository's default branch, which is the native fix: security updates
+would open there and no workflow would be needed. Dependabot alerts are evaluated against the default
+branch only, so that also closes an alert the moment a fix reaches `dev` — while the shop PC is still
+running the released `main` and still carries the hole, with nothing left open to say so. `main` as the
+default keeps the alert standing until the fix actually SHIPS, which for an application that installs
+itself on a real machine is the signal worth keeping.
+
+---
+
 ## Two Parts of One Job
 
 **Rejected, 2026-08-14.** The owner's real case is a job fabricated in one stretch and installed days later, the

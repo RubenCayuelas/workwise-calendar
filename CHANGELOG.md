@@ -9,6 +9,12 @@ never moves without the owner asking.
 
 ---
 
+## 0.25.6 — dependency updates reach the working branch
+
+**Dependency updates now open against the working branch instead of the release branch**, and the main
+application's own packages are checked weekly rather than only when a security alert fires. Nothing
+about how the calendar works has changed.
+
 ## 0.25.5 — security updates
 
 **The packages Workwise is built from are updated to close several security advisories.** Next.js
