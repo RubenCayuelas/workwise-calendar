@@ -403,7 +403,7 @@ export function axisTicks(periods: readonly WorkPeriod[], timeline: Timeline): A
 }
 
 /** The pixels a label printed at `minutes` covers, as the stylesheet anchors it. */
-function labelBox(minutes: number, timeline: Timeline): { top: number; bottom: number } {
+export function labelBox(minutes: number, timeline: Timeline): { top: number; bottom: number } {
   const y = timeline.yOf(minutes);
   if (minutes <= timeline.startMinutes) return { top: y, bottom: y + TICK_LABEL_HEIGHT };
   if (minutes >= timeline.endMinutes) return { top: y - TICK_LABEL_HEIGHT, bottom: y };

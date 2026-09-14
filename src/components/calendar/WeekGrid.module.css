@@ -385,6 +385,43 @@
   color: var(--ww-text);
 }
 
+/*
+ * THE CURRENT TIME, and only inside the gutter. A rule carried across the columns would read as a
+ * boundary between rows in a grid whose every other horizontal line is exactly that.
+ *
+ * Amber, and not red: red is what this app says when it refuses something. The eight job colours are
+ * held a distance from the brand amber on purpose, so it is the one hue on the calendar that can
+ * never be mistaken for a job. The token swaps by theme the way `--ww-locked-stroke` does — the ink
+ * amber is a brown that all but disappears on the dark surface.
+ *
+ * The label it would be drawn through is not printed at all (`hiddenTickMinutes`), so the two never
+ * share a pixel and neither needs to sit behind the other.
+ */
+.now {
+  position: absolute;
+  right: 0;
+  left: var(--ww-space-3);
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ww-now-stroke);
+  transform: translateY(-1px);
+}
+
+/* At the mark's OWN end, away from the grid: the line then reads as running towards the day columns
+   rather than being pinned to them. Kept wholly inside the gutter — over an edge it is clipped to a
+   wedge that reads as an accident. */
+.now::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ww-now-stroke);
+  transform: translateY(-50%);
+}
+
 /* The first and last labels would otherwise hang outside the frame. */
 .tickFirst {
   transform: none;

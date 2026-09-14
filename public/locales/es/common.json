@@ -360,6 +360,8 @@
     "appearanceSection": "Apariencia",
     "gapColor": "Color de los huecos",
     "gapColorHint": "Todos los huecos del calendario se pintan de este color.",
+    "nowLineEnabled": "Marca de la hora actual",
+    "nowLineEnabledHint": "Dibuja una marca en el eje de horas a la hora que es. Solo aparece en la semana en curso.",
     "languageSection": "Idioma",
     "language": "Idioma de la interfaz",
     "languageHint": "Se puede cambiar en cualquier momento y se recuerda en este equipo.",

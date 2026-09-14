@@ -126,6 +126,8 @@ export interface Settings {
   holidaysEnabled: boolean;
   /** The INE code of the municipality whose holidays are fetched. Five digits. */
   holidaysMunicipality: string;
+  /** Whether the hour axis carries a mark at the current time. On by default. */
+  nowLineEnabled: boolean;
 
 }
 

@@ -30,6 +30,7 @@ import {
   type GridMetrics,
   type Timeline,
 } from './geometry';
+import { msUntilNextMinute, nowLinePlacement } from './nowLine';
 import { aimAt } from './paintAim';
 import {
   buildDropQueue,
@@ -213,6 +214,22 @@ export function WeekGrid({
   // overlap (allowed on the weekend and in the past) stays visible.
   const layout = useMemo(() => buildLayout(view), [view]);
   const ticks = useMemo(() => axisTicks(view.shape.periods, timeline), [view.shape.periods, timeline]);
+
+  // Which column is today is the SERVER's answer (`isToday`), so the mark and the day header can
+  // never disagree about it on a machine whose clock is set to another zone.
+  const todayOnScreen = useMemo(() => view.days.some((day) => day.isToday), [view.days]);
+  const nowMinutes = useNowMinutes(view.settings.nowLineEnabled && todayOnScreen);
+  const nowLine = useMemo(
+    () =>
+      nowLinePlacement({
+        enabled: view.settings.nowLineEnabled,
+        todayOnScreen,
+        nowMinutes,
+        timeline,
+        ticks,
+      }),
+    [view.settings.nowLineEnabled, todayOnScreen, nowMinutes, timeline, ticks],
+  );
 
   // The queue, so a re-ranking drop can name the row it will fall in behind — the only true
   // thing its ghost can print. Built for the whole week: a Thursday drop usually ranks after
@@ -434,7 +451,8 @@ export function WeekGrid({
           ))}
 
           <div className={styles.axis} aria-hidden="true">
-            {ticks.map((tick) => (
+            {ticks.map((tick) =>
+              tick.minutes === nowLine?.hiddenTickMinutes ? null : (
               <span
                 key={tick.minutes}
                 // Keyed on the MINUTE, never on the tick's index: `axisTicks` may drop either
@@ -451,7 +469,12 @@ export function WeekGrid({
               >
                 {format.time(tick.minutes)}
               </span>
-            ))}
+              ),
+            )}
+
+            {nowLine === null ? null : (
+              <span className={styles.now} style={{ top: `${nowLine.y}px` }} />
+            )}
           </div>
 
           {view.days.map((day) => (
@@ -1441,6 +1464,30 @@ function useWeekSlide(startDate: string): WeekSlide {
     previous.current = startDate;
   }
   return direction.current;
+}
+
+/**
+ * The current time in minutes from midnight, re-read as the wall clock turns over. No timer runs at
+ * all while `active` is false: paged off the current week, nothing on screen depends on the time.
+ */
+function useNowMinutes(active: boolean): number {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    if (!active) return undefined;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = (): void => {
+      const at = new Date();
+      setNow(at);
+      // Re-armed from the time just read, never a flat 60s: a browser that throttles a background
+      // tab wakes up late, and a fixed interval would carry that lateness for the rest of the day.
+      timer = setTimeout(tick, msUntilNextMinute(at));
+    };
+    timer = setTimeout(tick, msUntilNextMinute(new Date()));
+    return () => clearTimeout(timer);
+  }, [active]);
+
+  return now.getHours() * 60 + now.getMinutes();
 }
 
 /** The entry animation for a box of the week that has just arrived: a column's contents. */

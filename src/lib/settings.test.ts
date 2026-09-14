@@ -295,3 +295,20 @@ describe('the holiday settings', () => {
     expect(readSettings(db)).toEqual(written);
   });
 });
+
+describe('the current-time line', () => {
+  it('is on until it is switched off', () => {
+    expect(DEFAULT_SETTINGS.nowLineEnabled).toBe(true);
+  });
+
+  it('reads a corrupt stored value as on, rather than taking the line away unasked', () => {
+    expect(normalizeSettings({ nowLineEnabled: 'yes please' }).nowLineEnabled).toBe(true);
+    expect(normalizeSettings({ nowLineEnabled: 'false' }).nowLineEnabled).toBe(false);
+  });
+
+  it('round-trips: what writeSettings returns is what readSettings gives back', () => {
+    const written = writeSettings({ nowLineEnabled: false }, db);
+    expect(written.nowLineEnabled).toBe(false);
+    expect(readSettings(db)).toEqual(written);
+  });
+});

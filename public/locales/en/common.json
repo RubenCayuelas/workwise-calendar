@@ -360,6 +360,8 @@
     "appearanceSection": "Appearance",
     "gapColor": "Gap colour",
     "gapColorHint": "Every gap on the calendar is painted this colour.",
+    "nowLineEnabled": "Current-time mark",
+    "nowLineEnabledHint": "Draws a mark on the hour axis at the time it is. It only appears on the week in progress.",
     "languageSection": "Language",
     "language": "Interface language",
     "languageHint": "It can be changed at any time and is remembered on this machine.",
