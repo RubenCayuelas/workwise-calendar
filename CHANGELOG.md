@@ -9,6 +9,11 @@ never moves without the owner asking.
 
 ---
 
+## 0.25.7 — Electron update for the desktop app
+
+**The desktop application's framework moves to Electron 44.3.0.** Nothing about how the calendar works
+has changed.
+
 ## 0.25.6 — dependency updates reach the working branch
 
 **Dependency updates now open against the working branch instead of the release branch**, and the main
