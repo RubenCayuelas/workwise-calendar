@@ -4,7 +4,7 @@ An Electron window around the app's own server. **The app is not rewritten**: no
 `app/` knows this package exists.
 
 ```
-Workwise.exe  (Electron 43)
+Workwise.exe  (Electron 44)
 │
 ├─ starts, on a free port, bound to 127.0.0.1 only
 │     resources/node.exe  →  resources/server/server.js  ← the app, unchanged
@@ -15,22 +15,19 @@ Workwise.exe  (Electron 43)
 
 ## Why a bundled `node.exe` and not Electron's own
 
-`better-sqlite3` is compiled, so its binary has to match the runtime's ABI. There is **no supported
-Electron version with a ready-made `better-sqlite3` binary**: the prebuilds stop at Electron 39/40
-while the supported majors are 41-43, and `better-sqlite3` 13.x publishes none at all. Running the
-server on a bundled Node instead uses the *Node* ABI prebuild, which does exist — so Electron stays
-current and **nothing has to be compiled, ever**. That is worth 87 MB: a C++ toolchain in the build
-path is the thing most likely to stop a fix from shipping months later.
+The server is a separate process, and the `node.exe` the package carries is the version the build ran
+on — `scripts/require-node-22.mjs` pins it — so the shop runs the runtime the gates ran, and Electron
+stays current independently of it. `better-sqlite3` ships a ready-made binary for that runtime, so
+**nothing has to be compiled, ever**. It costs 87 MB.
 
 ## Building it
 
 **Node 22 exactly**, and a clone on the Windows filesystem — not `\\wsl$`, where npm and native
 modules are slow and permission-flaky.
 
-> `winget install OpenJS.NodeJS.LTS` is the WRONG command: today's LTS is Node 24, and
-> `better-sqlite3` 11.x publishes no binary for its ABI, so npm falls through to `node-gyp` and fails
-> with hundreds of lines that never name the real problem. `scripts/require-node-22.mjs` now refuses
-> the install up front instead. Take the x64 `.msi` from
+> `winget install OpenJS.NodeJS.LTS` is the WRONG command: today's LTS is Node 24, and the installer
+> bundles whichever Node builds it, so the shop would run a version nothing here was tested on.
+> `scripts/require-node-22.mjs` refuses the install up front instead. Take the x64 `.msi` from
 > <https://nodejs.org/dist/latest-v22.x/>, or `nvm install 22`.
 
 ```

@@ -43,7 +43,8 @@ for (const [what, target] of [
   ['the server', path.join(server, 'server.js')],
   ['next', path.join(server, 'deps', 'next', 'package.json')],
   ['the database driver', path.join(server, 'deps', 'better-sqlite3', 'package.json')],
-  ['the native database binary', path.join(server, 'deps', 'better-sqlite3', 'build', 'Release')],
+  // The file, not the `prebuilds` directory: an empty directory would pass a check on the directory.
+  ['the native database binary', path.join(server, 'deps', 'better-sqlite3', 'prebuilds', 'win32-x64.node')],
   ['the static assets', path.join(server, '.next', 'static')],
   ['the brand assets', path.join(server, 'public', 'brand')],
   ['the node runtime', path.join(resources, 'node.exe')],

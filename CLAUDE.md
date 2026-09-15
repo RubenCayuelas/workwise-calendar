@@ -66,7 +66,7 @@ back, will be reported as a defect.
   narrow layout (decided 2026-08-11).
 - **Next.js 16 + TypeScript + SQLite** (`better-sqlite3`). Turbopack builds `dev` and `build`; React
   stays on 18.
-- **It ships as a Windows application**: an Electron 43 window around the app's own standalone server,
+- **It ships as a Windows application**: an Electron 44 window around the app's own standalone server,
   which runs on a **`node.exe` bundled in the package**. `src/` and `app/` know nothing about it — see
   `desktop/README.md` for the three traps that cost a build each. **It updates itself** from the
   published releases, and takes a copy of the calendar before it will install one.
@@ -84,10 +84,10 @@ back, will be reported as a defect.
 | `npm run lint` | `eslint .` |
 
 **All four gates must pass before a commit**: `tsc`, `vitest`, `eslint`, `next build`. Node **22
-exactly** — `scripts/require-node-22.mjs` refuses anything else, because `better-sqlite3` publishes no
-prebuilt binary for other ABIs and npm would fall through to a compiler. CI runs the same four on every
-pull request, whatever branch it targets (`.github/workflows/gates.yml`), and again on the tag that
-builds the installer.
+exactly** — `scripts/require-node-22.mjs` refuses anything else, because the Windows build bundles a
+`node.exe` of whatever Node runs it, so the pin is what makes the shop run the version the gates ran on.
+CI runs the same four on every pull request, whatever branch it targets (`.github/workflows/gates.yml`),
+and again on the tag that builds the installer.
 
 ## Branches, versions and releases
 

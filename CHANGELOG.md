@@ -9,6 +9,28 @@ never moves without the owner asking.
 
 ---
 
+## 0.26.3 — the database driver, and the check that guards the installer
+
+**The SQLite driver is updated.** It now carries a ready-made binary for every platform instead of
+fetching one while it installs, so a clean setup needs nothing but Node. Nothing about how the
+calendar works has changed.
+
+**The installer's own refusal-to-publish check was looking for that binary where the previous driver
+left it**, so building a release would have stopped and reported the package as broken. It looks where
+the driver puts it now, and the same file is checked on every pull request rather than only when a
+release is built.
+
+## 0.26.2 — the Node type definitions are updated
+
+**The type definitions the code is checked against move to a current Node.** They describe the
+language the app is written against, never reach the installer, and nothing about how the calendar
+works has changed.
+
+## 0.26.1 — routine package updates
+
+**The packages Workwise is built from are updated.** Next.js moves to 16.3.5 and the translation
+library to i18next 26.4.2, both bug-fix releases. Nothing about how the calendar works has changed.
+
 ## 0.26.0 — the hour it is, and short jobs you can read
 
 **The calendar marks the time it is.** A thin amber line sits in the hour column on the left, on the
