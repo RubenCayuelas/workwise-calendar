@@ -9,6 +9,12 @@ never moves without the owner asking.
 
 ---
 
+## 0.26.2 — the Node type definitions are updated
+
+**The type definitions the code is checked against move to a current Node.** They describe the
+language the app is written against, never reach the installer, and nothing about how the calendar
+works has changed.
+
 ## 0.26.1 — routine package updates
 
 **The packages Workwise is built from are updated.** Next.js moves to 16.3.5 and the translation
