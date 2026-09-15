@@ -1,0 +1,59 @@
+name: Windows install
+
+# The gates run on Linux, and the Windows install is only exercised when a `v*` tag builds the
+# installer — so a dependency that cannot install on Windows is green on every pull request and fails
+# the release, after the tag is pushed and the version is already claimed. That happened: the database
+# driver stopped declaring an install script, npm began running `node-gyp rebuild` on it unasked, and
+# node-gyp failed on the runner looking for a compiler the build never needed.
+#
+# This is the release path up to the packager: the same install, the same build, the same payload
+# assembly. `electron-builder` and `verify-package.mjs` still run only on the tag.
+on:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'desktop/package.json'
+      - 'desktop/package-lock.json'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - name: Refuse to build on the wrong Node
+        run: node scripts/require-node-22.mjs
+
+      # The flags the release build uses, for the reasons written where it uses them.
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      - name: Build the app
+        run: npm run build
+
+      - name: Assemble the payload
+        working-directory: desktop
+        shell: bash
+        run: |
+          npm ci
+          npm run prepare-payload
+
+      # What the shop PC loads. `prepare.mjs` copies the traced tree, so a driver whose binary the
+      # tracer missed reaches here as a payload that cannot open the calendar.
+      - name: Check the payload carries the database binary
+        shell: bash
+        run: test -f desktop/build/server/deps/better-sqlite3/prebuilds/win32-x64.node
