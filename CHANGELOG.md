@@ -9,6 +9,12 @@ never moves without the owner asking.
 
 ---
 
+## 0.26.3 — the type definitions follow the runtime
+
+**The Node type definitions are held to the version Workwise actually runs on.** They were about to
+move to a much later Node than the one the installer ships, which would have let the compiler accept
+code the shop PC cannot run. Nothing about how the calendar works has changed.
+
 ## 0.26.1 — routine package updates
 
 **The packages Workwise is built from are updated.** Next.js moves to 16.3.5 and the translation

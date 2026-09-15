@@ -26,6 +26,11 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/react-dom"
         update-types: ["version-update:semver-major"]
+      # `@types/node` follows the runtime, not the latest Node. The app is pinned to 22 and ships a
+      # `node.exe` of that version, so types for a later one let `tsc` accept an API the shop PC does
+      # not have — a gap no gate can see, because the gates type-check against the same wrong types.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/desktop"
