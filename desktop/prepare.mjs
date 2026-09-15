@@ -12,10 +12,9 @@ const root = path.join(here, '..');
 const build = path.join(here, 'build');
 
 /**
- * The Node that is RUNNING this script, not a constant. `npm ci` fetched better-sqlite3's binary for
- * THIS runtime, so bundling any other version would package a database binary the shipped `node.exe`
- * cannot load — and it would only fail on the customer's machine. `scripts/require-node-22.mjs` keeps
- * this to a version better-sqlite3 actually publishes binaries for.
+ * The Node that is RUNNING this script, not a constant, so the shop runs the runtime the build ran on
+ * and not whichever one the build machine happened to have. `scripts/require-node-22.mjs` pins that to
+ * 22.
  */
 const NODE_VERSION = process.version;
 

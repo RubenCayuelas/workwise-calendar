@@ -15,24 +15,43 @@ jobs:
   gates:
     runs-on: ubuntu-latest
 
+    # `windows-installer.yml` calls this workflow and holds `contents: write` to draft the release.
+    # Without this, the checks would run with that token too, and they only ever read.
+    permissions:
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
 
-      # Node 22 exactly: `scripts/require-node-22.mjs` refuses `npm ci` on anything else, so CI
-      # installs on the version the repository requires.
+      # Node 22 exactly, checked by the step below rather than by the install: `--ignore-scripts`
+      # skips the `preinstall` this guard normally is.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - run: npm ci
+      # A step of its own, because the install below skips the `preinstall` that usually does this —
+      # and as a hook it was always too late anyway: npm runs a dependency's install scripts first.
+      - name: Refuse to build on the wrong Node
+        run: node scripts/require-node-22.mjs
+
+      # `--ignore-scripts`, or npm runs `node-gyp rebuild` on `better-sqlite3` unasked: the package
+      # carries a `binding.gyp` and declares no install script, which is npm's trigger for building it.
+      # It ships a ready-made binary for every platform instead, so there is nothing here to build.
+      - run: npm ci --ignore-scripts
       - run: npm run type-check
       - run: npm test
       - run: npm run lint
       - run: npm run build
 
-      # `desktop/verify-package.mjs` checks this too, but only on a tag — so a payload that has lost
-      # the database binary was green on every pull request and failed the release build.
-      - name: Check the build traced the database binary
-        run: test -f .next/standalone/node_modules/better-sqlite3/prebuilds/win32-x64.node
+      # `desktop/verify-package.mjs` checks the first of these too, but only on a tag — so a payload
+      # that had lost the database binary was green on every pull request and failed the release
+      # build. The second is the class of failure `--ignore-scripts` hides: a package npm would have
+      # built arriving in the payload with nothing built. `better-sqlite3` is the allowed one, because
+      # it ships a ready-made binary and the line above proves that binary is there.
+      - name: Check what the build traced into the payload
+        run: |
+          test -f .next/standalone/node_modules/better-sqlite3/prebuilds/win32-x64.node
+          ! find .next/standalone/node_modules -mindepth 2 -maxdepth 3 -name binding.gyp \
+              -not -path '*/better-sqlite3/*' | grep .

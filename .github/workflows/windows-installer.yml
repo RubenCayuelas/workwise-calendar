@@ -28,8 +28,8 @@ jobs:
       - uses: actions/checkout@v4
 
       # Pinned, not "lts": `prepare.mjs` bundles whichever Node runs it, so "lts" — Node 24 today —
-      # would hand the shop a runtime nothing was tested on. `scripts/require-node-22.mjs` refuses
-      # anything but 22 anyway; this is what keeps the refusal from ever firing here.
+      # would hand the shop a runtime nothing was tested on. The step below refuses anything but 22;
+      # this is what keeps that refusal from ever firing here.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -48,14 +48,24 @@ jobs:
           npm pkg set version="$VERSION"
           (cd desktop && npm pkg set version="$VERSION")
 
+      - name: Refuse to build on the wrong Node
+        run: node scripts/require-node-22.mjs
+
+      # `--ignore-scripts`, or npm runs `node-gyp rebuild` on `better-sqlite3` unasked — it carries a
+      # `binding.gyp` and declares no install script, which is npm's trigger — and node-gyp fails on
+      # this runner looking for a Visual Studio it does not recognise. It never needed to build
+      # anything: the driver ships a ready-made binary for every platform inside its own package.
       - name: Install
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Build the app
         run: npm run build
 
       # `shell: bash` because this is a multi-line `run:`, and pwsh would carry on past a failing
       # `npm ci` and report only what `npm run dist` did.
+      #
+      # This install keeps its scripts, unlike the one above: nothing here carries a `binding.gyp`,
+      # and `electron-winstaller` picks its 7-Zip binary in one.
       - name: Build the installer
         working-directory: desktop
         shell: bash

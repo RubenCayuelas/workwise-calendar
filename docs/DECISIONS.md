@@ -748,6 +748,29 @@ and the verifier runs only on a tag, where a false pass costs a release.
 
 ---
 
+## CI Installs Without Package Scripts
+
+**Rule** — `.github/workflows/gates.yml` and `.github/workflows/windows-installer.yml`. Both install the
+application's own tree with `npm ci --ignore-scripts`, and run `node scripts/require-node-22.mjs` as a step of
+their own immediately before it. The `desktop/` install keeps its scripts. A Windows job on every change to a
+package proves the install still works there.
+
+**Why** — npm builds any package that carries a `binding.gyp` and declares no install script of its own, and
+`better-sqlite3` 13 is exactly that shape: it dropped its install script and ships a ready-made binary for every
+platform instead. The build nobody asked for then failed on `windows-latest`, whose Visual Studio 2026 node-gyp
+does not recognise, dying in configure before it ever reads the `gypfile: false` the driver declares. Measured:
+the driver installs, loads and reports SQLite 3.53.4 under `--ignore-scripts`, with no build directory. The Node
+22 guard is not lost by skipping `preinstall` — as a hook it ran only after a dependency's own scripts had, so
+the step refuses earlier than the hook ever could, and in the build that failed the hook never ran at all.
+
+**Rejected** — pinning the runner to an image with a Visual Studio node-gyp knows, which works today and leaves
+the unwanted build sitting in the release path to fail again at the next image migration. Pointing npm at a
+newer node-gyp, which has recognised Visual Studio 2026 for months: npm reads that setting for `npm run` only,
+never for an install, so it is inert. Reverting the driver to 11, which fetches its binary at install time from
+outside the lockfile, with nothing to check it against.
+
+---
+
 ## An Update Waits For Its Copy
 
 **Rule** — SPEC § *Updates*. The app looks for a published release when it opens and downloads it in the
