@@ -9,6 +9,11 @@ never moves without the owner asking.
 
 ---
 
+## 0.26.1 — routine package updates
+
+**The packages Workwise is built from are updated.** Next.js moves to 16.3.5 and the translation
+library to i18next 26.4.2, both bug-fix releases. Nothing about how the calendar works has changed.
+
 ## 0.26.0 — the hour it is, and short jobs you can read
 
 **The calendar marks the time it is.** A thin amber line sits in the hour column on the left, on the
