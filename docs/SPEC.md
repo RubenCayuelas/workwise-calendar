@@ -1134,9 +1134,9 @@ and `documents/workwise_wireframe_bloque_y_panel.html`. They are the authority o
     free-standing 42, measured against nothing: a quarter-hour row came out 10.5 px tall and its own
     name did not fit inside it. **The week scrolls rather than compressing past legibility.**
 - **The current time is marked on the axis, and nowhere else** — a hairline in the brand amber across
-  the hour gutter, ending in a dot at its own end, away from the grid. It is drawn only while the week
-  ON SCREEN is the one today falls in (the server's `isToday`, never a day derived in the browser) and
-  only while the clock is inside the axis. **The hour label it would be drawn through is not printed**,
+  the hour gutter, ending in a dot at its own end, away from the grid. It is drawn on **every** week,
+  because the hour it points at is the same hour on all of them, and only while the clock is inside the
+  axis. **The hour label it would be drawn through is not printed**,
   measured the way `axisTicks` measures a collision between two labels, so the mark never crosses a
   number. It is redrawn as the wall clock turns over, and no timer runs while it is not shown.
   Switched off from Settings; on by default.
