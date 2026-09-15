@@ -9,6 +9,17 @@ never moves without the owner asking.
 
 ---
 
+## 0.26.2 — the database driver, and the check that guards the installer
+
+**The SQLite driver is updated.** It now carries a ready-made binary for every platform instead of
+fetching one while it installs, so a clean setup needs nothing but Node. Nothing about how the
+calendar works has changed.
+
+**The installer's own refusal-to-publish check was looking for that binary where the previous driver
+left it**, so building a release would have stopped and reported the package as broken. It looks where
+the driver puts it now, and the same file is checked on every pull request rather than only when a
+release is built.
+
 ## 0.26.1 — routine package updates
 
 **The packages Workwise is built from are updated.** Next.js moves to 16.3.5 and the translation

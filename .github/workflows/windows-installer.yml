@@ -27,9 +27,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pinned, not "lts": today's LTS is Node 24, and better-sqlite3 publishes no binary for its ABI,
-      # so npm would fall through to node-gyp and fail. `scripts/require-node-22.mjs` refuses it anyway;
-      # this is what keeps the refusal from ever firing here.
+      # Pinned, not "lts": `prepare.mjs` bundles whichever Node runs it, so "lts" — Node 24 today —
+      # would hand the shop a runtime nothing was tested on. `scripts/require-node-22.mjs` refuses
+      # anything but 22 anyway; this is what keeps the refusal from ever firing here.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
