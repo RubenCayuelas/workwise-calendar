@@ -9,7 +9,7 @@ never moves without the owner asking.
 
 ---
 
-## 0.26.2 — the database driver, and the check that guards the installer
+## 0.26.3 — the database driver, and the check that guards the installer
 
 **The SQLite driver is updated.** It now carries a ready-made binary for every platform instead of
 fetching one while it installs, so a clean setup needs nothing but Node. Nothing about how the
@@ -19,6 +19,12 @@ calendar works has changed.
 left it**, so building a release would have stopped and reported the package as broken. It looks where
 the driver puts it now, and the same file is checked on every pull request rather than only when a
 release is built.
+
+## 0.26.2 — the Node type definitions are updated
+
+**The type definitions the code is checked against move to a current Node.** They describe the
+language the app is written against, never reach the installer, and nothing about how the calendar
+works has changed.
 
 ## 0.26.1 — routine package updates
 
