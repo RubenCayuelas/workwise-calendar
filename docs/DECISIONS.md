@@ -730,19 +730,21 @@ calendar that no longer exists.
 **Rule** — `desktop/README.md`. An Electron window around the app's own standalone server, which runs on a
 `node.exe` bundled in the package. `src/` and `app/` are untouched.
 
-**Why a bundled Node instead of Electron's own** — `better-sqlite3` is compiled, so its binary must match the
-runtime's ABI, and there is **no supported Electron with a ready-made one**: the prebuilds stop at Electron
-39/40 while the supported majors are 41-43, and `better-sqlite3` 13.x publishes none at all. A bundled Node uses
-the Node-ABI prebuild, which exists, so Electron stays current and **nothing is ever compiled**. That is worth
-87 MB: a C++ toolchain in the build path is the thing most likely to stop a fix shipping months later.
+**Why a bundled Node instead of Electron's own** — the server is a separate process, and the `node.exe` the
+package carries is the version the build ran on, pinned by `scripts/require-node-22.mjs`, so the shop runs the
+runtime the gates ran and Electron stays current independently of it. `better-sqlite3` ships a ready-made binary
+for that runtime, so **nothing is ever compiled**. It costs 87 MB.
 
-**Rejected** — compiling for Electron with `@electron/rebuild` (one runtime, but a compiler in the build path),
-and pinning Electron to 39/40 (ships an unsupported Chromium and returns the same problem at the first upgrade).
+**Rejected** — compiling the driver for Electron with `@electron/rebuild`, which puts a compiler in the build
+path, and pinning Electron to a major old enough to have a ready-made binary, which ships an unsupported
+Chromium and returns the same problem at the first upgrade.
 
 **Three traps, each of which cost a build** — the payload aimed at `resources/app`, which is electron-builder's
 own directory; `node_modules` dropped silently from `extraResources`, which no filter can override, so it is
 copied to `deps` and found through `NODE_PATH`; and the file tracer following `getDbPath()` into `data/`, so the
-installer carried the shop's own calendar. `desktop/verify-package.mjs` fails the build on all three.
+installer carried the shop's own calendar. `desktop/verify-package.mjs` fails the build on all three, and it
+names the database binary by file rather than by directory — a check on the directory passes on an empty one,
+and the verifier runs only on a tag, where a false pass costs a release.
 
 ---
 

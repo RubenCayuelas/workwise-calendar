@@ -18,8 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Node 22 exactly: `better-sqlite3` publishes no prebuilt binary for other ABIs, and
-      # `scripts/require-node-22.mjs` refuses the install rather than falling through to a compiler.
+      # Node 22 exactly: `scripts/require-node-22.mjs` refuses `npm ci` on anything else, so CI
+      # installs on the version the repository requires.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -31,3 +31,8 @@ jobs:
       - run: npm test
       - run: npm run lint
       - run: npm run build
+
+      # `desktop/verify-package.mjs` checks this too, but only on a tag — so a payload that has lost
+      # the database binary was green on every pull request and failed the release build.
+      - name: Check the build traced the database binary
+        run: test -f .next/standalone/node_modules/better-sqlite3/prebuilds/win32-x64.node
