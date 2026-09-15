@@ -31,7 +31,7 @@ modules are slow and permission-flaky.
 > <https://nodejs.org/dist/latest-v22.x/>, or `nvm install 22`.
 
 ```
-npm ci                        # in the repository root
+npm ci --ignore-scripts       # in the repository root, see the root README for the flag
 npm run build                 # emits .next/standalone
 cd desktop
 npm ci

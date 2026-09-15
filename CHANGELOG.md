@@ -9,6 +9,21 @@ never moves without the owner asking.
 
 ---
 
+## 0.26.4 — the release build installs again, and verifies what it installs
+
+**The list of exact package versions had lost the checksums it verifies downloads against**, and
+every entry for a platform other than Linux with them. Both are back, so a Windows build has what to
+install and something to check it against.
+
+**Building a release stopped at the install.** The database driver no longer says how it is
+installed, so the package manager tried to compile it — on a machine with no compiler, for a binary
+the driver already ships ready-made. The build no longer runs package install scripts at all, and the
+check that refuses the wrong version of Node, which used to ride along with them, is now a step of
+its own that runs earlier than it did before.
+
+**A Windows install now runs on every change to a package**, so a dependency that cannot install
+there is caught while it is still a proposal instead of after a release is tagged.
+
 ## 0.26.3 — the database driver, and the check that guards the installer
 
 **The SQLite driver is updated.** It now carries a ready-made binary for every platform instead of

@@ -13,9 +13,15 @@ written here.
 nvm install 22
 nvm use 22
 
-npm install
+npm install --ignore-scripts
 npm run dev            # http://localhost:3000
 ```
+
+`--ignore-scripts` because npm otherwise runs `node-gyp rebuild` on `better-sqlite3` — the package
+carries a `binding.gyp` and declares no install script of its own, which is npm's trigger for
+building it. There is nothing to build: it ships a ready-made binary for every platform. Without the
+flag, a machine with no C++ toolchain fails the install, which on Windows is every machine that has
+not installed Visual Studio.
 
 There is no database step. `data/calendar.db` (and its WAL sidecars) is created on the first
 request that touches the database, and migrations run once per process behind a single lazy

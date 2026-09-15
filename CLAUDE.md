@@ -201,6 +201,11 @@ rather than buried in the code.
   transaction; refuse naming the block if a padlock holds the space.
 - **How far the day picker reaches**: 4 weeks back, the planning horizon forward, capped at 16 weeks
   (`src/components/ui/dateOptions.ts`, with a test).
+- **Install with `npm ci --ignore-scripts`**, which is what both CI jobs do and what the READMEs tell a
+  developer. npm builds any package carrying a `binding.gyp` that declares no install script, and
+  `better-sqlite3` is one; it ships a ready-made binary for every platform, so the build is unwanted and
+  fails anywhere without a C++ toolchain. The Node 22 refusal is a step of its own because that flag
+  skips the `preinstall` it used to be.
 - **Linting is the ESLint CLI on a flat config.** `next lint` does not exist in Next 16 and `next build`
   no longer lints, so the gate is standalone. Two things to know before editing `eslint.config.mjs`:
   - **`eslint .` reads neither `.gitignore` nor `.git/info/exclude`**, so every non-source directory is
