@@ -15,6 +15,11 @@ jobs:
   gates:
     runs-on: ubuntu-latest
 
+    # `windows-installer.yml` calls this workflow and holds `contents: write` to draft the release.
+    # Without this, the checks would run with that token too, and they only ever read.
+    permissions:
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
 
