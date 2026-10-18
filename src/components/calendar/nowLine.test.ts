@@ -25,7 +25,6 @@ const TICKS = axisTicks(SHAPE.periods, TIMELINE);
 function place(over: Partial<NowLineInput> = {}): ReturnType<typeof nowLinePlacement> {
   return nowLinePlacement({
     enabled: true,
-    todayOnScreen: true,
     nowMinutes: 10 * 60 + 20,
     timeline: TIMELINE,
     ticks: TICKS,
@@ -38,8 +37,8 @@ describe('where the current-time line goes', () => {
     expect(place({ enabled: false })).toBeNull();
   });
 
-  it('is not drawn on a week that does not contain today, where "now" means nothing', () => {
-    expect(place({ todayOnScreen: false })).toBeNull();
+  it('is drawn on any week, because the hour it marks is the same on all of them', () => {
+    expect(place()).not.toBeNull();
   });
 
   it('is not drawn before the axis begins or after it ends', () => {
