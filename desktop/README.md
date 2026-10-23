@@ -82,6 +82,11 @@ copy, which is the gate: until the button is pressed, nothing anywhere sees the 
 
 `npm run verify` runs the same check locally against `dist/*-unpacked`.
 
+`node smoke-payload.mjs` starts the assembled payload from a copy outside the checkout and writes to
+its calendar, and fails on any link left inside it: run in place, the server would reach back into the
+build machine for whatever the payload lacks. It takes `build` by default, or
+`dist/<name>-unpacked/resources` after `npm run dist`; CI runs it on both.
+
 > A `.exe` downloaded from the release carries the mark Windows puts on files from the internet, so
 > SmartScreen warns. Copying it to a USB stick and installing from there does not — and neither does
 > an update the app fetches itself, because that mark is applied by the browser, not by HTTP.

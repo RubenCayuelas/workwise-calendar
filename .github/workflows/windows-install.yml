@@ -57,3 +57,10 @@ jobs:
       - name: Check the payload carries the database binary
         shell: bash
         run: test -f desktop/build/server/deps/better-sqlite3/prebuilds/win32-x64.node
+
+      # The binary being there says nothing about whether the server reaches it: it loads the driver
+      # through a link the build leaves in the standalone output, and a copied link still points into
+      # this runner's checkout.
+      - name: Start the payload away from the checkout
+        working-directory: desktop
+        run: node smoke-payload.mjs

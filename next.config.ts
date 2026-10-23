@@ -10,9 +10,9 @@ const nextConfig: NextConfig = {
   // better-sqlite3 loads a native .node binary, which cannot be bundled.
   // Leaving it external keeps the server build from trying.
   serverExternalPackages: ['better-sqlite3'],
-  // `next dev` otherwise appends a self-rewriting block to CLAUDE.md on every run. That file
-  // states its own contract in its header and is the authority on the business rules; a
-  // framework editing it produces a dirty tree on every start and buries the rules it holds.
+  // `next dev` otherwise creates AGENTS.md beside CLAUDE.md, holding a self-rewriting block of the
+  // framework's own rules, whenever an AI agent runs it: a dirty tree on every start, and a second
+  // file of instructions competing with the one that holds the business rules.
   agentRules: false,
   // What the Windows application ships: a `.next/standalone` folder holding the server and only the
   // dependencies it traces, `better-sqlite3` and its native binary among them. `next start` is

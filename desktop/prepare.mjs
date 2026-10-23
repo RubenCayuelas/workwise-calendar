@@ -21,9 +21,12 @@ const NODE_VERSION = process.version;
 /** Anything but `node_modules`, which the packager drops. Read by `server.mjs` as NODE_PATH. */
 export const DEPS_DIR = 'deps';
 
+// `dereference`: the server reaches its database driver only through a link the build leaves in
+// `.next/node_modules`, and a link copied as a link still points into this checkout — the payload then
+// runs on the build machine and nowhere else. `smoke-payload.mjs` refuses one.
 function copyDir(from, to, filter) {
   if (!fs.existsSync(from)) throw new Error(`Missing ${from} — run \`npm run build\` in the repo root first`);
-  fs.cpSync(from, to, { recursive: true, ...(filter === undefined ? {} : { filter }) });
+  fs.cpSync(from, to, { recursive: true, dereference: true, ...(filter === undefined ? {} : { filter }) });
 }
 
 async function fetchNodeExe() {

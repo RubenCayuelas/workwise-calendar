@@ -9,6 +9,23 @@ never moves without the owner asking.
 
 ---
 
+## 0.27.0 — the hour on every week, and current packages underneath
+
+**The line that marks the time it is now crosses every week, not only the one in progress.** The hour
+it points at is the same hour on every week, so a week planned ahead reads against the clock just as
+this one does. It still switches off under appearance in settings.
+
+**The packages Workwise is built from are updated.** The web framework moves to Next.js 16.4.2, which
+closes several security advisories in it, two of them critical, and the Windows application's window
+moves to Electron 44.9.3, which closes one in how it checks the certificates of the site it downloads
+its updates from. Nothing about how the calendar works has changed.
+
+**The installer carries the database driver itself.** It used to carry a pointer to where the driver
+sat on the machine that built it, and relied on the packaging step to turn that pointer into files.
+Every change to a package now starts the assembled server on Windows, away from where it was built,
+and creates a job in it before it can reach a release; the release build does the same with what it
+packaged.
+
 ## 0.26.4 — the release build installs again, and verifies what it installs
 
 **The list of exact package versions had lost the checksums it verifies downloads against**, and
