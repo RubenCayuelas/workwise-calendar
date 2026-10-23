@@ -216,20 +216,10 @@ export function WeekGrid({
   const layout = useMemo(() => buildLayout(view), [view]);
   const ticks = useMemo(() => axisTicks(view.shape.periods, timeline), [view.shape.periods, timeline]);
 
-  // Which column is today is the SERVER's answer (`isToday`), so the mark and the day header can
-  // never disagree about it on a machine whose clock is set to another zone.
-  const todayOnScreen = useMemo(() => view.days.some((day) => day.isToday), [view.days]);
-  const nowMinutes = useNowMinutes(view.settings.nowLineEnabled && todayOnScreen);
+  const nowMinutes = useNowMinutes(view.settings.nowLineEnabled);
   const nowLine = useMemo(
-    () =>
-      nowLinePlacement({
-        enabled: view.settings.nowLineEnabled,
-        todayOnScreen,
-        nowMinutes,
-        timeline,
-        ticks,
-      }),
-    [view.settings.nowLineEnabled, todayOnScreen, nowMinutes, timeline, ticks],
+    () => nowLinePlacement({ enabled: view.settings.nowLineEnabled, nowMinutes, timeline, ticks }),
+    [view.settings.nowLineEnabled, nowMinutes, timeline, ticks],
   );
 
   // The queue, so a re-ranking drop can name the row it will fall in behind — the only true
@@ -1494,9 +1484,9 @@ function useNowMinutes(active: boolean): number {
       // tab wakes up late, and a fixed interval would carry that lateness for the rest of the day.
       timer = setTimeout(tick, msUntilNextMinute(at));
     };
-    // Read on the way IN, not at the next minute boundary: `active` turns back on when the owner
-    // pages home to this week, and the clock it was last read at may be hours old. Waiting would
-    // draw the mark at that stale minute for up to one more.
+    // Read on the way IN, not at the next minute boundary: `active` turns back on when the mark is
+    // switched on again in settings, and the clock it was last read at may be hours old. Waiting
+    // would draw the mark at that stale minute for up to one more.
     tick();
     return () => clearTimeout(timer);
   }, [active]);

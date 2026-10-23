@@ -1,6 +1,6 @@
 {
   "name": "workwise-desktop",
-  "version": "0.26.4",
+  "version": "0.27.0",
   "description": "Workwise as a Windows application: an Electron window around the app's own server",
   "private": true,
   "type": "module",
@@ -16,8 +16,8 @@
     "electron-updater": "^6.8.9"
   },
   "devDependencies": {
-    "@electron/asar": "^4.3.0",
-    "electron": "^44.3.0",
+    "@electron/asar": "^4.3.1",
+    "electron": "^44.9.3",
     "electron-builder": "^26.0.0"
   },
   "build": {

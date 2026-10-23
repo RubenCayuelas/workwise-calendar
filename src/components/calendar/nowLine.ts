@@ -7,12 +7,6 @@ import { labelBox, type AxisTick, type Timeline } from './geometry';
 
 export interface NowLineInput {
   enabled: boolean;
-  /**
-   * Whether the week on screen is the one today falls in. Taken from the day the SERVER flagged, not
-   * re-derived here: the shop's time zone is the server's, and a browser in another one would
-   * disagree with the header about which column is today.
-   */
-  todayOnScreen: boolean;
   /** Minutes from midnight. */
   nowMinutes: number;
   timeline: Timeline;
@@ -26,14 +20,9 @@ export interface NowLinePlacement {
   hiddenTickMinutes: number | null;
 }
 
-/**
- * The mark is only ever about the week ON SCREEN: paged three weeks forward, "now" is a line across
- * days it cannot be inside, so there is nothing to draw.
- */
 export function nowLinePlacement(input: NowLineInput): NowLinePlacement | null {
-  const { enabled, todayOnScreen, nowMinutes, timeline, ticks } = input;
+  const { enabled, nowMinutes, timeline, ticks } = input;
   if (!enabled) return null;
-  if (!todayOnScreen) return null;
   // `yOf` CLAMPS, so an hour outside the axis would otherwise pin the mark to an end of it and
   // claim a time that is not what the clock says.
   if (nowMinutes < timeline.startMinutes || nowMinutes > timeline.endMinutes) return null;
