@@ -215,8 +215,8 @@ rather than buried in the code.
     `eslint-plugin-react-hooks` 7 and fire 25 times, every one on a deliberate shape that carries a
     comment saying why. Turning them on is a refactor of the drag layer, not a lint fix — it is an open
     question in DECISIONS.md.
-- **`agentRules: false`** in `next.config.ts`, or `next dev` appends a self-rewriting block to this
-  file on every start.
+- **`agentRules: false`** in `next.config.ts`, or `next dev` creates an `AGENTS.md` beside this file,
+  holding a self-rewriting block of the framework's own rules, whenever an AI agent runs it.
 - **`outputFileTracingExcludes`** keeps the file tracer out of `data/`, `desktop/` and `documents/`. It
   resolved `path.join(process.cwd(), 'data', …)` in `getDbPath()` and packaged the shop's own database
   into the installer.
