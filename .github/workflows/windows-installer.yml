@@ -79,6 +79,12 @@ jobs:
         working-directory: desktop
         run: node verify-package.mjs
 
+      # What electron-builder packaged rather than what it was given, and before the draft exists.
+      - name: Start the packaged server away from the checkout
+        working-directory: desktop
+        shell: bash
+        run: node smoke-payload.mjs "$(echo dist/*-unpacked)/resources"
+
       # Kept even when the release step fails, so a build is never wasted.
       - uses: actions/upload-artifact@v4
         with:
