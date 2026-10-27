@@ -4,7 +4,7 @@ An Electron window around the app's own server. **The app is not rewritten**: no
 `app/` knows this package exists.
 
 ```
-Workwise.exe  (Electron 44)
+Workwise.exe  (Electron 45)
 │
 ├─ starts, on a free port, bound to 127.0.0.1 only
 │     resources/node.exe  →  resources/server/server.js  ← the app, unchanged

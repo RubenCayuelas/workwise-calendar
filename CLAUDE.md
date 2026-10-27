@@ -66,7 +66,7 @@ back, will be reported as a defect.
   narrow layout (decided 2026-08-11).
 - **Next.js 16 + TypeScript + SQLite** (`better-sqlite3`). Turbopack builds `dev` and `build`; React
   stays on 18.
-- **It ships as a Windows application**: an Electron 44 window around the app's own standalone server,
+- **It ships as a Windows application**: an Electron 45 window around the app's own standalone server,
   which runs on a **`node.exe` bundled in the package**. `src/` and `app/` know nothing about it — see
   `desktop/README.md` for the three traps that cost a build each. **It updates itself** from the
   published releases, and takes a copy of the calendar before it will install one.
@@ -215,6 +215,9 @@ rather than buried in the code.
     `eslint-plugin-react-hooks` 7 and fire 25 times, every one on a deliberate shape that carries a
     comment saying why. Turning them on is a refactor of the drag layer, not a lint fix — it is an open
     question in DECISIONS.md.
+  - **ESLint 10 runs only through `eslint-config-next`'s shims** (16.4.0 on), which put back what the
+    React, import and accessibility plugins still call and ESLint 10 removed. Keep that floor; the three
+    `ERESOLVE overriding peer dependency` warnings `npm ci` prints are expected, not a fault to fix.
 - **`agentRules: false`** in `next.config.ts`, or `next dev` creates an `AGENTS.md` beside this file,
   holding a self-rewriting block of the framework's own rules, whenever an AI agent runs it.
 - **`outputFileTracingExcludes`** keeps the file tracer out of `data/`, `desktop/` and `documents/`. It
