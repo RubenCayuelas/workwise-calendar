@@ -9,6 +9,18 @@ never moves without the owner asking.
 
 ---
 
+## 0.27.1 — Electron 45 and Next.js 16.4.3
+
+**The Windows application's window moves to Electron 45, and the web framework to Next.js 16.4.3.**
+Nothing about how the calendar works has changed.
+
+**The update to this version downloads almost the whole installer, about 150 MB, once.** The installer
+is now packed in a way that makes it about 10 MB larger and unlike the previous one, so there is little
+to reuse. From this version on, the self-update also no longer trips over what an interrupted download
+left behind.
+
+**The development tools move to ESLint 10**, and a security advisory in them is closed.
+
 ## 0.27.0 — the hour on every week, and current packages underneath
 
 **The line that marks the time it is now crosses every week, not only the one in progress.** The hour
