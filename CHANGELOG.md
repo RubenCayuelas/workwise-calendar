@@ -9,6 +9,12 @@ never moves without the owner asking.
 
 ---
 
+## 0.27.2 — nothing new to use
+
+**Nothing about how the calendar works, or what the installer carries, has changed.** The tool that
+downloads Electron while the app is developed is updated, and the check that keeps anything but `dev`
+or a hotfix out of a release no longer marks Dependabot's security updates as failed.
+
 ## 0.27.1 — Electron 45 and Next.js 16.4.3
 
 **The Windows application's window moves to Electron 45, and the web framework to Next.js 16.4.3.**
