@@ -4,26 +4,43 @@ name: Branch policy
 # setting, in the classic rules or in rulesets. This check is the mechanism: make it required on `main`
 # and a pull request from anywhere else cannot be merged.
 #
-# TRAP until this file reaches `main`: the copy sitting there still names `develop`, which no longer
-# exists. Open the first release after the rename from a `hotfix/*` branch — both copies accept that —
-# and merging it puts this one on `main`, after which `dev` opens releases normally.
+# A pull request runs this file as it stands in the merge of its branch into `main`. Dependabot's
+# branches never touch it, so a change here reaches their pull requests only once `main` has it.
 on:
   pull_request:
     branches: [main]
+    # `edited` too, so a base moved to `main` by a person is judged with a message. A move made with
+    # GITHUB_TOKEN starts no run at all.
+    types: [opened, synchronize, reopened, edited]
 
 jobs:
   source-branch:
+    # A run Dependabot starts never answers as `source-branch`. Its security updates open on `main` and
+    # `dependabot-target.yml` moves them to `dev`, so judged here they failed every time; and a pass
+    # that depended on the base would stay on the commit after a move back. Under another name, a
+    # Dependabot pull request still on `main` lacks the required check, and that blocks the merge.
+    name: ${{ github.actor == 'dependabot[bot]' && 'source-branch (dependabot, not counted)' || 'source-branch' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Only dev or a hotfix may open a pull request into main
+      - name: Only this repository's dev or a hotfix may open a pull request into main
         env:
           SOURCE: ${{ github.head_ref }}
+          ACTOR: ${{ github.actor }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
         run: |
-          case "$SOURCE" in
-            dev | hotfix/*)
-              echo "$SOURCE may merge into main."
-              exit 0
-              ;;
-          esac
-          echo "::error::'$SOURCE' cannot merge into main. Merge it into dev first, or name it hotfix/<something>."
+          if [ "$ACTOR" = 'dependabot[bot]' ]; then
+            echo "Not counted as source-branch: Dependabot's pull requests belong on dev."
+            exit 0
+          fi
+          # The branch name alone would let a fork's own `dev` through.
+          if [ "$HEAD_REPO" = "$REPO" ]; then
+            case "$SOURCE" in
+              dev | hotfix/*)
+                echo "$SOURCE may merge into main."
+                exit 0
+                ;;
+            esac
+          fi
+          echo "::error::'$HEAD_REPO:$SOURCE' cannot merge into main. Merge it into dev first, or name it hotfix/<something>."
           exit 1
