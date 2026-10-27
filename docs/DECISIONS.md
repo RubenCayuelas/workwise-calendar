@@ -838,7 +838,8 @@ silently does nothing** — only the unscoped form removes a nested copy.
 
 **Rule** — every Dependabot pull request lands on `dev`. `.github/dependabot.yml` declares
 `target-branch: dev` for both `/` and `/desktop`, and `.github/workflows/dependabot-target.yml`
-retargets the ones that open on `main` regardless.
+retargets the ones that open on `main` regardless. A run Dependabot starts never answers as `source-branch`,
+the check that guards `main`.
 
 **Why the workflow is not redundant** — `target-branch` is obeyed by a VERSION update and ignored by a
 SECURITY update, which always opens against the repository's default branch. On 2026-09-14 five were
@@ -849,12 +850,30 @@ config alone cannot reach the half that actually matters.
 **Why `/` is declared at all** — it was missing, so the main application's own dependencies received no
 scheduled update ever. They surfaced only when an alert fired, and fourteen had drifted behind.
 
+**Why a Dependabot run does not count as `source-branch`** — a security update opens on `main`, so the check
+that guards `main` ran on it and, judged by its source `dependabot/...`, failed every time: all 13 Dependabot
+runs between 2026-09-03 and 2026-10-27 failed, and all 14 of the owner's that completed passed. It was not a
+race. The move to `dev` is an `edited` event made with GITHUB_TOKEN, and such an event starts no workflow
+run, so nothing judged the pull request again and the red mark stayed on one that already sat on `dev`. Under
+another name the run is green and counts for nothing: a Dependabot pull request still on `main`, or moved
+back there, lacks the required check, and that blocks the merge with no waiting and no lookup.
+
+**Why the pass also checks the repository** — the branch name alone let a fork's own `dev` or `hotfix/x`
+through.
+
 **Rejected** — making `dev` the repository's default branch, which is the native fix: security updates
 would open there and no workflow would be needed. Dependabot alerts are evaluated against the default
 branch only, so that also closes an alert the moment a fix reaches `dev` — while the shop PC is still
 running the released `main` and still carries the hole, with nothing left open to say so. `main` as the
 default keeps the alert standing until the fix actually SHIPS, which for an application that installs
 itself on a real machine is the signal worth keeping.
+
+**Rejected** — skipping `source-branch` for Dependabot, the one-line fix. A skipped required check counts
+as passed, so a security update the move had missed could have been merged into `main`.
+
+**Rejected** — waiting for the move and then judging where the pull request points. That pass depends on the
+base but is stored on the commit, so a pull request moved back to `main` with no new run — by a workflow's
+token, or while it conflicted — would have carried it there. It also held a runner for every security update.
 
 ---
 
